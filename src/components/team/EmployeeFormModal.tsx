@@ -2,9 +2,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Employee, AccessLevel, ACCESS_LEVEL_LABELS } from "./types";
-import { TEAMS, ROLES } from "./mockData";
+import { Employee, AccessLevel, ACCESS_LEVEL_LABELS, Team } from "./types";
+import { ROLES } from "./mockData";
 import { useState, useEffect } from "react";
 
 interface Props {
@@ -12,16 +13,17 @@ interface Props {
   onClose: () => void;
   onSave: (employee: Employee) => void;
   employee?: Employee | null;
+  teams: Team[];
 }
 
 const emptyEmployee: Omit<Employee, "id" | "teamName"> = {
   fullName: "", displayName: "", cpf: "", rg: "", address: "",
   education: "", role: "", teamId: "", baseSalary: 0,
   commissionPercent: 0, overtimeFactor: 1.5, accessLevel: "none",
-  email: "", phone: "", hireDate: new Date().toISOString().slice(0, 10),
+  email: "", phone: "", hireDate: new Date().toISOString().slice(0, 10), notes: "",
 };
 
-export function EmployeeFormModal({ open, onClose, onSave, employee }: Props) {
+export function EmployeeFormModal({ open, onClose, onSave, employee, teams }: Props) {
   const [form, setForm] = useState(emptyEmployee);
 
   useEffect(() => {
@@ -36,7 +38,7 @@ export function EmployeeFormModal({ open, onClose, onSave, employee }: Props) {
   const set = (key: string, value: string | number) => setForm((p) => ({ ...p, [key]: value }));
 
   const handleSubmit = () => {
-    const team = TEAMS.find((t) => t.id === form.teamId);
+    const team = teams.find((t) => t.id === form.teamId);
     onSave({
       ...form,
       id: employee?.id || crypto.randomUUID(),
@@ -91,7 +93,7 @@ export function EmployeeFormModal({ open, onClose, onSave, employee }: Props) {
             <Select value={form.teamId} onValueChange={(v) => set("teamId", v)}>
               <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
               <SelectContent>
-                {TEAMS.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                {teams.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -111,6 +113,11 @@ export function EmployeeFormModal({ open, onClose, onSave, employee }: Props) {
           <Field label="Salário base (R$)" value={String(form.baseSalary)} onChange={(v) => set("baseSalary", Number(v))} type="number" />
           <Field label="Comissão (%)" value={String(form.commissionPercent)} onChange={(v) => set("commissionPercent", Number(v))} type="number" />
           <Field label="Fator hora extra" value={String(form.overtimeFactor)} onChange={(v) => set("overtimeFactor", Number(v))} type="number" />
+
+          <div className="md:col-span-2">
+            <Label className="text-xs text-muted-foreground">Observações</Label>
+            <Textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Anotações sobre o colaborador..." rows={3} />
+          </div>
         </div>
 
         <DialogFooter className="mt-4">

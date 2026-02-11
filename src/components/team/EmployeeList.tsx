@@ -5,8 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Employee, ACCESS_LEVEL_LABELS, ACCESS_LEVEL_COLORS } from "./types";
-import { TEAMS, ROLES } from "./mockData";
+import { Employee, Team, ACCESS_LEVEL_LABELS, ACCESS_LEVEL_COLORS } from "./types";
+import { ROLES } from "./mockData";
 import { EmployeeFormModal } from "./EmployeeFormModal";
 import { EmployeeDetailModal } from "./EmployeeDetailModal";
 import { Plus, Search, Pencil, Trash2, Eye } from "lucide-react";
@@ -15,9 +15,10 @@ interface Props {
   employees: Employee[];
   onUpdate: (employees: Employee[]) => void;
   payrollData: import("./types").PayrollEntry[];
+  teams: Team[];
 }
 
-export function EmployeeList({ employees, onUpdate, payrollData }: Props) {
+export function EmployeeList({ employees, onUpdate, payrollData, teams }: Props) {
   const [search, setSearch] = useState("");
   const [filterTeam, setFilterTeam] = useState("all");
   const [filterRole, setFilterRole] = useState("all");
@@ -64,7 +65,7 @@ export function EmployeeList({ employees, onUpdate, payrollData }: Props) {
               <SelectTrigger className="w-[160px]"><SelectValue placeholder="Equipe" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todas equipes</SelectItem>
-                {TEAMS.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                {teams.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
               </SelectContent>
             </Select>
             <Select value={filterRole} onValueChange={setFilterRole}>
@@ -137,7 +138,7 @@ export function EmployeeList({ employees, onUpdate, payrollData }: Props) {
         </CardContent>
       </Card>
 
-      <EmployeeFormModal open={formOpen} onClose={() => setFormOpen(false)} onSave={handleSave} employee={editingEmployee} />
+      <EmployeeFormModal open={formOpen} onClose={() => setFormOpen(false)} onSave={handleSave} employee={editingEmployee} teams={teams} />
       {viewingEmployee && (
         <EmployeeDetailModal
           open={!!viewingEmployee}

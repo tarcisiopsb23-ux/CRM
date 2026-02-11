@@ -1,5 +1,10 @@
 export type AccessLevel = "none" | "operational" | "administrative" | "complete";
 
+export interface Team {
+  id: string;
+  name: string;
+}
+
 export interface Employee {
   id: string;
   fullName: string;
@@ -18,6 +23,7 @@ export interface Employee {
   email: string;
   phone: string;
   hireDate: string;
+  notes: string;
 }
 
 export interface PayrollEntry {
