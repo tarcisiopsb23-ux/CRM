@@ -7,14 +7,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Employee, PayrollEntry } from "./types";
-import { TEAMS, ROLES } from "./mockData";
+import { Employee, PayrollEntry, Team } from "./types";
+import { ROLES } from "./mockData";
 import { Search, Plus, Pencil, Trash2, DollarSign, TrendingUp, Users, Award } from "lucide-react";
 
 interface Props {
   employees: Employee[];
   payroll: PayrollEntry[];
   onPayrollUpdate: (payroll: PayrollEntry[]) => void;
+  teams: Team[];
 }
 
 const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -26,7 +27,7 @@ const monthLabel = (m: string) => {
   return `${names[Number(mo) - 1]} ${y}`;
 };
 
-export function PayrollView({ employees, payroll, onPayrollUpdate }: Props) {
+export function PayrollView({ employees, payroll, onPayrollUpdate, teams }: Props) {
   const [selectedMonth, setSelectedMonth] = useState("2026-02");
   const [filterTeam, setFilterTeam] = useState("all");
   const [filterRole, setFilterRole] = useState("all");
@@ -119,7 +120,7 @@ export function PayrollView({ employees, payroll, onPayrollUpdate }: Props) {
               <SelectTrigger className="w-[150px]"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todas equipes</SelectItem>
-                {TEAMS.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                {teams.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
               </SelectContent>
             </Select>
             <Select value={filterRole} onValueChange={setFilterRole}>

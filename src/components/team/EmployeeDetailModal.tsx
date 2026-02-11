@@ -58,6 +58,12 @@ export function EmployeeDetailModal({ open, onClose, employee: emp, payroll, onE
               {ACCESS_LEVEL_LABELS[emp.accessLevel]}
             </Badge>
           </div>
+          {emp.notes && (
+            <div className="sm:col-span-2 flex items-start gap-2">
+              <span className="text-muted-foreground text-xs w-32 shrink-0 pt-0.5">Observações</span>
+              <span className="whitespace-pre-wrap">{emp.notes}</span>
+            </div>
+          )}
         </div>
 
         {/* Salary info */}

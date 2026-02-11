@@ -1,7 +1,7 @@
 import { 
   LayoutDashboard, Users, Kanban, UserCheck, Package, 
   DollarSign, Calendar, FolderKanban, Target, MessageCircle, 
-  Settings, ChevronLeft, ChevronRight, Sparkles, UsersRound
+  Settings, ChevronLeft, ChevronRight, Sparkles, UsersRound, Megaphone, FileBarChart
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -21,6 +21,8 @@ const navItems = [
   { title: "WhatsApp", url: "/whatsapp", icon: MessageCircle },
   { title: "Reuniões IA", url: "/meetings", icon: Sparkles },
   { title: "Equipe", url: "/team", icon: UsersRound },
+  { title: "Campanhas", url: "/campaign-reports", icon: Megaphone },
+  { title: "Relatórios", url: "/general-reports", icon: FileBarChart },
   { title: "Configurações", url: "/settings", icon: Settings },
 ];
 
