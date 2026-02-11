@@ -163,12 +163,34 @@ export default function CampaignReports() {
       <Card>
         <CardContent className="p-5">
           <h3 className="font-display font-semibold text-foreground mb-4">Funil de Conversão</h3>
+          {/* Header */}
+          <div className="flex items-center gap-3 mb-2 px-1">
+            <span className="text-[10px] font-semibold text-muted-foreground w-24 shrink-0 text-right">Etapa</span>
+            <span className="flex-1 text-[10px] font-semibold text-muted-foreground text-center">Volume</span>
+            <span className="text-[10px] font-semibold text-muted-foreground w-20 shrink-0 text-center">% Etapa anterior</span>
+            <span className="text-[10px] font-semibold text-muted-foreground w-20 shrink-0 text-center">% s/ Cliques</span>
+            <span className="text-[10px] font-semibold text-muted-foreground w-20 shrink-0 text-center">% s/ Impressões</span>
+          </div>
           <div className="space-y-2">
             {funnelData.map((item, i) => {
               const widthPct = funnelData[0].value > 0 ? Math.max(10, (item.value / funnelData[0].value) * 100) : 10;
-              const convRate = i > 0 && funnelData[i - 1].value > 0
+              // % relative to previous stage
+              const prevRate = i > 0 && funnelData[i - 1].value > 0
                 ? ((item.value / funnelData[i - 1].value) * 100).toFixed(1) + "%"
-                : "";
+                : "—";
+              // % relative to clicks (index 1) — clicks itself shows % of impressions
+              const clicksVal = funnelData[1]?.value || 0;
+              const pctClicks = i === 0
+                ? "—"
+                : i === 1 && funnelData[0].value > 0
+                  ? ((item.value / funnelData[0].value) * 100).toFixed(2) + "%"
+                  : clicksVal > 0
+                    ? ((item.value / clicksVal) * 100).toFixed(2) + "%"
+                    : "—";
+              // % relative to impressions (index 0)
+              const pctImpressions = funnelData[0].value > 0
+                ? ((item.value / funnelData[0].value) * 100).toFixed(2) + "%"
+                : "—";
               return (
                 <div key={item.name} className="flex items-center gap-3">
                   <span className="text-xs text-muted-foreground w-24 shrink-0 text-right">{item.name}</span>
@@ -180,7 +202,9 @@ export default function CampaignReports() {
                       {item.value.toLocaleString("pt-BR")}
                     </div>
                   </div>
-                  <span className="text-xs text-muted-foreground w-12 shrink-0">{convRate}</span>
+                  <span className="text-xs text-muted-foreground w-20 shrink-0 text-center">{prevRate}</span>
+                  <span className="text-xs text-muted-foreground w-20 shrink-0 text-center">{pctClicks}</span>
+                  <span className="text-xs text-muted-foreground w-20 shrink-0 text-center">{pctImpressions}</span>
                 </div>
               );
             })}
