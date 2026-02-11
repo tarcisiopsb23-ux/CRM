@@ -16,6 +16,7 @@ import Goals from "./pages/Goals";
 import WhatsApp from "./pages/WhatsApp";
 import Meetings from "./pages/Meetings";
 import SettingsPage from "./pages/SettingsPage";
+import TeamPage from "./pages/TeamPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -39,6 +40,7 @@ const App = () => (
             <Route path="/goals" element={<Goals />} />
             <Route path="/whatsapp" element={<WhatsApp />} />
             <Route path="/meetings" element={<Meetings />} />
+            <Route path="/team" element={<TeamPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
           <Route path="*" element={<NotFound />} />
