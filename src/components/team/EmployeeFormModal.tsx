@@ -23,7 +23,7 @@ const emptyEmployee: Omit<Employee, "id" | "teamName"> = {
   email: "", phone: "", hireDate: new Date().toISOString().slice(0, 10), notes: "",
 };
 
-export function EmployeeFormModal({ open, onClose, onSave, employee, teams }: Props) {
+export function EmployeeFormModal({ open, onClose, onSave, employee, teams = [] }: Props) {
   const [form, setForm] = useState(emptyEmployee);
 
   useEffect(() => {
