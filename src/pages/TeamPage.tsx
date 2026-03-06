@@ -1,0 +1,51 @@
+import { useState } from "react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { EmployeeList } from "@/components/team/EmployeeList";
+import { PayrollView } from "@/components/team/PayrollView";
+import { TeamManagement } from "@/components/team/TeamManagement";
+import { MOCK_EMPLOYEES, MOCK_PAYROLL, INITIAL_TEAMS } from "@/components/team/mockData";
+import { Employee, PayrollEntry, Team } from "@/components/team/types";
+import { Users, DollarSign, UsersRound } from "lucide-react";
+
+export default function TeamPage() {
+  const [teams, setTeams] = useState<Team[]>(INITIAL_TEAMS);
+  const [employees, setEmployees] = useState<Employee[]>(MOCK_EMPLOYEES);
+  const [payroll, setPayroll] = useState<PayrollEntry[]>(MOCK_PAYROLL);
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="font-display text-2xl font-bold text-foreground">Equipe & Colaboradores</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Cadastro, níveis de acesso e gestão de folha de pagamento.
+        </p>
+      </div>
+
+      <Tabs defaultValue="employees" className="w-full">
+        <TabsList>
+          <TabsTrigger value="employees" className="gap-1.5">
+            <Users className="h-4 w-4" /> Colaboradores
+          </TabsTrigger>
+          <TabsTrigger value="teams" className="gap-1.5">
+            <UsersRound className="h-4 w-4" /> Equipes
+          </TabsTrigger>
+          <TabsTrigger value="payroll" className="gap-1.5">
+            <DollarSign className="h-4 w-4" /> Folha de Pagamento
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="employees">
+          <EmployeeList employees={employees} onUpdate={setEmployees} payrollData={payroll} teams={teams} />
+        </TabsContent>
+
+        <TabsContent value="teams">
+          <TeamManagement teams={teams} employees={employees} onTeamsUpdate={setTeams} onEmployeesUpdate={setEmployees} />
+        </TabsContent>
+
+        <TabsContent value="payroll">
+          <PayrollView employees={employees} payroll={payroll} onPayrollUpdate={setPayroll} teams={teams} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}

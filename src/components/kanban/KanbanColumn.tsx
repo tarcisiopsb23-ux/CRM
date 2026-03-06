@@ -22,13 +22,13 @@ export function KanbanColumn({ id, label, leads, onDetalhes }: KanbanColumnProps
     <div
       ref={setNodeRef}
       className={cn(
-        "min-w-[280px] w-[280px] flex-shrink-0 rounded-lg border-2 border-dashed border-gray-200 bg-gray-light/50 p-3 transition-colors",
+        "min-w-[280px] w-[280px] flex-shrink-0 rounded-lg border-2 border-dashed border-border bg-muted/50 p-3 transition-colors",
         isOver && "border-primary bg-primary/5"
       )}
     >
       <div className="flex items-center justify-between mb-3">
-        <h3 className="font-semibold text-gray-dark">{label}</h3>
-        <span className="text-sm text-gray-500 bg-white px-2 py-0.5 rounded-full">
+        <h3 className="font-semibold text-foreground">{label}</h3>
+        <span className="text-sm text-muted-foreground bg-card px-2 py-0.5 rounded-full">
           {leads.length}
         </span>
       </div>

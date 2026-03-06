@@ -1,47 +1,79 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { Toaster } from "@/components/ui/toaster";
+import { Toaster as Sonner } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
-import { DashboardPage } from "@/pages/DashboardPage";
-import { LeadsKanbanPage } from "@/pages/LeadsKanbanPage";
-import { SettingsPage } from "@/pages/SettingsPage";
+import { AppLayout } from "@/components/layout/AppLayout";
 import { LoginPage } from "@/pages/LoginPage";
 import { CompleteRegistrationPage } from "@/pages/CompleteRegistrationPage";
+import { SettingsPage } from "@/pages/SettingsPage";
+import Dashboard from "./pages/Dashboard";
+import KanbanPage from "./pages/KanbanPage";
+import Leads from "./pages/Leads";
+import Clients from "./pages/Clients";
+import Suppliers from "./pages/Suppliers";
+import Financial from "./pages/Financial";
+import Agenda from "./pages/Agenda";
+import Projects from "./pages/Projects";
+import Goals from "./pages/Goals";
+import WhatsApp from "./pages/WhatsApp";
+import Meetings from "./pages/Meetings";
+import TeamPage from "./pages/TeamPage";
+import CampaignReports from "./pages/CampaignReports";
+import GeneralReports from "./pages/GeneralReports";
+import NotFound from "./pages/NotFound";
+
+const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000 } } });
 
 function App() {
   return (
-    <BrowserRouter>
+    <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/complete-registration" element={<CompleteRegistrationPage />} />
-          <Route
-            path="/"
-            element={
-              <ProtectedRoute>
-                <DashboardPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/kanban"
-            element={
-              <ProtectedRoute>
-                <LeadsKanbanPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/settings"
-            element={
-              <ProtectedRoute requireRole="admin">
-                <SettingsPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/complete-registration" element={<CompleteRegistrationPage />} />
+              <Route
+                element={
+                  <ProtectedRoute>
+                    <AppLayout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/kanban" element={<KanbanPage />} />
+                <Route path="/leads" element={<Leads />} />
+                <Route path="/clients" element={<Clients />} />
+                <Route path="/suppliers" element={<Suppliers />} />
+                <Route path="/financial" element={<Financial />} />
+                <Route path="/agenda" element={<Agenda />} />
+                <Route path="/projects" element={<Projects />} />
+                <Route path="/goals" element={<Goals />} />
+                <Route path="/whatsapp" element={<WhatsApp />} />
+                <Route path="/meetings" element={<Meetings />} />
+                <Route path="/team" element={<TeamPage />} />
+                <Route path="/campaign-reports" element={<CampaignReports />} />
+                <Route path="/general-reports" element={<GeneralReports />} />
+                <Route
+                  path="/settings"
+                  element={
+                    <ProtectedRoute requireRole="admin">
+                      <SettingsPage />
+                    </ProtectedRoute>
+                  }
+                />
+              </Route>
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
       </AuthProvider>
-    </BrowserRouter>
+    </QueryClientProvider>
   );
 }
 
