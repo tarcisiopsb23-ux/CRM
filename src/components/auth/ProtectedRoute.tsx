@@ -1,6 +1,7 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import type { UserRole } from '@/types/auth';
+import { Button } from '@/components/ui/button';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -15,7 +16,7 @@ export function ProtectedRoute({
   requireRole,
   redirectTo = '/login',
 }: ProtectedRouteProps) {
-  const { user, profile, loading } = useAuth();
+  const { user, profile, loading, error, refetchProfile } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -28,6 +29,24 @@ export function ProtectedRoute({
 
   if (!user) {
     return <Navigate to={redirectTo} state={{ from: location }} replace />;
+  }
+
+  if (user && !profile && !loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <h2 className="text-xl font-semibold text-foreground">
+          Perfil não encontrado
+        </h2>
+        <p className="text-muted-foreground text-center max-w-md">
+          {error
+            ? 'Erro ao carregar seu perfil. Verifique se sua conta está vinculada a uma organização.'
+            : 'Seu perfil não foi carregado. Isso pode acontecer se sua conta ainda não estiver configurada.'}
+        </p>
+        <Button onClick={() => refetchProfile()} variant="outline">
+          Tentar novamente
+        </Button>
+      </div>
+    );
   }
 
   if (requireRole && profile) {

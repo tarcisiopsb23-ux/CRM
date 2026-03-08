@@ -1,0 +1,9 @@
+# Desabilita verificação JWT no gateway para funções que fazem validação manual.
+# Útil quando há incompatibilidade com algoritmos JWT (ex: ES256) ou tokens refrescados.
+# As funções validam o token internamente via getUser().
+
+[functions.create-user-direct]
+verify_jwt = false
+
+[functions.invite-by-email]
+verify_jwt = false

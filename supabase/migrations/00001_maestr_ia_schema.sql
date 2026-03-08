@@ -358,7 +358,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE leads;
 ALTER PUBLICATION supabase_realtime ADD TABLE whatsapp_messages;
 ALTER PUBLICATION supabase_realtime ADD TABLE whatsapp_conversations;
 ALTER PUBLICATION supabase_realtime ADD TABLE payments;
-ALTER PUBLICATION supabase_realtime ADD TABLE tasks;
+-- tasks é criada na migration 00011; realtime adicionado em 00012
 
 -- =============================================================================
 -- RLS

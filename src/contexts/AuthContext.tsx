@@ -18,6 +18,7 @@ interface AuthContextValue {
   error: Error | null;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, fullName: string, invitationToken: string) => Promise<void>;
+  signUpWithCode: (email: string, password: string, fullName: string, registrationCode: string) => Promise<void>;
   signOut: () => Promise<void>;
   refetchProfile: () => Promise<void>;
 }
@@ -31,6 +32,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<Error | null>(null);
 
   const fetchProfile = useCallback(async (uid: string) => {
+    // Prefer RPC (bypasses RLS) - if migration 00016 not applied, fallback to direct query
+    const { data: rpcData, error: rpcError } = await supabase.rpc('get_my_profile');
+    if (!rpcError && rpcData) {
+      setError(null);
+      const p = rpcData as unknown as Profile;
+      setProfile(p);
+      return p;
+    }
+    // Fallback: direct query (RLS applies)
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
@@ -38,8 +48,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .maybeSingle();
     if (error) {
       setError(error);
+      setProfile(null);
       return null;
     }
+    setError(null);
     const p = data ? (data as Profile) : null;
     setProfile(p);
     return p;
@@ -50,17 +62,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user?.id, fetchProfile]);
 
   useEffect(() => {
+    let cancelled = false;
     const init = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setUser(session?.user ?? null);
-      if (session?.user?.id) {
-        await fetchProfile(session.user.id);
-      } else {
-        setProfile(null);
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (cancelled) return;
+        if (error) {
+          console.warn('[Auth] getSession error:', error);
+        }
+        setUser(session?.user ?? null);
+        if (session?.user?.id) {
+          await fetchProfile(session.user.id);
+        } else {
+          setProfile(null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.warn('[Auth] Init failed:', err);
+          setUser(null);
+          setProfile(null);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      setLoading(false);
     };
     init();
+    const fallback = setTimeout(() => {
+      setLoading(false);
+    }, 8000);
+    return () => {
+      cancelled = true;
+      clearTimeout(fallback);
+    };
   }, [fetchProfile]);
 
   useEffect(() => {
@@ -104,6 +137,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  const signUpWithCode = useCallback(
+    async (email: string, password: string, fullName: string, registrationCode: string) => {
+      setError(null);
+      const { error: err } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName || email.split('@')[0],
+            registration_code: registrationCode.trim(),
+          },
+        },
+      });
+      if (err) throw err;
+    },
+    []
+  );
+
   const signOut = useCallback(async () => {
     setError(null);
     await supabase.auth.signOut();
@@ -119,10 +170,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       error,
       signIn,
       signUp,
+      signUpWithCode,
       signOut,
       refetchProfile,
     }),
-    [user, profile, loading, error, signIn, signUp, signOut, refetchProfile]
+    [user, profile, loading, error, signIn, signUp, signUpWithCode, signOut, refetchProfile]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

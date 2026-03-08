@@ -1,24 +1,92 @@
 import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { EmployeeList } from "@/components/team/EmployeeList";
-import { PayrollView } from "@/components/team/PayrollView";
-import { TeamManagement } from "@/components/team/TeamManagement";
-import { MOCK_EMPLOYEES, MOCK_PAYROLL, INITIAL_TEAMS } from "@/components/team/mockData";
-import { Employee, PayrollEntry, Team } from "@/components/team/types";
-import { Users, DollarSign, UsersRound } from "lucide-react";
+import { TeamProfilesList } from "@/components/team/TeamProfilesList";
+import { TeamListSupabase } from "@/components/team/TeamListSupabase";
+import { AddCollaboratorModal } from "@/components/team/AddCollaboratorModal";
+import { useOrganization } from "@/hooks/useOrganization";
+import { useProfiles } from "@/hooks/useProfiles";
+import { useTeams, useTeamMembers } from "@/hooks/useTeams";
+import { useAuth } from "@/contexts/AuthContext";
+import { Link } from "react-router-dom";
+import { Users, DollarSign, UsersRound, UserPlus, ChevronDown } from "lucide-react";
+import { StubPage } from "@/components/shared/StubPage";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export default function TeamPage() {
-  const [teams, setTeams] = useState<Team[]>(INITIAL_TEAMS);
-  const [employees, setEmployees] = useState<Employee[]>(MOCK_EMPLOYEES);
-  const [payroll, setPayroll] = useState<PayrollEntry[]>(MOCK_PAYROLL);
+  const orgId = useOrganization();
+  const { profile } = useAuth();
+  const { data: profiles = [], isLoading: profilesLoading, refetch: refetchProfiles } = useProfiles(orgId);
+  const { data: teams = [], isLoading: teamsLoading, create, update, remove } = useTeams(orgId);
+  const { data: members = [], addMember, removeMember } = useTeamMembers(orgId);
+  const [addDirectOpen, setAddDirectOpen] = useState(false);
+  const isAdmin = profile?.role === "admin" || profile?.role === "owner";
+
+  const handleCreateTeam = (name: string) => {
+    create.mutate({ name });
+  };
+  const handleUpdateTeam = (id: string, name: string) => {
+    update.mutate({ id, name });
+  };
+  const handleDeleteTeam = (id: string) => {
+    remove.mutate(id);
+  };
+  const handleAddMember = (teamId: string, profileId: string) => {
+    addMember.mutate({ teamId, profileId });
+  };
+  const handleRemoveMember = (teamId: string, profileId: string) => {
+    removeMember.mutate({ teamId, profileId });
+  };
+
+  if (!orgId) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <p className="text-muted-foreground">Nenhuma organização encontrada.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-2xl font-bold text-foreground">Equipe & Colaboradores</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Cadastro, níveis de acesso e gestão de folha de pagamento.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="font-display text-2xl font-bold text-foreground">Equipe & Colaboradores</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Colaboradores e equipes da organização. Convide novos usuários em Configurações.
+          </p>
+        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" className="flex items-center gap-2">
+              <UserPlus className="h-4 w-4" />
+              Adicionar colaborador
+              <ChevronDown className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem asChild>
+              <Link to="/settings">Enviar convite por e-mail</Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link to="/settings">Gerar link manualmente</Link>
+            </DropdownMenuItem>
+            {isAdmin && (
+              <DropdownMenuItem onClick={() => setAddDirectOpen(true)}>
+                Cadastrar diretamente (sem token)
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <AddCollaboratorModal
+          open={addDirectOpen}
+          onOpenChange={setAddDirectOpen}
+          onSuccess={() => refetchProfiles()}
+        />
       </div>
 
       <Tabs defaultValue="employees" className="w-full">
@@ -35,15 +103,34 @@ export default function TeamPage() {
         </TabsList>
 
         <TabsContent value="employees">
-          <EmployeeList employees={employees} onUpdate={setEmployees} payrollData={payroll} teams={teams} />
+          <TeamProfilesList
+            profiles={profiles}
+            teams={teams}
+            members={members}
+            loading={profilesLoading}
+          />
         </TabsContent>
 
         <TabsContent value="teams">
-          <TeamManagement teams={teams} employees={employees} onTeamsUpdate={setTeams} onEmployeesUpdate={setEmployees} />
+          <TeamListSupabase
+            teams={teams}
+            profiles={profiles}
+            members={members}
+            onCreate={handleCreateTeam}
+            onUpdate={handleUpdateTeam}
+            onDelete={handleDeleteTeam}
+            onAddMember={handleAddMember}
+            onRemoveMember={handleRemoveMember}
+            loading={teamsLoading}
+          />
         </TabsContent>
 
         <TabsContent value="payroll">
-          <PayrollView employees={employees} payroll={payroll} onPayrollUpdate={setPayroll} teams={teams} />
+          <StubPage
+            title="Folha de Pagamento"
+            description="Gestão de folha em desenvolvimento."
+            icon={DollarSign}
+          />
         </TabsContent>
       </Tabs>
     </div>

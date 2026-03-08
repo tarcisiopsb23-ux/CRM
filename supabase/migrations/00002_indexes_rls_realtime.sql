@@ -23,7 +23,7 @@ CREATE INDEX IF NOT EXISTS idx_leads_position ON leads(pipeline_id, stage_id, po
 CREATE INDEX IF NOT EXISTS idx_clients_organization_id ON clients(organization_id);
 CREATE INDEX IF NOT EXISTS idx_clients_name ON clients(name);
 CREATE INDEX IF NOT EXISTS idx_clients_document ON clients(document);
-CREATE INDEX IF NOT EXISTS idx_client_contacts_client_id ON client_contacts(client_id);
+-- client_contacts criada em 00011; índice em 00011
 
 CREATE INDEX IF NOT EXISTS idx_contracts_organization_id ON contracts(organization_id);
 CREATE INDEX IF NOT EXISTS idx_contracts_client_id ON contracts(client_id);
@@ -36,37 +36,15 @@ CREATE INDEX IF NOT EXISTS idx_payments_contract_id ON payments(contract_id);
 CREATE INDEX IF NOT EXISTS idx_payments_due_date ON payments(due_date);
 CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
 
-CREATE INDEX IF NOT EXISTS idx_suppliers_organization_id ON suppliers(organization_id);
-CREATE INDEX IF NOT EXISTS idx_supplier_expenses_supplier_id ON supplier_expenses(supplier_id);
-CREATE INDEX IF NOT EXISTS idx_supplier_expenses_due_date ON supplier_expenses(due_date);
-
-CREATE INDEX IF NOT EXISTS idx_goals_organization_id ON goals(organization_id);
-CREATE INDEX IF NOT EXISTS idx_goals_period ON goals(period_start, period_end);
-CREATE INDEX IF NOT EXISTS idx_goal_progress_goal_id ON goal_progress(goal_id);
-
-CREATE INDEX IF NOT EXISTS idx_projects_organization_id ON projects(organization_id);
-CREATE INDEX IF NOT EXISTS idx_projects_client_id ON projects(client_id);
-CREATE INDEX IF NOT EXISTS idx_projects_dates ON projects(start_date, end_date);
-
-CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id);
-CREATE INDEX IF NOT EXISTS idx_tasks_assigned_to ON tasks(assigned_to);
-CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
-CREATE INDEX IF NOT EXISTS idx_tasks_dates ON tasks(start_date, end_date);
-CREATE INDEX IF NOT EXISTS idx_tasks_parent_id ON tasks(parent_id);
-
-CREATE INDEX IF NOT EXISTS idx_events_organization_id ON events(organization_id);
-CREATE INDEX IF NOT EXISTS idx_events_profile_id ON events(profile_id);
-CREATE INDEX IF NOT EXISTS idx_events_dates ON events(start_at, end_at);
-CREATE INDEX IF NOT EXISTS idx_event_attendees_event_id ON event_attendees(event_id);
+-- suppliers, goals: criados em 00006 com índices próprios
+-- projects, tasks, events, event_attendees: criados em 00011 com índices próprios
+-- report_templates, report_snapshots: criados em 00012
 
 CREATE INDEX IF NOT EXISTS idx_whatsapp_contacts_organization_id ON whatsapp_contacts(organization_id);
 CREATE INDEX IF NOT EXISTS idx_whatsapp_conversations_contact_id ON whatsapp_conversations(contact_id);
 CREATE INDEX IF NOT EXISTS idx_whatsapp_conversations_assigned_to ON whatsapp_conversations(assigned_to);
 CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_conversation_id ON whatsapp_messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_created_at ON whatsapp_messages(created_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_report_templates_organization_id ON report_templates(organization_id);
-CREATE INDEX IF NOT EXISTS idx_report_snapshots_organization_id ON report_snapshots(organization_id);
 
 -- =============================================================================
 -- 2. FUNÇÕES RLS
@@ -119,23 +97,12 @@ ALTER TABLE team_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE lead_pipelines ENABLE ROW LEVEL SECURITY;
 ALTER TABLE leads ENABLE ROW LEVEL SECURITY;
 ALTER TABLE clients ENABLE ROW LEVEL SECURITY;
-ALTER TABLE client_contacts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE contracts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE suppliers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE supplier_expenses ENABLE ROW LEVEL SECURITY;
-ALTER TABLE goals ENABLE ROW LEVEL SECURITY;
-ALTER TABLE goal_progress ENABLE ROW LEVEL SECURITY;
-ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
-ALTER TABLE project_members ENABLE ROW LEVEL SECURITY;
-ALTER TABLE tasks ENABLE ROW LEVEL SECURITY;
-ALTER TABLE events ENABLE ROW LEVEL SECURITY;
-ALTER TABLE event_attendees ENABLE ROW LEVEL SECURITY;
+-- client_contacts, suppliers, goals, projects, tasks, events: RLS em 00006 e 00011
 ALTER TABLE whatsapp_contacts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE whatsapp_conversations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE whatsapp_messages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE report_templates ENABLE ROW LEVEL SECURITY;
-ALTER TABLE report_snapshots ENABLE ROW LEVEL SECURITY;
 
 -- =============================================================================
 -- 4. POLICIES
@@ -178,21 +145,7 @@ FOR ALL
 USING (organization_id = get_user_organization_id())
 WITH CHECK (organization_id = get_user_organization_id());
 
--- Tasks
-DROP POLICY IF EXISTS tasks_all ON tasks;
-CREATE POLICY tasks_all
-ON tasks
-FOR ALL
-USING (organization_id = get_user_organization_id())
-WITH CHECK (organization_id = get_user_organization_id());
-
--- Events
-DROP POLICY IF EXISTS events_all ON events;
-CREATE POLICY events_all
-ON events
-FOR ALL
-USING (organization_id = get_user_organization_id())
-WITH CHECK (organization_id = get_user_organization_id());
+-- tasks_all, events_all: definidos em 00011 (tabelas criadas lá)
 
 -- Payments
 DROP POLICY IF EXISTS payments_all ON payments;
@@ -238,19 +191,7 @@ WHERE pubname='supabase_realtime' AND tablename='leads'
 ALTER PUBLICATION supabase_realtime ADD TABLE leads;
 END IF;
 
-IF NOT EXISTS (
-SELECT 1 FROM pg_publication_tables
-WHERE pubname='supabase_realtime' AND tablename='tasks'
-) THEN
-ALTER PUBLICATION supabase_realtime ADD TABLE tasks;
-END IF;
-
-IF NOT EXISTS (
-SELECT 1 FROM pg_publication_tables
-WHERE pubname='supabase_realtime' AND tablename='events'
-) THEN
-ALTER PUBLICATION supabase_realtime ADD TABLE events;
-END IF;
+-- tasks, events: adicionados em 00012 (tabelas criadas em 00011)
 
 IF NOT EXISTS (
 SELECT 1 FROM pg_publication_tables

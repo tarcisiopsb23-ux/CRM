@@ -6,9 +6,28 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
+function extractCodeOrToken(value: string): { value: string; isCode: boolean } {
+  const t = value.trim();
+  try {
+    if (t.startsWith("http") || t.includes("?")) {
+      const url = new URL(t.startsWith("http") ? t : `https://x?${t.split("?")[1] ?? t}`);
+      const code = url.searchParams.get("code");
+      const tokenParam = url.searchParams.get("token");
+      if (code) return { value: code, isCode: true };
+      if (tokenParam) return { value: tokenParam, isCode: false };
+    }
+  } catch {
+    /* ignore */
+  }
+  const looksLikeCode = /^[A-Z0-9]+-[A-Z0-9]+$/i.test(t) && t.length < 30;
+  return { value: t, isCode: looksLikeCode };
+}
+
 export function CompleteRegistrationPage() {
   const [searchParams] = useSearchParams();
-  const tokenFromUrl = searchParams.get("token") ?? "";
+  const codeParam = searchParams.get("code");
+  const tokenParam = searchParams.get("token");
+  const tokenFromUrl = codeParam ?? tokenParam ?? "";
 
   const [token, setToken] = useState(tokenFromUrl);
   const [fullName, setFullName] = useState("");
@@ -21,7 +40,10 @@ export function CompleteRegistrationPage() {
   const [err, setErr] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  const { signUp } = useAuth();
+  const { value: normalizedToken, isCode: isCodeFlow } = extractCodeOrToken(token);
+  const isCodeFlowResolved = codeParam !== null ? true : tokenParam !== null ? false : isCodeFlow;
+
+  const { signUp, signUpWithCode } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -29,51 +51,65 @@ export function CompleteRegistrationPage() {
   }, [tokenFromUrl]);
 
   useEffect(() => {
-    const t = token.trim();
-    if (t.length < 20) {
+    const t = normalizedToken;
+    const minLen = isCodeFlowResolved ? 5 : 20;
+    if (t.length < minLen) {
       setTokenValid(null);
       setOrgName(null);
-      setEmail("");
+      if (!isCodeFlowResolved) setEmail("");
       return;
     }
     setValidating(true);
     setTokenValid(null);
     (async () => {
       try {
-        const { data } = await (supabase as any).rpc("validate_invitation_token", {
-          token_input: t,
-        });
-        const result = (data ?? {}) as { valid: boolean; email?: string; organization_name?: string };
-        setTokenValid(result?.valid ?? false);
-        setOrgName(result?.organization_name ?? null);
-        if (result?.valid && result?.email) setEmail(result.email);
+        if (isCodeFlowResolved) {
+          const { data } = await supabase.rpc("validate_registration_code", { code_input: t });
+          const result = (data ?? {}) as { valid: boolean; organization_name?: string };
+          setTokenValid(result?.valid ?? false);
+          setOrgName(result?.organization_name ?? null);
+        } else {
+          const { data } = await supabase.rpc("validate_invitation_token", { token_input: t });
+          const result = (data ?? {}) as { valid: boolean; email?: string; organization_name?: string };
+          setTokenValid(result?.valid ?? false);
+          setOrgName(result?.organization_name ?? null);
+          if (result?.valid && result?.email) setEmail(result.email);
+        }
       } catch {
         setTokenValid(false);
       } finally {
         setValidating(false);
       }
     })();
-  }, [token]);
+  }, [normalizedToken, isCodeFlowResolved]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
-    const t = token.trim();
+    const t = normalizedToken;
     if (!t) {
-      setErr("Link inválido. Acesse o link recebido por e-mail.");
+      setErr(isCodeFlowResolved ? "Código inválido." : "Link inválido. Acesse o link recebido.");
       return;
     }
     if (!fullName.trim()) {
       setErr("Nome completo é obrigatório");
       return;
     }
+    if (!email.trim()) {
+      setErr("E-mail é obrigatório");
+      return;
+    }
     if (!tokenValid) {
-      setErr("Convite inválido ou expirado. Solicite um novo convite.");
+      setErr(isCodeFlowResolved ? "Código inválido ou expirado." : "Convite inválido ou expirado.");
       return;
     }
     setLoading(true);
     try {
-      await signUp(email, password, fullName.trim(), t);
+      if (isCodeFlowResolved) {
+        await signUpWithCode(email, password, fullName.trim(), t);
+      } else {
+        await signUp(email, password, fullName.trim(), t);
+      }
       setSuccess(true);
       setTimeout(() => navigate("/"), 2000);
     } catch (error) {
@@ -97,7 +133,7 @@ export function CompleteRegistrationPage() {
     );
   }
 
-  const hasValidToken = token.trim().length >= 20;
+  const hasValidToken = normalizedToken.length >= (isCodeFlowResolved ? 5 : 20);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4 py-12">
@@ -105,7 +141,9 @@ export function CompleteRegistrationPage() {
         <CardHeader className="text-center">
           <h1 className="text-2xl font-bold text-gray-dark">Completar cadastro</h1>
           <p className="text-gray-500 text-sm mt-1">
-            Acesse o link enviado por e-mail para criar sua conta (válido por 24h)
+            {isCodeFlowResolved
+              ? "Use o link compartilhado para criar sua conta (válido por 72h)"
+              : "Acesse o link enviado por e-mail para criar sua conta"}
           </p>
         </CardHeader>
         <CardContent>
@@ -113,13 +151,13 @@ export function CompleteRegistrationPage() {
             {!hasValidToken ? (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Cole o link recebido por e-mail
+                  {isCodeFlowResolved ? "Cole o link ou o código recebido" : "Cole o link recebido por e-mail"}
                 </label>
                 <input
                   type="text"
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
-                  placeholder="https://.../complete-registration?token=..."
+                  placeholder={isCodeFlowResolved ? "https://.../complete-registration?code=..." : "https://.../complete-registration?token=..."}
                   className={cn(
                     "w-full px-3 py-2 rounded-md border text-sm",
                     "focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
@@ -129,16 +167,16 @@ export function CompleteRegistrationPage() {
             ) : (
               <>
                 {validating && (
-                  <p className="text-sm text-gray-500">Validando convite...</p>
+                  <p className="text-sm text-gray-500">Validando {isCodeFlowResolved ? "código" : "convite"}...</p>
                 )}
                 {!validating && tokenValid === true && orgName && (
                   <p className="text-sm text-green-600 bg-green-50 px-3 py-2 rounded">
-                    ✓ Convite válido. Organização: {orgName}
+                    ✓ {isCodeFlowResolved ? "Código" : "Convite"} válido. Organização: {orgName}
                   </p>
                 )}
                 {!validating && tokenValid === false && (
                   <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded">
-                    Convite inválido ou expirado. Solicite um novo.
+                    {isCodeFlowResolved ? "Código" : "Convite"} inválido ou expirado.
                   </p>
                 )}
 
@@ -161,15 +199,23 @@ export function CompleteRegistrationPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    E-mail
+                    E-mail *
                   </label>
                   <input
                     type="email"
                     value={email}
-                    readOnly
-                    className="w-full px-3 py-2 rounded-md border border-gray-200 bg-gray-50 text-gray-600"
+                    onChange={(e) => setEmail(e.target.value)}
+                    readOnly={!isCodeFlowResolved}
+                    required
+                    className={cn(
+                      "w-full px-3 py-2 rounded-md border",
+                      isCodeFlowResolved
+                        ? "border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary"
+                        : "border-gray-200 bg-gray-50 text-gray-600"
+                    )}
+                    placeholder={isCodeFlowResolved ? "seu@email.com" : undefined}
                   />
-                  <p className="text-xs text-gray-500 mt-1">Definido no convite</p>
+                  {!isCodeFlowResolved && <p className="text-xs text-gray-500 mt-1">Definido no convite</p>}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -200,7 +246,7 @@ export function CompleteRegistrationPage() {
               <Button
                 type="submit"
                 className="w-full"
-                disabled={loading || !tokenValid || !fullName.trim()}
+                disabled={loading || !tokenValid || !fullName.trim() || !email.trim()}
               >
                 {loading ? "Cadastrando..." : "Criar conta"}
               </Button>

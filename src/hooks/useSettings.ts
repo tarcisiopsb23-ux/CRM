@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import type { Json } from "@/types/supabase";
 import type { IntegrationType, IntegrationConfig } from "@/types/settings";
 
 interface IntegrationRow {
@@ -21,7 +22,7 @@ export function useIntegration(
     queryKey: ["settings", organizationId, integrationType],
     queryFn: async () => {
       if (!organizationId) return null;
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("organization_integrations")
         .select("*")
         .eq("organization_id", organizationId)
@@ -36,13 +37,13 @@ export function useIntegration(
   const upsert = useMutation({
     mutationFn: async (config: IntegrationConfig) => {
       if (!organizationId) throw new Error("No organization");
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("organization_integrations")
         .upsert(
           {
             organization_id: organizationId,
             integration_type: integrationType,
-            config: config as object,
+            config: config as Json,
             updated_at: new Date().toISOString(),
           },
           {

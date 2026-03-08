@@ -1,73 +1,117 @@
-# Welcome to your Lovable project
+# Maestr.IA - CRM
 
-## Project info
+CRM/ERP para agências. Multi-tenant com Supabase, React e TypeScript.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Stack
 
-## How can I edit this code?
+- **Frontend:** Vite, React 18, TypeScript, Tailwind CSS, Radix UI, TanStack Query
+- **Backend:** Supabase (PostgreSQL, Auth, Realtime)
+- **UI:** shadcn/ui, Lucide Icons
 
-There are several ways of editing your application.
+## Pré-requisitos
 
-**Use Lovable**
+- Node.js 18+
+- npm ou pnpm
+- Projeto Supabase ([supabase.com](https://supabase.com))
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+## Setup
 
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
+### 1. Clone e instale
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+git clone <URL_DO_REPOSITORIO>
+cd CRM
+npm install
+```
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+### 2. Variáveis de ambiente
 
-# Step 3: Install the necessary dependencies.
-npm i
+Copie o exemplo e preencha com os dados do seu projeto Supabase:
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+```sh
+cp .env.example .env
+```
+
+Edite `.env`:
+
+```env
+VITE_SUPABASE_URL=https://seu-projeto.supabase.co
+VITE_SUPABASE_ANON_KEY=sua-chave-anonima
+```
+
+### 3. Migrations (Supabase)
+
+Para ambiente **local** (Docker):
+
+```sh
+npx supabase start
+npx supabase db reset
+```
+
+Para Supabase **remoto**:
+
+```sh
+npx supabase link --project-ref SEU_PROJECT_ID
+npx supabase db push
+```
+
+Migrations são executadas na ordem numérica (00001 a 00017).
+
+### 4. Edge Functions (cadastro direto de colaborador)
+
+Para a opção **"Cadastrar diretamente"** na aba Equipe funcionar:
+
+```sh
+npx supabase functions deploy create-user-direct
+```
+
+O `SUPABASE_SERVICE_ROLE_KEY` é configurado automaticamente no projeto Supabase.
+
+### 5. Rodar o projeto
+
+```sh
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+Acesse: http://localhost:5173
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## Scripts
 
-**Use GitHub Codespaces**
+| Comando | Descrição |
+|---------|-----------|
+| `npm run dev` | Servidor de desenvolvimento |
+| `npm run build` | Build de produção |
+| `npm run preview` | Preview do build |
+| `npm run lint` | ESLint |
+| `npm run test` | Testes com Vitest |
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## Módulos
 
-## What technologies are used for this project?
+| Módulo | Status |
+|--------|--------|
+| Dashboard | ✅ |
+| Leads / Kanban | ✅ |
+| Clientes | ✅ |
+| Fornecedores | ✅ |
+| Financeiro | ✅ |
+| Projetos | ✅ |
+| Metas | ✅ |
+| Equipe | 🔄 Em andamento |
+| Agenda | 🔄 Em andamento |
+| Configurações | ✅ |
 
-This project is built with:
+## Documentação
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+- [Modelo de dados](supabase/DATABASE_MODEL.md)
+- [Auth e email](docs/AUTH_EMAIL_SETUP.md)
+- [Plano de regularização](docs/PLANEJAMENTO_REGULARIZACAO.md)
 
-## How can I deploy this project?
+## Regenerar tipos Supabase
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+Após alterar o schema:
 
-## Can I connect a custom domain to my Lovable project?
+```sh
+npx supabase gen types typescript --local > src/types/supabase.ts
+```
 
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+Para Supabase remoto, use `--project-id` ou `--linked`.

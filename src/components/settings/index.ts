@@ -5,3 +5,4 @@ export { WebhooksSection } from "./WebhooksSection";
 export { N8nSection } from "./N8nSection";
 export { WhatsAppSection } from "./WhatsAppSection";
 export { GoogleCalendarSection } from "./GoogleCalendarSection";
+export { PermissionsSection } from "./PermissionsSection";

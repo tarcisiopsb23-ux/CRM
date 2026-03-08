@@ -7,11 +7,25 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const APP_URL = Deno.env.get("APP_URL") ?? "http://localhost:5173";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-};
+// CORS: restringe origem quando APP_URL configurado (produção); "*" em dev
+function getCorsHeaders() {
+  const appUrl = Deno.env.get("APP_URL");
+  let origin = "*";
+  if (appUrl) {
+    try {
+      origin = new URL(appUrl).origin;
+    } catch {
+      /* mantém * */
+    }
+  }
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Headers":
+      "authorization, x-client-info, apikey, content-type",
+  };
+}
+
+const corsHeaders = getCorsHeaders();
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {

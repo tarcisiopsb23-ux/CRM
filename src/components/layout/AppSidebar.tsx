@@ -1,34 +1,86 @@
-import { 
-  LayoutDashboard, Users, Kanban, UserCheck, Package, 
-  DollarSign, Calendar, FolderKanban, Target, MessageCircle, 
-  Settings, ChevronLeft, ChevronRight, Sparkles, UsersRound, Megaphone, FileBarChart
+import {
+  LayoutDashboard,
+  Users,
+  Kanban,
+  UserCheck,
+  Package,
+  DollarSign,
+  Calendar,
+  FolderKanban,
+  Target,
+  MessageCircle,
+  Settings,
+  ChevronLeft,
+  ChevronRight,
+  Sparkles,
+  UsersRound,
+  Megaphone,
+  FileBarChart,
+  BarChart3,
+  History,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { useModulePermission } from "@/hooks/usePermissions";
+import { useAuth } from "@/contexts/AuthContext";
 
-const navItems = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Kanban", url: "/kanban", icon: Kanban },
-  { title: "Leads", url: "/leads", icon: Users },
-  { title: "Clientes", url: "/clients", icon: UserCheck },
-  { title: "Fornecedores", url: "/suppliers", icon: Package },
-  { title: "Financeiro", url: "/financial", icon: DollarSign },
-  { title: "Agenda", url: "/agenda", icon: Calendar },
-  { title: "Projetos", url: "/projects", icon: FolderKanban },
-  { title: "Metas", url: "/goals", icon: Target },
-  { title: "WhatsApp", url: "/whatsapp", icon: MessageCircle },
-  { title: "Reuniões IA", url: "/meetings", icon: Sparkles },
-  { title: "Equipe", url: "/team", icon: UsersRound },
-  { title: "Campanhas", url: "/campaign-reports", icon: Megaphone },
-  { title: "Relatórios", url: "/general-reports", icon: FileBarChart },
-  { title: "Configurações", url: "/settings", icon: Settings },
+const navItems: {
+  title: string;
+  url: string;
+  icon: typeof LayoutDashboard;
+  module: string | null;
+}[] = [
+  { title: "Dashboard", url: "/", icon: LayoutDashboard, module: null },
+  { title: "Kanban", url: "/kanban", icon: Kanban, module: "kanban" },
+  { title: "Analytics Vendas", url: "/sales-analytics", icon: BarChart3, module: null },
+  { title: "Leads", url: "/leads", icon: Users, module: null },
+  { title: "Clientes", url: "/clients", icon: UserCheck, module: "clients" },
+  { title: "Fornecedores", url: "/suppliers", icon: Package, module: "clients" },
+  { title: "Financeiro", url: "/financial", icon: DollarSign, module: "financial" },
+  { title: "Agenda", url: "/agenda", icon: Calendar, module: "agenda" },
+  { title: "Projetos", url: "/projects", icon: FolderKanban, module: "projects" },
+  { title: "Metas", url: "/goals", icon: Target, module: "goals" },
+  { title: "WhatsApp", url: "/whatsapp", icon: MessageCircle, module: null },
+  { title: "Reuniões IA", url: "/meetings", icon: Sparkles, module: null },
+  { title: "Equipe", url: "/team", icon: UsersRound, module: "team" },
+  { title: "Campanhas", url: "/campaign-reports", icon: Megaphone, module: null },
+  { title: "Relatórios", url: "/general-reports", icon: FileBarChart, module: null },
+  { title: "Auditoria", url: "/audit", icon: History, module: "settings" },
+  { title: "Configurações", url: "/settings", icon: Settings, module: "settings" },
 ];
 
 export function AppSidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
+  const { profile } = useAuth();
+  const isAdmin = profile?.role === "admin" || profile?.role === "owner";
+
+  const { canView: canViewKanban } = useModulePermission("kanban");
+  const { canView: canViewClients } = useModulePermission("clients");
+  const { canView: canViewFinancial } = useModulePermission("financial");
+  const { canView: canViewAgenda } = useModulePermission("agenda");
+  const { canView: canViewProjects } = useModulePermission("projects");
+  const { canView: canViewGoals } = useModulePermission("goals");
+  const { canView: canViewTeam } = useModulePermission("team");
+  const { canView: canViewSettings } = useModulePermission("settings");
+
+  const canViewByModule: Record<string, boolean> = {
+    kanban: canViewKanban,
+    clients: canViewClients,
+    financial: canViewFinancial,
+    agenda: canViewAgenda,
+    projects: canViewProjects,
+    goals: canViewGoals,
+    team: canViewTeam,
+    settings: canViewSettings,
+  };
+
+  const visibleItems = navItems.filter((item) => {
+    if (item.module === "settings") return isAdmin;
+    return !item.module || canViewByModule[item.module];
+  });
 
   return (
     <aside
@@ -51,7 +103,7 @@ export function AppSidebar() {
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-4 px-2 space-y-1">
-        {navItems.map((item) => {
+        {visibleItems.map((item) => {
           const isActive = location.pathname === item.url;
           return (
             <NavLink

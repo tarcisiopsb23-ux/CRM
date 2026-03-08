@@ -10,7 +10,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { useState, useMemo } from "react";
-import { KanbanColumn } from "./KanbanColumn";
+import { LeadsKanbanColumn } from "./LeadsKanbanColumn";
 import { LeadCard } from "./LeadCard";
 import { ETAPAS_KANBAN } from "@/types/database";
 import type { Lead, EtapaKanban } from "@/types/database";
@@ -72,11 +72,10 @@ export function KanbanBoard({
     const leadId = String(active.id);
     const overId = String(over.id);
 
-    const overEtapa = ETAPAS_KANBAN.find((e) => e.id === overId) as
-      | EtapaKanban
-      | undefined;
-    if (overEtapa) {
-      onEtapaChange(leadId, overEtapa);
+    const found = ETAPAS_KANBAN.find((e) => e.id === overId);
+    const overEtapa = found ? (found.id as EtapaKanban) : undefined;
+    if (found && overEtapa) {
+      onEtapaChange(leadId, found.id);
       return;
     }
 
@@ -97,7 +96,7 @@ export function KanbanBoard({
     >
       <div className="flex gap-4 overflow-x-auto pb-4">
         {ETAPAS_KANBAN.map(({ id, label }) => (
-          <KanbanColumn
+          <LeadsKanbanColumn
             key={id}
             id={id}
             label={label}

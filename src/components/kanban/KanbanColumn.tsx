@@ -1,44 +1,34 @@
 import { useDroppable } from "@dnd-kit/core";
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { LeadCard } from "./LeadCard";
-import type { Lead, EtapaKanban } from "@/types/database";
-import { cn } from "@/lib/utils";
+import { KanbanCard, type Lead } from "./KanbanCard";
 
-interface KanbanColumnProps {
-  id: EtapaKanban;
-  label: string;
+interface Props {
+  stage: { id: string; label: string; color: string };
   leads: Lead[];
-  onDetalhes: (lead: Lead) => void;
+  onOpenDetail: (lead: Lead) => void;
 }
 
-export function KanbanColumn({ id, label, leads, onDetalhes }: KanbanColumnProps) {
-  const { setNodeRef, isOver } = useDroppable({ id });
-  const leadIds = leads.map((l) => l.id);
+export function KanbanColumn({ stage, leads, onOpenDetail }: Props) {
+  const { setNodeRef, isOver } = useDroppable({ id: stage.id });
 
   return (
     <div
       ref={setNodeRef}
-      className={cn(
-        "min-w-[280px] w-[280px] flex-shrink-0 rounded-lg border-2 border-dashed border-border bg-muted/50 p-3 transition-colors",
-        isOver && "border-primary bg-primary/5"
-      )}
+      className={`flex w-72 shrink-0 flex-col rounded-xl bg-muted/50 border transition-colors ${
+        isOver ? "border-primary/40 bg-accent/40" : "border-transparent"
+      }`}
     >
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="font-semibold text-foreground">{label}</h3>
-        <span className="text-sm text-muted-foreground bg-card px-2 py-0.5 rounded-full">
+      <div className="flex items-center gap-2 px-4 py-3">
+        <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: stage.color }} />
+        <h3 className="text-sm font-semibold text-foreground">{stage.label}</h3>
+        <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-xs font-medium text-muted-foreground">
           {leads.length}
         </span>
       </div>
-      <SortableContext items={leadIds} strategy={verticalListSortingStrategy}>
-        <div className="space-y-2 min-h-[60px]">
-          {leads.map((lead) => (
-            <LeadCard key={lead.id} lead={lead} onDetalhes={onDetalhes} />
-          ))}
-        </div>
-      </SortableContext>
+      <div className="flex flex-col gap-2 px-2 pb-3 min-h-[120px]">
+        {leads.map((lead) => (
+          <KanbanCard key={lead.id} lead={lead} onOpenDetail={onOpenDetail} />
+        ))}
+      </div>
     </div>
   );
 }
