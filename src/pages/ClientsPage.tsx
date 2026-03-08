@@ -31,11 +31,13 @@ const REGISTRATION_TYPES = [
 
 export default function ClientsPage() {
   const organizationId = useOrganization();
-  const { data: clients = [], isLoading, create, update, remove } = useClients(organizationId);
+  const { data: clients = [], isLoading, error: fetchError, create, update, remove } = useClients(organizationId);
   const { leads } = useLeadsKanban(organizationId);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Client | null>(null);
   const [fromLeadId, setFromLeadId] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState<Partial<Client>>({
     name: "",
     company: "",
@@ -123,6 +125,8 @@ export default function ClientsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editing && !form.name?.trim()) return;
+    setSubmitting(true);
+    setSubmitError(null);
     try {
       if (editing) {
         await update.mutateAsync({ ...form, id: editing.id } as Partial<Client> & { id: string });
@@ -130,15 +134,28 @@ export default function ClientsPage() {
         await create.mutateAsync({ ...form, name: form.name! });
       }
       setModalOpen(false);
+      setSubmitError(null);
     } catch (err) {
-      console.error(err);
+      const msg = err instanceof Error ? err.message : "Erro desconhecido";
+      setSubmitError(msg);
+      console.error("[ClientsPage] handleSubmit error:", err);
+    } finally {
+      setSubmitting(false);
     }
   };
 
   if (!organizationId) {
     return (
       <div className="flex items-center justify-center min-h-[300px]">
-        <p className="text-muted-foreground">Nenhuma organização encontrada.</p>
+        <p className="text-muted-foreground">Nenhuma organização encontrada. Faça login novamente.</p>
+      </div>
+    );
+  }
+
+  if (fetchError) {
+    return (
+      <div className="flex items-center justify-center min-h-[300px]">
+        <p className="text-destructive">Erro ao carregar clientes: {fetchError.message || "Erro desconhecido"}</p>
       </div>
     );
   }
@@ -220,7 +237,7 @@ export default function ClientsPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+      <Dialog open={modalOpen} onOpenChange={(open) => {setModalOpen(open); if (!open) setSubmitError(null);}}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
@@ -349,11 +366,16 @@ export default function ClientsPage() {
               </div>
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>
+              {submitError && (
+                <div className="col-span-full bg-destructive/10 border border-destructive/20 text-destructive text-sm px-3 py-2 rounded-md">
+                  {submitError}
+                </div>
+              )}
+              <Button type="button" variant="outline" onClick={() => setModalOpen(false)} disabled={submitting}>
                 Cancelar
               </Button>
-              <Button type="submit" disabled={create.isPending || update.isPending}>
-                {(create.isPending || update.isPending) && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              <Button type="submit" disabled={submitting || create.isPending || update.isPending}>
+                {(submitting || create.isPending || update.isPending) && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 {editing ? "Salvar" : "Cadastrar"}
               </Button>
             </DialogFooter>

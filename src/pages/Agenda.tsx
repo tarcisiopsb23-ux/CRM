@@ -29,6 +29,8 @@ export default function Agenda() {
   const orgId = useOrganization();
   const { data: events = [], isLoading, create, remove } = useEvents(orgId);
   const [modalOpen, setModalOpen] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -40,6 +42,8 @@ export default function Agenda() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitting(true);
+    setSubmitError(null);
     try {
       const start = form.start_at ? new Date(form.start_at) : new Date();
       const end = form.end_at ? new Date(form.end_at) : new Date(start.getTime() + 3600000);
@@ -54,7 +58,11 @@ export default function Agenda() {
       setModalOpen(false);
       setForm({ title: "", description: "", type: "reuniao", start_at: "", end_at: "", location: "" });
     } catch (err) {
-      console.error(err);
+      const msg = err instanceof Error ? err.message : "Erro ao criar evento";
+      setSubmitError(msg);
+      console.error("[Agenda] handleSubmit:", msg);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -130,7 +138,7 @@ export default function Agenda() {
         </div>
       )}
 
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+      <Dialog open={modalOpen} onOpenChange={(open) => { setModalOpen(open); if (!open) setSubmitError(null); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Novo evento</DialogTitle>
@@ -192,11 +200,16 @@ export default function Agenda() {
               />
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>
+              {submitError && (
+                <div className="col-span-full bg-destructive/10 border border-destructive/20 text-destructive text-sm px-3 py-2 rounded-md">
+                  {submitError}
+                </div>
+              )}
+              <Button type="button" variant="outline" onClick={() => setModalOpen(false)} disabled={submitting}>
                 Cancelar
               </Button>
-              <Button type="submit" disabled={create.isPending}>
-                {create.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              <Button type="submit" disabled={submitting || create.isPending}>
+                {(submitting || create.isPending) && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 Criar
               </Button>
             </DialogFooter>
