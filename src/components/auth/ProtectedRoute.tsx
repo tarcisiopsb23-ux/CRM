@@ -18,6 +18,7 @@ export function ProtectedRoute({
 }: ProtectedRouteProps) {
   const { user, profile, loading, error, refetchProfile } = useAuth();
   const location = useLocation();
+  console.debug('[ProtectedRoute] user, profile, loading, error', { user, profile, loading, error });
 
   if (loading) {
     return (
@@ -38,9 +39,17 @@ export function ProtectedRoute({
           Perfil não encontrado
         </h2>
         <p className="text-muted-foreground text-center max-w-md">
-          {error
-            ? 'Erro ao carregar seu perfil. Verifique se sua conta está vinculada a uma organização.'
-            : 'Seu perfil não foi carregado. Isso pode acontecer se sua conta ainda não estiver configurada.'}
+          {error ? (
+            <>
+              Erro ao carregar seu perfil. Verifique se sua conta está vinculada a uma organização.
+              <br />
+              <small className="mt-2 text-xs text-red-400">
+                {error.message}
+              </small>
+            </>
+          ) : (
+            'Seu perfil não foi carregado. Isso pode acontecer se sua conta ainda não estiver configurada.'
+          )}
         </p>
         <Button onClick={() => refetchProfile()} variant="outline">
           Tentar novamente
