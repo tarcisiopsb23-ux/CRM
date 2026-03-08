@@ -151,12 +151,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      async (event, session) => {
+        console.debug('[Auth] onAuthStateChange', event, session);
+        // clear user/profile only on explicit sign out or user deletion
+        if (event === 'SIGNED_OUT' || event === 'USER_DELETED') {
+          setUser(null);
+          setProfile(null);
+          return;
+        }
+        // for all other events, update user and refetch profile
         setUser(session?.user ?? null);
         if (session?.user) {
           await fetchProfile(session.user);
-        } else {
-          setProfile(null);
         }
       }
     );
