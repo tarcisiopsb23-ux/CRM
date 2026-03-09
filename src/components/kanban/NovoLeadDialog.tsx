@@ -178,14 +178,14 @@ export function NovoLeadDialog({
             <div>
               <Label>Responsável</Label>
               <Select
-                value={form.responsavel ?? ""}
-                onValueChange={(v) => setForm({ ...form, responsavel: v || undefined })}
+                value={form.responsavel ?? "none"}
+                onValueChange={(v) => setForm({ ...form, responsavel: v === "none" ? undefined : v })}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecionar..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Nenhum</SelectItem>
+                  <SelectItem value="none">Nenhum</SelectItem>
                   {(profiles ?? []).map((p) => (
                     <SelectItem key={p.id} value={p.id}>
                       {p.full_name ?? "—"}
