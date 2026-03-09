@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import { KanbanBoard, LeadDetailsModal } from "@/components/kanban";
 import { NovoLeadDialog } from "@/components/kanban/NovoLeadDialog";
 import { useLeadsKanban, type CreateLeadInput } from "@/hooks/useLeadsKanban";
@@ -35,7 +36,12 @@ export function LeadsKanbanPage() {
   };
 
   const handleCreateLead = async (form: CreateLeadInput) => {
-    await createLead(form);
+    try {
+      await createLead(form);
+    } catch (err) {
+      // Error handled and displayed in NovoLeadDialog component
+      throw err;
+    }
   };
 
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {

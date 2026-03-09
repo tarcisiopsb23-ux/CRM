@@ -145,12 +145,15 @@ export default function AuditPage() {
             </div>
             <div>
               <Label className="text-xs">Módulo/Tabela</Label>
-              <Select value={filterTable} onValueChange={setFilterTable}>
+              <Select
+                value={filterTable || "all"}
+                onValueChange={(v) => setFilterTable(v === "all" ? "" : v)}
+              >
                 <SelectTrigger className="h-8 mt-0.5">
                   <SelectValue placeholder="Todos" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Todos</SelectItem>
+                  <SelectItem value="all">Todos</SelectItem>
                   {uniqueTables.map((t) => (
                     <SelectItem key={t} value={t}>
                       {TABLE_LABELS[t] ?? t}
@@ -161,12 +164,15 @@ export default function AuditPage() {
             </div>
             <div>
               <Label className="text-xs">Tipo</Label>
-              <Select value={filterAction} onValueChange={setFilterAction}>
+              <Select
+                value={filterAction || "all"}
+                onValueChange={(v) => setFilterAction(v === "all" ? "" : v)}
+              >
                 <SelectTrigger className="h-8 mt-0.5">
                   <SelectValue placeholder="Todos" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Todos</SelectItem>
+                  <SelectItem value="all">Todos</SelectItem>
                   <SelectItem value="INSERT">Inclusão</SelectItem>
                   <SelectItem value="UPDATE">Alteração</SelectItem>
                   <SelectItem value="DELETE">Exclusão</SelectItem>

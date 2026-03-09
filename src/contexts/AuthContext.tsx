@@ -158,13 +158,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         console.debug('[Auth] onAuthStateChange', event, session);
-        // clear user/profile only on explicit sign out or user deletion
         if (event === 'SIGNED_OUT') {
           setUser(null);
           setProfile(null);
           return;
         }
-        // for all other events, update user and refetch profile
+        // INITIAL_SESSION is handled by init(); skip to avoid double fetch
+        if (event === 'INITIAL_SESSION') return;
         setUser(session?.user ?? null);
         if (session?.user) {
           await fetchProfile(session.user);
@@ -181,13 +181,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       password,
     });
     if (err) throw err;
-    // ensure session is available before fetching profile
-    const { data: { session }, error: sessionErr } = await supabase.auth.getSession();
-    if (sessionErr) console.warn('[Auth] getSession after signIn error', sessionErr);
-    if (session?.user) {
-      await fetchProfile(session.user);
-    }
-  }, [fetchProfile]);
+    // onAuthStateChange(SIGNED_IN) will handle fetchProfile
+  }, []);
 
   const signUp = useCallback(
     async (email: string, password: string, fullName: string, invitationToken: string) => {
@@ -203,13 +198,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         },
       });
       if (err) throw err;
-      // after signup the user may still need to confirm; session may or may not exist
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        await fetchProfile(session.user);
-      }
+      // onAuthStateChange(SIGNED_IN) will handle fetchProfile if session exists
     },
-    [fetchProfile]
+    []
   );
 
   const signUpWithCode = useCallback(
@@ -226,12 +217,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         },
       });
       if (err) throw err;
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        await fetchProfile(session.user);
-      }
+      // onAuthStateChange(SIGNED_IN) will handle fetchProfile if session exists
     },
-    [fetchProfile]
+    []
   );
 
   const signOut = useCallback(async () => {
