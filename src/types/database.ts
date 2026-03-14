@@ -73,7 +73,7 @@ export interface Lead {
   product_service?: LeadProductService | null;
   cpf_cnpj?: string | number | null;
   contact_origin?: LeadContactOrigin | null;
-  decision_maker?: boolean | null;
+  decision_maker?: boolean | string | null;
   decision_maker_name?: string | null;
   decision_maker_phone?: string | number | null;
   gbp_url?: string | null;
