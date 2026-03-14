@@ -3,13 +3,9 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
-# Argumentos de build para o Vite (injetados durante o build time)
-ARG VITE_SUPABASE_URL
-ARG VITE_SUPABASE_ANON_KEY
-
-# Expõe como variáveis de ambiente para o processo de build do Vite
-ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
-ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
+# Variáveis de ambiente para o build do Vite (Estratégia Infalível para EasyPanel sem Build Args)
+ENV VITE_SUPABASE_URL=https://owwaulaenabbdalycusx.supabase.co
+ENV VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im93d2F1bGFlbmFiYmRhbHljdXN4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk4Nzc3NzgsImV4cCI6MjA4NTQ1Mzc3OH0.VKuc4gbKlqjwFnoFJtkAfmzkJxnvz1W1zIfgm2JIvFo
 
 COPY package*.json ./
 RUN npm install
