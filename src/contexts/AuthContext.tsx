@@ -195,6 +195,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (user) await fetchProfile(user);
   }, [user, fetchProfile]);
 
+  const signOut = useCallback(async () => {
+    try {
+      setError(null);
+      setLoading(true);
+      
+      // Tentar logout via Supabase
+      await supabase.auth.signOut();
+      
+      // Limpeza manual para garantir que nada sobrou
+      // (Alguns problemas de cookies/cache persistem após signOut)
+      localStorage.clear();
+      sessionStorage.clear();
+      
+      // Limpar cookies do Supabase
+      const cookies = document.cookie.split(";");
+      for (let i = 0; i < cookies.length; i++) {
+        const cookie = cookies[i];
+        const eqPos = cookie.indexOf("=");
+        const name = eqPos > -1 ? cookie.substr(0, eqPos) : cookie;
+        if (name.trim().includes("sb-")) {
+          document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/";
+        }
+      }
+      
+      setUser(null);
+      setProfile(null);
+    } catch (err) {
+      console.error("Erro no signOut:", err);
+    } finally {
+      setLoading(false);
+      window.location.href = '/login'; // Forçar refresh total
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     const init = async () => {
@@ -337,40 +371,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     []
   );
-
-  const signOut = useCallback(async () => {
-    try {
-      setError(null);
-      setLoading(true);
-      
-      // Tentar logout via Supabase
-      await supabase.auth.signOut();
-      
-      // Limpeza manual para garantir que nada sobrou
-      // (Alguns problemas de cookies/cache persistem após signOut)
-      localStorage.clear();
-      sessionStorage.clear();
-      
-      // Limpar cookies do Supabase
-      const cookies = document.cookie.split(";");
-      for (let i = 0; i < cookies.length; i++) {
-        const cookie = cookies[i];
-        const eqPos = cookie.indexOf("=");
-        const name = eqPos > -1 ? cookie.substr(0, eqPos) : cookie;
-        if (name.trim().includes("sb-")) {
-          document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/";
-        }
-      }
-      
-      setUser(null);
-      setProfile(null);
-    } catch (err) {
-      console.error("Erro no signOut:", err);
-    } finally {
-      setLoading(false);
-      window.location.href = '/login'; // Forçar refresh total
-    }
-  }, []);
 
   const value = useMemo<AuthContextValue>(
     () => ({
