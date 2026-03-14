@@ -75,18 +75,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // Profile not found, try to create it
+      console.log("Perfil não encontrado, tentando criar perfil inicial...");
       try {
         const { data: fnData, error: fnError } = await supabase.functions.invoke('bootstrap-profile', { body: {} });
         if (!fnError && fnData?.profile) {
           const p = fnData.profile as Profile;
+          console.log("Perfil criado via Edge Function!");
           setError(null);
           setProfile(p);
           return p;
         }
+        if (fnError) console.warn("Edge Function 'bootstrap-profile' falhou:", fnError.message);
       } catch (e) {
-        void e;
+        console.error("Erro ao invocar Edge Function:", e);
       }
+      
       try {
+        console.log("Tentando criação manual de organização e perfil...");
         // Create organization first
         const orgSlug = user.email?.split('@')[0]?.replace(/[^a-z0-9]/g, '') || 'org';
         const uniqueSlug = `${orgSlug}-${uid.slice(0, 8)}`;
@@ -98,31 +103,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           })
           .select('id')
           .single();
-        if (orgError) throw orgError;
+        
+        if (orgError) {
+          console.error("Erro ao criar organização:", orgError.message);
+          throw orgError;
+        }
 
-        // Create profile
-        const { data: newProfile, error: insertError } = await supabase
+        const { data: newProfile, error: profileError } = await supabase
           .from('profiles')
           .insert({
             id: uid,
             organization_id: org.id,
-            full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
-            email: user.email!,
+            full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Novo Usuário',
             role: 'owner',
           })
-          .select()
+          .select('*')
           .single();
-        if (insertError) throw insertError;
 
-        const p = newProfile as Profile;
-        setError(null);
-        setProfile(p);
-        return p;
-      } catch (createError) {
-        setError(createError as Error);
-        setProfile(null);
-        return null;
+        if (profileError) {
+          console.error("Erro ao criar perfil:", profileError.message);
+          throw profileError;
+        }
+
+        if (newProfile) {
+          console.log("Perfil e Organização criados com sucesso!");
+          const p = newProfile as Profile;
+          setError(null);
+          setProfile(p);
+          return p;
+        }
+      } catch (e) {
+        console.error("Falha na criação manual:", e);
       }
+      
+      setError(new Error("Não foi possível carregar ou criar seu perfil. Verifique se as tabelas do banco de dados foram criadas."));
+      setProfile(null);
+      return null;
     } finally {
       setLoading(false);
     }
