@@ -35,6 +35,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const uid = user.id;
 
     try {
+      // Pequeno delay para garantir que o perfil tenha sido criado no backend se for um novo usuário
+      await new Promise(resolve => setTimeout(resolve, 500));
+
       // 1. Tentar buscar via RPC (ignora RLS)
       const { data: rpcData, error: rpcError } = await supabase.rpc('get_my_profile');
       if (!rpcError && rpcData) {
@@ -151,15 +154,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     const init = async () => {
       try {
-        const { data: { session }, error } = await supabase.auth.getSession();
+        // Usar getUser em vez de getSession para forçar verificação no servidor
+        // Isso ajuda a evitar sessões fantasmas de usuários deletados mas com tokens válidos localmente
+        const { data: { user: authUser }, error } = await supabase.auth.getUser();
+        
         if (cancelled) return;
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          await fetchProfile(session.user);
-        } else {
+
+        if (error || !authUser) {
+          console.log("Nenhuma sessão válida encontrada no servidor.");
+          setUser(null);
           setProfile(null);
+        } else {
+          console.log("Usuário autenticado encontrado:", authUser.email);
+          setUser(authUser);
+          await fetchProfile(authUser);
         }
       } catch (err) {
+        console.error("Erro na inicialização do Auth:", err);
         if (!cancelled) {
           setUser(null);
           setProfile(null);
@@ -246,10 +257,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const signOut = useCallback(async () => {
-    setError(null);
-    await supabase.auth.signOut();
-    setUser(null);
-    setProfile(null);
+    try {
+      setError(null);
+      setLoading(true);
+      
+      // Tentar logout via Supabase
+      await supabase.auth.signOut();
+      
+      // Limpeza manual para garantir que nada sobrou
+      // (Alguns problemas de cookies/cache persistem após signOut)
+      localStorage.clear();
+      sessionStorage.clear();
+      
+      // Limpar cookies do Supabase
+      const cookies = document.cookie.split(";");
+      for (let i = 0; i < cookies.length; i++) {
+        const cookie = cookies[i];
+        const eqPos = cookie.indexOf("=");
+        const name = eqPos > -1 ? cookie.substr(0, eqPos) : cookie;
+        if (name.trim().includes("sb-")) {
+          document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/";
+        }
+      }
+      
+      setUser(null);
+      setProfile(null);
+    } catch (err) {
+      console.error("Erro no signOut:", err);
+    } finally {
+      setLoading(false);
+      window.location.href = '/login'; // Forçar refresh total
+    }
   }, []);
 
   const value = useMemo<AuthContextValue>(

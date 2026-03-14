@@ -16,7 +16,7 @@ export function ProtectedRoute({
   requireRole,
   redirectTo = '/login',
 }: ProtectedRouteProps) {
-  const { user, profile, loading, error, refetchProfile } = useAuth();
+  const { user, profile, loading, error, refetchProfile, signOut } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -50,9 +50,14 @@ export function ProtectedRoute({
             'Seu perfil não foi carregado. Isso pode acontecer se sua conta ainda não estiver configurada.'
           )}
         </p>
-        <Button onClick={() => refetchProfile()} variant="outline">
-          Tentar novamente
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={() => refetchProfile()} variant="outline">
+            Tentar novamente
+          </Button>
+          <Button onClick={() => signOut()} variant="ghost" className="text-red-400 hover:text-red-300">
+            Limpar dados e Sair
+          </Button>
+        </div>
       </div>
     );
   }
