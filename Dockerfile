@@ -1,17 +1,31 @@
-FROM node:20
+# Stage 1: Build
+FROM node:20-alpine AS build
 
 WORKDIR /app
 
 COPY package*.json ./
-
 RUN npm install
 
 COPY . .
-
 RUN npm run build
 
-EXPOSE 3000
+# Stage 2: Production
+FROM nginx:alpine
 
-# O comando preview do Vite serve o build de produção na porta 3000 por padrão (ou configurável)
-# Ajustado para aceitar conexões externas
-CMD ["npm", "run", "preview", "--", "--host", "0.0.0.0", "--port", "3000"]
+# Copia os arquivos gerados pelo Vite para o diretório do Nginx
+COPY --from=build /app/dist /usr/share/nginx/html
+
+# Configuração básica do Nginx para Single Page Apps (React/Vite)
+# Isso garante que as rotas do react-router funcionem corretamente (redireciona para index.html)
+RUN echo 'server { \
+    listen 80; \
+    location / { \
+        root /usr/share/nginx/html; \
+        index index.html; \
+        try_files $uri $uri/ /index.html; \
+    } \
+}' > /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
