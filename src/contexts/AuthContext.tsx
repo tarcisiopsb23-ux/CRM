@@ -39,12 +39,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Pequeno delay para garantir que o perfil tenha sido criado no backend se for um novo usuário
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      // 1. Tentar buscar via RPC (com timeout de 5 segundos)
-      console.log("[Auth] 1. Tentando RPC get_my_profile (timeout 5s)...");
+      // 1. Tentar buscar via RPC (com timeout de 8 segundos)
+      console.log("[Auth] 1. Tentando RPC get_my_profile (timeout 8s)...");
       
       const rpcPromise = supabase.rpc('get_my_profile');
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Timeout na chamada RPC")), 5000)
+        setTimeout(() => reject(new Error("Timeout na chamada RPC")), 8000)
       );
 
       let rpcResult;
@@ -65,16 +65,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.warn("[Auth] Falha ou timeout no RPC:", err.message);
       }
 
-      // 2. Tentar buscar diretamente na tabela profiles (com timeout de 5 segundos)
-      console.log("[Auth] 2. Tentando SELECT direto na tabela profiles (timeout 5s)...");
+      // 2. Tentar buscar diretamente na tabela profiles (com timeout de 8 segundos)
+      console.log("[Auth] 2. Tentando SELECT direto na tabela profiles (timeout 8s)...");
       const selectPromise = supabase
         .from('profiles')
         .select('*')
         .eq('id', uid)
         .maybeSingle();
 
+      const timeoutPromiseSelect = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Timeout na chamada SELECT")), 8000)
+      );
+
       try {
-        const selectResult = await Promise.race([selectPromise, timeoutPromise]) as any;
+        const selectResult = await Promise.race([selectPromise, timeoutPromiseSelect]) as any;
         const { data, error: selectError } = selectResult;
 
         if (data) {
@@ -248,6 +252,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     );
     return () => subscription.unsubscribe();
   }, [fetchProfile]);
+
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+    const INACTIVITY_LIMIT = 5 * 60 * 1000; // 5 minutos
+
+    const resetTimer = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (user) {
+        timeoutId = setTimeout(() => {
+          console.log("[Auth] Logout por inatividade (5 minutos)");
+          signOut();
+        }, INACTIVITY_LIMIT);
+      }
+    };
+
+    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
+    
+    if (user) {
+      events.forEach(event => window.addEventListener(event, resetTimer));
+      resetTimer();
+    }
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      events.forEach(event => window.removeEventListener(event, resetTimer));
+    };
+  }, [user, signOut]);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // Ao fechar a aba, limpamos o estado local.
+      // Como usamos window.sessionStorage no lib/supabase.ts, a sessão morre aqui.
+      console.log("[Auth] Janela fechada, limpando sessão...");
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
     setError(null);

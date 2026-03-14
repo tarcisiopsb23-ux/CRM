@@ -14,5 +14,14 @@ if (!supabaseUrl || !supabaseKey) {
 
 export const supabase = createClient<Database>(
   supabaseUrl || "",
-  supabaseKey || ""
+  supabaseKey || "",
+  {
+    auth: {
+      persistSession: true,
+      storageKey: 'maestr-ia-auth-session',
+      storage: window.sessionStorage, // Usar sessionStorage para limpar ao fechar a aba
+      autoRefreshToken: true,
+      detectSessionInUrl: true
+    }
+  }
 );
