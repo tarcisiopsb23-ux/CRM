@@ -53,12 +53,19 @@ export function ProtectedRoute({
             'Seu perfil não foi carregado. Isso pode acontecer se sua conta ainda não estiver configurada.'
           )}
         </p>
-        <div className="flex gap-2">
-          <Button onClick={() => refetchProfile()} variant="outline">
+        <div className="flex flex-col gap-2 w-full max-w-xs">
+          <Button 
+            onClick={() => window.location.reload()} 
+            className="w-full"
+          >
             Tentar novamente
           </Button>
-          <Button onClick={() => signOut()} variant="ghost" className="text-red-400 hover:text-red-300">
-            Limpar dados e Sair
+          <Button 
+            variant="outline" 
+            onClick={() => signOut()} 
+            className="w-full"
+          >
+            Sair da conta
           </Button>
         </div>
       </div>
