@@ -3,6 +3,14 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
+# Argumentos de build para o Vite (injetados durante o build time)
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+
+# Expõe como variáveis de ambiente para o processo de build do Vite
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
+
 COPY package*.json ./
 RUN npm install
 
@@ -16,7 +24,6 @@ FROM nginx:alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 
 # Configuração básica do Nginx para Single Page Apps (React/Vite)
-# Isso garante que as rotas do react-router funcionem corretamente (redireciona para index.html)
 RUN echo 'server { \
     listen 80; \
     location / { \
