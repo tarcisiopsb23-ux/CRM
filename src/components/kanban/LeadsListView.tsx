@@ -28,11 +28,28 @@ const getPriorityColor = (p?: string | null) => {
 };
 
 export function LeadsListView({ leads, onDetalhes, onEdit, onDelete, onEtapaChange }: LeadsListViewProps) {
+  const formatDateSafe = (dateStr?: string | null) => {
+    if (!dateStr) return "-";
+    try {
+      const date = parseISO(dateStr);
+      if (isNaN(date.getTime())) return "-";
+      return format(date, "dd/MM/yyyy");
+    } catch (e) {
+      return "-";
+    }
+  };
+
   const getLifecycleDays = (createdAt: string) => {
-    const created = parseISO(createdAt);
-    const today = new Date();
-    const days = differenceInCalendarDays(today, created) + 1;
-    return Math.max(1, days);
+    if (!createdAt) return 0;
+    try {
+      const created = parseISO(createdAt);
+      if (isNaN(created.getTime())) return 0;
+      const today = new Date();
+      const days = differenceInCalendarDays(today, created) + 1;
+      return Math.max(1, days);
+    } catch (e) {
+      return 0;
+    }
   };
 
   const renderTemperature = (temp: number | null | undefined) => {
@@ -94,7 +111,7 @@ export function LeadsListView({ leads, onDetalhes, onEdit, onDelete, onEtapaChan
           <TableBody>
             {leads.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={29} className="h-24 text-center">
+                <TableCell colSpan={31} className="h-24 text-center">
                   Nenhum lead encontrado.
                 </TableCell>
               </TableRow>
@@ -148,15 +165,15 @@ export function LeadsListView({ leads, onDetalhes, onEdit, onDelete, onEtapaChan
                     <Badge variant="outline" className="text-[10px] h-5">{getLifecycleDays(lead.created_at)} dias</Badge>
                   </TableCell>
                   <TableCell className="text-muted-foreground text-xs">
-                    {format(new Date(lead.created_at), "dd/MM/yyyy", { locale: ptBR })}
+                    {formatDateSafe(lead.created_at)}
                   </TableCell>
                   <TableCell className="text-xs">{lead.cpf_cnpj || "-"}</TableCell>
                   <TableCell className="text-xs truncate w-[130px]" title={lead.nicho || "-"}>{lead.nicho || "-"}</TableCell>
                   <TableCell className="text-xs truncate w-[130px]" title={(lead.metadata as any)?.cidade || "-"}>{(lead.metadata as any)?.cidade || "-"}</TableCell>
                   <TableCell className="text-xs truncate w-[130px]" title={lead.source || "-"}>{lead.source || "-"}</TableCell>
                   <TableCell className="text-xs truncate w-[280px]" title={lead.notes || "-"}>{lead.notes || "-"}</TableCell>
-                  <TableCell className="text-xs">{lead.first_contact_date ? format(parseISO(lead.first_contact_date), "dd/MM/yyyy") : "-"}</TableCell>
-                  <TableCell className="text-xs">{lead.last_contact_date ? format(parseISO(lead.last_contact_date), "dd/MM/yyyy") : "-"}</TableCell>
+                  <TableCell className="text-xs">{formatDateSafe(lead.first_contact_date)}</TableCell>
+                  <TableCell className="text-xs">{formatDateSafe(lead.last_contact_date)}</TableCell>
                   <TableCell className="text-xs capitalize">{lead.product_service || "-"}</TableCell>
                   <TableCell className="text-xs capitalize">{lead.contact_origin?.replace("_", " ") || "-"}</TableCell>
                   <TableCell className="text-xs">{lead.decision_maker ? "Sim" : "Não"}</TableCell>
