@@ -135,7 +135,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const uniqueSlug = `${orgSlug}-${uid.slice(0, 8)}`;
         
         console.log("[Auth] Criando organização com slug:", uniqueSlug);
-        const { data: org, error: orgError } = await supabase
+        
+        // Timeout de 10s para criação de organização
+        const orgPromise = supabase
           .from('organizations')
           .insert({
             name: `${user.email?.split('@')[0] || 'User'}'s Organization`,
@@ -143,6 +145,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           })
           .select('id')
           .single();
+        
+        const orgTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout Criar Org")), 10000));
+        const orgResult = await Promise.race([orgPromise, orgTimeout]) as any;
+        const { data: org, error: orgError } = orgResult;
 
         if (orgError && !orgError.message.includes("duplicate key")) {
           console.error("[Auth] Erro ao criar organização:", orgError.message);
@@ -152,7 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         let finalOrgId = org?.id;
         
         if (!finalOrgId) {
-          console.log("[Auth] Organização já existe, buscando ID...");
+          console.log("[Auth] Organização já existe ou falhou insert, buscando ID...");
           const { data: existingOrg } = await supabase
             .from('organizations')
             .select('id')
@@ -167,7 +173,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         console.log("[Auth] Criando perfil vinculado à org:", finalOrgId);
-        const { data: newProfile, error: profileError } = await supabase
+        
+        // Timeout de 10s para criação de perfil
+        const profilePromise = supabase
           .from('profiles')
           .insert({
             id: uid,
@@ -178,6 +186,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           })
           .select('*')
           .single();
+          
+        const profileTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout Criar Perfil")), 10000));
+        const profileResult = await Promise.race([profilePromise, profileTimeout]) as any;
+        const { data: newProfile, error: profileError } = profileResult;
 
         if (profileError) {
           console.error("[Auth] Erro ao criar perfil manual:", profileError.message);
