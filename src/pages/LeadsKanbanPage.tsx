@@ -242,7 +242,7 @@ export function LeadsKanbanPage() {
       meta_ads_level: lead.meta_ads_level ?? "",
       social_media_status: lead.social_media_status ?? "",
       lost_reason: lead.lost_reason ?? "",
-      cadence: lead.cadence ?? "",
+      cadence: lead.cadence !== null && lead.cadence !== undefined ? String(lead.cadence) : "",
       temperature: typeof lead.temperature === "number" ? lead.temperature : 0,
     });
   };
