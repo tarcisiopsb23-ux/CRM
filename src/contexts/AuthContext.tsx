@@ -39,34 +39,56 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Pequeno delay para garantir que o perfil tenha sido criado no backend se for um novo usuário
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      // 1. Tentar buscar via RPC (ignora RLS)
-      console.log("[Auth] 1. Tentando RPC get_my_profile...");
-      const { data: rpcData, error: rpcError } = await supabase.rpc('get_my_profile');
-      if (!rpcError && rpcData) {
-        console.log("[Auth] RPC sucesso:", rpcData);
-        const p = rpcData as unknown as Profile;
-        setProfile(p);
-        setError(null);
-        return p;
-      }
-      if (rpcError) console.warn("[Auth] RPC erro:", rpcError.message);
+      // 1. Tentar buscar via RPC (com timeout de 5 segundos)
+      console.log("[Auth] 1. Tentando RPC get_my_profile (timeout 5s)...");
+      
+      const rpcPromise = supabase.rpc('get_my_profile');
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Timeout na chamada RPC")), 5000)
+      );
 
-      // 2. Tentar buscar diretamente na tabela profiles
-      console.log("[Auth] 2. Tentando SELECT direto na tabela profiles...");
-      const { data, error: selectError } = await supabase
+      let rpcResult;
+      try {
+        rpcResult = await Promise.race([rpcPromise, timeoutPromise]) as any;
+        const { data: rpcData, error: rpcError } = rpcResult;
+        
+        if (!rpcError && rpcData) {
+          console.log("[Auth] RPC sucesso:", rpcData);
+          const p = rpcData as unknown as Profile;
+          setProfile(p);
+          setError(null);
+          return p;
+        }
+        if (rpcError) console.warn("[Auth] RPC erro:", rpcError.message);
+        else if (!rpcData) console.log("[Auth] RPC retornou nulo (perfil não existe)");
+      } catch (err: any) {
+        console.warn("[Auth] Falha ou timeout no RPC:", err.message);
+      }
+
+      // 2. Tentar buscar diretamente na tabela profiles (com timeout de 5 segundos)
+      console.log("[Auth] 2. Tentando SELECT direto na tabela profiles (timeout 5s)...");
+      const selectPromise = supabase
         .from('profiles')
         .select('*')
         .eq('id', uid)
         .maybeSingle();
 
-      if (data) {
-        console.log("[Auth] SELECT sucesso:", data);
-        const p = data as Profile;
-        setProfile(p);
-        setError(null);
-        return p;
+      try {
+        const selectResult = await Promise.race([selectPromise, timeoutPromise]) as any;
+        const { data, error: selectError } = selectResult;
+
+        if (data) {
+          console.log("[Auth] SELECT sucesso:", data);
+          const p = data as Profile;
+          setProfile(p);
+          setError(null);
+          return p;
+        }
+        if (selectError) console.warn("[Auth] SELECT erro:", selectError.message);
+        else if (!data) console.log("[Auth] SELECT retornou nulo (perfil não existe)");
+      } catch (err: any) {
+        console.warn("[Auth] Falha ou timeout no SELECT:", err.message);
       }
-      if (selectError) console.warn("[Auth] SELECT erro:", selectError.message);
 
       // 3. Se não encontrar, tentar bootstrap via Edge Function
       console.log("[Auth] 3. Perfil não encontrado, tentando bootstrap via Edge Function...");
