@@ -99,6 +99,7 @@ export interface SupplierExpense {
   organization_id: string;
   supplier_id: string;
   description: string;
+  category?: string | null;
   value: number;
   due_date: string;
   paid_at: string | null;

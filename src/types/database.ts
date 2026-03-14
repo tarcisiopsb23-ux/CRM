@@ -71,11 +71,11 @@ export interface Lead {
   first_contact_date?: string | null;
   last_contact_date?: string | null;
   product_service?: LeadProductService | null;
-  cpf_cnpj?: number | null;
+  cpf_cnpj?: string | number | null;
   contact_origin?: LeadContactOrigin | null;
   decision_maker?: boolean | null;
   decision_maker_name?: string | null;
-  decision_maker_phone?: number | null;
+  decision_maker_phone?: string | number | null;
   gbp_url?: string | null;
   instagram_url?: string | null;
   website_url?: string | null;
@@ -86,6 +86,7 @@ export interface Lead {
   lost_reason?: LeadLostReason | null;
   cadence?: string | null;
   temperature?: number | null;
+  campaign_id?: string | null;
   metadata: Record<string, unknown>;
   position: number;
   created_at: string;

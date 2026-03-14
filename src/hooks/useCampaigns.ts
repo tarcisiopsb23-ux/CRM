@@ -10,6 +10,7 @@ export interface Campaign {
   account: string;
   status: string;
   spend: number;
+  budget?: number;
   impressions: number;
   clicks: number;
   leads: number;
@@ -20,12 +21,12 @@ export interface Campaign {
 }
 
 const MOCK_CAMPAIGNS: Campaign[] = [
-  { id: "c1", name: "Campanha Verão 2026", platform: "Google Ads", account: "Conta Principal", status: "Ativa", spend: 12500, impressions: 450000, clicks: 8200, leads: 320, qualified: 180, meetings: 45, contracts: 18, revenue: 95000 },
-  { id: "c2", name: "Remarketing Clientes", platform: "Facebook Ads", account: "Conta Principal", status: "Ativa", spend: 6800, impressions: 280000, clicks: 5100, leads: 210, qualified: 120, meetings: 28, contracts: 12, revenue: 62000 },
-  { id: "c3", name: "Captação B2B", platform: "Google Ads", account: "Conta Secundária", status: "Ativa", spend: 18200, impressions: 620000, clicks: 11400, leads: 480, qualified: 260, meetings: 62, contracts: 25, revenue: 142000 },
-  { id: "c4", name: "Awareness Brand", platform: "Facebook Ads", account: "Conta Secundária", status: "Pausada", spend: 4500, impressions: 890000, clicks: 3200, leads: 95, qualified: 40, meetings: 8, contracts: 3, revenue: 15000 },
-  { id: "c5", name: "Promo Black Friday", platform: "Google Ads", account: "Conta Principal", status: "Encerrada", spend: 22000, impressions: 780000, clicks: 15600, leads: 620, qualified: 350, meetings: 88, contracts: 40, revenue: 210000 },
-  { id: "c6", name: "Lead Gen Educação", platform: "Facebook Ads", account: "Conta Principal", status: "Ativa", spend: 9300, impressions: 340000, clicks: 6800, leads: 290, qualified: 160, meetings: 38, contracts: 15, revenue: 78000 },
+  { id: "c1", name: "Campanha Verão 2026", platform: "Google Ads", account: "Conta Principal", status: "Ativa", spend: 12500, budget: 15000, impressions: 450000, clicks: 8200, leads: 320, qualified: 180, meetings: 45, contracts: 18, revenue: 95000 },
+  { id: "c2", name: "Remarketing Clientes", platform: "Facebook Ads", account: "Conta Principal", status: "Ativa", spend: 6800, budget: 8000, impressions: 280000, clicks: 5100, leads: 210, qualified: 120, meetings: 28, contracts: 12, revenue: 62000 },
+  { id: "c3", name: "Captação B2B", platform: "Google Ads", account: "Conta Secundária", status: "Ativa", spend: 18200, budget: 20000, impressions: 620000, clicks: 11400, leads: 480, qualified: 260, meetings: 62, contracts: 25, revenue: 142000 },
+  { id: "c4", name: "Awareness Brand", platform: "Facebook Ads", account: "Conta Secundária", status: "Pausada", spend: 4500, budget: 5000, impressions: 890000, clicks: 3200, leads: 95, qualified: 40, meetings: 8, contracts: 3, revenue: 15000 },
+  { id: "c5", name: "Promo Black Friday", platform: "Google Ads", account: "Conta Principal", status: "Encerrada", spend: 22000, budget: 22000, impressions: 780000, clicks: 15600, leads: 620, qualified: 350, meetings: 88, contracts: 40, revenue: 210000 },
+  { id: "c6", name: "Lead Gen Educação", platform: "Facebook Ads", account: "Conta Principal", status: "Ativa", spend: 9300, budget: 10000, impressions: 340000, clicks: 6800, leads: 290, qualified: 160, meetings: 38, contracts: 15, revenue: 78000 },
 ];
 
 export function useCampaigns() {

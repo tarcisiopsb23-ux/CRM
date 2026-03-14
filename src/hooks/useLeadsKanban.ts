@@ -46,6 +46,7 @@ export interface CreateLeadRow {
   lost_reason?: string | null;
   cadence?: string | null;
   temperature?: number | null;
+  campaign_id?: string | null;
   metadata?: Record<string, unknown> | null;
 }
 
