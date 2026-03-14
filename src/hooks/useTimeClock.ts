@@ -162,7 +162,7 @@ export function useRepPPunches(filters: {
   return useQuery({
     queryKey: key,
     queryFn: async () => {
-      let q = supabase.from("rep_p_punches_with_status" as never).select("*");
+      let q = supabase.from("rep_p_punches_with_status" as any).select("*");
       if (organizationId) q = q.eq("organization_id", organizationId);
       if (userId) q = q.eq("user_id", userId);
       if (fromIso) q = q.gte("occurred_at", fromIso);
@@ -184,7 +184,7 @@ export function useRepPAdminActions(punchId: string | null) {
     queryFn: async () => {
       if (!punchId) return [];
       const { data, error } = await supabase
-        .from("rep_p_admin_actions" as never)
+        .from("rep_p_admin_actions" as any)
         .select("*")
         .eq("punch_id", punchId)
         .order("action_at", { ascending: false });
@@ -269,19 +269,18 @@ export function useRepPAdminCorrectPunch() {
 export function useRepPRequestOvertime() {
   const qc = useQueryClient();
   const orgId = useOrganization();
+  const { profile } = useAuth();
+
   return useMutation({
     mutationFn: async (input: { workDate: string; minutes: number; justification: string }) => {
-      const { data, error } = await supabase
-        .from("rep_p_overtime_authorizations")
-        .upsert({
-          organization_id: orgId,
-          user_id: (await supabase.auth.getUser()).data.user?.id,
-          work_date: input.workDate,
-          minutes_requested: input.minutes,
-          justification: input.justification,
-          status: "pendente",
-          updated_at: new Date().toISOString()
-        }, { onConflict: "user_id,work_date" });
+      if (!orgId || !profile?.id) throw new Error("Sem organização ou usuário autenticado");
+      
+      const { data, error } = await rpc("rep_p_request_overtime", {
+        p_work_date: input.workDate,
+        p_minutes: input.minutes,
+        p_justification: input.justification
+      });
+        
       if (error) throw error;
       return data;
     },
