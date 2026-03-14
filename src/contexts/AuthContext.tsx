@@ -5,6 +5,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  useRef,
   type ReactNode,
 } from 'react';
 import { supabase } from '@/lib/supabase';
@@ -30,14 +31,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const fetchingProfileRef = useRef<string | null>(null);
 
   const fetchProfile = useCallback(async (user: User) => {
     const uid = user.id;
+
+    // Evitar chamadas simultâneas para o mesmo usuário
+    if (fetchingProfileRef.current === uid) {
+      console.log("[Auth] Já existe uma busca de perfil em andamento para este UID, ignorando...");
+      return;
+    }
+
+    fetchingProfileRef.current = uid;
     console.log("[Auth] Iniciando fetchProfile para:", user.email, "UID:", uid);
 
     try {
       // Pequeno delay para garantir que o perfil tenha sido criado no backend se for um novo usuário
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 800));
 
       // 1. Tentar buscar via RPC (com timeout de 8 segundos)
       console.log("[Auth] 1. Tentando RPC get_my_profile (timeout 8s)...");
@@ -63,6 +73,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         else if (!rpcData) console.log("[Auth] RPC retornou nulo (perfil não existe)");
       } catch (err: any) {
         console.warn("[Auth] Falha ou timeout no RPC:", err.message);
+        if (err.message.includes("Timeout")) {
+          console.error("[Auth] DICA: Se você usa a extensão 'Mapify', ela pode estar bloqueando esta requisição. Tente desativá-la.");
+        }
       }
 
       // 2. Tentar buscar diretamente na tabela profiles (com timeout de 8 segundos)
@@ -94,10 +107,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.warn("[Auth] Falha ou timeout no SELECT:", err.message);
       }
 
-      // 3. Se não encontrar, tentar bootstrap via Edge Function
+      // 3. Se não encontrar, tentar bootstrap via Edge Function (com timeout)
       console.log("[Auth] 3. Perfil não encontrado, tentando bootstrap via Edge Function...");
       try {
-        const { data: fnData, error: fnError } = await supabase.functions.invoke('bootstrap-profile', { body: {} });
+        const fnPromise = supabase.functions.invoke('bootstrap-profile', { body: {} });
+        const fnTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout Edge Function")), 10000));
+        
+        const fnResult = await Promise.race([fnPromise, fnTimeout]) as any;
+        const { data: fnData, error: fnError } = fnResult;
+
         if (!fnError && fnData?.profile) {
           console.log("[Auth] Edge Function sucesso:", fnData.profile);
           const p = fnData.profile as Profile;
@@ -107,7 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         if (fnError) console.warn("[Auth] Edge Function erro:", fnError.message);
       } catch (e) {
-        console.warn("[Auth] Edge Function falhou ou não existe:", e);
+        console.warn("[Auth] Edge Function falhou ou timeout:", e);
       }
 
       // 4. Criação manual de Organização e Perfil (Fallback final)
@@ -187,6 +205,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setProfile(null);
       return null;
     } finally {
+      fetchingProfileRef.current = null;
       setLoading(false);
     }
   }, []);
@@ -233,58 +252,65 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     const init = async () => {
       try {
-        // Usar getUser em vez de getSession para forçar verificação no servidor
-        // Isso ajuda a evitar sessões fantasmas de usuários deletados mas com tokens válidos localmente
         const { data: { user: authUser }, error } = await supabase.auth.getUser();
         
         if (cancelled) return;
 
         if (error || !authUser) {
-          console.log("Nenhuma sessão válida encontrada no servidor.");
+          console.log("[Auth] Nenhuma sessão válida encontrada no servidor.");
           setUser(null);
           setProfile(null);
+          setLoading(false);
         } else {
-          console.log("Usuário autenticado encontrado:", authUser.email);
+          console.log("[Auth] Usuário autenticado encontrado:", authUser.email);
           setUser(authUser);
+          // O fetchProfile já define loading como false ao terminar
           await fetchProfile(authUser);
         }
       } catch (err) {
-        console.error("Erro na inicialização do Auth:", err);
+        console.error("[Auth] Erro na inicialização do Auth:", err);
         if (!cancelled) {
           setUser(null);
           setProfile(null);
+          setLoading(false);
         }
-      } finally {
-        if (!cancelled) setLoading(false);
       }
     };
     init();
-    const fallback = setTimeout(() => {
-      setLoading(false);
-    }, 8000);
-    return () => {
-      cancelled = true;
-      clearTimeout(fallback);
-    };
-  }, [fetchProfile]);
 
-  useEffect(() => {
+    // Listener para mudanças de estado (Login/Logout)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        if (cancelled) return;
+        
+        console.log("[Auth] Evento de autenticação:", event);
+
         if (event === 'SIGNED_OUT') {
           setUser(null);
           setProfile(null);
+          setLoading(false);
           return;
         }
-        // INITIAL_SESSION is handled by init(); skip to avoid double fetch
-        if (event === 'INITIAL_SESSION') return;
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          await fetchProfile(session.user);
+
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+          const newUser = session?.user ?? null;
+          setUser(newUser);
+          if (newUser) {
+            await fetchProfile(newUser);
+          }
         }
       }
     );
-    return () => subscription.unsubscribe();
+
+    const fallback = setTimeout(() => {
+      if (!cancelled) setLoading(false);
+    }, 10000);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(fallback);
+      subscription.unsubscribe();
+    };
   }, [fetchProfile]);
 
   useEffect(() => {

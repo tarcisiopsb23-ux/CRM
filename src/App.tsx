@@ -30,7 +30,7 @@ import AuditPage from "./pages/AuditPage";
 import NotFound from "./pages/NotFound";
 import ReportsPage from "./pages/ReportsPage";
 import { TimeClockPunchPage } from "./pages/TimeClockPunchPage";
-import { AppLayout } from "@/components/layout/AppLayout";
+import { TimeClockLockedPage } from "./pages/TimeClockLockedPage";
 import { DynamicFavicon } from "@/components/layout/DynamicFavicon";
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000 } } });
