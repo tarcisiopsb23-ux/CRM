@@ -66,13 +66,19 @@ export function InviteByEmailSection() {
       if (!token) throw new Error("Sessão expirada. Faça login novamente.");
 
       const fnUrl = `${SUPABASE_URL}/functions/v1/invite-by-email`;
+      console.log("Chamando Edge Function em:", fnUrl);
+      
       const res = await fetch(fnUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          "Authorization": `Bearer ${token}`,
+          "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY ?? ""
         },
         body: JSON.stringify({ email: trimmed }),
+      }).catch(err => {
+        console.error("Erro no fetch da Edge Function:", err);
+        throw new Error(`Falha na rede (Failed to fetch). Verifique se a Edge Function 'invite-by-email' foi implantada no Supabase e se o CORS está configurado corretamente.`);
       });
 
       const data = await res.json();
