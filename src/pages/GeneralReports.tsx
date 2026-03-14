@@ -1,7 +1,6 @@
 import { useState, useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -9,52 +8,15 @@ import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
 import { DollarSign, TrendingUp, Users, Target, FileText, Download, Filter } from "lucide-react";
+import { useOrganization } from "@/hooks/useOrganization";
+import { usePayments, useSupplierExpenses } from "@/hooks/useFinancial";
+import { useLeadsKanban } from "@/hooks/useLeadsKanban";
+import { useGoals } from "@/hooks/useGoalsCRUD";
+import { useTasksReport } from "@/hooks/useProjects";
+import { endOfMonth, startOfMonth, subMonths, format as fmtDate } from "date-fns";
 
 const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const COLORS = ["hsl(265 62% 46%)", "hsl(210 80% 52%)", "hsl(152 60% 42%)", "hsl(38 92% 50%)", "hsl(0 84% 60%)"];
-
-/* ── Mock data ─────────────────────────────────────────────── */
-const FINANCIAL_DATA = [
-  { month: "Set", receitas: 85000, despesas: 42000, lucro: 43000 },
-  { month: "Out", receitas: 98000, despesas: 48000, lucro: 50000 },
-  { month: "Nov", receitas: 210000, despesas: 65000, lucro: 145000 },
-  { month: "Dez", receitas: 125000, despesas: 55000, lucro: 70000 },
-  { month: "Jan", receitas: 142000, despesas: 60000, lucro: 82000 },
-  { month: "Fev", receitas: 157000, despesas: 62000, lucro: 95000 },
-];
-
-const SALES_BY_ORIGIN = [
-  { name: "Google Ads", value: 42 },
-  { name: "Facebook Ads", value: 28 },
-  { name: "Indicação", value: 18 },
-  { name: "Orgânico", value: 8 },
-  { name: "Outros", value: 4 },
-];
-
-const SALES_TABLE = [
-  { id: 1, client: "Empresa Alpha", service: "Gestão de Tráfego", value: 4500, status: "Fechado", origin: "Google Ads", responsible: "Ana Silva", date: "2026-02-01" },
-  { id: 2, client: "Beta Corp", service: "Social Media", value: 3200, status: "Fechado", origin: "Facebook Ads", responsible: "Bruno Oliveira", date: "2026-02-03" },
-  { id: 3, client: "Gamma Tech", service: "Desenvolvimento", value: 12000, status: "Em andamento", origin: "Indicação", responsible: "Carla Mendes", date: "2026-02-05" },
-  { id: 4, client: "Delta Solutions", service: "SEO", value: 2800, status: "Fechado", origin: "Orgânico", responsible: "Diego Costa", date: "2026-02-07" },
-  { id: 5, client: "Epsilon Ltda", service: "Gestão de Tráfego", value: 5500, status: "Cancelado", origin: "Google Ads", responsible: "Ana Silva", date: "2026-02-08" },
-  { id: 6, client: "Zeta Inc", service: "Consultoria", value: 8000, status: "Fechado", origin: "Facebook Ads", responsible: "Bruno Oliveira", date: "2026-02-10" },
-];
-
-const GOALS_DATA = [
-  { name: "Contratos fechados", achieved: 40, target: 50 },
-  { name: "Receita (R$ mil)", achieved: 157, target: 200 },
-  { name: "Leads gerados", achieved: 520, target: 600 },
-  { name: "Inadimplência (%)", achieved: 3.2, target: 5 },
-];
-
-const OPS_DATA = [
-  { month: "Set", tasks: 120, completed: 95 },
-  { month: "Out", tasks: 140, completed: 118 },
-  { month: "Nov", tasks: 180, completed: 160 },
-  { month: "Dez", tasks: 150, completed: 130 },
-  { month: "Jan", tasks: 165, completed: 148 },
-  { month: "Fev", tasks: 175, completed: 155 },
-];
 
 export default function GeneralReports() {
   const [reportType, setReportType] = useState("financial");
@@ -97,9 +59,30 @@ export default function GeneralReports() {
 }
 
 function FinancialReport() {
-  const totalReceitas = FINANCIAL_DATA.reduce((s, d) => s + d.receitas, 0);
-  const totalDespesas = FINANCIAL_DATA.reduce((s, d) => s + d.despesas, 0);
-  const totalLucro = FINANCIAL_DATA.reduce((s, d) => s + d.lucro, 0);
+  const organizationId = useOrganization();
+  const payments = usePayments(organizationId);
+  const expenses = useSupplierExpenses(organizationId);
+  const series = useMemo(() => {
+    if (!organizationId) return [];
+    const months = Array.from({ length: 6 }).map((_, i) => subMonths(new Date(), 5 - i));
+    const pRows = payments.data ?? [];
+    const eRows = expenses.data ?? [];
+    return months.map((d) => {
+      const from = fmtDate(startOfMonth(d), "yyyy-MM-dd");
+      const to = fmtDate(endOfMonth(d), "yyyy-MM-dd");
+      const receitas = pRows
+        .filter((r) => r.due_date >= from && r.due_date <= to)
+        .reduce((s, r) => s + Number(r.value ?? 0), 0);
+      const despesas = eRows
+        .filter((r) => r.due_date >= from && r.due_date <= to)
+        .reduce((s, r) => s + Number(r.value ?? 0), 0);
+      return { month: fmtDate(d, "LLL"), receitas, despesas, lucro: receitas - despesas };
+    });
+  }, [organizationId, payments.data, expenses.data]);
+  const isLoading = payments.isLoading || expenses.isLoading;
+  const totalReceitas = series.reduce((s, d) => s + d.receitas, 0);
+  const totalDespesas = series.reduce((s, d) => s + d.despesas, 0);
+  const totalLucro = series.reduce((s, d) => s + d.lucro, 0);
 
   return (
     <div className="space-y-6">
@@ -112,7 +95,7 @@ function FinancialReport() {
         <CardContent className="p-5">
           <h3 className="font-display font-semibold text-foreground mb-4">Receitas vs Despesas vs Lucro</h3>
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={FINANCIAL_DATA}>
+            <BarChart data={series}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 20% 90%)" />
               <XAxis dataKey="month" fontSize={12} />
               <YAxis fontSize={12} />
@@ -123,6 +106,7 @@ function FinancialReport() {
               <Bar dataKey="lucro" name="Lucro" fill="hsl(265 62% 46%)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
+          {isLoading ? <p className="text-xs text-muted-foreground mt-2">Carregando...</p> : null}
         </CardContent>
       </Card>
     </div>
@@ -130,6 +114,35 @@ function FinancialReport() {
 }
 
 function SalesReport() {
+  const organizationId = useOrganization();
+  type SalesRow = { id: string; client: string; service: string; value: number; origin: string; responsible: string; status: string };
+  type OriginSlice = { name: string; value: number };
+  // sales report needs full lead data for correct counts;
+  // includeConverted=true will keep records that were removed from the
+  // kanban/list views after becoming clients.
+  const { leads, loading } = useLeadsKanban(organizationId, { includeConverted: true });
+  const sales = useMemo(() => {
+    if (!organizationId) return { table: [] as SalesRow[], byOrigin: [] as OriginSlice[] };
+    const recent = [...(leads ?? [])]
+      .sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")))
+      .slice(0, 20);
+    const table: SalesRow[] = recent.map((r) => {
+      const statusRaw = r.etapa_kanban as string | undefined;
+      return {
+        id: String(r.id),
+        client: (r.company as string) || (r.name as string) || "-",
+        service: "—",
+        value: Number((r.value as number | undefined) ?? 0),
+        origin: (r.source as string | undefined) || "Outros",
+        responsible: "",
+        status: statusRaw === "efetivados" ? "Fechado" : (statusRaw ?? ""),
+      };
+    });
+    const originAgg: Record<string, number> = {};
+    for (const t of table) originAgg[t.origin] = (originAgg[t.origin] ?? 0) + 1;
+    const byOrigin: OriginSlice[] = Object.entries(originAgg).map(([name, value]) => ({ name, value }));
+    return { table, byOrigin };
+  }, [organizationId, leads]);
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -148,7 +161,7 @@ function SalesReport() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {SALES_TABLE.map((s) => (
+                {sales.table.map((s) => (
                   <TableRow key={s.id}>
                     <TableCell className="font-medium text-sm">{s.client}</TableCell>
                     <TableCell className="text-sm">{s.service}</TableCell>
@@ -172,9 +185,9 @@ function SalesReport() {
             <h3 className="font-display font-semibold text-foreground mb-4">Vendas por Origem</h3>
             <ResponsiveContainer width="100%" height={280}>
               <PieChart>
-                <Pie data={SALES_BY_ORIGIN} cx="50%" cy="50%" innerRadius={45} outerRadius={85} dataKey="value"
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
-                  {SALES_BY_ORIGIN.map((_, i) => <Cell key={i} fill={COLORS[i]} />)}
+                <Pie data={sales.byOrigin} cx="50%" cy="50%" innerRadius={45} outerRadius={85} dataKey="value"
+                  label={({ name, percent }: { name: string; percent: number }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                  {sales.byOrigin.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Pie>
                 <Tooltip />
               </PieChart>
@@ -187,13 +200,34 @@ function SalesReport() {
 }
 
 function OperationalReport() {
+  const organizationId = useOrganization();
+  const now = new Date();
+  const rangeFrom = startOfMonth(subMonths(now, 5)).toISOString();
+  const rangeTo = endOfMonth(now).toISOString();
+  const tasks = useTasksReport(organizationId, rangeFrom, rangeTo);
+  const series = useMemo(() => {
+    if (!organizationId) return [];
+    const months = Array.from({ length: 6 }).map((_, i) => subMonths(new Date(), 5 - i));
+    const rows = tasks.data ?? [];
+    return months.map((d) => {
+      const from = startOfMonth(d).toISOString();
+      const to = endOfMonth(d).toISOString();
+      const inMonth = rows.filter((t) => {
+        const ts = t.created_at ?? "";
+        return ts >= from && ts <= to;
+      });
+      const total = inMonth.length;
+      const completed = inMonth.filter((t) => t.status === "concluida").length;
+      return { month: fmtDate(d, "LLL"), tasks: total, completed };
+    });
+  }, [organizationId, tasks.data]);
   return (
     <div className="space-y-6">
       <Card>
         <CardContent className="p-5">
           <h3 className="font-display font-semibold text-foreground mb-4">Tarefas: Criadas vs Concluídas</h3>
           <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={OPS_DATA}>
+            <LineChart data={series}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 20% 90%)" />
               <XAxis dataKey="month" fontSize={12} />
               <YAxis fontSize={12} />
@@ -206,24 +240,37 @@ function OperationalReport() {
         </CardContent>
       </Card>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <KPI icon={FileText} label="Total tarefas (período)" value="930" accent="text-primary" />
-        <KPI icon={Target} label="Concluídas" value="806 (86.7%)" accent="text-emerald-600" />
-        <KPI icon={Users} label="Colaboradores ativos" value="6" accent="text-info" />
+        <KPI icon={FileText} label="Total tarefas (período)" value={series.reduce((s, d) => s + d.tasks, 0).toString()} accent="text-primary" />
+        <KPI icon={Target} label="Concluídas" value={series.reduce((s, d) => s + d.completed, 0).toString()} accent="text-emerald-600" />
+        <KPI icon={Users} label="Colaboradores ativos" value="—" accent="text-info" />
       </div>
     </div>
   );
 }
 
 function GoalsReport() {
+  const organizationId = useOrganization();
+  const goalsQuery = useGoals(organizationId);
+  const goals = useMemo(() => {
+    const rows = goalsQuery.data ?? [];
+    return [...rows]
+      .sort((a, b) => String(b.period_start ?? "").localeCompare(String(a.period_start ?? "")))
+      .slice(0, 8)
+      .map((g) => ({
+        name: g.title,
+        achieved: Number(g.current_value ?? 0),
+        target: Number(g.target_value ?? 0),
+      }));
+  }, [goalsQuery.data]);
   return (
     <div className="space-y-6">
       <Card>
         <CardContent className="p-5">
           <h3 className="font-display font-semibold text-foreground mb-4">Progresso das Metas</h3>
           <div className="space-y-4">
-            {GOALS_DATA.map((g) => {
+            {goals.map((g) => {
               const pctAchieved = Math.min((g.achieved / g.target) * 100, 100);
-              const isGood = g.name.includes("Inadimplência") ? g.achieved <= g.target : g.achieved >= g.target * 0.8;
+              const isGood = g.achieved >= g.target * 0.8;
               return (
                 <div key={g.name} className="space-y-1">
                   <div className="flex justify-between text-sm">
@@ -249,7 +296,7 @@ function GoalsReport() {
         <CardContent className="p-5">
           <h3 className="font-display font-semibold text-foreground mb-4">Comparativo de Metas</h3>
           <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={GOALS_DATA} layout="vertical">
+            <BarChart data={goals} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 20% 90%)" />
               <XAxis type="number" fontSize={12} />
               <YAxis type="category" dataKey="name" fontSize={12} width={140} />

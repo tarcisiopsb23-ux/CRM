@@ -1020,6 +1020,62 @@ export type Database = {
           },
         ]
       }
+      payroll_expenses: {
+        Row: {
+          base_salary: number
+          bonus: number
+          commission: number
+          created_at: string | null
+          discounts: number
+          id: string
+          organization_id: string
+          overtime: number
+          paid_at: string | null
+          reference_date: string
+          status: Database["public"]["Enums"]["payment_status"] | null
+          total_value: number
+          updated_at: string | null
+        }
+        Insert: {
+          base_salary?: number
+          bonus?: number
+          commission?: number
+          created_at?: string | null
+          discounts?: number
+          id?: string
+          organization_id: string
+          overtime?: number
+          paid_at?: string | null
+          reference_date: string
+          status?: Database["public"]["Enums"]["payment_status"] | null
+          total_value?: number
+          updated_at?: string | null
+        }
+        Update: {
+          base_salary?: number
+          bonus?: number
+          commission?: number
+          created_at?: string | null
+          discounts?: number
+          id?: string
+          organization_id?: string
+          overtime?: number
+          paid_at?: string | null
+          reference_date?: string
+          status?: Database["public"]["Enums"]["payment_status"] | null
+          total_value?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payroll_expenses_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -1892,6 +1948,28 @@ export type Database = {
           },
         ]
       }
+      audit_logs_view: {
+        Row: {
+          action: string | null
+          changed_at: string | null
+          changed_by: string | null
+          changed_by_name: string | null
+          changes: Json | null
+          id: string | null
+          organization_id: string | null
+          record_id: string | null
+          table_name: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_logs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       admin_profiles: {
         Row: {
           created_at: string | null
@@ -2093,14 +2171,23 @@ export type Database = {
         | "bloqueada"
       user_role: "owner" | "admin" | "manager" | "member" | "viewer"
       permission_module:
+        | "dashboard"
         | "kanban"
+        | "crm"
+        | "sales_analytics"
         | "clients"
         | "financial"
         | "projects"
         | "agenda"
         | "goals"
+        | "whatsapp"
+        | "meetings"
         | "team"
         | "settings"
+        | "reports"
+        | "campaigns"
+        | "audit"
+        | "timeclock"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -2294,14 +2381,23 @@ export const Constants = {
       ],
       user_role: ["owner", "admin", "manager", "member", "viewer"],
       permission_module: [
+        "dashboard",
         "kanban",
+        "crm",
+        "sales_analytics",
         "clients",
         "financial",
         "projects",
         "agenda",
         "goals",
+        "whatsapp",
+        "meetings",
         "team",
         "settings",
+        "reports",
+        "campaigns",
+        "audit",
+        "timeclock",
       ],
     },
   },

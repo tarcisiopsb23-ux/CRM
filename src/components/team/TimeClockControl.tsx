@@ -1,0 +1,743 @@
+import { useMemo, useState } from "react";
+import { format, startOfWeek, endOfWeek, parseISO } from "date-fns";
+import { useAuth } from "@/contexts/AuthContext";
+import { useOrganization } from "@/hooks/useOrganization";
+import { useProfiles } from "@/hooks/useProfiles";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/lib/supabase";
+import {
+  useRepPAdminActions,
+  useRepPAdminAuthorizeReentry,
+  useRepPAdminCorrectPunch,
+  useRepPAdminCreatePunch,
+  useRepPAdminVoidPunch,
+  useRepPPunches,
+  type RepPPunchRow,
+  type RepPPunchType,
+} from "@/hooks/useTimeClock";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { toast } from "@/components/ui/sonner";
+
+const TYPE_OPTIONS: Array<{ value: RepPPunchType; label: string }> = [
+  { value: "entrada", label: "Entrada" },
+  { value: "saida_intervalo", label: "Saída para intervalo" },
+  { value: "retorno_intervalo", label: "Retorno do intervalo" },
+  { value: "saida_final", label: "Saída final" },
+];
+
+function fmtDateTime(iso: string) {
+  try {
+    const d = new Date(iso);
+    return { date: format(d, "dd/MM/yyyy"), time: format(d, "HH:mm:ss") };
+  } catch {
+    return { date: iso, time: "" };
+  }
+}
+
+function shortHash(h?: string | null) {
+  if (!h) return "-";
+  if (h.length <= 14) return h;
+  return `${h.slice(0, 8)}…${h.slice(-6)}`;
+}
+
+type RepPWeeklyRow = {
+  user_id: string;
+  week_start: string;
+  weekly_worked_hours: number;
+  weekly_delay_minutes: number;
+  weekly_approved_overtime_minutes: number;
+  expected_weekly_hours: number;
+  weekly_balance_hours: number;
+  has_negative_hours: boolean;
+};
+
+type RepPMonthlyRow = {
+  organization_id: string;
+  user_id: string;
+  month_ref: string;
+  days_count: number;
+  total_worked_hours: number;
+  inconsistencies_count: number;
+  total_delay_minutes: number;
+  total_approved_overtime_minutes: number;
+  total_pending_overtime_minutes: number;
+};
+
+export function TimeClockControl() {
+  const orgId = useOrganization();
+  const { profile: me } = useAuth();
+  const { data: profiles = [] } = useProfiles(orgId);
+
+  const isAdmin = me?.role === "owner" || me?.role === "admin";
+
+  const [filterUser, setFilterUser] = useState<string>(isAdmin ? "all" : me?.id ?? "all");
+  const [filterFrom, setFilterFrom] = useState<string>(() => format(new Date(), "yyyy-MM-dd"));
+  const [filterTo, setFilterTo] = useState<string>(() => format(new Date(), "yyyy-MM-dd"));
+  const [filterStatus, setFilterStatus] = useState<"all" | "ativo" | "anulado" | "corrigido">("all");
+  const [filterType, setFilterType] = useState<"all" | RepPPunchType>("all");
+
+  const fromIso = useMemo(() => {
+    if (!filterFrom) return undefined;
+    return new Date(`${filterFrom}T00:00:00`).toISOString();
+  }, [filterFrom]);
+
+  const toIso = useMemo(() => {
+    if (!filterTo) return undefined;
+    return new Date(`${filterTo}T23:59:59`).toISOString();
+  }, [filterTo]);
+
+  const effectiveUserId = useMemo(() => {
+    if (!isAdmin) return me?.id;
+    return filterUser === "all" ? undefined : filterUser;
+  }, [filterUser, isAdmin, me?.id]);
+
+  const weeklyBalance = useQuery({
+    queryKey: ["rep_p", "weekly_balance", orgId, effectiveUserId, filterFrom, filterTo],
+    queryFn: async () => {
+      if (!orgId) return [] as RepPWeeklyRow[];
+      let q = supabase
+        .from("rep_p_weekly_report" as never)
+        .select("*")
+        .eq("organization_id", orgId)
+        .order("week_start", { ascending: false });
+      
+      if (effectiveUserId) q = q.eq("user_id", effectiveUserId);
+      
+      const { data, error } = await q;
+      if (error) throw error;
+      return (data ?? []) as unknown as RepPWeeklyRow[];
+    },
+    enabled: !!orgId,
+  });
+
+  const monthlyReport = useQuery({
+    queryKey: ["rep_p", "monthly_report", orgId, effectiveUserId],
+    queryFn: async () => {
+      if (!orgId) return [] as RepPMonthlyRow[];
+      let q = supabase
+        .from("rep_p_monthly_report" as never)
+        .select("*")
+        .eq("organization_id", orgId)
+        .order("month_ref", { ascending: false });
+      
+      if (effectiveUserId) q = q.eq("user_id", effectiveUserId);
+      
+      const { data, error } = await q;
+      if (error) throw error;
+      return (data ?? []) as unknown as RepPMonthlyRow[];
+    },
+    enabled: !!orgId,
+  });
+
+  const punches = useRepPPunches({
+    organizationId: orgId ?? undefined,
+    userId: effectiveUserId,
+    fromIso,
+    toIso,
+    status: filterStatus,
+    type: filterType,
+  });
+
+  const profileNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of profiles) map.set(p.id, p.full_name);
+    return map;
+  }, [profiles]);
+
+  const [selected, setSelected] = useState<RepPPunchRow | null>(null);
+  const selectedActions = useRepPAdminActions(selected?.id ?? null);
+
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm, setCreateForm] = useState<{
+    userId: string;
+    date: string;
+    time: string;
+    type: RepPPunchType;
+    justification: string;
+  }>({
+    userId: me?.id ?? "",
+    date: format(new Date(), "yyyy-MM-dd"),
+    time: format(new Date(), "HH:mm"),
+    type: "entrada",
+    justification: "",
+  });
+
+  const createPunch = useRepPAdminCreatePunch();
+
+  const submitCreate = async () => {
+    try {
+      if (!createForm.userId) throw new Error("Selecione um colaborador");
+      if (!createForm.date || !createForm.time) throw new Error("Informe data e horário");
+      if (!createForm.justification.trim()) throw new Error("Justificativa obrigatória");
+      const occurredAtIso = new Date(`${createForm.date}T${createForm.time}:00`).toISOString();
+      await createPunch.mutateAsync({
+        userId: createForm.userId,
+        occurredAtIso,
+        type: createForm.type,
+        justification: createForm.justification,
+      });
+      toast.success("Registro incluído");
+      setCreateOpen(false);
+      setCreateForm((p) => ({ ...p, justification: "" }));
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Erro ao incluir registro");
+    }
+  };
+
+  const [voidOpen, setVoidOpen] = useState(false);
+  const [voidJust, setVoidJust] = useState("");
+  const voidPunch = useRepPAdminVoidPunch();
+  const submitVoid = async () => {
+    if (!selected) return;
+    try {
+      if (!voidJust.trim()) throw new Error("Justificativa obrigatória");
+      await voidPunch.mutateAsync({ punchId: selected.id, justification: voidJust });
+      toast.success("Registro anulado");
+      setVoidOpen(false);
+      setVoidJust("");
+      setSelected((s) => (s ? { ...s, status: "anulado" } : s));
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Erro ao anular registro");
+    }
+  };
+
+  const [correctOpen, setCorrectOpen] = useState(false);
+  const [correctForm, setCorrectForm] = useState<{ date: string; time: string; type: RepPPunchType; justification: string }>(() => {
+    const now = new Date();
+    return { date: format(now, "yyyy-MM-dd"), time: format(now, "HH:mm"), type: "entrada", justification: "" };
+  });
+  const correctPunch = useRepPAdminCorrectPunch();
+  const submitCorrect = async () => {
+    if (!selected) return;
+    try {
+      if (!correctForm.justification.trim()) throw new Error("Justificativa obrigatória");
+      const newOccurredAtIso = new Date(`${correctForm.date}T${correctForm.time}:00`).toISOString();
+      await correctPunch.mutateAsync({
+        punchId: selected.id,
+        newOccurredAtIso,
+        newType: correctForm.type,
+        justification: correctForm.justification,
+      });
+      toast.success("Correção registrada");
+      setCorrectOpen(false);
+      setCorrectForm((p) => ({ ...p, justification: "" }));
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Erro ao corrigir registro");
+    }
+  };
+
+  const [authOpen, setAuthOpen] = useState(false);
+  const [authForm, setAuthForm] = useState<{ userId: string; forDate: string; justification: string }>(() => ({
+    userId: "",
+    forDate: format(new Date(), "yyyy-MM-dd"),
+    justification: "",
+  }));
+  const authorize = useRepPAdminAuthorizeReentry();
+  const submitAuth = async () => {
+    try {
+      if (!authForm.userId) throw new Error("Selecione um colaborador");
+      if (!authForm.justification.trim()) throw new Error("Justificativa obrigatória");
+      await authorize.mutateAsync({ userId: authForm.userId, forDate: authForm.forDate, justification: authForm.justification });
+      toast.success("Autorização registrada");
+      setAuthOpen(false);
+      setAuthForm((p) => ({ ...p, justification: "" }));
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Erro ao autorizar nova entrada");
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="font-display text-xl font-bold text-foreground">Controle de Ponto</h2>
+          <p className="text-sm text-muted-foreground">Registros imutáveis com histórico e rastreabilidade.</p>
+        </div>
+        {isAdmin && (
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setAuthOpen(true)}>
+              Autorizar nova entrada
+            </Button>
+            <Button onClick={() => setCreateOpen(true)}>Incluir registro</Button>
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+        {(filterUser !== "all" || !isAdmin) && (
+          <>
+            <StatCard 
+              label="Total Horas Trabalhadas" 
+              value={`${(weeklyBalance.data ?? []).reduce((s, w) => s + Number(w.weekly_worked_hours), 0).toFixed(1)}h`} 
+            />
+            <StatCard 
+              label="Saldo Total de Horas" 
+              value={`${(weeklyBalance.data ?? []).reduce((s, w) => s + Number(w.weekly_balance_hours), 0).toFixed(1)}h`} 
+              accent={(weeklyBalance.data ?? []).reduce((s, w) => s + Number(w.weekly_balance_hours), 0) < 0 ? "text-destructive" : "text-emerald-600"}
+            />
+          </>
+        )}
+        <StatCard 
+          label="Total Atrasos (Intervalo)" 
+          value={`${(weeklyBalance.data ?? []).reduce((s, w) => s + Number(w.weekly_delay_minutes), 0)} min`} 
+          accent="text-destructive"
+        />
+        <StatCard 
+          label="H. Extras Aprovadas" 
+          value={`${((monthlyReport.data ?? []).reduce((s, m) => s + Number(m.total_approved_overtime_minutes), 0) / 60).toFixed(1)}h`} 
+          accent="text-primary"
+        />
+        <StatCard 
+          label="Horas Negativas" 
+          value={`${(weeklyBalance.data ?? []).filter(w => w.weekly_balance_hours < 0).reduce((s, w) => s + Math.abs(Number(w.weekly_balance_hours)), 0).toFixed(1)}h`} 
+          accent="text-destructive"
+        />
+      </div>
+
+      {weeklyBalance.data && weeklyBalance.data.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          {weeklyBalance.data.slice(0, 4).map((w, idx) => (
+            <Card key={`${w.user_id}_${w.week_start}_${idx}`} className={w.has_negative_hours ? "border-destructive/50 bg-destructive/5" : ""}>
+              <CardContent className="p-4">
+                <p className="text-xs text-muted-foreground">Semana {format(parseISO(w.week_start), "dd/MM")}</p>
+                <div className="flex items-end justify-between mt-1">
+                  <div>
+                    <p className="text-lg font-bold">{w.weekly_worked_hours.toFixed(1)}h</p>
+                    <p className="text-[10px] text-muted-foreground">Meta: {w.expected_weekly_hours}h</p>
+                  </div>
+                  <Badge variant={w.has_negative_hours ? "destructive" : "default"} className="text-[10px]">
+                    {w.weekly_balance_hours > 0 ? `+${w.weekly_balance_hours}` : w.weekly_balance_hours}h
+                  </Badge>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <Card>
+        <CardHeader>
+          <p className="text-sm font-medium">Filtros</p>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 md:grid-cols-5 gap-3">
+          <div className="space-y-1">
+            <Label>Colaborador</Label>
+            <Select value={isAdmin ? filterUser : me?.id ?? "all"} onValueChange={setFilterUser} disabled={!isAdmin}>
+              <SelectTrigger>
+                <SelectValue placeholder="Colaborador" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                {profiles.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.full_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1">
+            <Label>Data inicial</Label>
+            <Input type="date" value={filterFrom} onChange={(e) => setFilterFrom(e.target.value)} />
+          </div>
+
+          <div className="space-y-1">
+            <Label>Data final</Label>
+            <Input type="date" value={filterTo} onChange={(e) => setFilterTo(e.target.value)} />
+          </div>
+
+          <div className="space-y-1">
+            <Label>Status</Label>
+            <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as typeof filterStatus)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="ativo">Ativo</SelectItem>
+                <SelectItem value="anulado">Anulado</SelectItem>
+                <SelectItem value="corrigido">Corrigido</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1">
+            <Label>Tipo</Label>
+            <Select value={filterType} onValueChange={(v) => setFilterType(v as typeof filterType)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                {TYPE_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Data</TableHead>
+                <TableHead>Hora</TableHead>
+                <TableHead>Colaborador</TableHead>
+                <TableHead>Tipo</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Origem</TableHead>
+                <TableHead>Hash</TableHead>
+                <TableHead className="text-right">Ações</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {punches.isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="py-6 text-center text-muted-foreground">
+                    Carregando...
+                  </TableCell>
+                </TableRow>
+              ) : punches.data?.length ? (
+                punches.data.map((r) => {
+                  const dt = fmtDateTime(r.occurred_at);
+                  const name = profileNameById.get(r.user_id) ?? r.user_id;
+                  const typeLabel = TYPE_OPTIONS.find((t) => t.value === r.punch_type)?.label ?? r.punch_type;
+                  return (
+                    <TableRow key={r.id}>
+                      <TableCell className="text-sm">{dt.date}</TableCell>
+                      <TableCell className="text-sm font-medium">{dt.time}</TableCell>
+                      <TableCell className="text-sm">{name}</TableCell>
+                      <TableCell className="text-sm">{typeLabel}</TableCell>
+                      <TableCell>
+                        <Badge variant={r.status === "ativo" ? "default" : "outline"}>{r.status}</Badge>
+                      </TableCell>
+                      <TableCell className="text-sm">{r.origin}</TableCell>
+                      <TableCell className="text-xs font-mono">{shortHash(r.integrity_hash)}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button variant="outline" size="sm" onClick={() => setSelected(r)}>
+                            Ver
+                          </Button>
+                          {isAdmin && r.status === "ativo" && (
+                            <>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setSelected(r);
+                                  setCorrectForm(() => {
+                                    const d = new Date(r.occurred_at);
+                                    return {
+                                      date: format(d, "yyyy-MM-dd"),
+                                      time: format(d, "HH:mm"),
+                                      type: r.punch_type,
+                                      justification: "",
+                                    };
+                                  });
+                                  setCorrectOpen(true);
+                                }}
+                              >
+                                Corrigir
+                              </Button>
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                onClick={() => {
+                                  setSelected(r);
+                                  setVoidJust("");
+                                  setVoidOpen(true);
+                                }}
+                              >
+                                Anular
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={8} className="py-6 text-center text-muted-foreground">
+                    Nenhum registro encontrado.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {selected ? (
+        <Card>
+          <CardHeader className="flex flex-row items-start justify-between gap-3">
+            <CardTitle className="text-base">Detalhes do registro</CardTitle>
+            <Button variant="outline" size="sm" onClick={() => setSelected(null)}>
+              Fechar
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <Card>
+                <CardContent className="p-4 space-y-1">
+                  <p className="text-xs text-muted-foreground">Colaborador</p>
+                  <p className="text-sm font-medium">{profileNameById.get(selected.user_id) ?? selected.user_id}</p>
+                  <p className="text-xs text-muted-foreground mt-2">Tipo</p>
+                  <p className="text-sm">{TYPE_OPTIONS.find((t) => t.value === selected.punch_type)?.label ?? selected.punch_type}</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4 space-y-1">
+                  <p className="text-xs text-muted-foreground">Data/Hora</p>
+                  <p className="text-sm font-medium">{fmtDateTime(selected.occurred_at).date} {fmtDateTime(selected.occurred_at).time}</p>
+                  <p className="text-xs text-muted-foreground mt-2">Origem</p>
+                  <p className="text-sm">{selected.origin}</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4 space-y-1">
+                  <p className="text-xs text-muted-foreground">Status</p>
+                  <p className="text-sm font-medium">{selected.status}</p>
+                  <p className="text-xs text-muted-foreground mt-2">Hash</p>
+                  <p className="text-xs font-mono break-all">{selected.integrity_hash}</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card>
+              <CardHeader>
+                <p className="text-sm font-medium">Histórico de alterações</p>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {selectedActions.isLoading ? (
+                  <p className="text-sm text-muted-foreground">Carregando...</p>
+                ) : selectedActions.data?.length ? (
+                  <div className="space-y-2">
+                    {selectedActions.data.map((a) => (
+                      <div key={a.id} className="rounded border p-3">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-medium">{a.action_type}</p>
+                          <p className="text-xs text-muted-foreground">{fmtDateTime(a.action_at).date} {fmtDateTime(a.action_at).time}</p>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">{a.justification}</p>
+                        <p className="text-xs font-mono break-all mt-2">{a.integrity_hash}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <Alert>
+                    <AlertTitle>Sem alterações</AlertTitle>
+                    <AlertDescription>Este registro não possui ações administrativas.</AlertDescription>
+                  </Alert>
+                )}
+              </CardContent>
+            </Card>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Incluir registro</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>Colaborador</Label>
+              <Select value={createForm.userId} onValueChange={(v) => setCreateForm((p) => ({ ...p, userId: v }))}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Colaborador" />
+                </SelectTrigger>
+                <SelectContent>
+                  {profiles.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.full_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label>Data</Label>
+                <Input type="date" value={createForm.date} onChange={(e) => setCreateForm((p) => ({ ...p, date: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label>Horário</Label>
+                <Input type="time" value={createForm.time} onChange={(e) => setCreateForm((p) => ({ ...p, time: e.target.value }))} />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label>Tipo</Label>
+              <Select value={createForm.type} onValueChange={(v) => setCreateForm((p) => ({ ...p, type: v as RepPPunchType }))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TYPE_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Justificativa</Label>
+              <Input
+                value={createForm.justification}
+                onChange={(e) => setCreateForm((p) => ({ ...p, justification: e.target.value }))}
+                placeholder="Obrigatória para inclusão/alteração administrativa"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)} disabled={createPunch.isPending}>
+              Cancelar
+            </Button>
+            <Button onClick={submitCreate} disabled={createPunch.isPending}>
+              {createPunch.isPending ? "Salvando..." : "Salvar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={voidOpen} onOpenChange={setVoidOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Anular registro</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">A anulação não apaga o registro; cria uma ação administrativa imutável.</p>
+            <div className="space-y-1">
+              <Label>Justificativa</Label>
+              <Input value={voidJust} onChange={(e) => setVoidJust(e.target.value)} placeholder="Obrigatória" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVoidOpen(false)} disabled={voidPunch.isPending}>
+              Cancelar
+            </Button>
+            <Button variant="destructive" onClick={submitVoid} disabled={voidPunch.isPending}>
+              {voidPunch.isPending ? "Anulando..." : "Confirmar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={correctOpen} onOpenChange={setCorrectOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Corrigir registro</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label>Data</Label>
+                <Input type="date" value={correctForm.date} onChange={(e) => setCorrectForm((p) => ({ ...p, date: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label>Horário</Label>
+                <Input type="time" value={correctForm.time} onChange={(e) => setCorrectForm((p) => ({ ...p, time: e.target.value }))} />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label>Tipo</Label>
+              <Select value={correctForm.type} onValueChange={(v) => setCorrectForm((p) => ({ ...p, type: v as RepPPunchType }))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TYPE_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Justificativa</Label>
+              <Input value={correctForm.justification} onChange={(e) => setCorrectForm((p) => ({ ...p, justification: e.target.value }))} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCorrectOpen(false)} disabled={correctPunch.isPending}>
+              Cancelar
+            </Button>
+            <Button onClick={submitCorrect} disabled={correctPunch.isPending}>
+              {correctPunch.isPending ? "Salvando..." : "Salvar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={authOpen} onOpenChange={setAuthOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Autorizar nova entrada</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>Colaborador</Label>
+              <Select value={authForm.userId} onValueChange={(v) => setAuthForm((p) => ({ ...p, userId: v }))}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Colaborador" />
+                </SelectTrigger>
+                <SelectContent>
+                  {profiles.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.full_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Data</Label>
+              <Input type="date" value={authForm.forDate} onChange={(e) => setAuthForm((p) => ({ ...p, forDate: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label>Justificativa</Label>
+              <Input value={authForm.justification} onChange={(e) => setAuthForm((p) => ({ ...p, justification: e.target.value }))} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAuthOpen(false)} disabled={authorize.isPending}>
+              Cancelar
+            </Button>
+            <Button onClick={submitAuth} disabled={authorize.isPending}>
+              {authorize.isPending ? "Salvando..." : "Salvar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function StatCard({ label, value, accent }: { label: string; value: string; accent?: string }) {
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className={`text-lg font-bold ${accent ?? ""}`}>{value}</p>
+      </CardContent>
+    </Card>
+  );
+}

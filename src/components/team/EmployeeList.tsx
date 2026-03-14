@@ -10,6 +10,7 @@ import { ROLES } from "./mockData";
 import { EmployeeFormModal } from "./EmployeeFormModal";
 import { EmployeeDetailModal } from "./EmployeeDetailModal";
 import { Plus, Search, Pencil, Trash2, Eye } from "lucide-react";
+import { formatBRL } from "@/lib/formatters";
 
 interface Props {
   employees: Employee[];
@@ -49,7 +50,7 @@ export function EmployeeList({ employees, onUpdate, payrollData, teams }: Props)
     onUpdate(employees.filter((e) => e.id !== id));
   };
 
-  const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  const fmt = (v: number) => formatBRL(v);
 
   return (
     <div className="space-y-4">

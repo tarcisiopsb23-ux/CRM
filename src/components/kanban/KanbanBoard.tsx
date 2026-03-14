@@ -94,7 +94,7 @@ export function KanbanBoard({
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <div className="flex gap-4 overflow-x-auto pb-4">
+      <div className="flex gap-4 overflow-x-auto pb-4 min-h-[500px] h-[calc(100vh-280px)] kanban-board-container">
         {ETAPAS_KANBAN.map(({ id, label }) => (
           <LeadsKanbanColumn
             key={id}
@@ -107,7 +107,7 @@ export function KanbanBoard({
       </div>
       <DragOverlay>
         {activeLead ? (
-          <div className="opacity-95 rotate-2 scale-105">
+          <div className="opacity-95 rotate-2 scale-105 pointer-events-none">
             <LeadCard lead={activeLead} onDetalhes={onDetalhes} isDragging />
           </div>
         ) : null}

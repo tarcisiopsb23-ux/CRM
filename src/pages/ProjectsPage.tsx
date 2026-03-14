@@ -1,8 +1,14 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useProjects, useTasks } from "@/hooks/useProjects";
+import { useTeams } from "@/hooks/useTeams";
+import { useProfiles } from "@/hooks/useProfiles";
+import { useModulePermission } from "@/hooks/usePermissions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Progress } from "@/components/ui/progress";
 import {
   Dialog,
   DialogContent,
@@ -12,30 +18,218 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Plus, Loader2, FolderKanban } from "lucide-react";
-import { format } from "date-fns";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Plus, Loader2, FolderKanban, LayoutList, CalendarDays, Columns3, ArrowLeft, ArrowRight } from "lucide-react";
+import { addMonths, differenceInCalendarDays, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameMonth, startOfDay, startOfMonth, startOfWeek, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
+type ProjectAppliedTo = "agency" | "team" | "collaborator";
+type ProjectsViewMode = "list" | "calendar" | "kanban";
+
+const clampProgress = (v: number) => Math.max(0, Math.min(100, v));
+const computeTasksProgress = (tasks: Array<{ status?: string | null; progress?: number | null }>) => {
+  if (tasks.length === 0) return 0;
+  const sum = tasks.reduce((acc, t) => {
+    if (t.status === "concluida") return acc + 100;
+    const p = typeof t.progress === "number" ? t.progress : 0;
+    return acc + clampProgress(p);
+  }, 0);
+  return Math.round(sum / tasks.length);
+};
+
 export default function ProjectsPage() {
+  const navigate = useNavigate();
   const organizationId = useOrganization();
   const { data: projects = [], isLoading, create } = useProjects(organizationId);
+  const projectsPermission = useModulePermission("projects");
+  const teamsQuery = useTeams(organizationId);
+  const profilesQuery = useProfiles(organizationId);
+  const [viewMode, setViewMode] = useState<ProjectsViewMode>("list");
+  const [calendarMonth, setCalendarMonth] = useState(() => startOfMonth(new Date()));
   const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState({ title: "", description: "", start_date: "", end_date: "" });
+  const [form, setForm] = useState({
+    title: "",
+    description: "",
+    status: "em_andamento",
+    start_date: "",
+    end_date: "",
+    applied_to: (projectsPermission.isAdminOrOwner ? "agency" : "team") as ProjectAppliedTo,
+    team_id: "none",
+    assigned_to: "none",
+  });
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const teams = useMemo(() => teamsQuery.data ?? [], [teamsQuery.data]);
+  const profiles = useMemo(() => profilesQuery.data ?? [], [profilesQuery.data]);
+
+  const teamNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const t of teams) m.set(t.id, t.name);
+    return m;
+  }, [teams]);
+
+  const profileNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of profiles) m.set(p.id, p.full_name);
+    return m;
+  }, [profiles]);
+
+  const resolveResponsibleLabel = (p: (typeof projects)[number]) => {
+    const assignedTo = (p as unknown as { assigned_to?: string | null }).assigned_to ?? null;
+    const teamId = (p as unknown as { team_id?: string | null }).team_id ?? null;
+    if (assignedTo) return profileNameById.get(assignedTo) ?? "Colaborador";
+    if (teamId) return teamNameById.get(teamId) ?? "Equipe";
+    return "Agência";
+  };
+
+  const normalizeProjectStatus = (status: string) => {
+    if (status === "ativo") return "em_andamento";
+    if (status === "parado") return "bloqueada";
+    if (status === "concluido") return "concluida";
+    return status;
+  };
+
+  const projectStatusLabel = (status: string) => {
+    const s = normalizeProjectStatus(status);
+    const labels: Record<string, string> = {
+      backlog: "Não iniciado",
+      em_andamento: "Em andamento",
+      em_revisao: "Em revisão",
+      bloqueada: "Parado",
+      concluida: "Concluído",
+    };
+    return labels[s] ?? status;
+  };
+
+  const todayStart = useMemo(() => startOfDay(new Date()), []);
+
+  const alerts = useMemo(() => {
+    const overdue: Array<{ id: string; title: string; end: Date; status: string }> = [];
+    const dueSoon: Array<{ id: string; title: string; end: Date; status: string; diff: number }> = [];
+
+    for (const p of projects) {
+      const endRaw = (p as unknown as { end_date?: string | null }).end_date ?? null;
+      if (!endRaw) continue;
+      const end = new Date(endRaw);
+      if (Number.isNaN(end.getTime())) continue;
+
+      const rawStatus = String((p as unknown as { status?: string | null }).status ?? "em_andamento");
+      const normalized = normalizeProjectStatus(rawStatus);
+      if (normalized === "concluida") continue;
+
+      const diff = differenceInCalendarDays(end, todayStart);
+      if (diff < 0) {
+        overdue.push({ id: String((p as { id?: string }).id ?? ""), title: String(p.title ?? "Projeto"), end, status: normalized });
+      } else if (diff <= 7) {
+        dueSoon.push({ id: String((p as { id?: string }).id ?? ""), title: String(p.title ?? "Projeto"), end, status: normalized, diff });
+      }
+    }
+
+    overdue.sort((a, b) => a.end.getTime() - b.end.getTime());
+    dueSoon.sort((a, b) => a.end.getTime() - b.end.getTime());
+
+    return { overdue, dueSoon };
+  }, [projects, todayStart]);
+
+  const calendarDays = useMemo(() => {
+    const start = startOfWeek(startOfMonth(calendarMonth), { weekStartsOn: 1 });
+    const end = endOfWeek(endOfMonth(calendarMonth), { weekStartsOn: 1 });
+    return eachDayOfInterval({ start, end });
+  }, [calendarMonth]);
+
+  const projectsByEndDate = useMemo(() => {
+    const map = new Map<string, Array<(typeof projects)[number]>>();
+    for (const p of projects) {
+      const end = (p as unknown as { end_date?: string | null }).end_date ?? null;
+      if (!end) continue;
+      const key = String(end).slice(0, 10);
+      if (!key) continue;
+      const list = map.get(key) ?? [];
+      list.push(p);
+      map.set(key, list);
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => String(a.title ?? "").localeCompare(String(b.title ?? "")));
+    }
+    return map;
+  }, [projects]);
+
+  const kanbanColumns = useMemo(() => {
+    const cols: Array<{ key: string; label: string; items: Array<(typeof projects)[number]> }> = [
+      { key: "backlog", label: "Não iniciado", items: [] },
+      { key: "em_andamento", label: "Em andamento", items: [] },
+      { key: "em_revisao", label: "Em revisão", items: [] },
+      { key: "bloqueada", label: "Parado", items: [] },
+      { key: "concluida", label: "Concluído", items: [] },
+    ];
+    const byKey = new Map(cols.map((c) => [c.key, c]));
+    for (const p of projects) {
+      const raw = String((p as unknown as { status?: string | null }).status ?? "em_andamento");
+      const normalized = normalizeProjectStatus(raw);
+      const col = byKey.get(normalized) ?? byKey.get("em_andamento");
+      col?.items.push(p);
+    }
+    for (const c of cols) {
+      c.items.sort((a, b) => String(a.title ?? "").localeCompare(String(b.title ?? "")));
+    }
+    return cols;
+  }, [projects]);
+
+  const applyTargetToFields = () => {
+    if (form.applied_to === "agency") {
+      setForm((p) => ({ ...p, team_id: "none", assigned_to: "none" }));
+    } else if (form.applied_to === "team") {
+      setForm((p) => ({ ...p, assigned_to: "none" }));
+    } else if (form.applied_to === "collaborator") {
+      setForm((p) => ({ ...p, team_id: "none" }));
+    }
+  };
+
+  const toDelegationPayload = () => {
+    if (form.applied_to === "team") {
+      return { team_id: form.team_id === "none" ? null : form.team_id, assigned_to: null };
+    }
+    if (form.applied_to === "collaborator") {
+      return { team_id: null, assigned_to: form.assigned_to === "none" ? null : form.assigned_to };
+    }
+    return { team_id: null, assigned_to: null };
+  };
+
+  const resetForm = () => {
+    setForm({
+      title: "",
+      description: "",
+      status: "em_andamento",
+      start_date: "",
+      end_date: "",
+      applied_to: projectsPermission.isAdminOrOwner ? "agency" : "team",
+      team_id: "none",
+      assigned_to: "none",
+    });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitting(true);
+    setSubmitError(null);
     try {
+      applyTargetToFields();
       await create.mutateAsync({
         title: form.title,
         description: form.description || null,
         start_date: form.start_date || new Date().toISOString().slice(0, 10),
-        end_date: form.end_date || null,
-        status: "ativo",
+        end_date: form.end_date || (normalizeProjectStatus(form.status) === "concluida" ? new Date().toISOString().slice(0, 10) : null),
+        status: normalizeProjectStatus(form.status),
+        ...toDelegationPayload(),
       });
       setModalOpen(false);
-      setForm({ title: "", description: "", start_date: "", end_date: "" });
+      resetForm();
     } catch (err) {
-      console.error(err);
+      const msg = err instanceof Error ? err.message : "Erro ao criar projeto";
+      setSubmitError(msg);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -56,41 +250,256 @@ export default function ProjectsPage() {
             Controle de projetos e tarefas (Gantt em evolução)
           </p>
         </div>
-        <Button onClick={() => setModalOpen(true)}>
+        <Button onClick={() => setModalOpen(true)} disabled={!projectsPermission.canCreate}>
           <Plus className="h-4 w-4 mr-2" />
           Novo projeto
         </Button>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Lista de projetos</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Carregando...
-            </div>
-          ) : projects.length === 0 ? (
-            <p className="text-muted-foreground">Nenhum projeto cadastrado. Crie um novo projeto para começar.</p>
-          ) : (
-            <div className="space-y-2">
-              {projects.map((p) => (
-                <ProjectRow
-                  key={p.id}
-                  projectId={p.id}
-                  organizationId={organizationId}
-                  title={p.title}
-                  startDate={p.start_date}
-                  endDate={p.end_date}
-                  status={p.status}
-                />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
+        <Card className="h-full">
+          <CardHeader>
+            <CardTitle className="text-base">Próximos a vencer</CardTitle>
+          </CardHeader>
+          <CardContent className="h-full flex flex-col">
+            {isLoading ? (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Carregando...
+              </div>
+            ) : alerts.dueSoon.length === 0 ? (
+              <div className="text-sm text-muted-foreground">Nenhum projeto próximo a vencer.</div>
+            ) : (
+              <>
+                <div className="space-y-2 flex-1">
+                  {alerts.dueSoon.slice(0, 6).map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => navigate(`/projects/${p.id}`)}
+                      className="w-full text-left p-3 rounded-lg border border-border hover:bg-muted/50"
+                    >
+                      <div className="font-medium truncate">{p.title}</div>
+                      <div className="text-xs text-muted-foreground">
+                        Vence em {p.diff} dia(s) • {format(p.end, "dd/MM/yyyy", { locale: ptBR })}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                {alerts.dueSoon.length > 6 ? (
+                  <div className="pt-3">
+                    <Button variant="outline" size="sm" onClick={() => setViewMode("calendar")}>
+                      Ver todos no calendário
+                    </Button>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="h-full">
+          <CardHeader>
+            <CardTitle className="text-base">Vencidos</CardTitle>
+          </CardHeader>
+          <CardContent className="h-full flex flex-col">
+            {isLoading ? (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Carregando...
+              </div>
+            ) : alerts.overdue.length === 0 ? (
+              <div className="text-sm text-muted-foreground">Nenhum projeto vencido.</div>
+            ) : (
+              <>
+                <div className="space-y-2 flex-1">
+                  {alerts.overdue.slice(0, 6).map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => navigate(`/projects/${p.id}`)}
+                      className="w-full text-left p-3 rounded-lg border border-border hover:bg-muted/50"
+                    >
+                      <div className="font-medium truncate text-red-600">{p.title}</div>
+                      <div className="text-xs text-muted-foreground">
+                        Venceu em {format(p.end, "dd/MM/yyyy", { locale: ptBR })}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                {alerts.overdue.length > 6 ? (
+                  <div className="pt-3">
+                    <Button variant="outline" size="sm" onClick={() => setViewMode("calendar")}>
+                      Ver todos no calendário
+                    </Button>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ProjectsViewMode)}>
+        <TabsList>
+          <TabsTrigger value="list" className="gap-2">
+            <LayoutList className="h-4 w-4" />
+            Em linha
+          </TabsTrigger>
+          <TabsTrigger value="calendar" className="gap-2">
+            <CalendarDays className="h-4 w-4" />
+            Calendário
+          </TabsTrigger>
+          <TabsTrigger value="kanban" className="gap-2">
+            <Columns3 className="h-4 w-4" />
+            Kanban
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="list">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Lista de projetos</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {isLoading ? (
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Carregando...
+                </div>
+              ) : projects.length === 0 ? (
+                <p className="text-muted-foreground">Nenhum projeto cadastrado. Crie um novo projeto para começar.</p>
+              ) : (
+                <div className="space-y-2">
+                  {projects.map((p) => (
+                    <ProjectRow
+                      key={p.id}
+                      projectId={p.id}
+                      title={p.title}
+                      startDate={(p as unknown as { start_date?: string | null }).start_date ?? ""}
+                      endDate={(p as unknown as { end_date?: string | null }).end_date ?? null}
+                      status={projectStatusLabel(String((p as unknown as { status?: string | null }).status ?? ""))}
+                      responsible={resolveResponsibleLabel(p)}
+                      onOpen={() => navigate(`/projects/${p.id}`)}
+                    />
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="calendar">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-base">Calendário de projetos</CardTitle>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 w-8 p-0"
+                  onClick={() => setCalendarMonth((d) => subMonths(d, 1))}
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+                <div className="text-sm font-medium w-[160px] text-center">
+                  {format(calendarMonth, "MMMM yyyy", { locale: ptBR })}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 w-8 p-0"
+                  onClick={() => setCalendarMonth((d) => addMonths(d, 1))}
+                >
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-7 gap-2 text-xs text-muted-foreground mb-2">
+                {["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"].map((d) => (
+                  <div key={d} className="text-center">{d}</div>
+                ))}
+              </div>
+              <div className="grid grid-cols-7 gap-2">
+                {calendarDays.map((day) => {
+                  const key = format(day, "yyyy-MM-dd");
+                  const items = projectsByEndDate.get(key) ?? [];
+                  const muted = !isSameMonth(day, calendarMonth);
+                  const isPastDay = day < todayStart;
+                  return (
+                    <div
+                      key={key}
+                      className={`min-h-[120px] rounded-lg border border-border p-2 ${muted ? "opacity-50" : ""}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs font-medium">{format(day, "d")}</div>
+                        <div className="text-[10px] text-muted-foreground">{items.length > 0 ? `${items.length}` : ""}</div>
+                      </div>
+                      <div className="mt-2 space-y-2">
+                        {items.slice(0, 3).map((p) => (
+                          (() => {
+                            const rawStatus = String((p as unknown as { status?: string | null }).status ?? "em_andamento");
+                            const normalized = normalizeProjectStatus(rawStatus);
+                            const overdue = isPastDay && normalized !== "concluida";
+                            return (
+                          <ProjectMiniCard
+                            key={p.id}
+                            projectId={p.id}
+                            title={p.title}
+                            overdue={overdue}
+                            onOpen={() => navigate(`/projects/${p.id}`)}
+                          />
+                            );
+                          })()
+                        ))}
+                        {items.length > 3 ? (
+                          <div className="text-[10px] text-muted-foreground">+{items.length - 3}...</div>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="kanban">
+          <div className="overflow-x-auto">
+            <div className="flex gap-4 min-w-[900px]">
+              {kanbanColumns.map((col) => (
+                <div key={col.key} className="w-[320px] shrink-0">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">
+                        {col.label} <span className="text-xs text-muted-foreground">({col.items.length})</span>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      {col.items.length === 0 ? (
+                        <div className="text-sm text-muted-foreground py-6 text-center border border-dashed rounded-lg">
+                          Sem projetos
+                        </div>
+                      ) : (
+                        col.items.map((p) => (
+                          <ProjectKanbanCard
+                            key={p.id}
+                            projectId={p.id}
+                            title={p.title}
+                            endDate={(p as unknown as { end_date?: string | null }).end_date ?? null}
+                            onOpen={() => navigate(`/projects/${p.id}`)}
+                          />
+                        ))
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
               ))}
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </div>
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent>
@@ -115,6 +524,20 @@ export default function ProjectsPage() {
                 placeholder="Descrição"
               />
             </div>
+            <div>
+              <Label>Status</Label>
+              <Select value={form.status} onValueChange={(v) => setForm((p) => ({ ...p, status: v }))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="backlog">Não iniciado</SelectItem>
+                  <SelectItem value="em_andamento">Em andamento</SelectItem>
+                  <SelectItem value="bloqueada">Parado</SelectItem>
+                  <SelectItem value="concluida" disabled={!projectsPermission.isAdminOrOwner}>Concluído</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Data início</Label>
@@ -133,10 +556,71 @@ export default function ProjectsPage() {
                 />
               </div>
             </div>
+            <div>
+              <Label>Aplicada a</Label>
+              <Select
+                value={form.applied_to}
+                onValueChange={(v) => setForm((p) => ({ ...p, applied_to: v as ProjectAppliedTo }))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {projectsPermission.isAdminOrOwner && <SelectItem value="agency">Agência</SelectItem>}
+                  <SelectItem value="team">Equipe</SelectItem>
+                  <SelectItem value="collaborator">Colaborador</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {form.applied_to === "team" && (
+              <div>
+                <Label>Equipe</Label>
+                <Select value={form.team_id} onValueChange={(v) => setForm((p) => ({ ...p, team_id: v }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Selecione</SelectItem>
+                    {teams.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {form.applied_to === "collaborator" && (
+              <div>
+                <Label>Responsável</Label>
+                <Select value={form.assigned_to} onValueChange={(v) => setForm((p) => ({ ...p, assigned_to: v }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Selecione</SelectItem>
+                    {profiles.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.full_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {submitError && (
+              <div className="bg-destructive/10 border border-destructive text-destructive text-sm p-3 rounded">
+                {submitError}
+              </div>
+            )}
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Cancelar</Button>
-              <Button type="submit" disabled={create.isPending}>
-                {create.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              <Button type="button" variant="outline" onClick={() => {
+                setModalOpen(false);
+                setSubmitError(null);
+                resetForm();
+              }}>Cancelar</Button>
+              <Button type="submit" disabled={!projectsPermission.canCreate || submitting || create.isPending}>
+                {(submitting || create.isPending) && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 Criar
               </Button>
             </DialogFooter>
@@ -149,34 +633,117 @@ export default function ProjectsPage() {
 
 function ProjectRow({
   projectId,
-  organizationId,
   title,
   startDate,
   endDate,
   status,
+  responsible,
+  onOpen,
 }: {
   projectId: string;
-  organizationId: string | undefined;
   title: string;
   startDate: string;
   endDate: string | null;
   status: string;
+  responsible: string;
+  onOpen: () => void;
 }) {
-  const { data: tasks = [] } = useTasks(projectId, organizationId);
+  const { data: tasks = [] } = useTasks(projectId);
+  const progress = useMemo(() => computeTasksProgress(tasks), [tasks]);
+  const startOk = startDate ? new Date(startDate) : null;
+  const endOk = endDate ? new Date(endDate) : null;
   return (
-    <div className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/50">
+    <button
+      type="button"
+      onClick={onOpen}
+      className="w-full flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/50 text-left"
+    >
       <div className="flex items-center gap-3">
         <FolderKanban className="h-5 w-5 text-muted-foreground" />
         <div>
           <p className="font-medium">{title}</p>
           <p className="text-sm text-muted-foreground">
-            {format(new Date(startDate), "dd/MM/yyyy", { locale: ptBR })}
-            {endDate && ` – ${format(new Date(endDate), "dd/MM/yyyy", { locale: ptBR })}`}
-            {" • "}{tasks.length} tarefa(s)
+            {startOk && !Number.isNaN(startOk.getTime()) ? format(startOk, "dd/MM/yyyy", { locale: ptBR }) : "—"}
+            {endOk && !Number.isNaN(endOk.getTime()) ? ` – ${format(endOk, "dd/MM/yyyy", { locale: ptBR })}` : ""}
+            {" • "}{responsible}{" • "}{tasks.length} tarefa(s)
           </p>
+          <div className="mt-2 flex items-center gap-3">
+            <div className="w-[160px]">
+              <Progress value={progress} className="h-2" />
+            </div>
+            <div className="text-xs text-muted-foreground tabular-nums">{progress}%</div>
+          </div>
         </div>
       </div>
-      <span className="text-xs text-muted-foreground">{status}</span>
-    </div>
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-muted-foreground">{status}</span>
+      </div>
+    </button>
+  );
+}
+
+function ProjectMiniCard({
+  projectId,
+  title,
+  overdue,
+  onOpen,
+}: {
+  projectId: string;
+  title: string;
+  overdue: boolean;
+  onOpen: () => void;
+}) {
+  const { data: tasks = [] } = useTasks(projectId);
+  const progress = useMemo(() => computeTasksProgress(tasks), [tasks]);
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="w-full text-left rounded border border-border bg-muted/20 hover:bg-muted/40 p-2"
+    >
+      <div className={`text-xs font-medium truncate ${overdue ? "text-red-600" : ""}`}>{title}</div>
+      <div className="mt-2 flex items-center gap-2">
+        <div className="flex-1">
+          <Progress value={progress} className="h-1.5" />
+        </div>
+        <div className="text-[10px] text-muted-foreground tabular-nums">{progress}%</div>
+      </div>
+    </button>
+  );
+}
+
+function ProjectKanbanCard({
+  projectId,
+  title,
+  endDate,
+  onOpen,
+}: {
+  projectId: string;
+  title: string;
+  endDate: string | null;
+  onOpen: () => void;
+}) {
+  const { data: tasks = [] } = useTasks(projectId);
+  const progress = useMemo(() => computeTasksProgress(tasks), [tasks]);
+  const endOk = endDate ? new Date(endDate) : null;
+  const endLabel = endOk && !Number.isNaN(endOk.getTime()) ? format(endOk, "dd/MM", { locale: ptBR }) : null;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="w-full text-left p-3 rounded-lg border border-border hover:bg-muted/50"
+    >
+      <div className="font-medium text-sm truncate">{title}</div>
+      <div className="mt-1 text-xs text-muted-foreground">
+        {endLabel ? `Fim: ${endLabel}` : "Sem prazo"}
+        {" • "}{tasks.length} tarefa(s)
+      </div>
+      <div className="mt-2 flex items-center gap-3">
+        <div className="flex-1">
+          <Progress value={progress} className="h-2" />
+        </div>
+        <div className="text-xs text-muted-foreground tabular-nums">{progress}%</div>
+      </div>
+    </button>
   );
 }

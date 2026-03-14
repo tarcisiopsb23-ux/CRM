@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { toJson } from "@/lib/supabase-utils";
 
 export type GoalIndicator = "inadimplencia" | "efetivacoes" | "faturamento" | "numero_contatos" | "outro";
 export type GoalPeriod = "diario" | "semanal" | "mensal" | "trimestral" | "anual";
@@ -18,6 +19,7 @@ export interface Goal {
   period_start: string;
   period_end: string;
   indicator: GoalIndicator | null;
+  metadata: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 }
@@ -44,9 +46,11 @@ export function useGoals(organizationId: string | undefined) {
         Partial<Omit<Goal, "title" | "period" | "period_start" | "period_end" | "target_value">>
     ) => {
       if (!organizationId) throw new Error("Sem organização");
+      const { metadata, ...rest } = input;
+      const payload = { ...rest, organization_id: organizationId, ...(metadata !== undefined && { metadata: toJson(metadata) }) };
       const { data, error } = await supabase
         .from("goals")
-        .insert({ ...input, organization_id: organizationId })
+        .insert(payload)
         .select()
         .single();
       if (error) throw error;
@@ -56,7 +60,9 @@ export function useGoals(organizationId: string | undefined) {
   });
   const update = useMutation({
     mutationFn: async ({ id, ...input }: Partial<Goal> & { id: string }) => {
-      const { data, error } = await supabase.from("goals").update(input).eq("id", id).select().single();
+      const { metadata, ...rest } = input;
+      const payload = { ...rest, ...(metadata !== undefined && { metadata: toJson(metadata) }) };
+      const { data, error } = await supabase.from("goals").update(payload).eq("id", id).select().single();
       if (error) throw error;
       return data as unknown as Goal;
     },

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { FileText, GripVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Lead } from "@/types/database";
+import { formatPhoneBR } from "@/lib/formatters";
 
 const PRIORIDADE_LABEL: Record<string, string> = {
   baixa: "Baixa",
@@ -90,7 +91,7 @@ export function LeadCard({ lead, onDetalhes, isDragging = false }: LeadCardProps
           </p>
           {lead.phone && (
             <p className="text-sm text-gray-600 truncate" title={lead.phone}>
-              <span className="font-medium">Telefone:</span> {lead.phone}
+              <span className="font-medium">Telefone:</span> {formatPhoneBR(lead.phone)}
             </p>
           )}
           <Button

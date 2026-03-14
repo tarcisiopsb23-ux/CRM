@@ -1,0 +1,341 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/lib/supabase";
+import { toJson } from "@/lib/supabase-utils";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/types/supabase";
+import { addMonths, format } from "date-fns";
+
+type ContractStatus = Database["public"]["Enums"]["contract_status"];
+type PaymentStatus = Database["public"]["Enums"]["payment_status"];
+
+export type ContractRow = {
+  id: string;
+  organization_id: string;
+  client_id: string;
+  responsible_id: string | null;
+  title: string;
+  description: string | null;
+  value: number;
+  status: ContractStatus | null;
+  start_date: string;
+  end_date: string | null;
+  billing_cycle: string | null;
+  service_contracted: string | null;
+  periodicity: Database["public"]["Enums"]["payment_periodicity"] | null;
+  contract_date: string | null;
+  duration_months: number | null;
+  first_payment_value: number | null;
+  first_payment_due_date: string | null;
+  first_payment_method: string | null;
+  first_payment_installments: number | null;
+  first_payment_fees: number | null;
+  first_payment_split: boolean | null;
+  first_payment_second_due_date: string | null;
+  recurring_due_date: string | null;
+  ended_at: string | null;
+  ended_reason: string | null;
+  ended_by: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+const toIsoDate = (d: Date) => format(d, "yyyy-MM-dd");
+
+const asContractStatus = (s: string | null | undefined): ContractStatus | null => {
+  const v = (s ?? null) as ContractStatus | null;
+  return v;
+};
+
+export function useContractsByClient(organizationId: string | undefined, clientId: string | undefined) {
+  const supabaseUntyped = supabase as unknown as SupabaseClient;
+  return useQuery({
+    queryKey: ["contracts", organizationId, clientId],
+    queryFn: async () => {
+      if (!organizationId || !clientId) return [];
+      const { data, error } = await supabaseUntyped
+        .from("contracts")
+        .select("*")
+        .eq("organization_id", organizationId)
+        .eq("client_id", clientId)
+        .order("start_date", { ascending: false });
+      if (error) throw error;
+      const rows = (data ?? []) as unknown as Array<Record<string, unknown>>;
+      return rows.map((r) => ({
+        id: String(r.id),
+        organization_id: String(r.organization_id),
+        client_id: String(r.client_id),
+        responsible_id: (r.responsible_id as string | null) ?? null,
+        title: String(r.title ?? ""),
+        description: (r.description as string | null) ?? null,
+        value: Number(r.value ?? 0),
+        status: asContractStatus((r.status as string | null) ?? null),
+        start_date: String(r.start_date),
+        end_date: (r.end_date as string | null) ?? null,
+        billing_cycle: (r.billing_cycle as string | null) ?? null,
+        service_contracted: (r.service_contracted as string | null) ?? null,
+        periodicity: (r.periodicity as ContractRow["periodicity"]) ?? null,
+        contract_date: (r.contract_date as string | null) ?? null,
+        duration_months: typeof r.duration_months === "number" ? r.duration_months : (r.duration_months ? Number(r.duration_months) : null),
+        first_payment_value: typeof r.first_payment_value === "number" ? r.first_payment_value : (r.first_payment_value ? Number(r.first_payment_value) : null),
+        first_payment_due_date: (r.first_payment_due_date as string | null) ?? null,
+        first_payment_method: (r.first_payment_method as string | null) ?? null,
+        first_payment_installments: typeof r.first_payment_installments === "number" ? r.first_payment_installments : (r.first_payment_installments ? Number(r.first_payment_installments) : null),
+        first_payment_fees: typeof r.first_payment_fees === "number" ? r.first_payment_fees : (r.first_payment_fees ? Number(r.first_payment_fees) : null),
+        first_payment_split: (r.first_payment_split as boolean | null) ?? null,
+        first_payment_second_due_date: (r.first_payment_second_due_date as string | null) ?? null,
+        recurring_due_date: (r.recurring_due_date as string | null) ?? null,
+        ended_at: (r.ended_at as string | null) ?? null,
+        ended_reason: (r.ended_reason as string | null) ?? null,
+        ended_by: (r.ended_by as string | null) ?? null,
+        metadata: (r.metadata as Record<string, unknown> | null) ?? null,
+        created_at: (r.created_at as string | null) ?? null,
+        updated_at: (r.updated_at as string | null) ?? null,
+      })) as ContractRow[];
+    },
+    enabled: !!organizationId && !!clientId,
+  });
+}
+
+export function useCreateContract(organizationId: string | undefined) {
+  const qc = useQueryClient();
+  const supabaseUntyped = supabase as unknown as SupabaseClient;
+
+  return useMutation({
+    mutationFn: async (input: {
+      client_id: string;
+      title: string;
+      service_contracted?: string | null;
+      contract_date: string;
+      duration_months: number;
+      first_payment_value: number;
+      first_payment_method: string;
+      first_payment_due_date: string;
+      first_payment_installments?: number;
+      first_payment_fees?: number;
+      recurring_value: number;
+      recurring_due_date: string;
+    }) => {
+      if (!organizationId) throw new Error("Sem organização");
+
+      const start = new Date(input.contract_date);
+      const end = addMonths(start, Math.max(0, Number(input.duration_months ?? 0)));
+
+      const installmentsRaw = Number(input.first_payment_installments ?? 1);
+      const installments = Math.min(12, Math.max(1, Number.isFinite(installmentsRaw) ? installmentsRaw : 1));
+      const fees = installments > 1 ? Math.max(0, Number(input.first_payment_fees ?? 0)) : 0;
+
+      const contractPayload: Record<string, unknown> = {
+        organization_id: organizationId,
+        client_id: input.client_id,
+        title: input.title,
+        status: "ativo" as ContractStatus,
+        start_date: input.contract_date,
+        contract_date: input.contract_date,
+        end_date: toIsoDate(end),
+        service_contracted: input.service_contracted ?? null,
+        periodicity: "mensal",
+        value: input.recurring_value,
+        duration_months: input.duration_months,
+        first_payment_value: input.first_payment_value,
+        first_payment_method: input.first_payment_method,
+        first_payment_due_date: input.first_payment_due_date,
+        first_payment_installments: installments,
+        first_payment_fees: fees,
+        first_payment_split: false,
+        first_payment_second_due_date: null,
+        recurring_due_date: input.recurring_due_date,
+      };
+
+      const { data: contract, error: contractError } = await supabaseUntyped
+        .from("contracts")
+        .insert(contractPayload)
+        .select("*")
+        .single();
+      if (contractError) throw contractError;
+
+      const contractId = String((contract as Record<string, unknown>).id);
+      const clientId = input.client_id;
+
+      const payments: Database["public"]["Tables"]["payments"]["Insert"][] = [];
+      const baseMeta = toJson({ source: "contract_create", contract_id: contractId }) ?? null;
+      const firstBase = Number(input.first_payment_value ?? 0);
+      const installmentValue = installments > 1 ? (firstBase + fees) / installments : firstBase;
+      const baseDue = new Date(input.first_payment_due_date || input.contract_date);
+      for (let i = 0; i < installments; i++) {
+        payments.push({
+          organization_id: organizationId,
+          contract_id: contractId,
+          client_id: clientId,
+          description: installments > 1 ? `Contrato • ${input.title} • ${i + 1}/${installments}` : `Contrato • ${input.title} • Inicial`,
+          value: installmentValue,
+          due_date: toIsoDate(addMonths(baseDue, i)),
+          status: "pendente" as PaymentStatus,
+          payment_method: input.first_payment_method,
+          metadata: baseMeta,
+        });
+      }
+
+      const duration = Math.max(0, Number(input.duration_months ?? 0));
+      const recurringCount = Math.max(0, duration - 1);
+      const recurringBaseDue = new Date(input.recurring_due_date || input.contract_date);
+      for (let i = 0; i < recurringCount; i++) {
+        payments.push({
+          organization_id: organizationId,
+          contract_id: contractId,
+          client_id: clientId,
+          description: `Contrato • ${input.title}`,
+          value: Number(input.recurring_value),
+          due_date: toIsoDate(addMonths(recurringBaseDue, i)),
+          status: "pendente" as PaymentStatus,
+          metadata: baseMeta,
+        });
+      }
+
+      const { error: payErr } = await supabase.from("payments").insert(payments);
+      if (payErr) throw payErr;
+
+      return contract as unknown as ContractRow;
+    },
+    onSuccess: (c) => {
+      qc.invalidateQueries({ queryKey: ["contracts", organizationId, c.client_id] });
+      qc.invalidateQueries({ queryKey: ["payments", organizationId] });
+    },
+  });
+}
+
+export function useUpdateContract(organizationId: string | undefined) {
+  const qc = useQueryClient();
+  const supabaseUntyped = supabase as unknown as SupabaseClient;
+  return useMutation({
+    mutationFn: async (input: Partial<ContractRow> & { id: string; client_id: string }) => {
+      const { id, client_id, ...rest } = input;
+      const payload: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(rest)) {
+        if (v !== undefined) payload[k] = v;
+      }
+      if (payload.metadata !== undefined) payload.metadata = toJson(payload.metadata as Record<string, unknown>);
+      const { data, error } = await supabaseUntyped.from("contracts").update(payload).eq("id", id).select("*").single();
+      if (error) throw error;
+      return data as unknown as ContractRow;
+    },
+    onSuccess: (_c, vars) => qc.invalidateQueries({ queryKey: ["contracts", organizationId, vars.client_id] }),
+  });
+}
+
+export function useSuspendContract(organizationId: string | undefined) {
+  const qc = useQueryClient();
+  const supabaseUntyped = supabase as unknown as SupabaseClient;
+
+  return useMutation({
+    mutationFn: async (input: { id: string; client_id: string; reason: string }) => {
+      if (!input.reason?.trim()) {
+        throw new Error("O motivo da suspensão é obrigatório.");
+      }
+
+      const { data: current, error: curErr } = await supabaseUntyped
+        .from("contracts")
+        .select("metadata")
+        .eq("id", input.id)
+        .single();
+      if (curErr) throw curErr;
+
+      const currentMeta = ((current as { metadata?: unknown }).metadata ?? {}) as Record<string, unknown>;
+      const nextMeta = {
+        ...currentMeta,
+        suspended_at: new Date().toISOString(),
+        suspended_reason: input.reason.trim(),
+      };
+
+      const { error } = await supabaseUntyped
+        .from("contracts")
+        .update({ status: "suspenso" as ContractStatus, metadata: toJson(nextMeta) })
+        .eq("id", input.id);
+      if (error) throw error;
+    },
+    onSuccess: (_c, vars) => {
+      qc.invalidateQueries({ queryKey: ["contracts", organizationId, vars.client_id] });
+      qc.invalidateQueries({ queryKey: ["contracts", "metrics", organizationId] });
+      qc.invalidateQueries({ queryKey: ["payments", "metrics", organizationId] });
+    },
+  });
+}
+
+export function useReactivateContract(organizationId: string | undefined) {
+  const qc = useQueryClient();
+  const supabaseUntyped = supabase as unknown as SupabaseClient;
+
+  return useMutation({
+    mutationFn: async (input: { id: string; client_id: string }) => {
+      const { data: current, error: curErr } = await supabaseUntyped
+        .from("contracts")
+        .select("metadata")
+        .eq("id", input.id)
+        .single();
+      if (curErr) throw curErr;
+
+      const currentMeta = ((current as { metadata?: unknown }).metadata ?? {}) as Record<string, unknown>;
+      const nextMeta = { ...currentMeta, reactivated_at: new Date().toISOString() };
+
+      const { error } = await supabaseUntyped
+        .from("contracts")
+        .update({ status: "ativo" as ContractStatus, metadata: toJson(nextMeta) })
+        .eq("id", input.id);
+      if (error) throw error;
+    },
+    onSuccess: (_c, vars) => {
+      qc.invalidateQueries({ queryKey: ["contracts", organizationId, vars.client_id] });
+      qc.invalidateQueries({ queryKey: ["contracts", "metrics", organizationId] });
+      qc.invalidateQueries({ queryKey: ["payments", "metrics", organizationId] });
+    },
+  });
+}
+
+export function useEndContract(organizationId: string | undefined, profileId: string | null | undefined) {
+  const qc = useQueryClient();
+  const supabaseUntyped = supabase as unknown as SupabaseClient;
+  return useMutation({
+    mutationFn: async (input: { id: string; client_id: string; reason: string }) => {
+      const today = toIsoDate(new Date());
+      const endedAt = new Date().toISOString();
+      const payload: Record<string, unknown> = {
+        status: "encerrado" as ContractStatus,
+        end_date: today,
+        ended_at: endedAt,
+        ended_reason: input.reason,
+        ...(profileId ? { ended_by: profileId } : {}),
+      };
+      const { error } = await supabaseUntyped.from("contracts").update(payload).eq("id", input.id);
+      if (error) throw error;
+
+      const { error: updPayErr } = await supabase
+        .from("payments")
+        .update({ status: "cancelado" as PaymentStatus })
+        .eq("contract_id", input.id)
+        .gt("due_date", today)
+        .neq("status", "pago");
+      if (updPayErr) throw updPayErr;
+    },
+    onSuccess: (_c, vars) => {
+      qc.invalidateQueries({ queryKey: ["contracts", organizationId, vars.client_id] });
+      qc.invalidateQueries({ queryKey: ["payments", organizationId] });
+    },
+  });
+}
+
+export function useDeleteContract(organizationId: string | undefined) {
+  const qc = useQueryClient();
+  const supabaseUntyped = supabase as unknown as SupabaseClient;
+  return useMutation({
+    mutationFn: async (input: { id: string; client_id: string }) => {
+      const { error: delPayErr } = await supabase.from("payments").delete().eq("contract_id", input.id);
+      if (delPayErr) throw delPayErr;
+      const { error: delContractErr } = await supabaseUntyped.from("contracts").delete().eq("id", input.id);
+      if (delContractErr) throw delContractErr;
+    },
+    onSuccess: (_c, vars) => {
+      qc.invalidateQueries({ queryKey: ["contracts", organizationId, vars.client_id] });
+      qc.invalidateQueries({ queryKey: ["payments", organizationId] });
+    },
+  });
+}

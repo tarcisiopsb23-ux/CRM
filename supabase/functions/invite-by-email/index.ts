@@ -15,7 +15,7 @@ function getCorsHeaders() {
     try {
       origin = new URL(appUrl).origin;
     } catch {
-      /* mantém * */
+      origin = "*";
     }
   }
   return {
@@ -84,7 +84,7 @@ serve(async (req) => {
 
     if (rpcError) {
       return new Response(
-        JSON.stringify({ error: rpcError.message }),
+        JSON.stringify({ error: "Falha ao criar convite" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -113,15 +113,12 @@ serve(async (req) => {
       });
 
       if (!res.ok) {
-        const err = await res.json();
-        console.error("Resend error:", err);
+        await res.json().catch(() => null);
         return new Response(
           JSON.stringify({ error: "Falha ao enviar e-mail. Verifique RESEND_API_KEY." }),
           { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-    } else {
-      console.warn("RESEND_API_KEY não configurada. Link:", link);
     }
 
     return new Response(
@@ -135,7 +132,6 @@ serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
-    console.error(err);
     return new Response(
       JSON.stringify({ error: "Erro interno" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }

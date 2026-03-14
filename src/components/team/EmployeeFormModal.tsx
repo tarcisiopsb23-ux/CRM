@@ -1,4 +1,11 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -54,6 +61,9 @@ export function EmployeeFormModal({ open, onClose, onSave, employee, teams = [] 
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="font-display">{isEdit ? "Editar Colaborador" : "Novo Colaborador"}</DialogTitle>
+          <DialogDescription>
+            {isEdit ? "Atualize as informações do colaborador abaixo." : "Preencha os dados para cadastrar um novo colaborador no sistema."}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

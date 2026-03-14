@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
 import { Employee, PayrollEntry, ACCESS_LEVEL_LABELS, ACCESS_LEVEL_COLORS } from "./types";
 import { Pencil, User, Mail, Phone, MapPin, GraduationCap, Briefcase, Users, Calendar } from "lucide-react";
+import { formatBRL, formatCpfCnpj, formatPhoneBR } from "@/lib/formatters";
 
 interface Props {
   open: boolean;
@@ -12,8 +13,6 @@ interface Props {
   payroll: PayrollEntry[];
   onEdit: () => void;
 }
-
-const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 const monthLabel = (m: string) => {
   const [y, mo] = m.split("-");
@@ -38,7 +37,7 @@ export function EmployeeDetailModal({ open, onClose, employee: emp, payroll, onE
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
           <InfoRow icon={User} label="Nome de apresentação" value={emp.displayName} />
           <InfoRow icon={Mail} label="E-mail" value={emp.email} />
-          <InfoRow icon={Phone} label="Telefone" value={emp.phone} />
+          <InfoRow icon={Phone} label="Telefone" value={emp.phone ? formatPhoneBR(emp.phone) : "—"} />
           <InfoRow icon={MapPin} label="Endereço" value={emp.address} />
           <InfoRow icon={GraduationCap} label="Escolaridade" value={emp.education} />
           <InfoRow icon={Briefcase} label="Função" value={emp.role} />
@@ -46,7 +45,7 @@ export function EmployeeDetailModal({ open, onClose, employee: emp, payroll, onE
           <InfoRow icon={Calendar} label="Admissão" value={new Date(emp.hireDate).toLocaleDateString("pt-BR")} />
           <div className="flex items-start gap-2">
             <span className="text-muted-foreground text-xs w-32 shrink-0 pt-0.5">CPF</span>
-            <span>{emp.cpf}</span>
+            <span>{emp.cpf ? formatCpfCnpj(emp.cpf) : "—"}</span>
           </div>
           <div className="flex items-start gap-2">
             <span className="text-muted-foreground text-xs w-32 shrink-0 pt-0.5">RG</span>
@@ -70,7 +69,7 @@ export function EmployeeDetailModal({ open, onClose, employee: emp, payroll, onE
         <div className="grid grid-cols-3 gap-3 mt-2">
           <div className="stat-card text-center">
             <p className="text-xs text-muted-foreground">Salário base</p>
-            <p className="text-lg font-bold text-foreground">{fmt(emp.baseSalary)}</p>
+            <p className="text-lg font-bold text-foreground">{formatBRL(emp.baseSalary)}</p>
           </div>
           <div className="stat-card text-center">
             <p className="text-xs text-muted-foreground">Comissão</p>
@@ -103,12 +102,12 @@ export function EmployeeDetailModal({ open, onClose, employee: emp, payroll, onE
                 {payroll.sort((a, b) => b.month.localeCompare(a.month)).map((p) => (
                   <TableRow key={p.id}>
                     <TableCell className="font-medium">{monthLabel(p.month)}</TableCell>
-                    <TableCell className="text-right">{fmt(p.baseSalary)}</TableCell>
-                    <TableCell className="text-right">{fmt(p.commission)}</TableCell>
-                    <TableCell className="text-right">{p.bonus > 0 ? fmt(p.bonus) : "—"}</TableCell>
-                    <TableCell className="text-right">{p.overtime > 0 ? fmt(p.overtime) : "—"}</TableCell>
-                    <TableCell className="text-right text-destructive">{fmt(p.deductions)}</TableCell>
-                    <TableCell className="text-right font-bold">{fmt(p.total)}</TableCell>
+                    <TableCell className="text-right">{formatBRL(p.baseSalary)}</TableCell>
+                    <TableCell className="text-right">{formatBRL(p.commission)}</TableCell>
+                    <TableCell className="text-right">{p.bonus > 0 ? formatBRL(p.bonus) : "—"}</TableCell>
+                    <TableCell className="text-right">{p.overtime > 0 ? formatBRL(p.overtime) : "—"}</TableCell>
+                    <TableCell className="text-right text-destructive">{formatBRL(p.deductions)}</TableCell>
+                    <TableCell className="text-right font-bold">{formatBRL(p.total)}</TableCell>
                     <TableCell>
                       <Badge variant={p.paid ? "default" : "outline"} className={p.paid ? "bg-emerald-600" : ""}>
                         {p.paid ? "Pago" : "Pendente"}

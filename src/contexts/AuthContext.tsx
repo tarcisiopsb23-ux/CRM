@@ -33,16 +33,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchProfile = useCallback(async (user: User) => {
     setLoading(true); // indicate profile fetch in progress
-    console.debug('[Auth] fetchProfile start', user);
     const uid = user.id;
 
     try {
       // Prefer RPC (bypasses RLS - if migration 00016 not applied, fallback to direct query
       const { data: rpcData, error: rpcError } = await supabase.rpc('get_my_profile');
-      console.debug('[Auth] rpc result', { rpcData, rpcError });
       if (!rpcError && rpcData) {
         const p = rpcData as unknown as Profile;
-        console.debug('[Auth] rpc profile', p);
         setError(null);
         setProfile(p);
         return p;
@@ -54,22 +51,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .select('*')
         .eq('id', uid)
         .maybeSingle();
-      console.debug('[Auth] query profile', { data, error });
       if (error) {
+        try {
+          const { data: fnData, error: fnError } = await supabase.functions.invoke('bootstrap-profile', { body: {} });
+          if (!fnError && fnData?.profile) {
+            const p = fnData.profile as Profile;
+            setError(null);
+            setProfile(p);
+            return p;
+          }
+        } catch (e) {
+          void e;
+        }
         setError(error);
         setProfile(null);
         return null;
       }
       if (data) {
         const p = data as Profile;
-        console.debug('[Auth] found profile via query', p);
         setError(null);
         setProfile(p);
         return p;
       }
 
       // Profile not found, try to create it
-      console.debug('[Auth] profile missing; attempting creation');
+      try {
+        const { data: fnData, error: fnError } = await supabase.functions.invoke('bootstrap-profile', { body: {} });
+        if (!fnError && fnData?.profile) {
+          const p = fnData.profile as Profile;
+          setError(null);
+          setProfile(p);
+          return p;
+        }
+      } catch (e) {
+        void e;
+      }
       try {
         // Create organization first
         const orgSlug = user.email?.split('@')[0]?.replace(/[^a-z0-9]/g, '') || 'org';
@@ -83,7 +99,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .select('id')
           .single();
         if (orgError) throw orgError;
-        console.debug('[Auth] organization created', org);
 
         // Create profile
         const { data: newProfile, error: insertError } = await supabase
@@ -100,12 +115,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (insertError) throw insertError;
 
         const p = newProfile as Profile;
-        console.debug('[Auth] profile created', p);
         setError(null);
         setProfile(p);
         return p;
       } catch (createError) {
-        console.error('[Auth] Failed to create profile:', createError);
         setError(createError as Error);
         setProfile(null);
         return null;
@@ -125,9 +138,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const { data: { session }, error } = await supabase.auth.getSession();
         if (cancelled) return;
-        if (error) {
-          console.warn('[Auth] getSession error:', error);
-        }
         setUser(session?.user ?? null);
         if (session?.user) {
           await fetchProfile(session.user);
@@ -136,7 +146,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       } catch (err) {
         if (!cancelled) {
-          console.warn('[Auth] Init failed:', err);
           setUser(null);
           setProfile(null);
         }
@@ -157,7 +166,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.debug('[Auth] onAuthStateChange', event, session);
         if (event === 'SIGNED_OUT') {
           setUser(null);
           setProfile(null);

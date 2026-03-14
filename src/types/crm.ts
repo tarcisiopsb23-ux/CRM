@@ -15,6 +15,8 @@ export interface Client {
   address_city: string | null;
   address_state: string | null;
   address_zip: string | null;
+  decision_maker_name?: string | null;
+  decision_maker_phone?: string | null;
   registration_date: string | null;
   registration_type: RegistrationType | null;
   niche: string | null;
@@ -42,6 +44,18 @@ export interface Contract {
   contract_type: ContractType | null;
   periodicity: PaymentPeriodicity | null;
   contract_date: string | null;
+  duration_months?: number | null;
+  first_payment_value?: number | null;
+  first_payment_due_date?: string | null;
+  first_payment_method?: string | null;
+  first_payment_installments?: number | null;
+  first_payment_fees?: number | null;
+  first_payment_split?: boolean | null;
+  first_payment_second_due_date?: string | null;
+  recurring_due_date?: string | null;
+  ended_at?: string | null;
+  ended_reason?: string | null;
+  ended_by?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -57,6 +71,7 @@ export interface Payment {
   paid_at: string | null;
   status: string;
   payment_method: string | null;
+  metadata?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 }
@@ -88,6 +103,7 @@ export interface SupplierExpense {
   due_date: string;
   paid_at: string | null;
   status: string;
+  metadata: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 }

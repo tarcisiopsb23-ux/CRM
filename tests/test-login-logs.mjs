@@ -2,7 +2,7 @@ import { chromium } from '@playwright/test';
 
 const EMAIL = 'tarcisiopsb23@gmail.com';
 const PASSWORD = 'Celiz1618*';
-const URL = 'http://localhost:8081';
+const URL = 'http://localhost:8082';
 
 const logs = [];
 

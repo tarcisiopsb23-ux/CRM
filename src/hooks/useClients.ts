@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { toJson } from "@/lib/supabase-utils";
@@ -10,13 +11,30 @@ export function useClients(organizationId: string | undefined) {
     queryKey: ["clients", organizationId],
     queryFn: async () => {
       if (!organizationId) return [];
-      const { data, error } = await supabase
-        .from("clients")
-        .select("*")
-        .eq("organization_id", organizationId)
-        .order("name");
-      if (error) throw error;
-      return (data ?? []) as Client[];
+      
+      // Tenta buscar da view com contratos se existir, senão da tabela normal
+      try {
+        const { data, error } = await supabase
+          .from("clients_with_contracts" as any) // View criada na migração 002
+          .select("*")
+          .eq("organization_id", organizationId)
+          .order("name");
+          
+        if (!error) return (data ?? []) as unknown as (Client & { contract_status?: string; contract_start?: string; contract_end?: string })[];
+        
+        // Fallback se a view não existir
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from("clients")
+          .select("*")
+          .eq("organization_id", organizationId)
+          .order("name");
+          
+        if (fallbackError) throw fallbackError;
+        return (fallbackData ?? []) as Client[];
+      } catch (err) {
+        console.error("Erro ao buscar clientes:", err);
+        return [];
+      }
     },
     enabled: !!organizationId,
   });

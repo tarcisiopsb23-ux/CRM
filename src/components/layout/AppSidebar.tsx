@@ -1,9 +1,7 @@
 import {
   LayoutDashboard,
-  Users,
   Kanban,
   UserCheck,
-  Package,
   DollarSign,
   Calendar,
   FolderKanban,
@@ -32,22 +30,20 @@ const navItems: {
   icon: typeof LayoutDashboard;
   module: string | null;
 }[] = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard, module: null },
-  { title: "Kanban", url: "/kanban", icon: Kanban, module: "kanban" },
-  { title: "Analytics Vendas", url: "/sales-analytics", icon: BarChart3, module: null },
-  { title: "Leads", url: "/leads", icon: Users, module: null },
+  { title: "Dashboard", url: "/", icon: LayoutDashboard, module: "dashboard" },
+  { title: "CRM", url: "/kanban", icon: Kanban, module: "kanban" },
+  { title: "Analytics Vendas", url: "/sales-analytics", icon: BarChart3, module: "sales_analytics" },
   { title: "Clientes", url: "/clients", icon: UserCheck, module: "clients" },
-  { title: "Fornecedores", url: "/suppliers", icon: Package, module: "clients" },
   { title: "Financeiro", url: "/financial", icon: DollarSign, module: "financial" },
   { title: "Agenda", url: "/agenda", icon: Calendar, module: "agenda" },
   { title: "Projetos", url: "/projects", icon: FolderKanban, module: "projects" },
   { title: "Metas", url: "/goals", icon: Target, module: "goals" },
-  { title: "WhatsApp", url: "/whatsapp", icon: MessageCircle, module: null },
-  { title: "Reuniões IA", url: "/meetings", icon: Sparkles, module: null },
+  { title: "WhatsApp", url: "/whatsapp", icon: MessageCircle, module: "whatsapp" },
+  { title: "Reuniões IA", url: "/meetings", icon: Sparkles, module: "meetings" },
   { title: "Equipe", url: "/team", icon: UsersRound, module: "team" },
-  { title: "Campanhas", url: "/campaign-reports", icon: Megaphone, module: null },
-  { title: "Relatórios", url: "/general-reports", icon: FileBarChart, module: null },
-  { title: "Auditoria", url: "/audit", icon: History, module: "settings" },
+  { title: "Campanhas", url: "/campaign-reports", icon: Megaphone, module: "campaigns" },
+  { title: "Relatórios", url: "/reports", icon: FileBarChart, module: "reports" },
+  { title: "Auditoria", url: "/audit", icon: History, module: "audit" },
   { title: "Configurações", url: "/settings", icon: Settings, module: "settings" },
 ];
 
@@ -57,24 +53,38 @@ export function AppSidebar() {
   const { profile } = useAuth();
   const isAdmin = profile?.role === "admin" || profile?.role === "owner";
 
+  const { canView: canViewDashboard } = useModulePermission("dashboard");
   const { canView: canViewKanban } = useModulePermission("kanban");
+  const { canView: canViewSalesAnalytics } = useModulePermission("sales_analytics");
   const { canView: canViewClients } = useModulePermission("clients");
   const { canView: canViewFinancial } = useModulePermission("financial");
   const { canView: canViewAgenda } = useModulePermission("agenda");
   const { canView: canViewProjects } = useModulePermission("projects");
   const { canView: canViewGoals } = useModulePermission("goals");
+  const { canView: canViewWhatsApp } = useModulePermission("whatsapp");
+  const { canView: canViewMeetings } = useModulePermission("meetings");
   const { canView: canViewTeam } = useModulePermission("team");
   const { canView: canViewSettings } = useModulePermission("settings");
+  const { canView: canViewReports } = useModulePermission("reports");
+  const { canView: canViewCampaigns } = useModulePermission("campaigns");
+  const { canView: canViewAudit } = useModulePermission("audit");
 
   const canViewByModule: Record<string, boolean> = {
+    dashboard: canViewDashboard,
     kanban: canViewKanban,
+    sales_analytics: canViewSalesAnalytics,
     clients: canViewClients,
     financial: canViewFinancial,
     agenda: canViewAgenda,
     projects: canViewProjects,
     goals: canViewGoals,
+    whatsapp: canViewWhatsApp,
+    meetings: canViewMeetings,
     team: canViewTeam,
     settings: canViewSettings,
+    reports: canViewReports,
+    campaigns: canViewCampaigns,
+    audit: canViewAudit,
   };
 
   const visibleItems = navItems.filter((item) => {

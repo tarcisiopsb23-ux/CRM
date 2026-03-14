@@ -12,8 +12,26 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Plus, Loader2 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Plus, Loader2, Trash2 } from "lucide-react";
 import type { Supplier } from "@/types/crm";
+
+const SUPPLIER_CATEGORIES = [
+  "Serviços Terceirizados",
+  "Material de Escritório",
+  "Despesas Prediais",
+  "Impostos",
+  "Contratos",
+  "Eletro/Eletrônicos",
+  "Móveis",
+  "Tecnologia",
+  "Assinaturas",
+  "Despesas de Serviço",
+  "Materiais Sanitários",
+  "Copa",
+  "Marketing",
+  "Outros",
+] as const;
 
 export default function SuppliersPage() {
   const organizationId = useOrganization();
@@ -32,6 +50,8 @@ export default function SuppliersPage() {
     service_category: "",
     pix: "",
   });
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const openNew = () => {
     setEditing(null);
@@ -44,7 +64,7 @@ export default function SuppliersPage() {
       address_city: "",
       address_state: "",
       address_zip: "",
-      service_category: "",
+      service_category: "Outros",
       pix: "",
     });
     setModalOpen(true);
@@ -61,7 +81,7 @@ export default function SuppliersPage() {
       address_city: s.address_city ?? "",
       address_state: s.address_state ?? "",
       address_zip: s.address_zip ?? "",
-      service_category: s.service_category ?? "",
+      service_category: s.service_category ?? "Outros",
       pix: s.pix ?? "",
     });
     setModalOpen(true);
@@ -132,6 +152,20 @@ export default function SuppliersPage() {
                       {s.email || s.phone}
                     </p>
                   </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-destructive"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (window.confirm("Excluir este fornecedor?")) {
+                        remove.mutate(s.id);
+                      }
+                    }}
+                    aria-label="Excluir"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 </div>
               ))}
             </div>
@@ -165,11 +199,16 @@ export default function SuppliersPage() {
               </div>
               <div>
                 <Label>Categoria do serviço</Label>
-                <Input
-                  value={form.service_category ?? ""}
-                  onChange={(e) => setForm({ ...form, service_category: e.target.value })}
-                  placeholder="Ex: TI, Marketing"
-                />
+                <Select value={String(form.service_category ?? "Outros")} onValueChange={(v) => setForm({ ...form, service_category: v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Categoria" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SUPPLIER_CATEGORIES.map((c) => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <Label>E-mail</Label>

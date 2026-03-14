@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Employee, PayrollEntry, Team } from "./types";
 import { ROLES } from "./mockData";
 import { Search, Plus, Pencil, Trash2, DollarSign, TrendingUp, Users, Award } from "lucide-react";
+import { formatBRL } from "@/lib/formatters";
 
 interface Props {
   employees: Employee[];
@@ -17,8 +18,6 @@ interface Props {
   onPayrollUpdate: (payroll: PayrollEntry[]) => void;
   teams: Team[];
 }
-
-const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 const MONTHS = ["2025-07", "2025-08", "2025-09", "2025-10", "2025-11", "2025-12", "2026-01", "2026-02"];
 const monthLabel = (m: string) => {
@@ -96,9 +95,9 @@ export function PayrollView({ employees, payroll, onPayrollUpdate, teams }: Prop
     <div className="space-y-4">
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <SummaryCard icon={DollarSign} label="Total folha" value={fmt(totals.total)} />
-        <SummaryCard icon={TrendingUp} label="Comissões" value={fmt(totals.commission)} />
-        <SummaryCard icon={Award} label="Bônus" value={fmt(totals.bonus)} />
+        <SummaryCard icon={DollarSign} label="Total folha" value={formatBRL(totals.total)} />
+        <SummaryCard icon={TrendingUp} label="Comissões" value={formatBRL(totals.commission)} />
+        <SummaryCard icon={Award} label="Bônus" value={formatBRL(totals.bonus)} />
         <SummaryCard icon={Users} label="Colaboradores" value={String(monthPayroll.length)} />
       </div>
 
@@ -162,12 +161,12 @@ export function PayrollView({ employees, payroll, onPayrollUpdate, teams }: Prop
                     </div>
                   </TableCell>
                   <TableCell className="text-sm">{emp.teamName}</TableCell>
-                  <TableCell className="text-right text-sm">{fmt(entry.baseSalary)}</TableCell>
-                  <TableCell className="text-right text-sm">{fmt(entry.commission)}</TableCell>
-                  <TableCell className="text-right text-sm">{entry.bonus > 0 ? fmt(entry.bonus) : "—"}</TableCell>
-                  <TableCell className="text-right text-sm">{entry.overtime > 0 ? fmt(entry.overtime) : "—"}</TableCell>
-                  <TableCell className="text-right text-sm text-destructive">{fmt(entry.deductions)}</TableCell>
-                  <TableCell className="text-right text-sm font-bold">{fmt(entry.total)}</TableCell>
+                  <TableCell className="text-right text-sm">{formatBRL(entry.baseSalary)}</TableCell>
+                  <TableCell className="text-right text-sm">{formatBRL(entry.commission)}</TableCell>
+                  <TableCell className="text-right text-sm">{entry.bonus > 0 ? formatBRL(entry.bonus) : "—"}</TableCell>
+                  <TableCell className="text-right text-sm">{entry.overtime > 0 ? formatBRL(entry.overtime) : "—"}</TableCell>
+                  <TableCell className="text-right text-sm text-destructive">{formatBRL(entry.deductions)}</TableCell>
+                  <TableCell className="text-right text-sm font-bold">{formatBRL(entry.total)}</TableCell>
                   <TableCell>
                     <Badge variant={entry.paid ? "default" : "outline"} className={entry.paid ? "bg-emerald-600" : ""}>
                       {entry.paid ? "Pago" : "Pendente"}
@@ -193,12 +192,12 @@ export function PayrollView({ employees, payroll, onPayrollUpdate, teams }: Prop
               {monthPayroll.length > 0 && (
                 <TableRow className="bg-muted/30 font-semibold">
                   <TableCell colSpan={2}>Total</TableCell>
-                  <TableCell className="text-right">{fmt(totals.base)}</TableCell>
-                  <TableCell className="text-right">{fmt(totals.commission)}</TableCell>
-                  <TableCell className="text-right">{fmt(totals.bonus)}</TableCell>
-                  <TableCell className="text-right">{fmt(totals.overtime)}</TableCell>
+                  <TableCell className="text-right">{formatBRL(totals.base)}</TableCell>
+                  <TableCell className="text-right">{formatBRL(totals.commission)}</TableCell>
+                  <TableCell className="text-right">{formatBRL(totals.bonus)}</TableCell>
+                  <TableCell className="text-right">{formatBRL(totals.overtime)}</TableCell>
                   <TableCell className="text-right">—</TableCell>
-                  <TableCell className="text-right font-bold">{fmt(totals.total)}</TableCell>
+                  <TableCell className="text-right font-bold">{formatBRL(totals.total)}</TableCell>
                   <TableCell colSpan={2} />
                 </TableRow>
               )}

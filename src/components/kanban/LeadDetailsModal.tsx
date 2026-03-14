@@ -4,8 +4,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import type { Lead } from "@/types/database";
 import { ETAPAS_KANBAN } from "@/types/database";
+import { formatBRL, formatPhoneBR } from "@/lib/formatters";
 
 const PRIORIDADE_LABEL: Record<string, string> = {
   baixa: "Baixa",
@@ -18,12 +20,16 @@ interface LeadDetailsModalProps {
   lead: Lead | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onEdit?: (lead: Lead) => void;
+  onDelete?: (leadId: string) => void;
 }
 
 export function LeadDetailsModal({
   lead,
   open,
   onOpenChange,
+  onEdit,
+  onDelete,
 }: LeadDetailsModalProps) {
   if (!lead) return null;
 
@@ -52,7 +58,7 @@ export function LeadDetailsModal({
           </div>
           <div>
             <span className="font-medium text-gray-500">Telefone</span>
-            <p className="text-gray-dark">{lead.phone ?? "—"}</p>
+            <p className="text-gray-dark">{lead.phone ? formatPhoneBR(lead.phone) : "—"}</p>
           </div>
           <div>
             <span className="font-medium text-gray-500">Nicho</span>
@@ -75,12 +81,7 @@ export function LeadDetailsModal({
           <div>
             <span className="font-medium text-gray-500">Valor estimado</span>
             <p className="text-gray-dark">
-              {lead.value != null
-                ? new Intl.NumberFormat("pt-BR", {
-                    style: "currency",
-                    currency: "BRL",
-                  }).format(Number(lead.value))
-                : "—"}
+              {lead.value != null ? formatBRL(Number(lead.value)) : "—"}
             </p>
           </div>
           {lead.notes && (
@@ -88,6 +89,22 @@ export function LeadDetailsModal({
               <span className="font-medium text-gray-500">Observações</span>
               <p className="text-gray-dark whitespace-pre-wrap">{lead.notes}</p>
             </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 mt-4">
+          {onEdit && (
+            <Button variant="outline" onClick={() => onEdit(lead)}>
+              Editar
+            </Button>
+          )}
+          {onDelete && (
+            <Button
+              variant="ghost"
+              className="text-destructive"
+              onClick={() => onDelete(lead.id)}
+            >
+              Excluir
+            </Button>
           )}
         </div>
       </DialogContent>

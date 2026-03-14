@@ -27,10 +27,10 @@ export function useKanbanFunnel(organizationId: string | undefined) {
         leads_recebidos: "Leads Recebidos",
         qualificados: "Qualificados",
         reuniao_agendada: "Reunião Agendada",
-        emissao_contrato: "Emissão Contrato",
+        emissao_contrato: "Negociações",
         efetivados: "Efetivados",
         desqualificado: "Desqualificado",
-        reuniao_sem_sucesso: "Reunião sem Sucesso",
+        reuniao_sem_sucesso: "Sem Sucesso",
       };
 
       const counts: Record<string, number> = {};
@@ -92,10 +92,11 @@ export function useAccountsPayable(organizationId: string | undefined) {
         .select("value, status, paid_at")
         .eq("organization_id", organizationId)
         .gte("due_date", from)
-        .lte("due_date", to);
+        .lte("due_date", to)
+        .neq("status", "cancelado");
       if (error) throw error;
 
-      const pending = (data ?? []).filter((r) => !r.paid_at);
+      const pending = (data ?? []).filter((r) => !r.paid_at && r.status !== "pago");
       const total = pending.reduce((s, r) => s + Number(r.value ?? 0), 0);
       return { total, count: pending.length };
     },
@@ -121,10 +122,11 @@ export function useAccountsReceivable(organizationId: string | undefined) {
         .select("value, status, paid_at")
         .eq("organization_id", organizationId)
         .gte("due_date", from)
-        .lte("due_date", to);
+        .lte("due_date", to)
+        .neq("status", "cancelado");
       if (error) throw error;
 
-      const pending = (data ?? []).filter((r) => !r.paid_at);
+      const pending = (data ?? []).filter((r) => !r.paid_at && r.status !== "pago");
       const total = pending.reduce((s, r) => s + Number(r.value ?? 0), 0);
       return { total, count: pending.length };
     },

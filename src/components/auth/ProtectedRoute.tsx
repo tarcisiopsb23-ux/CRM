@@ -18,7 +18,6 @@ export function ProtectedRoute({
 }: ProtectedRouteProps) {
   const { user, profile, loading, error, refetchProfile } = useAuth();
   const location = useLocation();
-  console.debug('[ProtectedRoute] user, profile, loading, error', { user, profile, loading, error });
 
   if (loading) {
     return (

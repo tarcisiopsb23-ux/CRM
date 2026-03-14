@@ -12,6 +12,8 @@ export interface EventRow {
   id: string;
   organization_id: string;
   created_by: string | null;
+  team_id?: string | null;
+  assigned_to?: string | null;
   title: string;
   description: string | null;
   type: string;

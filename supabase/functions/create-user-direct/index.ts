@@ -39,7 +39,7 @@ serve(async (req) => {
       );
     }
 
-    let body: { email?: string; password?: string; full_name?: string };
+    let body: { email?: string; password?: string; full_name?: string; job_title?: string };
     try {
       body = await req.json();
     } catch {
@@ -48,7 +48,7 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-    const { email, password, full_name } = body;
+    const { email, password, full_name, job_title } = body;
     const emailTrim = typeof email === "string" ? email.trim().toLowerCase() : "";
     if (!emailTrim || !emailTrim.includes("@")) {
       return new Response(
@@ -130,9 +130,29 @@ serve(async (req) => {
         );
       }
       return new Response(
-        JSON.stringify({ error: createError.message }),
+        JSON.stringify({ error: "Falha ao cadastrar colaborador" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
+    }
+
+    const newUserId = newUser?.user?.id;
+    const safeJobTitle = typeof job_title === "string" ? job_title.trim() : "";
+    if (newUserId && safeJobTitle) {
+      const baseFullName =
+        typeof full_name === "string" ? full_name.trim() || emailTrim.split("@")[0] : emailTrim.split("@")[0];
+      await supabaseService
+        .from("profiles")
+        .upsert(
+          {
+            id: newUserId,
+            organization_id: orgId,
+            full_name: baseFullName,
+            email: emailTrim,
+            role: "member",
+            metadata: { job_title: safeJobTitle },
+          },
+          { onConflict: "id" }
+        );
     }
 
     return new Response(
@@ -144,7 +164,6 @@ serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
-    console.error(err);
     return new Response(
       JSON.stringify({ error: "Erro interno" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }

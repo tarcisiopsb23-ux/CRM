@@ -35,7 +35,7 @@ export function useProfiles(organizationId: string | undefined) {
         .eq("organization_id", organizationId)
         .order("full_name");
       if (error) throw error;
-      return (data ?? []) as ProfileRow[];
+      return (data ?? []) as unknown as ProfileRow[];
     },
     enabled: !!organizationId,
   });
@@ -61,5 +61,13 @@ export function useProfiles(organizationId: string | undefined) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["profiles", organizationId] }),
   });
 
-  return { ...query, update };
+  const remove = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("profiles").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["profiles", organizationId] }),
+  });
+
+  return { ...query, update, remove };
 }

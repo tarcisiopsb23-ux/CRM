@@ -9,6 +9,49 @@ export type EtapaKanban =
 
 export type PrioridadeLead = 'baixa' | 'media' | 'alta' | 'urgente';
 
+export type LeadProductService =
+  | 'assessoria'
+  | 'consultoria'
+  | 'gmn'
+  | 'site'
+  | 'agente_ia'
+  | 'outros';
+
+export type LeadContactOrigin =
+  | 'indicacao'
+  | 'prospeccao'
+  | 'campanha_google'
+  | 'campanha_meta'
+  | 'organico'
+  | 'outras';
+
+export type LeadGmnStatus =
+  | 'nao_possui'
+  | 'desatualizado_desativado'
+  | 'desatualizado'
+  | 'incompleto'
+  | 'completo';
+
+export type LeadAdsLevel = 'sem_anuncios' | 'poucos_anuncios' | 'muitos_anuncios';
+
+export type LeadSocialMediaStatus =
+  | 'sem_frequencia'
+  | 'parado_inexistente'
+  | 'frequente_sem_estrategia'
+  | 'frequente_estruturado';
+
+export type LeadLostReason =
+  | 'capacidade_produtiva'
+  | 'orcamento'
+  | 'desqualificado'
+  | 'barrado_pelo_sa'
+  | 'sem_contato'
+  | 'limite_da_franquia'
+  | 'concorrencia'
+  | 'perda_de_contato'
+  | 'cadencia_excedida'
+  | 'outros';
+
 export interface Lead {
   id: string;
   organization_id: string;
@@ -25,6 +68,24 @@ export interface Lead {
   notes: string | null;
   nicho: string | null;
   prioridade: PrioridadeLead | null;
+  first_contact_date?: string | null;
+  last_contact_date?: string | null;
+  product_service?: LeadProductService | null;
+  cpf_cnpj?: number | null;
+  contact_origin?: LeadContactOrigin | null;
+  decision_maker?: boolean | null;
+  decision_maker_name?: string | null;
+  decision_maker_phone?: number | null;
+  gbp_url?: string | null;
+  instagram_url?: string | null;
+  website_url?: string | null;
+  gmn_status?: LeadGmnStatus | null;
+  google_ads_level?: LeadAdsLevel | null;
+  meta_ads_level?: LeadAdsLevel | null;
+  social_media_status?: LeadSocialMediaStatus | null;
+  lost_reason?: LeadLostReason | null;
+  cadence?: string | null;
+  temperature?: number | null;
   metadata: Record<string, unknown>;
   position: number;
   created_at: string;
@@ -39,8 +100,8 @@ export const ETAPAS_KANBAN: { id: EtapaKanban; label: string }[] = [
   { id: 'leads_recebidos', label: 'Leads Recebidos' },
   { id: 'qualificados', label: 'Qualificados' },
   { id: 'reuniao_agendada', label: 'Reunião Agendada' },
-  { id: 'emissao_contrato', label: 'Emissão Contrato' },
+  { id: 'emissao_contrato', label: 'Negociações' },
   { id: 'efetivados', label: 'Efetivados' },
   { id: 'desqualificado', label: 'Desqualificado' },
-  { id: 'reuniao_sem_sucesso', label: 'Reunião sem Sucesso' },
+  { id: 'reuniao_sem_sucesso', label: 'Sem Sucesso' },
 ];

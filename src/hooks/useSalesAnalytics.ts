@@ -3,8 +3,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { startOfMonth, endOfMonth, differenceInHours } from "date-fns";
 import type { Tables } from "@/types/supabase";
+import { DateRange, isDateInRange } from "@/lib/periodHelpers";
 
-type LeadRow = Tables<"leads">;
 type LeadStageHistoryRow = Tables<"lead_stage_history">;
 
 const WON_STAGES = ["efetivados"];
@@ -20,10 +20,10 @@ export const STAGE_LABELS: Record<string, string> = {
   leads_recebidos: "Leads Recebidos",
   qualificados: "Qualificados",
   reuniao_agendada: "Reunião Agendada",
-  emissao_contrato: "Emissão Contrato",
+  emissao_contrato: "Negociações",
   efetivados: "Efetivados",
   desqualificado: "Desqualificado",
-  reuniao_sem_sucesso: "Reunião sem Sucesso",
+  reuniao_sem_sucesso: "Sem Sucesso",
 };
 
 export interface LeadsPerStage {
@@ -43,6 +43,14 @@ export interface ConversionRate {
   rate: number;
 }
 
+export interface StageConversionMetric {
+  stage: string;
+  label: string;
+  count: number;
+  propLead: number; // vs Leads Recebidos
+  propFA: number;   // vs Fases Anteriores
+}
+
 export interface AvgTimePerStage {
   stage: string;
   label: string;
@@ -56,16 +64,19 @@ export interface SalesAnalyticsData {
   monthlyLeads: number;
   wonLeads: number;
   lostLeads: number;
+  disqualifiedLeads: number;
+  lostReasons: { reason: string; count: number }[];
   pipelineValue: number;
   closedRevenue: number;
   forecastRevenue: number;
   conversionRates: ConversionRate[];
+  stageConversions: StageConversionMetric[];
   avgTimePerStage: AvgTimePerStage[];
   avgTimeToClose: number | null;
   leadsByMonth: { month: string; count: number }[];
 }
 
-async function fetchAnalytics(organizationId: string): Promise<SalesAnalyticsData> {
+async function fetchAnalytics(organizationId: string, range?: DateRange): Promise<SalesAnalyticsData> {
   const now = new Date();
   const monthStart = startOfMonth(now);
   const monthEnd = endOfMonth(now);
@@ -73,11 +84,19 @@ async function fetchAnalytics(organizationId: string): Promise<SalesAnalyticsDat
   // 1. Fetch leads (aggregate - only needed fields)
   const { data: leads, error: leadsError } = await supabase
     .from("leads")
-    .select("id, etapa_kanban, value, created_at")
+    .select("*")
     .eq("organization_id", organizationId);
 
   if (leadsError) throw leadsError;
-  const leadsList = (leads ?? []) as Pick<LeadRow, "id" | "etapa_kanban" | "value" | "created_at">[];
+  const leadsList = ((leads ?? []) as unknown as Array<Record<string, unknown>>).map((l) => {
+    return {
+      id: String(l.id),
+      etapa_kanban: (l.etapa_kanban as string | null) ?? null,
+      value: (typeof l.value === "number" ? l.value : null) as number | null,
+      created_at: (l.created_at as string | null) ?? null,
+      lost_reason: (l.lost_reason as string | null) ?? null,
+    };
+  });
 
   // 2. Fetch lead_stage_history (RLS filters by org via leads join)
   const { data: history, error: historyError } = await supabase
@@ -95,11 +114,20 @@ async function fetchAnalytics(organizationId: string): Promise<SalesAnalyticsDat
   const orgLeadIds = new Set(leadsList.map((l) => l.id));
   const filteredHistory = historyList.filter((h) => orgLeadIds.has(h.lead_id));
 
+  // If range is provided, filter data by range
+  const filteredLeadsByRange = range 
+    ? leadsList.filter(l => l.created_at && isDateInRange(l.created_at, range))
+    : leadsList;
+  
+  const filteredHistoryByRange = range
+    ? filteredHistory.filter(h => h.moved_at && isDateInRange(h.moved_at, range))
+    : filteredHistory;
+
   // 3. Pipeline metrics
-  const totalLeads = leadsList.length;
+  const totalLeads = filteredLeadsByRange.length;
   const stageCounts: Record<string, number> = {};
   const stageRevenue: Record<string, number> = {};
-  for (const lead of leadsList) {
+  for (const lead of filteredLeadsByRange) {
     const s = lead.etapa_kanban ?? "leads_recebidos";
     stageCounts[s] = (stageCounts[s] ?? 0) + 1;
     stageRevenue[s] = (stageRevenue[s] ?? 0) + Number(lead.value ?? 0);
@@ -121,28 +149,41 @@ async function fetchAnalytics(organizationId: string): Promise<SalesAnalyticsDat
     revenue: stageRevenue[stage] ?? 0,
   }));
 
-  const monthlyLeads = leadsList.filter((l) => {
+  const monthlyLeads = filteredLeadsByRange.filter((l) => {
     const d = l.created_at ? new Date(l.created_at) : null;
     return d && d >= monthStart && d <= monthEnd;
   }).length;
 
-  const wonLeads = leadsList.filter((l) =>
+  const wonLeads = filteredLeadsByRange.filter((l) =>
     WON_STAGES.includes(l.etapa_kanban ?? "")
   ).length;
-  const lostLeads = leadsList.filter((l) =>
+  const lostLeads = filteredLeadsByRange.filter((l) =>
     LOST_STAGES.includes(l.etapa_kanban ?? "")
   ).length;
+  const disqualifiedLeads = filteredLeadsByRange.filter((l) => (l.etapa_kanban ?? "") === "desqualificado").length;
+
+  const lostReasonCounts: Record<string, number> = {};
+  for (const lead of filteredLeadsByRange) {
+    const stage = lead.etapa_kanban ?? "";
+    if (!LOST_STAGES.includes(stage)) continue;
+    const reason = (lead.lost_reason ?? "").trim();
+    if (!reason) continue;
+    lostReasonCounts[reason] = (lostReasonCounts[reason] ?? 0) + 1;
+  }
+  const lostReasons = Object.entries(lostReasonCounts)
+    .map(([reason, count]) => ({ reason, count }))
+    .sort((a, b) => b.count - a.count);
 
   // 4. Revenue metrics
-  const pipelineValue = leadsList
+  const pipelineValue = filteredLeadsByRange
     .filter((l) => OPEN_STAGES.includes(l.etapa_kanban ?? ""))
     .reduce((sum, l) => sum + Number(l.value ?? 0), 0);
 
-  const closedRevenue = leadsList
+  const closedRevenue = filteredLeadsByRange
     .filter((l) => WON_STAGES.includes(l.etapa_kanban ?? ""))
     .reduce((sum, l) => sum + Number(l.value ?? 0), 0);
 
-  const wonCount = leadsList.filter((l) =>
+  const wonCount = filteredLeadsByRange.filter((l) =>
     WON_STAGES.includes(l.etapa_kanban ?? "")
   ).length;
   const totalClosed = wonLeads + lostLeads;
@@ -152,7 +193,7 @@ async function fetchAnalytics(organizationId: string): Promise<SalesAnalyticsDat
   // 5. Conversion rates from history
   const transitionCounts: Record<string, number> = {};
   const fromTotals: Record<string, number> = {};
-  for (const h of filteredHistory) {
+  for (const h of filteredHistoryByRange) {
     const key = `${h.from_stage}→${h.to_stage}`;
     transitionCounts[key] = (transitionCounts[key] ?? 0) + 1;
     fromTotals[h.from_stage] = (fromTotals[h.from_stage] ?? 0) + 1;
@@ -160,7 +201,7 @@ async function fetchAnalytics(organizationId: string): Promise<SalesAnalyticsDat
 
   const conversionRates: ConversionRate[] = [];
   const seen = new Set<string>();
-  for (const h of filteredHistory) {
+  for (const h of filteredHistoryByRange) {
     const key = `${h.from_stage}→${h.to_stage}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -177,6 +218,58 @@ async function fetchAnalytics(organizationId: string): Promise<SalesAnalyticsDat
     });
   }
   conversionRates.sort((a, b) => b.count - a.count);
+
+  // New Conversion Metric logic (Phase D)
+  const conversionStages = [
+    "leads_recebidos",
+    "qualificados",
+    "reuniao_agendada",
+    "emissao_contrato",
+    "efetivados"
+  ];
+
+  // We need to count how many leads passed through each stage in the period
+  // A lead passed through a stage if it's currently in it OR if history shows it was moved TO it.
+  const stageVisitCounts: Record<string, number> = {};
+  
+  // Initialize with 0
+  for (const s of conversionStages) stageVisitCounts[s] = 0;
+
+  // For leads_recebidos, we count all leads created in the period
+  stageVisitCounts["leads_recebidos"] = filteredLeadsByRange.length;
+
+  // For other stages, count unique leads that entered that stage in the period
+  const leadEntriesByStage: Record<string, Set<string>> = {};
+  for (const s of conversionStages) {
+    if (s === "leads_recebidos") continue;
+    leadEntriesByStage[s] = new Set();
+  }
+
+  for (const h of filteredHistoryByRange) {
+    if (leadEntriesByStage[h.to_stage]) {
+      leadEntriesByStage[h.to_stage].add(h.lead_id);
+    }
+  }
+
+  for (const s of conversionStages) {
+    if (s === "leads_recebidos") continue;
+    stageVisitCounts[s] = leadEntriesByStage[s].size;
+  }
+
+  const leadsRecebidosCount = stageVisitCounts["leads_recebidos"] || 1;
+  const stageConversions: StageConversionMetric[] = conversionStages.map((stage, index) => {
+    const count = stageVisitCounts[stage] || 0;
+    const prevStage = index > 0 ? conversionStages[index - 1] : null;
+    const prevCount = prevStage ? stageVisitCounts[prevStage] : count;
+    
+    return {
+      stage,
+      label: STAGE_LABELS[stage] ?? stage,
+      count,
+      propLead: (count / leadsRecebidosCount) * 100,
+      propFA: prevCount > 0 ? (count / prevCount) * 100 : 0,
+    };
+  });
 
   // 6. Avg time per stage (from history: from_stage exit at moved_at)
   const leadHistoryByLead = new Map<string, typeof filteredHistory>();
@@ -201,13 +294,25 @@ async function fetchAnalytics(organizationId: string): Promise<SalesAnalyticsDat
 
     for (let i = 0; i < sorted.length; i++) {
       const r = sorted[i];
+      if (!r.moved_at) continue;
       const exitTime = new Date(r.moved_at).getTime();
-      const entryTime =
-        i === 0
-          ? created
-            ? created.getTime()
-            : exitTime
-          : new Date(sorted[i - 1].moved_at).getTime();
+      if (Number.isNaN(exitTime)) continue;
+
+      let entryTime = exitTime;
+      if (i === 0) {
+        if (created && !Number.isNaN(created.getTime())) {
+          entryTime = created.getTime();
+        }
+      } else {
+        const prevMovedAt = sorted[i - 1].moved_at;
+        if (prevMovedAt) {
+          const prevTime = new Date(prevMovedAt).getTime();
+          if (!Number.isNaN(prevTime)) {
+            entryTime = prevTime;
+          }
+        }
+      }
+
       const hours = Math.max(0, (exitTime - entryTime) / (1000 * 60 * 60));
       if (hours > 0 && r.from_stage) {
         if (!leadStageDurations[r.from_stage]) leadStageDurations[r.from_stage] = [];
@@ -221,9 +326,11 @@ async function fetchAnalytics(organizationId: string): Promise<SalesAnalyticsDat
       [...WON_STAGES, ...LOST_STAGES].includes(r.to_stage)
     );
     if (firstAt && closedRec) {
-      closeTimes.push(
-        differenceInHours(new Date(closedRec.moved_at), new Date(firstAt))
-      );
+      const start = new Date(firstAt);
+      const end = new Date(closedRec.moved_at);
+      if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime())) {
+        closeTimes.push(differenceInHours(end, start));
+      }
     }
   }
 
@@ -269,22 +376,25 @@ async function fetchAnalytics(organizationId: string): Promise<SalesAnalyticsDat
     monthlyLeads,
     wonLeads,
     lostLeads,
+    disqualifiedLeads,
+    lostReasons,
     pipelineValue,
     closedRevenue,
     forecastRevenue,
     conversionRates,
+    stageConversions,
     avgTimePerStage,
     avgTimeToClose,
     leadsByMonth,
   };
 }
 
-export function useSalesAnalytics(organizationId: string | undefined) {
+export function useSalesAnalytics(organizationId: string | undefined, options?: { range?: DateRange }) {
   const qc = useQueryClient();
 
   const query = useQuery({
-    queryKey: ["sales-analytics", organizationId],
-    queryFn: () => fetchAnalytics(organizationId!),
+    queryKey: ["sales-analytics", organizationId, options?.range],
+    queryFn: () => fetchAnalytics(organizationId!, options?.range),
     enabled: !!organizationId,
   });
 
@@ -328,6 +438,8 @@ export function useSalesAnalytics(organizationId: string | undefined) {
     monthlyLeads: query.data?.monthlyLeads ?? 0,
     wonLeads: query.data?.wonLeads ?? 0,
     lostLeads: query.data?.lostLeads ?? 0,
+    disqualifiedLeads: query.data?.disqualifiedLeads ?? 0,
+    lostReasons: query.data?.lostReasons ?? [],
     pipelineValue: query.data?.pipelineValue ?? 0,
     closedRevenue: query.data?.closedRevenue ?? 0,
     forecastRevenue: query.data?.forecastRevenue ?? 0,

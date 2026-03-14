@@ -20,25 +20,26 @@ export function LeadsKanbanColumn({ id, label, leads, onDetalhes }: LeadsKanbanC
 
   return (
     <div
-      ref={setNodeRef}
       className={cn(
-        "min-w-[280px] w-[280px] flex-shrink-0 rounded-lg border-2 border-dashed border-border bg-muted/50 p-3 transition-colors",
+        "min-w-[280px] w-[280px] flex-shrink-0 flex flex-col rounded-lg border-2 border-dashed border-border bg-muted/50 transition-colors h-full",
         isOver && "border-primary bg-primary/5"
       )}
     >
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="font-semibold text-foreground">{label}</h3>
-        <span className="text-sm text-muted-foreground bg-card px-2 py-0.5 rounded-full">
+      <div className="flex items-center justify-between p-3 border-b border-border/50 bg-muted/80 backdrop-blur rounded-t-lg">
+        <h3 className="font-semibold text-foreground text-sm truncate pr-2">{label}</h3>
+        <span className="text-xs font-medium text-muted-foreground bg-background px-2 py-0.5 rounded-full border">
           {leads.length}
         </span>
       </div>
-      <SortableContext items={leadIds} strategy={verticalListSortingStrategy}>
-        <div className="space-y-2 min-h-[60px]">
-          {leads.map((lead) => (
-            <LeadCard key={lead.id} lead={lead} onDetalhes={onDetalhes} />
-          ))}
-        </div>
-      </SortableContext>
+      <div ref={setNodeRef} className="flex-1 overflow-y-auto overflow-x-hidden p-3 custom-scrollbar">
+        <SortableContext items={leadIds} strategy={verticalListSortingStrategy}>
+          <div className="space-y-3 min-h-[100px]">
+            {leads.map((lead) => (
+              <LeadCard key={lead.id} lead={lead} onDetalhes={onDetalhes} />
+            ))}
+          </div>
+        </SortableContext>
+      </div>
     </div>
   );
 }

@@ -1,15 +1,8 @@
 import { useState } from "react";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import type { TeamRow } from "@/hooks/useTeams";
@@ -27,6 +20,10 @@ interface Props {
   onAddMember?: (teamId: string, profileId: string) => void;
   onRemoveMember?: (teamId: string, profileId: string) => void;
   loading?: boolean;
+  canCreate?: boolean;
+  canEdit?: boolean;
+  canDelete?: boolean;
+  canManageMembers?: boolean;
 }
 
 export function TeamListSupabase({
@@ -39,6 +36,10 @@ export function TeamListSupabase({
   onAddMember,
   onRemoveMember,
   loading,
+  canCreate,
+  canEdit,
+  canDelete,
+  canManageMembers,
 }: Props) {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<TeamRow | null>(null);
@@ -46,18 +47,27 @@ export function TeamListSupabase({
   const [memberModal, setMemberModal] = useState<TeamRow | null>(null);
   const [selectedProfile, setSelectedProfile] = useState<string>("");
 
+  const allowCreate = canCreate ?? true;
+  const allowEdit = canEdit ?? true;
+  const allowDelete = canDelete ?? true;
+  const allowManageMembers = canManageMembers ?? true;
+
   const openNew = () => {
+    if (!allowCreate) return;
     setEditing(null);
     setName("");
     setFormOpen(true);
   };
   const openEdit = (t: TeamRow) => {
+    if (!allowEdit) return;
     setEditing(t);
     setName(t.name);
     setFormOpen(true);
   };
 
   const handleSave = () => {
+    if (editing && !allowEdit) return;
+    if (!editing && !allowCreate) return;
     if (!name.trim()) return;
     if (editing) {
       onUpdate(editing.id, name.trim());
@@ -83,7 +93,7 @@ export function TeamListSupabase({
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <p className="text-sm text-muted-foreground">{teams.length} equipes cadastradas</p>
-        <Button onClick={openNew} size="sm">
+        <Button onClick={openNew} size="sm" disabled={!allowCreate}>
           <Plus className="h-4 w-4 mr-1" /> Nova equipe
         </Button>
       </div>
@@ -97,14 +107,19 @@ export function TeamListSupabase({
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="font-display font-semibold text-foreground">{team.name}</h3>
                   <div className="flex gap-1">
-                    <Button variant="ghost" size="icon" onClick={() => openEdit(team)}>
+                    <Button variant="ghost" size="icon" onClick={() => openEdit(team)} disabled={!allowEdit}>
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" onClick={() => onDelete(team.id)}>
+                    <Button variant="ghost" size="icon" onClick={() => onDelete(team.id)} disabled={!allowDelete}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                     {onAddMember && (
-                      <Button variant="ghost" size="icon" onClick={() => setMemberModal(team)}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setMemberModal(team)}
+                        disabled={!allowManageMembers}
+                      >
                         <UserPlus className="h-4 w-4" />
                       </Button>
                     )}
@@ -123,6 +138,7 @@ export function TeamListSupabase({
                             size="icon"
                             className="h-6 w-6"
                             onClick={() => onRemoveMember(team.id, p.id)}
+                            disabled={!allowManageMembers}
                           >
                             <UserMinus className="h-3 w-3" />
                           </Button>
@@ -137,54 +153,38 @@ export function TeamListSupabase({
         })}
       </div>
 
-      <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editing ? "Editar equipe" : "Nova equipe"}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
+      {formOpen ? (
+        <Card>
+          <CardHeader className="flex flex-row items-start justify-between gap-3">
+            <CardTitle className="text-base">{editing ? "Editar equipe" : "Nova equipe"}</CardTitle>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => setFormOpen(false)}>
+                Cancelar
+              </Button>
+              <Button size="sm" onClick={handleSave}>
+                Salvar
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
             <div>
               <Label>Nome</Label>
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Comercial" />
             </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setFormOpen(false)}>Cancelar</Button>
-            <Button onClick={handleSave}>Salvar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {memberModal && onAddMember && (
-        <Dialog open={!!memberModal} onOpenChange={() => setMemberModal(null)}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Adicionar membro a {memberModal.name}</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div>
-                <Label>Colaborador</Label>
-                <Select
-                  value={selectedProfile || "__none__"}
-                  onValueChange={(v) => setSelectedProfile(v === "__none__" ? "" : v)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">Selecione um colaborador</SelectItem>
-                    {profilesNotInTeam(memberModal.id).map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.full_name} ({p.email})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setMemberModal(null)}>Cancelar</Button>
+        <Card>
+          <CardHeader className="flex flex-row items-start justify-between gap-3">
+            <CardTitle className="text-base">Adicionar membro — {memberModal.name}</CardTitle>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => setMemberModal(null)}>
+                Fechar
+              </Button>
               <Button
+                size="sm"
                 onClick={() => {
                   if (selectedProfile && selectedProfile !== "__none__") {
                     onAddMember(memberModal.id, selectedProfile);
@@ -192,13 +192,34 @@ export function TeamListSupabase({
                     setMemberModal(null);
                   }
                 }}
-                disabled={!selectedProfile || selectedProfile === "__none__"}
+                disabled={!allowManageMembers || !selectedProfile || selectedProfile === "__none__"}
               >
                 Adicionar
               </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label>Colaborador</Label>
+              <Select
+                value={selectedProfile || "__none__"}
+                onValueChange={(v) => setSelectedProfile(v === "__none__" ? "" : v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Selecione um colaborador</SelectItem>
+                  {profilesNotInTeam(memberModal.id).map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.full_name} ({p.email})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

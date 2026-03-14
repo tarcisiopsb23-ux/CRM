@@ -1,7 +1,6 @@
 import { useState, useMemo } from "react";
 import { useOrganization } from "@/hooks/useOrganization";
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/lib/supabase";
+import { useAdminAuditLogs } from "@/hooks/useAuditLogs";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,17 +33,6 @@ const TABLE_LABELS: Record<string, string> = {
   teams: "Equipes",
 };
 
-type AuditLog = {
-  id: string | null;
-  table_name: string | null;
-  record_id: string | null;
-  action: string | null;
-  changed_by: string | null;
-  changed_by_name: string | null;
-  changed_at: string | null;
-  changes: unknown;
-};
-
 export default function AuditPage() {
   const organizationId = useOrganization();
   const [filterDateFrom, setFilterDateFrom] = useState("");
@@ -53,20 +41,7 @@ export default function AuditPage() {
   const [filterTable, setFilterTable] = useState("");
   const [filterAction, setFilterAction] = useState("");
 
-  const { data: logs = [], isLoading, error } = useQuery({
-    queryKey: ["admin_audit_logs", organizationId],
-    queryFn: async () => {
-      if (!organizationId) return [];
-      const { data, error } = await supabase
-        .from("admin_audit_logs")
-        .select("*")
-        .order("changed_at", { ascending: false })
-        .limit(200);
-      if (error) throw error;
-      return (data ?? []) as AuditLog[];
-    },
-    enabled: !!organizationId,
-  });
+  const { data: logs = [], isLoading, error } = useAdminAuditLogs(organizationId, 200);
 
   const filteredLogs = useMemo(() => {
     return logs.filter((log) => {

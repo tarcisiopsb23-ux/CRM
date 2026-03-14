@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -11,6 +12,9 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { useOrganization } from "@/hooks/useOrganization";
+import { getJobTitleOptions } from "@/lib/jobTitles";
+import { useJobTitleCatalog } from "@/hooks/useJobTitleCatalog";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
 
@@ -25,11 +29,19 @@ export function AddCollaboratorModal({
   onOpenChange,
   onSuccess,
 }: AddCollaboratorModalProps) {
+  const organizationId = useOrganization();
+  const catalog = useJobTitleCatalog(organizationId);
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [password, setPassword] = useState("");
+  const [jobTitle, setJobTitle] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const jobTitleOptions = useMemo(() => {
+    const catalogTitles = (catalog.data ?? []).map((r) => r.job_title);
+    return getJobTitleOptions({ extra: catalogTitles, includeDefaults: false });
+  }, [catalog.data]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -59,6 +71,7 @@ export function AddCollaboratorModal({
           email: trimmedEmail,
           password,
           full_name: fullName.trim() || trimmedEmail.split("@")[0],
+          job_title: jobTitle || undefined,
         }),
       });
 
@@ -72,6 +85,7 @@ export function AddCollaboratorModal({
       setEmail("");
       setFullName("");
       setPassword("");
+      setJobTitle("");
       onOpenChange(false);
       onSuccess?.();
     } catch (e) {
@@ -85,11 +99,11 @@ export function AddCollaboratorModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Cadastrar colaborador diretamente</DialogTitle>
+          <DialogTitle>Adicionar Colaborador</DialogTitle>
+          <DialogDescription>
+            Cadastre um novo usuário com acesso direto ao CRM. O colaborador poderá fazer login imediatamente.
+          </DialogDescription>
         </DialogHeader>
-        <p className="text-sm text-muted-foreground">
-          Crie a conta do colaborador sem enviar convite. Ele já poderá fazer login com o e-mail e senha informados.
-        </p>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <Label htmlFor="email">E-mail *</Label>
@@ -129,6 +143,21 @@ export function AddCollaboratorModal({
             <p className="text-xs text-muted-foreground mt-1">
               Informe ao colaborador a senha escolhida para ele acessar.
             </p>
+          </div>
+          <div>
+            <Label>Cargo</Label>
+            <Input
+              className="mt-1"
+              value={jobTitle}
+              onChange={(e) => setJobTitle(e.target.value)}
+              placeholder="Ex: Analista de Marketing"
+              list="job_title_options"
+            />
+            <datalist id="job_title_options">
+              {jobTitleOptions.map((t) => (
+                <option key={t} value={t} />
+              ))}
+            </datalist>
           </div>
           {error && (
             <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded">{error}</p>

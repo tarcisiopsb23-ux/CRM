@@ -1,16 +1,18 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TeamProfilesList } from "@/components/team/TeamProfilesList";
 import { TeamListSupabase } from "@/components/team/TeamListSupabase";
 import { AddCollaboratorModal } from "@/components/team/AddCollaboratorModal";
+import { TimeClockControl } from "@/components/team/TimeClockControl";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useTeams, useTeamMembers } from "@/hooks/useTeams";
 import { useAuth } from "@/contexts/AuthContext";
-import { Link } from "react-router-dom";
-import { Users, DollarSign, UsersRound, UserPlus, ChevronDown } from "lucide-react";
-import { StubPage } from "@/components/shared/StubPage";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { Clock, Users, UsersRound, UserPlus, ChevronDown, Calculator } from "lucide-react";
+import { PayrollManager } from "@/components/team/PayrollManager";
 import { Button } from "@/components/ui/button";
+import { usePermissionForScope } from "@/hooks/usePermissions";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,11 +23,31 @@ import {
 export default function TeamPage() {
   const orgId = useOrganization();
   const { profile } = useAuth();
+  const { profileId } = useParams();
+  const navigate = useNavigate();
   const { data: profiles = [], isLoading: profilesLoading, refetch: refetchProfiles } = useProfiles(orgId);
   const { data: teams = [], isLoading: teamsLoading, create, update, remove } = useTeams(orgId);
   const { data: members = [], addMember, removeMember } = useTeamMembers(orgId);
   const [addDirectOpen, setAddDirectOpen] = useState(false);
   const isAdmin = profile?.role === "admin" || profile?.role === "owner";
+  const [tab, setTab] = useState<"employees" | "teams" | "payroll" | "timeclock">("employees");
+  const employeesPermission = usePermissionForScope("team", "employees");
+  const teamsPermission = usePermissionForScope("team", "teams");
+  const payrollPermission = usePermissionForScope("team", "payroll");
+  const timeclockPermission = usePermissionForScope("team", "timeclock");
+
+  const scopePermission =
+    tab === "employees"
+      ? employeesPermission
+      : tab === "teams"
+        ? teamsPermission
+        : tab === "payroll"
+          ? payrollPermission
+          : timeclockPermission;
+
+  useEffect(() => {
+    if (profileId) setTab("employees");
+  }, [profileId]);
 
   const handleCreateTeam = (name: string) => {
     create.mutate({ name });
@@ -51,6 +73,40 @@ export default function TeamPage() {
     );
   }
 
+  if (profileId) {
+    const selected = profiles.find((p) => String(p.id) === String(profileId));
+    return (
+      <div className="space-y-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="font-display text-2xl font-bold text-foreground truncate">
+              {selected?.full_name || "Colaborador"}
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1">Detalhes do colaborador</p>
+          </div>
+          <Button variant="outline" onClick={() => navigate("/team")}>
+            Voltar
+          </Button>
+        </div>
+
+        {!employeesPermission.canView ? (
+          <div className="flex flex-col items-center justify-center min-h-[240px] gap-2 text-center">
+            <h2 className="text-lg font-semibold text-foreground">Acesso negado</h2>
+            <p className="text-muted-foreground">Você não tem permissão para acessar esta seção.</p>
+          </div>
+        ) : (
+          <TeamProfilesList
+            profiles={profiles}
+            teams={teams}
+            members={members}
+            loading={profilesLoading}
+            selectedProfileId={profileId}
+          />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
@@ -62,21 +118,21 @@ export default function TeamPage() {
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="flex items-center gap-2">
+            <Button variant="outline" className="flex items-center gap-2" disabled={!employeesPermission.canCreate}>
               <UserPlus className="h-4 w-4" />
               Adicionar colaborador
               <ChevronDown className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem asChild>
+            <DropdownMenuItem asChild disabled={!employeesPermission.canCreate}>
               <Link to="/settings">Enviar convite por e-mail</Link>
             </DropdownMenuItem>
-            <DropdownMenuItem asChild>
+            <DropdownMenuItem asChild disabled={!employeesPermission.canCreate}>
               <Link to="/settings">Gerar link manualmente</Link>
             </DropdownMenuItem>
             {isAdmin && (
-              <DropdownMenuItem onClick={() => setAddDirectOpen(true)}>
+              <DropdownMenuItem onClick={() => setAddDirectOpen(true)} disabled={!employeesPermission.canCreate}>
                 Cadastrar diretamente (sem token)
               </DropdownMenuItem>
             )}
@@ -89,7 +145,7 @@ export default function TeamPage() {
         />
       </div>
 
-      <Tabs defaultValue="employees" className="w-full">
+      <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="w-full">
         <TabsList>
           <TabsTrigger value="employees" className="gap-1.5">
             <Users className="h-4 w-4" /> Colaboradores
@@ -97,41 +153,56 @@ export default function TeamPage() {
           <TabsTrigger value="teams" className="gap-1.5">
             <UsersRound className="h-4 w-4" /> Equipes
           </TabsTrigger>
-          <TabsTrigger value="payroll" className="gap-1.5">
-            <DollarSign className="h-4 w-4" /> Folha de Pagamento
+          {payrollPermission.canView && (isAdmin || profile?.role === "manager") && (
+            <TabsTrigger value="payroll" className="gap-1.5">
+              <Calculator className="h-4 w-4" /> Folha de Pagamento
+            </TabsTrigger>
+          )}
+          <TabsTrigger value="timeclock" className="gap-1.5">
+            <Clock className="h-4 w-4" /> Controle de Ponto
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="employees">
-          <TeamProfilesList
-            profiles={profiles}
-            teams={teams}
-            members={members}
-            loading={profilesLoading}
-          />
-        </TabsContent>
+        {!scopePermission.canView ? (
+          <div className="flex flex-col items-center justify-center min-h-[240px] gap-2 text-center">
+            <h2 className="text-lg font-semibold text-foreground">Acesso negado</h2>
+            <p className="text-muted-foreground">Você não tem permissão para acessar esta seção.</p>
+          </div>
+        ) : (
+          <>
+            <TabsContent value="employees">
+              <TeamProfilesList profiles={profiles} teams={teams} members={members} loading={profilesLoading} />
+            </TabsContent>
 
-        <TabsContent value="teams">
-          <TeamListSupabase
-            teams={teams}
-            profiles={profiles}
-            members={members}
-            onCreate={handleCreateTeam}
-            onUpdate={handleUpdateTeam}
-            onDelete={handleDeleteTeam}
-            onAddMember={handleAddMember}
-            onRemoveMember={handleRemoveMember}
-            loading={teamsLoading}
-          />
-        </TabsContent>
+            <TabsContent value="teams">
+              <TeamListSupabase
+                teams={teams}
+                profiles={profiles}
+                members={members}
+                onCreate={handleCreateTeam}
+                onUpdate={handleUpdateTeam}
+                onDelete={handleDeleteTeam}
+                onAddMember={handleAddMember}
+                onRemoveMember={handleRemoveMember}
+                loading={teamsLoading}
+                canCreate={teamsPermission.canCreate}
+                canEdit={teamsPermission.canEdit}
+                canDelete={teamsPermission.canDelete}
+                canManageMembers={teamsPermission.canEdit}
+              />
+            </TabsContent>
 
-        <TabsContent value="payroll">
-          <StubPage
-            title="Folha de Pagamento"
-            description="Gestão de folha em desenvolvimento."
-            icon={DollarSign}
-          />
-        </TabsContent>
+            {(isAdmin || profile?.role === "manager") && payrollPermission.canView && (
+              <TabsContent value="payroll">
+                <PayrollManager />
+              </TabsContent>
+            )}
+
+            <TabsContent value="timeclock">
+              <TimeClockControl />
+            </TabsContent>
+          </>
+        )}
       </Tabs>
     </div>
   );
