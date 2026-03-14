@@ -341,6 +341,23 @@ export function LeadsKanbanPage() {
             <LeadsListView
               leads={leads}
               onDetalhes={handleDetalhes}
+              onEdit={(l) => {
+                setEditing(l);
+                setEditForm({
+                  company: l.company ?? "",
+                  name: l.name ?? "",
+                  email: l.email ?? "",
+                  phone: l.phone ?? "",
+                  nicho: l.nicho ?? "",
+                  source: l.source ?? "",
+                  value: String(l.value ?? ""),
+                  prioridade: ((l.prioridade as "baixa" | "media" | "alta" | "urgente") ?? "media"),
+                  assigned_to: l.assigned_to ?? "",
+                });
+              }}
+              onDelete={(id) => {
+                if (window.confirm("Excluir este lead?")) removeLead(id);
+              }}
               onEtapaChange={handleEtapaChange}
             />
           )}
