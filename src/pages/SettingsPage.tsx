@@ -11,10 +11,11 @@ import {
 import { InviteMemberDialog } from "@/components/team/InviteMemberDialog";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Mail, Link as LinkIcon, UserPlus } from "lucide-react";
+import { Mail, Link as LinkIcon, UserPlus, Sun, Moon, Monitor, Type, Palette } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useOrganization } from "@/hooks/useOrganization";
+import { useUserPreferences } from "@/contexts/UserPreferencesContext";
 import {
   getDriveApiFromOrganizationSettings,
   getDriveFoldersFromOrganizationSettings,
@@ -25,10 +26,11 @@ import {
 
 export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const validTabs = useMemo(() => new Set(["permissions", "integrations", "general"]), []);
+  const { theme, setTheme, fontSize, setFontSize, sidebarColor, setSidebarColor } = useUserPreferences();
+  const validTabs = useMemo(() => new Set(["permissions", "integrations", "general", "preferences"]), []);
   const tabParamRaw = searchParams.get("tab");
   const tabParam = tabParamRaw === "api" ? "integrations" : tabParamRaw;
-  const tab = (tabParam && validTabs.has(tabParam) ? tabParam : "permissions") as "permissions" | "integrations" | "general";
+  const tab = (tabParam && validTabs.has(tabParam) ? tabParam : "permissions") as "permissions" | "integrations" | "general" | "preferences";
 
   const organizationId = useOrganization();
   const orgSettings = useOrganizationSettings(organizationId);
@@ -79,6 +81,7 @@ export function SettingsPage() {
           <TabsTrigger value="permissions">Cargos e Permissões</TabsTrigger>
           <TabsTrigger value="integrations">Integrações</TabsTrigger>
           <TabsTrigger value="general">Configurações gerais</TabsTrigger>
+          <TabsTrigger value="preferences">Preferências e Tema</TabsTrigger>
         </TabsList>
 
         <TabsContent value="permissions" className="space-y-6">
@@ -202,6 +205,91 @@ export function SettingsPage() {
                 </Button>
               </div>
             )}
+          </SettingsSection>
+        </TabsContent>
+
+        <TabsContent value="preferences" className="space-y-6">
+          <SettingsSection
+            title="Aparência e Tema"
+            description="Escolha como o sistema deve ser exibido."
+            icon={<Palette className="h-5 w-5" />}
+          >
+            <div className="flex flex-wrap gap-4">
+              <Button
+                variant={theme === "light" ? "default" : "outline"}
+                onClick={() => setTheme("light")}
+                className="gap-2"
+              >
+                <Sun className="h-4 w-4" /> Claro
+              </Button>
+              <Button
+                variant={theme === "dark" ? "default" : "outline"}
+                onClick={() => setTheme("dark")}
+                className="gap-2"
+              >
+                <Moon className="h-4 w-4" /> Escuro
+              </Button>
+              <Button
+                variant={theme === "system" ? "default" : "outline"}
+                onClick={() => setTheme("system")}
+                className="gap-2"
+              >
+                <Monitor className="h-4 w-4" /> Sistema
+              </Button>
+            </div>
+          </SettingsSection>
+
+          <SettingsSection
+            title="Tamanho da Fonte"
+            description="Ajuste o tamanho do texto para melhor leitura."
+            icon={<Type className="h-5 w-5" />}
+          >
+            <div className="flex flex-wrap gap-4">
+              {[
+                { label: "Pequeno", value: "sm" },
+                { label: "Padrão", value: "base" },
+                { label: "Grande", value: "lg" },
+                { label: "Extra Grande", value: "xl" },
+              ].map((opt) => (
+                <Button
+                  key={opt.value}
+                  variant={fontSize === opt.value ? "default" : "outline"}
+                  onClick={() => setFontSize(opt.value as any)}
+                >
+                  {opt.label}
+                </Button>
+              ))}
+            </div>
+          </SettingsSection>
+
+          <SettingsSection
+            title="Cor do Menu Lateral"
+            description="Personalize a cor da barra de navegação."
+            icon={<Palette className="h-5 w-5" />}
+          >
+            <div className="flex flex-wrap gap-4">
+              {[
+                { label: "Roxo (Padrão)", value: "default", color: "bg-[#2d1a4d]" },
+                { label: "Índigo", value: "indigo", color: "bg-[#1e2a4d]" },
+                { label: "Azul", value: "blue", color: "bg-[#1a2d4d]" },
+                { label: "Ardósia", value: "slate", color: "bg-[#1e293b]" },
+                { label: "Zinco", value: "zinc", color: "bg-[#27272a]" },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => setSidebarColor(opt.value as any)}
+                  className={cn(
+                    "flex items-center gap-3 px-4 py-2 rounded-lg border-2 transition-all",
+                    sidebarColor === opt.value
+                      ? "border-primary bg-primary/5"
+                      : "border-transparent hover:bg-muted"
+                  )}
+                >
+                  <div className={cn("w-6 h-6 rounded-full shadow-inner", opt.color)} />
+                  <span className="text-sm font-medium">{opt.label}</span>
+                </button>
+              ))}
+            </div>
           </SettingsSection>
         </TabsContent>
       </Tabs>

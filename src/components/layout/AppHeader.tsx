@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Bell, LogOut, Search, Timer, User, Lock, Camera } from "lucide-react";
+import { Bell, LogOut, Search, Timer, User, Lock, Camera, Sun, Moon, Monitor, Type, Palette } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -7,10 +7,16 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/contexts/AuthContext";
+import { useUserPreferences } from "@/contexts/UserPreferencesContext";
+import { cn } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -28,6 +34,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 export function AppHeader() {
   const { profile, signOut, refetchProfile } = useAuth();
+  const { theme, setTheme, fontSize, setFontSize, sidebarColor, setSidebarColor } = useUserPreferences();
   const navigate = useNavigate();
   const clockState = useTimeClockState();
   const registerPunch = useRegisterPunch();
@@ -287,6 +294,67 @@ export function AppHeader() {
               <Lock className="h-4 w-4 mr-2" />
               Alterar Senha
             </DropdownMenuItem>
+
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground px-2 py-1">
+              Preferências
+            </DropdownMenuLabel>
+            
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Palette className="h-4 w-4 mr-2" />
+                Tema
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <DropdownMenuItem onClick={() => setTheme("light")} className="gap-2">
+                  <Sun className="h-4 w-4" /> Claro {theme === "light" && "✓"}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setTheme("dark")} className="gap-2">
+                  <Moon className="h-4 w-4" /> Escuro {theme === "dark" && "✓"}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setTheme("system")} className="gap-2">
+                  <Monitor className="h-4 w-4" /> Sistema {theme === "system" && "✓"}
+                </DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Type className="h-4 w-4 mr-2" />
+                Fonte
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <DropdownMenuItem onClick={() => setFontSize("sm")}>Pequeno {fontSize === "sm" && "✓"}</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setFontSize("base")}>Padrão {fontSize === "base" && "✓"}</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setFontSize("lg")}>Grande {fontSize === "lg" && "✓"}</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setFontSize("xl")}>Extra Grande {fontSize === "xl" && "✓"}</DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Palette className="h-4 w-4 mr-2" />
+                Cor do Menu
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <DropdownMenuItem onClick={() => setSidebarColor("default")} className="gap-2">
+                  <div className="w-3 h-3 rounded-full bg-[#2d1a4d]" /> Roxo {sidebarColor === "default" && "✓"}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setSidebarColor("indigo")} className="gap-2">
+                  <div className="w-3 h-3 rounded-full bg-[#1e2a4d]" /> Índigo {sidebarColor === "indigo" && "✓"}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setSidebarColor("blue")} className="gap-2">
+                  <div className="w-3 h-3 rounded-full bg-[#1a2d4d]" /> Azul {sidebarColor === "blue" && "✓"}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setSidebarColor("slate")} className="gap-2">
+                  <div className="w-3 h-3 rounded-full bg-[#1e293b]" /> Ardósia {sidebarColor === "slate" && "✓"}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setSidebarColor("zinc")} className="gap-2">
+                  <div className="w-3 h-3 rounded-full bg-[#27272a]" /> Zinco {sidebarColor === "zinc" && "✓"}
+                </DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+
             {canShowExit && (
               <>
                 <DropdownMenuSeparator />
