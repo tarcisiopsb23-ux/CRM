@@ -33,21 +33,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchProfile = useCallback(async (user: User) => {
     const uid = user.id;
+    console.log("[Auth] Iniciando fetchProfile para:", user.email, "UID:", uid);
 
     try {
       // Pequeno delay para garantir que o perfil tenha sido criado no backend se for um novo usuário
       await new Promise(resolve => setTimeout(resolve, 500));
 
       // 1. Tentar buscar via RPC (ignora RLS)
+      console.log("[Auth] 1. Tentando RPC get_my_profile...");
       const { data: rpcData, error: rpcError } = await supabase.rpc('get_my_profile');
       if (!rpcError && rpcData) {
+        console.log("[Auth] RPC sucesso:", rpcData);
         const p = rpcData as unknown as Profile;
         setProfile(p);
         setError(null);
         return p;
       }
+      if (rpcError) console.warn("[Auth] RPC erro:", rpcError.message);
 
       // 2. Tentar buscar diretamente na tabela profiles
+      console.log("[Auth] 2. Tentando SELECT direto na tabela profiles...");
       const { data, error: selectError } = await supabase
         .from('profiles')
         .select('*')
@@ -55,31 +60,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .maybeSingle();
 
       if (data) {
+        console.log("[Auth] SELECT sucesso:", data);
         const p = data as Profile;
         setProfile(p);
         setError(null);
         return p;
       }
+      if (selectError) console.warn("[Auth] SELECT erro:", selectError.message);
 
       // 3. Se não encontrar, tentar bootstrap via Edge Function
-      console.log("Perfil não encontrado, tentando bootstrap...");
+      console.log("[Auth] 3. Perfil não encontrado, tentando bootstrap via Edge Function...");
       try {
         const { data: fnData, error: fnError } = await supabase.functions.invoke('bootstrap-profile', { body: {} });
         if (!fnError && fnData?.profile) {
+          console.log("[Auth] Edge Function sucesso:", fnData.profile);
           const p = fnData.profile as Profile;
           setProfile(p);
           setError(null);
           return p;
         }
+        if (fnError) console.warn("[Auth] Edge Function erro:", fnError.message);
       } catch (e) {
-        console.warn("Edge Function falhou, tentando criação manual...");
+        console.warn("[Auth] Edge Function falhou ou não existe:", e);
       }
 
       // 4. Criação manual de Organização e Perfil (Fallback final)
+      console.log("[Auth] 4. Tentando criação manual de Organização e Perfil...");
       try {
         const orgSlug = user.email?.split('@')[0]?.replace(/[^a-z0-9]/g, '') || 'org';
         const uniqueSlug = `${orgSlug}-${uid.slice(0, 8)}`;
         
+        console.log("[Auth] Criando organização com slug:", uniqueSlug);
         const { data: org, error: orgError } = await supabase
           .from('organizations')
           .insert({
@@ -90,13 +101,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .single();
 
         if (orgError && !orgError.message.includes("duplicate key")) {
+          console.error("[Auth] Erro ao criar organização:", orgError.message);
           throw orgError;
         }
 
         let finalOrgId = org?.id;
         
         if (!finalOrgId) {
-          // Tenta buscar se a org já existir (caso o insert tenha falhado por conflito de slug)
+          console.log("[Auth] Organização já existe, buscando ID...");
           const { data: existingOrg } = await supabase
             .from('organizations')
             .select('id')
@@ -110,6 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
 
+        console.log("[Auth] Criando perfil vinculado à org:", finalOrgId);
         const { data: newProfile, error: profileError } = await supabase
           .from('profiles')
           .insert({
@@ -122,22 +135,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .select('*')
           .single();
 
-        if (profileError) throw profileError;
+        if (profileError) {
+          console.error("[Auth] Erro ao criar perfil manual:", profileError.message);
+          throw profileError;
+        }
 
         if (newProfile) {
+          console.log("[Auth] Perfil manual criado com sucesso:", newProfile);
           const p = newProfile as Profile;
           setProfile(p);
           setError(null);
           return p;
         }
       } catch (manualError) {
-        console.error("Falha na criação manual de perfil:", manualError);
+        console.error("[Auth] Falha crítica na criação manual:", manualError);
         throw manualError;
       }
 
+      console.error("[Auth] Fim do fetchProfile sem encontrar ou criar perfil.");
+      setError(new Error("Não foi possível carregar ou criar seu perfil. Por favor, contate o suporte."));
       return null;
     } catch (err) {
-      console.error("Erro no fetchProfile:", err);
+      console.error("[Auth] Erro geral no fetchProfile:", err);
       setError(err as Error);
       setProfile(null);
       return null;
