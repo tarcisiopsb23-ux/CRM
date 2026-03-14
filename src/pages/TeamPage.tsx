@@ -13,6 +13,7 @@ import { Clock, Users, UsersRound, UserPlus, ChevronDown, Calculator } from "luc
 import { PayrollManager } from "@/components/team/PayrollManager";
 import { Button } from "@/components/ui/button";
 import { usePermissionForScope } from "@/hooks/usePermissions";
+import { InviteMemberDialog } from "@/components/team/InviteMemberDialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,6 +30,8 @@ export default function TeamPage() {
   const { data: teams = [], isLoading: teamsLoading, create, update, remove } = useTeams(orgId);
   const { data: members = [], addMember, removeMember } = useTeamMembers(orgId);
   const [addDirectOpen, setAddDirectOpen] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteMode, setInviteMode] = useState<"email" | "link">("email");
   const isAdmin = profile?.role === "admin" || profile?.role === "owner";
   const [tab, setTab] = useState<"employees" | "teams" | "payroll" | "timeclock">("employees");
   const employeesPermission = usePermissionForScope("team", "employees");
@@ -125,11 +128,17 @@ export default function TeamPage() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem asChild disabled={!employeesPermission.canCreate}>
-              <Link to="/settings">Enviar convite por e-mail</Link>
+            <DropdownMenuItem 
+              onClick={() => { setInviteMode("email"); setInviteOpen(true); }}
+              disabled={!employeesPermission.canCreate}
+            >
+              Enviar convite por e-mail
             </DropdownMenuItem>
-            <DropdownMenuItem asChild disabled={!employeesPermission.canCreate}>
-              <Link to="/settings">Gerar link manualmente</Link>
+            <DropdownMenuItem 
+              onClick={() => { setInviteMode("link"); setInviteOpen(true); }}
+              disabled={!employeesPermission.canCreate}
+            >
+              Gerar link manualmente
             </DropdownMenuItem>
             {isAdmin && (
               <DropdownMenuItem onClick={() => setAddDirectOpen(true)} disabled={!employeesPermission.canCreate}>
@@ -142,6 +151,11 @@ export default function TeamPage() {
           open={addDirectOpen}
           onOpenChange={setAddDirectOpen}
           onSuccess={() => refetchProfiles()}
+        />
+        <InviteMemberDialog
+          open={inviteOpen}
+          onOpenChange={setInviteOpen}
+          initialMode={inviteMode}
         />
       </div>
 

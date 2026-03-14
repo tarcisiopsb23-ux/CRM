@@ -1,6 +1,5 @@
 import {
   ApiKeysSection,
-  InviteByEmailSection,
   SettingsInput,
   SettingsSection,
   WebhooksSection,
@@ -9,8 +8,10 @@ import {
   GoogleCalendarSection,
   PermissionsSection,
 } from "@/components/settings";
+import { InviteMemberDialog } from "@/components/team/InviteMemberDialog";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Mail, Link as LinkIcon, UserPlus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useOrganization } from "@/hooks/useOrganization";
@@ -42,6 +43,9 @@ export function SettingsPage() {
   const [driveClientId, setDriveClientId] = useState(driveApi.clientId ?? "");
   const [driveClientSecret, setDriveClientSecret] = useState(driveApi.clientSecret ?? "");
   const [driveRefreshToken, setDriveRefreshToken] = useState(driveApi.refreshToken ?? "");
+
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteMode, setInviteMode] = useState<"email" | "link">("email");
 
   useEffect(() => {
     setClientsFolder(driveFolders.clients ?? "");
@@ -135,7 +139,28 @@ export function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="general" className="space-y-6">
-          <InviteByEmailSection />
+          <SettingsSection
+            title="Convites de Equipe"
+            description="Convide novos colaboradores para sua organização."
+          >
+            <div className="flex flex-wrap gap-4">
+              <Button 
+                onClick={() => { setInviteMode("email"); setInviteOpen(true); }}
+                className="flex items-center gap-2"
+              >
+                <Mail className="h-4 w-4" />
+                Enviar convite por e-mail
+              </Button>
+              <Button 
+                variant="outline"
+                onClick={() => { setInviteMode("link"); setInviteOpen(true); }}
+                className="flex items-center gap-2"
+              >
+                <LinkIcon className="h-4 w-4" />
+                Gerar link manualmente
+              </Button>
+            </div>
+          </SettingsSection>
           <SettingsSection
             title="Google Drive"
             description="Defina as pastas de destino por módulo para listar e enviar documentos."
@@ -180,6 +205,11 @@ export function SettingsPage() {
           </SettingsSection>
         </TabsContent>
       </Tabs>
+      <InviteMemberDialog 
+        open={inviteOpen}
+        onOpenChange={setInviteOpen}
+        initialMode={inviteMode}
+      />
     </div>
   );
 }
