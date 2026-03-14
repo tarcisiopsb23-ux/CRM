@@ -464,7 +464,7 @@ export default function ReportsPage() {
 
   const goalsByTeam = useMemo(() => {
     return teams.map((t) => {
-      const teamGoals = goals.filter((g) => g.responsible_type === "team" && g.responsible_id === t.id);
+      const teamGoals = (goals as any[]).filter((g) => g.responsible_type === "team" && g.responsible_id === t.id);
       const target = teamGoals.reduce((s, g) => s + Number(g.target_value || 0), 0);
       const current = teamGoals.reduce((s, g) => s + Number(g.current_value || 0), 0);
       return { name: t.name, percent: target > 0 ? (current / target) * 100 : 0 };
@@ -473,7 +473,7 @@ export default function ReportsPage() {
 
   const goalsByResponsible = useMemo(() => {
     const respMap: Record<string, { target: number; current: number }> = {};
-    goals.forEach((g) => {
+    (goals as any[]).forEach((g) => {
       if ((g.responsible_type === "profile" || g.responsible_type === "individual") && g.responsible_id) {
         const name = profiles.find((p) => p.id === g.responsible_id)?.full_name ?? "Desconhecido";
         if (!respMap[name]) respMap[name] = { target: 0, current: 0 };
@@ -504,13 +504,13 @@ export default function ReportsPage() {
   }, [leads]);
 
   const campaignData = useMemo(() => {
-    return campaigns.map((c) => ({
+    return (campaigns as any[]).map((c) => ({
       name: c.name,
       status: c.status,
       budget: Number(c.budget || 0),
       spent: Number(c.spend || 0),
-      leads: leads.filter((l) => l.campaign_id === c.id).length,
-      cpl: leads.filter((l) => l.campaign_id === c.id).length > 0 ? Number(c.spend || 0) / leads.filter((l) => l.campaign_id === c.id).length : 0,
+      leads: leads.filter((l: any) => l.campaign_id === c.id).length,
+      cpl: leads.filter((l: any) => l.campaign_id === c.id).length > 0 ? Number(c.spend || 0) / leads.filter((l: any) => l.campaign_id === c.id).length : 0,
     }));
   }, [campaigns, leads]);
 

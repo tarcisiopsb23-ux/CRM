@@ -84,7 +84,7 @@ export interface Lead {
   meta_ads_level?: LeadAdsLevel | null;
   social_media_status?: LeadSocialMediaStatus | null;
   lost_reason?: LeadLostReason | null;
-  cadence?: string | null;
+  cadence?: string | number | null;
   temperature?: number | null;
   campaign_id?: string | null;
   metadata: Record<string, unknown>;

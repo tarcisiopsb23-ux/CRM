@@ -83,7 +83,7 @@ export function useLeadsKanban(
       setError(fetchError as Error);
       setLeads([]);
     } else {
-      const raw = (data as Lead[]) ?? [];
+      const raw = (data as unknown as Lead[]) ?? [];
 
       if (includeConverted) {
         // when the caller requested all leads, just return the raw rows
@@ -194,7 +194,7 @@ export function useLeadsKanban(
         .single();
       if (insertError) throw insertError;
       fetchLeads();
-      return data as Lead;
+      return data as unknown as Lead;
     },
     [organizationId, fetchLeads]
   );

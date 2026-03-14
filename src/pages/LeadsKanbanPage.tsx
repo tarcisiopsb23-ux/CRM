@@ -228,7 +228,7 @@ export function LeadsKanbanPage() {
       product_service: lead.product_service ?? "",
       cpf_cnpj: lead.cpf_cnpj !== null && lead.cpf_cnpj !== undefined ? String(lead.cpf_cnpj) : "",
       contact_origin: lead.contact_origin ?? "",
-      decision_maker: lead.decision_maker ?? false,
+      decision_maker: !!(typeof lead.decision_maker === "boolean" ? lead.decision_maker : lead.decision_maker === "true"),
       decision_maker_name: lead.decision_maker_name ?? "",
       decision_maker_phone:
         lead.decision_maker_phone !== null && lead.decision_maker_phone !== undefined

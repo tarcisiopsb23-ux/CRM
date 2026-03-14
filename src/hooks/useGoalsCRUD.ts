@@ -10,7 +10,7 @@ export interface Goal {
   organization_id: string;
   team_id: string | null;
   assigned_to: string | null;
-  responsible_type?: "individual" | "team" | "all";
+  responsible_type?: "individual" | "team" | "all" | "profile";
   responsible_id?: string | null;
   title: string;
   description: string | null;
