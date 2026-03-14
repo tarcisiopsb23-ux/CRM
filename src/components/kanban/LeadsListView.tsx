@@ -68,7 +68,9 @@ export function LeadsListView({ leads, onDetalhes, onEdit, onDelete, onEtapaChan
               <TableHead className="w-[120px]">Criado em</TableHead>
               <TableHead className="w-[150px]">CPF/CNPJ</TableHead>
               <TableHead className="w-[150px]">Nicho</TableHead>
+              <TableHead className="w-[150px]">Cidade</TableHead>
               <TableHead className="w-[150px]">Origem</TableHead>
+              <TableHead className="w-[300px]">Observações</TableHead>
               <TableHead className="w-[120px]">Primeiro Contato</TableHead>
               <TableHead className="w-[120px]">Último Contato</TableHead>
               <TableHead className="w-[150px]">Produto/Serviço</TableHead>
@@ -150,7 +152,9 @@ export function LeadsListView({ leads, onDetalhes, onEdit, onDelete, onEtapaChan
                   </TableCell>
                   <TableCell className="text-xs">{lead.cpf_cnpj || "-"}</TableCell>
                   <TableCell className="text-xs truncate w-[130px]" title={lead.nicho || "-"}>{lead.nicho || "-"}</TableCell>
+                  <TableCell className="text-xs truncate w-[130px]" title={(lead.metadata as any)?.cidade || "-"}>{(lead.metadata as any)?.cidade || "-"}</TableCell>
                   <TableCell className="text-xs truncate w-[130px]" title={lead.source || "-"}>{lead.source || "-"}</TableCell>
+                  <TableCell className="text-xs truncate w-[280px]" title={lead.notes || "-"}>{lead.notes || "-"}</TableCell>
                   <TableCell className="text-xs">{lead.first_contact_date ? format(parseISO(lead.first_contact_date), "dd/MM/yyyy") : "-"}</TableCell>
                   <TableCell className="text-xs">{lead.last_contact_date ? format(parseISO(lead.last_contact_date), "dd/MM/yyyy") : "-"}</TableCell>
                   <TableCell className="text-xs capitalize">{lead.product_service || "-"}</TableCell>
