@@ -5,7 +5,7 @@ import { useIntegration } from "@/hooks/useSettings";
 import { useOrganization } from "@/hooks/useOrganization";
 import { maskSecret } from "@/types/settings";
 import type { ApiKeyItem, ApiKeysConfig } from "@/types/settings";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Key } from "lucide-react";
 
 export function ApiKeysSection() {
   const orgId = useOrganization();
@@ -38,7 +38,7 @@ export function ApiKeysSection() {
 
   if (isLoading) {
     return (
-      <SettingsSection title="API Keys">
+      <SettingsSection title="API Keys" icon={<Key className="h-5 w-5" />}>
         <p className="text-sm text-gray-400">Carregando...</p>
       </SettingsSection>
     );
@@ -48,6 +48,7 @@ export function ApiKeysSection() {
     <SettingsSection
       title="API Keys"
       description="Chaves de API para integrações externas. Armazenadas com segurança no Supabase."
+      icon={<Key className="h-5 w-5" />}
     >
       <div className="space-y-4">
         {keys.map((k) => (

@@ -5,6 +5,8 @@ import { useIntegration } from "@/hooks/useSettings";
 import { useOrganization } from "@/hooks/useOrganization";
 import type { WhatsAppConfig } from "@/types/settings";
 
+import { MessageSquare } from "lucide-react";
+
 export function WhatsAppSection() {
   const orgId = useOrganization();
   const { data, isLoading, upsert } = useIntegration(orgId, "whatsapp");
@@ -31,7 +33,7 @@ export function WhatsAppSection() {
 
   if (isLoading) {
     return (
-      <SettingsSection title="WhatsApp Cloud API">
+      <SettingsSection title="WhatsApp Cloud API" icon={<MessageSquare className="h-5 w-5" />}>
         <p className="text-sm text-gray-400">Carregando...</p>
       </SettingsSection>
     );
@@ -41,6 +43,7 @@ export function WhatsAppSection() {
     <SettingsSection
       title="WhatsApp Cloud API"
       description="Credenciais da Meta para WhatsApp Business API."
+      icon={<MessageSquare className="h-5 w-5" />}
     >
       <div className="space-y-4">
         <SettingsInput

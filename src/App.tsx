@@ -30,7 +30,8 @@ import AuditPage from "./pages/AuditPage";
 import NotFound from "./pages/NotFound";
 import ReportsPage from "./pages/ReportsPage";
 import { TimeClockPunchPage } from "./pages/TimeClockPunchPage";
-import { TimeClockLockedPage } from "./pages/TimeClockLockedPage";
+import { AppLayout } from "@/components/layout/AppLayout";
+import { DynamicFavicon } from "@/components/layout/DynamicFavicon";
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000 } } });
 
@@ -39,6 +40,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <UserPreferencesProvider>
         <AuthProvider>
+          <DynamicFavicon />
           <TooltipProvider>
             <Toaster />
             <Sonner />

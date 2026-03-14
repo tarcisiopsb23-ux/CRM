@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Loader2 } from "lucide-react";
+import { Loader2, Shield } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -283,6 +283,7 @@ export function PermissionsSection() {
     <SettingsSection
       title="Cargos e Permissões"
       description="Cadastre cargos, vincule cargos a user_role e defina acessos por cargo/colaborador."
+      icon={<Shield className="h-5 w-5" />}
     >
       <div className="space-y-4">
         <Tabs value={mode} onValueChange={(v) => setMode(v as typeof mode)} className="space-y-4">

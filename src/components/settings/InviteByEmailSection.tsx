@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
 import { useOrganization } from "@/hooks/useOrganization";
 import { cn } from "@/lib/utils";
-import { Copy, Check } from "lucide-react";
+import { Copy, Check, Mail } from "lucide-react";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
 
@@ -104,6 +104,7 @@ export function InviteByEmailSection() {
       <SettingsSection
         title="Convidar por e-mail"
         description="Informe o e-mail da pessoa. Ela receberá um link por e-mail para completar o cadastro."
+        icon={<Mail className="h-5 w-5" />}
       >
         <div className="space-y-4">
           <div>

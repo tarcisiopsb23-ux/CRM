@@ -5,6 +5,8 @@ import { useIntegration } from "@/hooks/useSettings";
 import { useOrganization } from "@/hooks/useOrganization";
 import type { GoogleCalendarConfig } from "@/types/settings";
 
+import { Calendar } from "lucide-react";
+
 export function GoogleCalendarSection() {
   const orgId = useOrganization();
   const { data, isLoading, upsert } = useIntegration(orgId, "google_calendar");
@@ -39,7 +41,7 @@ export function GoogleCalendarSection() {
 
   if (isLoading) {
     return (
-      <SettingsSection title="Google Calendar">
+      <SettingsSection title="Google Calendar" icon={<Calendar className="h-5 w-5" />}>
         <p className="text-sm text-gray-400">Carregando...</p>
       </SettingsSection>
     );
@@ -49,6 +51,7 @@ export function GoogleCalendarSection() {
     <SettingsSection
       title="Google Calendar"
       description="OAuth e calendário para sincronizar eventos e reuniões."
+      icon={<Calendar className="h-5 w-5" />}
     >
       <div className="space-y-4">
         <SettingsInput

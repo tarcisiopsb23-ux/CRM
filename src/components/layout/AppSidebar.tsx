@@ -23,6 +23,7 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useModulePermission } from "@/hooks/usePermissions";
 import { useAuth } from "@/contexts/AuthContext";
+import { useOrganization, useOrganizationData } from "@/hooks/useOrganization";
 
 const navItems: {
   title: string;
@@ -51,6 +52,8 @@ export function AppSidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
   const { profile } = useAuth();
+  const orgId = useOrganization();
+  const { data: orgData } = useOrganizationData(orgId);
   const isAdmin = profile?.role === "admin" || profile?.role === "owner";
 
   const { canView: canViewDashboard } = useModulePermission("dashboard");
@@ -101,12 +104,18 @@ export function AppSidebar() {
     >
       {/* Logo */}
       <div className="flex h-16 items-center gap-2 px-4 border-b border-sidebar-border">
-        <div className="gradient-primary flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
-          <Sparkles className="h-4 w-4 text-primary-foreground" />
-        </div>
+        {orgData?.logo_url ? (
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden">
+            <img src={orgData.logo_url} alt="Logo" className="max-w-full max-h-full object-contain" />
+          </div>
+        ) : (
+          <div className="gradient-primary flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
+            <Sparkles className="h-4 w-4 text-primary-foreground" />
+          </div>
+        )}
         {!collapsed && (
-          <span className="font-display text-lg font-bold text-sidebar-primary-foreground tracking-tight">
-            Maestr.IA
+          <span className="font-display text-lg font-bold text-sidebar-primary-foreground tracking-tight truncate">
+            {orgData?.name || "Maestr.IA"}
           </span>
         )}
       </div>

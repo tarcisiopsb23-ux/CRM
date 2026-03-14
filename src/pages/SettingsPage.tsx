@@ -11,11 +11,15 @@ import {
 import { InviteMemberDialog } from "@/components/team/InviteMemberDialog";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Mail, Link as LinkIcon, UserPlus, Sun, Moon, Monitor, Type, Palette } from "lucide-react";
+import { Mail, Link as LinkIcon, Sun, Moon, Monitor, Type, Palette, Cloud, UserPlus, FolderOpen, ImagePlus, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { useOrganization } from "@/hooks/useOrganization";
+import { useOrganization, useOrganizationData } from "@/hooks/useOrganization";
 import { useUserPreferences } from "@/contexts/UserPreferencesContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { cn } from "@/lib/utils";
+import { supabase } from "@/lib/supabase";
+import { toast } from "sonner";
 import {
   getDriveApiFromOrganizationSettings,
   getDriveFoldersFromOrganizationSettings,
@@ -26,13 +30,16 @@ import {
 
 export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { profile } = useAuth();
   const { theme, setTheme, fontSize, setFontSize, sidebarColor, setSidebarColor } = useUserPreferences();
-  const validTabs = useMemo(() => new Set(["permissions", "integrations", "general", "preferences"]), []);
+  const validTabs = useMemo(() => new Set(["permissions", "integrations", "general"]), []);
   const tabParamRaw = searchParams.get("tab");
   const tabParam = tabParamRaw === "api" ? "integrations" : tabParamRaw;
-  const tab = (tabParam && validTabs.has(tabParam) ? tabParam : "permissions") as "permissions" | "integrations" | "general" | "preferences";
+  const tab = (tabParam && validTabs.has(tabParam) ? tabParam : "permissions") as "permissions" | "integrations" | "general";
 
+  const isOwner = profile?.role === "owner";
   const organizationId = useOrganization();
+  const orgData = useOrganizationData(organizationId);
   const orgSettings = useOrganizationSettings(organizationId);
   const driveFolders = useMemo(
     () => getDriveFoldersFromOrganizationSettings(orgSettings.data),
@@ -48,6 +55,46 @@ export function SettingsPage() {
 
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteMode, setInviteMode] = useState<"email" | "link">("email");
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [uploadingFavicon, setUploadingFavicon] = useState(false);
+
+  const handleFileUpload = async (file: File, type: "logo" | "favicon") => {
+    if (!organizationId) return;
+    
+    const isLogo = type === "logo";
+    const setter = isLogo ? setUploadingLogo : setUploadingFavicon;
+    setter(true);
+
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${organizationId}/${type}-${Math.random()}.${fileExt}`;
+      const filePath = `branding/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('public')
+        .upload(filePath, file, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('public')
+        .getPublicUrl(filePath);
+
+      if (isLogo) {
+        await orgData.update.mutateAsync({ logo_url: publicUrl });
+      } else {
+        const currentSettings = (orgData.data?.settings as any) || {};
+        await orgData.update.mutateAsync({ 
+          settings: { ...currentSettings, favicon_url: publicUrl } 
+        });
+      }
+      toast.success(`${isLogo ? 'Logo' : 'Favicon'} atualizado com sucesso!`);
+    } catch (error: any) {
+      toast.error(`Erro ao fazer upload: ${error.message}`);
+    } finally {
+      setter(false);
+    }
+  };
 
   useEffect(() => {
     setClientsFolder(driveFolders.clients ?? "");
@@ -81,7 +128,6 @@ export function SettingsPage() {
           <TabsTrigger value="permissions">Cargos e Permissões</TabsTrigger>
           <TabsTrigger value="integrations">Integrações</TabsTrigger>
           <TabsTrigger value="general">Configurações gerais</TabsTrigger>
-          <TabsTrigger value="preferences">Preferências e Tema</TabsTrigger>
         </TabsList>
 
         <TabsContent value="permissions" className="space-y-6">
@@ -93,6 +139,7 @@ export function SettingsPage() {
           <SettingsSection
             title="Google Drive (API)"
             description="Credenciais para uso da API do Google Drive (OAuth2)."
+            icon={<Cloud className="h-5 w-5" />}
           >
             {orgSettings.isLoading ? (
               <p className="text-sm text-gray-400">Carregando...</p>
@@ -142,9 +189,197 @@ export function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="general" className="space-y-6">
+          {/* Aparência (Acessível a todos) */}
+          <SettingsSection
+            title="Preferências de Aparência"
+            description="Personalize o tema, tamanho da fonte e cor do menu."
+            icon={<Palette className="h-5 w-5" />}
+          >
+            <div className="space-y-6">
+              <div className="space-y-3">
+                <label className="text-sm font-medium flex items-center gap-2">
+                  <Sun className="h-4 w-4" /> Tema Visual
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant={theme === "light" ? "default" : "outline"}
+                    onClick={() => setTheme("light")}
+                    size="sm"
+                  >
+                    Claro
+                  </Button>
+                  <Button
+                    variant={theme === "dark" ? "default" : "outline"}
+                    onClick={() => setTheme("dark")}
+                    size="sm"
+                  >
+                    Escuro
+                  </Button>
+                  <Button
+                    variant={theme === "system" ? "default" : "outline"}
+                    onClick={() => setTheme("system")}
+                    size="sm"
+                  >
+                    Sistema
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-sm font-medium flex items-center gap-2">
+                  <Type className="h-4 w-4" /> Tamanho da Fonte
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { label: "Pequeno", value: "sm" },
+                    { label: "Padrão", value: "base" },
+                    { label: "Grande", value: "lg" },
+                    { label: "Extra", value: "xl" },
+                  ].map((opt) => (
+                    <Button
+                      key={opt.value}
+                      variant={fontSize === opt.value ? "default" : "outline"}
+                      onClick={() => setFontSize(opt.value as any)}
+                      size="sm"
+                    >
+                      {opt.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-sm font-medium flex items-center gap-2">
+                  <Palette className="h-4 w-4" /> Cor do Menu Lateral
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { label: "Roxo", value: "default", color: "bg-[#2d1a4d]" },
+                    { label: "Índigo", value: "indigo", color: "bg-[#1e2a4d]" },
+                    { label: "Azul", value: "blue", color: "bg-[#1a2d4d]" },
+                    { label: "Ardósia", value: "slate", color: "bg-[#1e293b]" },
+                    { label: "Zinco", value: "zinc", color: "bg-[#27272a]" },
+                  ].map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setSidebarColor(opt.value as any)}
+                      className={cn(
+                        "flex items-center gap-2 px-3 py-1.5 rounded-md border transition-all",
+                        sidebarColor === opt.value
+                          ? "border-primary bg-primary/5"
+                          : "border-input hover:bg-muted"
+                      )}
+                    >
+                      <div className={cn("w-4 h-4 rounded-full", opt.color)} />
+                      <span className="text-xs font-medium">{opt.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </SettingsSection>
+
+          {/* Identidade Visual (Apenas Owner) */}
+          {isOwner && (
+            <SettingsSection
+              title="Identidade Visual (Branding)"
+              description="Personalize o logotipo e o favicon da sua organização."
+              icon={<ImagePlus className="h-5 w-5" />}
+            >
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                {/* Logo Upload */}
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="text-sm font-semibold">Logotipo do Menu</h4>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Exibido no topo do menu lateral.<br />
+                      Formatos: **PNG, JPG, SVG**.<br />
+                      Tamanho máx: **2MB**. Recomendado: **200x50px**.
+                    </p>
+                  </div>
+                  
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 rounded border bg-muted flex items-center justify-center overflow-hidden">
+                      {orgData.data?.logo_url ? (
+                        <img src={orgData.data.logo_url} alt="Logo" className="max-w-full max-h-full object-contain" />
+                      ) : (
+                        <ImagePlus className="h-6 w-6 text-muted-foreground" />
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <input
+                        type="file"
+                        id="logo-upload"
+                        className="hidden"
+                        accept="image/png,image/jpeg,image/svg+xml"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleFileUpload(file, "logo");
+                        }}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={uploadingLogo}
+                        onClick={() => document.getElementById('logo-upload')?.click()}
+                      >
+                        {uploadingLogo ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Cloud className="h-4 w-4 mr-2" />}
+                        Alterar Logo
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Favicon Upload */}
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="text-sm font-semibold">Favicon</h4>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Ícone exibido na aba do navegador.<br />
+                      Formatos: **ICO, PNG**. <br />
+                      Tamanho: **32x32px** ou **16x16px**.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded border bg-muted flex items-center justify-center overflow-hidden">
+                      {(orgData.data?.settings as any)?.favicon_url ? (
+                        <img src={(orgData.data?.settings as any).favicon_url} alt="Favicon" className="w-6 h-6 object-contain" />
+                      ) : (
+                        <div className="w-6 h-6 border-2 border-dashed rounded-sm" />
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <input
+                        type="file"
+                        id="favicon-upload"
+                        className="hidden"
+                        accept="image/png,image/x-icon"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleFileUpload(file, "favicon");
+                        }}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={uploadingFavicon}
+                        onClick={() => document.getElementById('favicon-upload')?.click()}
+                      >
+                        {uploadingFavicon ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Cloud className="h-4 w-4 mr-2" />}
+                        Alterar Favicon
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </SettingsSection>
+          )}
+
           <SettingsSection
             title="Convites de Equipe"
             description="Convide novos colaboradores para sua organização."
+            icon={<UserPlus className="h-5 w-5" />}
           >
             <div className="flex flex-wrap gap-4">
               <Button 
@@ -167,28 +402,29 @@ export function SettingsPage() {
           <SettingsSection
             title="Google Drive"
             description="Defina as pastas de destino por módulo para listar e enviar documentos."
+            icon={<FolderOpen className="h-5 w-5" />}
           >
             {orgSettings.isLoading ? (
               <p className="text-sm text-gray-400">Carregando...</p>
             ) : (
               <div className="space-y-4">
                 <SettingsInput
-                  label="Clientes (link ou ID da pasta)"
+                  label="Pasta de Clientes (ID)"
                   value={clientsFolder}
                   onChange={setClientsFolder}
-                  placeholder="https://drive.google.com/drive/folders/..."
+                  placeholder="ID da pasta no Google Drive"
                 />
                 <SettingsInput
-                  label="Projetos (link ou ID da pasta)"
+                  label="Pasta de Projetos (ID)"
                   value={projectsFolder}
                   onChange={setProjectsFolder}
-                  placeholder="https://drive.google.com/drive/folders/..."
+                  placeholder="ID da pasta no Google Drive"
                 />
                 <SettingsInput
-                  label="Equipe (link ou ID da pasta)"
+                  label="Pasta da Equipe (ID)"
                   value={teamFolder}
                   onChange={setTeamFolder}
-                  placeholder="https://drive.google.com/drive/folders/..."
+                  placeholder="ID da pasta no Google Drive"
                 />
                 <Button
                   onClick={async () => {
@@ -205,91 +441,6 @@ export function SettingsPage() {
                 </Button>
               </div>
             )}
-          </SettingsSection>
-        </TabsContent>
-
-        <TabsContent value="preferences" className="space-y-6">
-          <SettingsSection
-            title="Aparência e Tema"
-            description="Escolha como o sistema deve ser exibido."
-            icon={<Palette className="h-5 w-5" />}
-          >
-            <div className="flex flex-wrap gap-4">
-              <Button
-                variant={theme === "light" ? "default" : "outline"}
-                onClick={() => setTheme("light")}
-                className="gap-2"
-              >
-                <Sun className="h-4 w-4" /> Claro
-              </Button>
-              <Button
-                variant={theme === "dark" ? "default" : "outline"}
-                onClick={() => setTheme("dark")}
-                className="gap-2"
-              >
-                <Moon className="h-4 w-4" /> Escuro
-              </Button>
-              <Button
-                variant={theme === "system" ? "default" : "outline"}
-                onClick={() => setTheme("system")}
-                className="gap-2"
-              >
-                <Monitor className="h-4 w-4" /> Sistema
-              </Button>
-            </div>
-          </SettingsSection>
-
-          <SettingsSection
-            title="Tamanho da Fonte"
-            description="Ajuste o tamanho do texto para melhor leitura."
-            icon={<Type className="h-5 w-5" />}
-          >
-            <div className="flex flex-wrap gap-4">
-              {[
-                { label: "Pequeno", value: "sm" },
-                { label: "Padrão", value: "base" },
-                { label: "Grande", value: "lg" },
-                { label: "Extra Grande", value: "xl" },
-              ].map((opt) => (
-                <Button
-                  key={opt.value}
-                  variant={fontSize === opt.value ? "default" : "outline"}
-                  onClick={() => setFontSize(opt.value as any)}
-                >
-                  {opt.label}
-                </Button>
-              ))}
-            </div>
-          </SettingsSection>
-
-          <SettingsSection
-            title="Cor do Menu Lateral"
-            description="Personalize a cor da barra de navegação."
-            icon={<Palette className="h-5 w-5" />}
-          >
-            <div className="flex flex-wrap gap-4">
-              {[
-                { label: "Roxo (Padrão)", value: "default", color: "bg-[#2d1a4d]" },
-                { label: "Índigo", value: "indigo", color: "bg-[#1e2a4d]" },
-                { label: "Azul", value: "blue", color: "bg-[#1a2d4d]" },
-                { label: "Ardósia", value: "slate", color: "bg-[#1e293b]" },
-                { label: "Zinco", value: "zinc", color: "bg-[#27272a]" },
-              ].map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => setSidebarColor(opt.value as any)}
-                  className={cn(
-                    "flex items-center gap-3 px-4 py-2 rounded-lg border-2 transition-all",
-                    sidebarColor === opt.value
-                      ? "border-primary bg-primary/5"
-                      : "border-transparent hover:bg-muted"
-                  )}
-                >
-                  <div className={cn("w-6 h-6 rounded-full shadow-inner", opt.color)} />
-                  <span className="text-sm font-medium">{opt.label}</span>
-                </button>
-              ))}
-            </div>
           </SettingsSection>
         </TabsContent>
       </Tabs>

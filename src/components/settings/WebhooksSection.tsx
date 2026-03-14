@@ -5,6 +5,8 @@ import { useIntegration } from "@/hooks/useSettings";
 import { useOrganization } from "@/hooks/useOrganization";
 import type { WebhookConfig } from "@/types/settings";
 
+import { Webhook } from "lucide-react";
+
 export function WebhooksSection() {
   const orgId = useOrganization();
   const { data, isLoading, upsert } = useIntegration(orgId, "webhooks");
@@ -32,7 +34,7 @@ export function WebhooksSection() {
 
   if (isLoading) {
     return (
-      <SettingsSection title="Webhooks">
+      <SettingsSection title="Webhooks" icon={<Webhook className="h-5 w-5" />}>
         <p className="text-sm text-gray-400">Carregando...</p>
       </SettingsSection>
     );
@@ -42,6 +44,7 @@ export function WebhooksSection() {
     <SettingsSection
       title="Webhooks"
       description="Configure URLs de webhook para receber eventos do Maestr.IA."
+      icon={<Webhook className="h-5 w-5" />}
     >
       <div className="space-y-4">
         <SettingsInput

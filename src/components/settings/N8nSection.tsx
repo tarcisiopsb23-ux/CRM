@@ -5,6 +5,8 @@ import { useIntegration } from "@/hooks/useSettings";
 import { useOrganization } from "@/hooks/useOrganization";
 import type { N8nConfig } from "@/types/settings";
 
+import { Share2 } from "lucide-react";
+
 export function N8nSection() {
   const orgId = useOrganization();
   const { data, isLoading, upsert } = useIntegration(orgId, "n8n");
@@ -31,7 +33,7 @@ export function N8nSection() {
 
   if (isLoading) {
     return (
-      <SettingsSection title="n8n">
+      <SettingsSection title="n8n" icon={<Share2 className="h-5 w-5" />}>
         <p className="text-sm text-gray-400">Carregando...</p>
       </SettingsSection>
     );
@@ -41,6 +43,7 @@ export function N8nSection() {
     <SettingsSection
       title="n8n"
       description="Endpoints e credenciais para integração com workflows n8n."
+      icon={<Share2 className="h-5 w-5" />}
     >
       <div className="space-y-4">
         <SettingsInput
