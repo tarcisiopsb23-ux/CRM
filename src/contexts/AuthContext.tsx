@@ -267,32 +267,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+    let initialCheckDone = false;
+
     const init = async () => {
       try {
+        // Tentar recuperar usuário atual
         const { data: { user: authUser }, error } = await supabase.auth.getUser();
         
         if (cancelled) return;
 
-        if (error || !authUser) {
-          console.log("[Auth] Nenhuma sessão válida encontrada no servidor.");
-          setUser(null);
-          setProfile(null);
-          setLoading(false);
-        } else {
-          console.log("[Auth] Usuário autenticado encontrado:", authUser.email);
+        if (authUser) {
+          console.log("[Auth] Usuário recuperado no init:", authUser.email);
           setUser(authUser);
-          // O fetchProfile já define loading como false ao terminar
           await fetchProfile(authUser);
+        } else {
+          console.log("[Auth] Nenhum usuário no init, aguardando onAuthStateChange...");
         }
       } catch (err) {
-        console.error("[Auth] Erro na inicialização do Auth:", err);
-        if (!cancelled) {
-          setUser(null);
-          setProfile(null);
-          setLoading(false);
-        }
+        console.error("[Auth] Erro no init:", err);
+      } finally {
+        initialCheckDone = true;
+        // Não definimos loading(false) aqui para evitar o flicker do "Perfil não encontrado"
+        // Deixamos o onAuthStateChange ou o fetchProfile cuidar disso.
       }
     };
+
     init();
 
     // Listener para mudanças de estado (Login/Logout)
@@ -302,6 +301,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         
         console.log("[Auth] Evento de autenticação:", event);
 
+        const authUser = session?.user ?? null;
+
         if (event === 'SIGNED_OUT') {
           setUser(null);
           setProfile(null);
@@ -309,19 +310,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-          const newUser = session?.user ?? null;
-          setUser(newUser);
-          if (newUser) {
-            await fetchProfile(newUser);
+        // Para eventos de entrada ou refresh, carregamos o perfil
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
+          if (authUser) {
+            setUser(authUser);
+            await fetchProfile(authUser);
+          } else if (event === 'INITIAL_SESSION') {
+            // Se INITIAL_SESSION disparar e não houver usuário, aí sim paramos o loading
+            setLoading(false);
           }
         }
       }
     );
 
+    // Fallback de segurança: se nada acontecer em 12 segundos, libera o loading
     const fallback = setTimeout(() => {
-      if (!cancelled) setLoading(false);
-    }, 10000);
+      if (!cancelled) {
+        console.warn("[Auth] Fallback de carregamento acionado após 12s");
+        setLoading(false);
+      }
+    }, 12000);
 
     return () => {
       cancelled = true;

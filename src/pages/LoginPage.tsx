@@ -23,8 +23,15 @@ export function LoginPage() {
     try {
       await signIn(email, password);
       navigate(from, { replace: true });
-    } catch (error) {
-      setErr(error instanceof Error ? error.message : 'Erro ao entrar');
+    } catch (err: any) {
+      console.error("Erro no login:", err);
+      if (err.message?.includes("Invalid login credentials") || err.status === 400) {
+        setErr("E-mail ou senha incorretos. Por favor, verifique seus dados.");
+      } else if (err.message?.includes("Failed to fetch")) {
+        setErr("Erro de conexão. Verifique sua internet ou desative extensões que possam bloquear o acesso.");
+      } else {
+        setErr(err.message || "Erro ao realizar login");
+      }
     } finally {
       setLoading(false);
     }
