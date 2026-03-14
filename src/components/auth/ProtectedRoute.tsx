@@ -40,11 +40,14 @@ export function ProtectedRoute({
         <p className="text-muted-foreground text-center max-w-md">
           {error ? (
             <>
-              Erro ao carregar seu perfil. Verifique se sua conta está vinculada a uma organização.
+              Erro ao carregar seu perfil. Isso pode ser causado por extensões do navegador (como Mapify ou Blur) bloqueando a conexão.
               <br />
-              <small className="mt-2 text-xs text-red-400">
+              <small className="mt-2 text-xs text-red-400 block">
                 {error.message}
               </small>
+              <div className="mt-4 p-2 bg-amber-500/10 border border-amber-500/20 rounded text-amber-200 text-xs">
+                Sugestão: Tente desativar extensões de IA/Segurança ou use o <strong>Modo Incógnito</strong> para confirmar.
+              </div>
             </>
           ) : (
             'Seu perfil não foi carregado. Isso pode acontecer se sua conta ainda não estiver configurada.'

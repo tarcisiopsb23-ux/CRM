@@ -46,40 +46,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     console.log("[Auth] Iniciando fetchProfile para:", user.email, "UID:", uid);
 
     try {
+      // Verificação rápida de internet
+      if (!window.navigator.onLine) {
+        throw new Error("Você parece estar offline. Verifique sua conexão.");
+      }
+
       // Pequeno delay para garantir que o perfil tenha sido criado no backend se for um novo usuário
       await new Promise(resolve => setTimeout(resolve, 800));
 
-      // 1. Tentar buscar via RPC (com timeout de 8 segundos)
-      console.log("[Auth] 1. Tentando RPC get_my_profile (timeout 8s)...");
-      
-      const rpcPromise = supabase.rpc('get_my_profile');
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Timeout na chamada RPC")), 8000)
-      );
-
-      let rpcResult;
-      try {
-        rpcResult = await Promise.race([rpcPromise, timeoutPromise]) as any;
-        const { data: rpcData, error: rpcError } = rpcResult;
-        
-        if (!rpcError && rpcData) {
-          console.log("[Auth] RPC sucesso:", rpcData);
-          const p = rpcData as unknown as Profile;
-          setProfile(p);
-          setError(null);
-          return p;
-        }
-        if (rpcError) console.warn("[Auth] RPC erro:", rpcError.message);
-        else if (!rpcData) console.log("[Auth] RPC retornou nulo (perfil não existe)");
-      } catch (err: any) {
-        console.warn("[Auth] Falha ou timeout no RPC:", err.message);
-        if (err.message.includes("Timeout")) {
-          console.error("[Auth] DICA: Se você usa a extensão 'Mapify', ela pode estar bloqueando esta requisição. Tente desativá-la.");
-        }
-      }
-
-      // 2. Tentar buscar diretamente na tabela profiles (com timeout de 8 segundos)
-      console.log("[Auth] 2. Tentando SELECT direto na tabela profiles (timeout 8s)...");
+      // 1. Tentar buscar diretamente na tabela profiles (Invertido: SELECT antes de RPC)
+      console.log("[Auth] 1. Tentando SELECT direto na tabela profiles (timeout 8s)...");
       const selectPromise = supabase
         .from('profiles')
         .select('*')
@@ -105,6 +81,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         else if (!data) console.log("[Auth] SELECT retornou nulo (perfil não existe)");
       } catch (err: any) {
         console.warn("[Auth] Falha ou timeout no SELECT:", err.message);
+      }
+
+      // 2. Tentar buscar via RPC (com timeout de 8 segundos)
+      console.log("[Auth] 2. Tentando RPC get_my_profile (timeout 8s)...");
+      
+      const rpcPromise = supabase.rpc('get_my_profile');
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Timeout na chamada RPC")), 8000)
+      );
+
+      let rpcResult;
+      try {
+        rpcResult = await Promise.race([rpcPromise, timeoutPromise]) as any;
+        const { data: rpcData, error: rpcError } = rpcResult;
+        
+        if (!rpcError && rpcData) {
+          console.log("[Auth] RPC sucesso:", rpcData);
+          const p = rpcData as unknown as Profile;
+          setProfile(p);
+          setError(null);
+          return p;
+        }
+        if (rpcError) console.warn("[Auth] RPC erro:", rpcError.message);
+        else if (!rpcData) console.log("[Auth] RPC retornou nulo (perfil não existe)");
+      } catch (err: any) {
+        console.warn("[Auth] Falha ou timeout no RPC:", err.message);
+        if (err.message.includes("Timeout")) {
+          console.error("[Auth] DICA: Se você usa a extensão 'Mapify', ela pode estar bloqueando esta requisição. Tente desativá-la ou use o modo incógnito.");
+        }
       }
 
       // 3. Se não encontrar, tentar bootstrap via Edge Function (com timeout)
