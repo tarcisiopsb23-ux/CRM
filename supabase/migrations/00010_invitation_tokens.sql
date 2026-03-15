@@ -39,7 +39,7 @@ CREATE OR REPLACE FUNCTION create_invitation_token(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   new_token TEXT;
@@ -85,7 +85,7 @@ CREATE OR REPLACE FUNCTION validate_invitation_token(token_input TEXT)
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   rec RECORD;
@@ -126,7 +126,7 @@ COMMENT ON FUNCTION validate_invitation_token IS 'Valida token de convite. Cham√
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER
 LANGUAGE plpgsql
-SECURITY DEFINER SET search_path = public
+SECURITY DEFINER SET search_path = public, extensions
 AS $$
 DECLARE
   new_org_id UUID;

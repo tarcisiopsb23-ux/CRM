@@ -83,11 +83,17 @@ export function useLeadsKanban(
       setError(fetchError as Error);
       setLeads([]);
     } else {
-      const raw = (data as unknown as Lead[]) ?? [];
+      // Cast the data to include the joined profile information
+      const raw = (data as unknown as (Lead & { profiles: { full_name: string } | null })[]) ?? [];
+      
+      // Map the data to ensure 'responsavel' is populated for the UI
+      const mappedRaw = raw.map(item => ({
+        ...item,
+        responsavel: item.profiles ? { full_name: item.profiles.full_name } : null
+      })) as Lead[];
 
       if (includeConverted) {
-        // when the caller requested all leads, just return the raw rows
-        setLeads(raw);
+        setLeads(mappedRaw);
       } else {
         // preserve old behaviour: filter out leads that were converted to
         // clients or marked with metadata.converted_to_client
@@ -101,7 +107,7 @@ export function useLeadsKanban(
             String((r as { lead_id: string | null }).lead_id)
           )
         );
-        const filtered = raw.filter((l) => {
+        const filtered = mappedRaw.filter((l) => {
           const meta = (l.metadata ?? {}) as Record<string, unknown>;
           return (
             meta.converted_to_client !== true &&

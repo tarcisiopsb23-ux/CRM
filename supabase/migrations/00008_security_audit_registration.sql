@@ -198,6 +198,42 @@ CREATE TRIGGER audit_registration_codes
   AFTER INSERT OR UPDATE OR DELETE ON registration_codes
   FOR EACH ROW EXECUTE FUNCTION audit_changes();
 
+-- Triggers de auditoria em tabelas críticas
+DROP TRIGGER IF EXISTS audit_clients ON clients;
+CREATE TRIGGER audit_clients
+  AFTER INSERT OR UPDATE OR DELETE ON clients
+  FOR EACH ROW EXECUTE FUNCTION audit_changes();
+
+DROP TRIGGER IF EXISTS audit_contracts ON contracts;
+CREATE TRIGGER audit_contracts
+  AFTER INSERT OR UPDATE OR DELETE ON contracts
+  FOR EACH ROW EXECUTE FUNCTION audit_changes();
+
+DROP TRIGGER IF EXISTS audit_projects ON projects;
+CREATE TRIGGER audit_projects
+  AFTER INSERT OR UPDATE OR DELETE ON projects
+  FOR EACH ROW EXECUTE FUNCTION audit_changes();
+
+DROP TRIGGER IF EXISTS audit_tasks ON tasks;
+CREATE TRIGGER audit_tasks
+  AFTER INSERT OR UPDATE OR DELETE ON tasks
+  FOR EACH ROW EXECUTE FUNCTION audit_changes();
+
+DROP TRIGGER IF EXISTS audit_events ON events;
+CREATE TRIGGER audit_events
+  AFTER INSERT OR UPDATE OR DELETE ON events
+  FOR EACH ROW EXECUTE FUNCTION audit_changes();
+
+DROP TRIGGER IF EXISTS audit_teams ON teams;
+CREATE TRIGGER audit_teams
+  AFTER INSERT OR UPDATE OR DELETE ON teams
+  FOR EACH ROW EXECUTE FUNCTION audit_changes();
+
+DROP TRIGGER IF EXISTS audit_invitation_tokens ON invitation_tokens;
+CREATE TRIGGER audit_invitation_tokens
+  AFTER INSERT OR UPDATE OR DELETE ON invitation_tokens
+  FOR EACH ROW EXECUTE FUNCTION audit_changes();
+
 -- =============================================================================
 -- 6. ATUALIZAÇÃO handle_new_user - Suporte a registration_code
 -- =============================================================================

@@ -376,98 +376,151 @@ export function LeadsKanbanPage() {
             </Badge>
           </div>
 
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Empresa</TableHead>
-                  <TableHead>Decisor</TableHead>
-                  <TableHead>Nicho</TableHead>
-                  <TableHead>Prioridade</TableHead>
-                  <TableHead>Temperatura</TableHead>
-                  <TableHead>Cadência</TableHead>
-                  <TableHead>Tempo de Vida</TableHead>
-                  <TableHead className="w-[220px]"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {leadsRecebidos.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={8} className="h-24 text-center">
-                      Nenhum lead recebido.
-                    </TableCell>
+          <div className="rounded-md border bg-background overflow-hidden">
+            <div className="overflow-x-auto">
+              <Table className="border-separate border-spacing-0 min-w-[3000px]">
+                <TableHeader className="sticky top-0 z-10 bg-background shadow-sm">
+                  <TableRow className="bg-background hover:bg-background">
+                    <TableHead className="sticky left-0 z-20 bg-background border-b border-r w-[250px] shadow-[2px_0_4px_rgba(0,0,0,0.05)]">Empresa / Contato</TableHead>
+                    <TableHead className="bg-background border-b w-[150px]">Responsável</TableHead>
+                    <TableHead className="bg-background border-b w-[150px]">Decisor</TableHead>
+                    <TableHead className="bg-background border-b w-[150px]">Nicho</TableHead>
+                    <TableHead className="bg-background border-b w-[100px]">Prioridade</TableHead>
+                    <TableHead className="bg-background border-b w-[120px]">Temperatura</TableHead>
+                    <TableHead className="bg-background border-b w-[100px]">Cadência</TableHead>
+                    <TableHead className="bg-background border-b w-[120px]">Tempo de Vida</TableHead>
+                    <TableHead className="bg-background border-b w-[150px]">Valor</TableHead>
+                    <TableHead className="bg-background border-b w-[150px]">Origem</TableHead>
+                    <TableHead className="bg-background border-b w-[150px]">Cidade</TableHead>
+                    <TableHead className="bg-background border-b w-[150px]">Produto/Serviço</TableHead>
+                    <TableHead className="bg-background border-b w-[150px]">CPF/CNPJ</TableHead>
+                    <TableHead className="bg-background border-b w-[150px]">Origem Contato</TableHead>
+                    <TableHead className="bg-background border-b w-[150px]">Status GMN</TableHead>
+                    <TableHead className="bg-background border-b w-[150px]">Google Ads</TableHead>
+                    <TableHead className="bg-background border-b w-[150px]">Meta Ads</TableHead>
+                    <TableHead className="bg-background border-b w-[150px]">Social Media</TableHead>
+                    <TableHead className="bg-background border-b w-[150px]">Status Pré-qual</TableHead>
+                    <TableHead className="sticky right-0 z-20 bg-background border-b border-l w-[220px] shadow-[-4px_0_4px_rgba(0,0,0,0.05)] text-center">Ações</TableHead>
                   </TableRow>
-                ) : (
-                  leadsRecebidos.map((lead) => {
-                    const st = getPreQualStatus(lead);
-                    const canQualify = st.concluida && st.resultado === "apto";
-                    const temp = typeof lead.temperature === "number" ? lead.temperature : 0;
-                    const cadence = lead.cadence ?? "";
-                    const decisorNome = lead.decision_maker ? (lead.decision_maker_name || "—") : (lead.name || "—");
-                    const decisorTelefoneRaw = lead.decision_maker ? lead.decision_maker_phone : lead.phone;
-                    const decisorTelefone = decisorTelefoneRaw ? formatPhoneBR(decisorTelefoneRaw) : null;
-                    const contatoTelefone = lead.phone ? formatPhoneBR(lead.phone) : null;
-                    return (
-                      <TableRow key={lead.id} className="hover:bg-muted/50">
-                        <TableCell>
-                          <div className="font-medium">{lead.company || "—"}</div>
-                          <div className="text-xs text-muted-foreground">{lead.name || "—"}{contatoTelefone ? ` • ${contatoTelefone}` : ""}</div>
-                          <div className="mt-1">
+                </TableHeader>
+                <TableBody className="bg-background">
+                  {leadsRecebidos.length === 0 ? (
+                    <TableRow className="bg-background">
+                      <TableCell colSpan={20} className="h-24 text-center bg-background">
+                        Nenhum lead recebido.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    leadsRecebidos.map((lead) => {
+                      const st = getPreQualStatus(lead);
+                      const canQualify = st.concluida && st.resultado === "apto";
+                      const temp = typeof lead.temperature === "number" ? lead.temperature : 0;
+                      const cadence = lead.cadence ?? "";
+                      const decisorNome = lead.decision_maker ? (lead.decision_maker_name || "—") : (lead.name || "—");
+                      const decisorTelefoneRaw = lead.decision_maker ? lead.decision_maker_phone : lead.phone;
+                      const decisorTelefone = decisorTelefoneRaw ? formatPhoneBR(decisorTelefoneRaw) : null;
+                      const contatoTelefone = lead.phone ? formatPhoneBR(lead.phone) : null;
+                      const cidade = (lead.metadata as any)?.cidade || "—";
+                      
+                      return (
+                        <TableRow key={lead.id} className="hover:bg-muted/50 bg-background transition-colors group">
+                          <TableCell className="sticky left-0 z-10 bg-background border-r font-medium group-hover:bg-muted/50 shadow-[2px_0_4px_rgba(0,0,0,0.05)]">
+                            <div className="font-medium truncate w-[230px]" title={lead.company || "—"}>{lead.company || "—"}</div>
+                            <div className="text-xs text-muted-foreground truncate w-[230px]" title={lead.name}>
+                              {lead.name || "—"}{contatoTelefone ? ` • ${contatoTelefone}` : ""}
+                            </div>
+                          </TableCell>
+                          <TableCell className="bg-background group-hover:bg-transparent text-sm">
+                            {(lead as any).responsavel?.full_name || "—"}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground bg-background group-hover:bg-transparent">
+                            <div className="text-sm truncate w-[130px]" title={decisorNome}>{decisorNome}</div>
+                            <div className="text-xs text-muted-foreground">{decisorTelefone || "—"}</div>
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground bg-background group-hover:bg-transparent truncate w-[130px]" title={lead.nicho || "—"}>
+                            {lead.nicho || "—"}
+                          </TableCell>
+                          <TableCell className="bg-background group-hover:bg-transparent">
+                            <Badge className={getPriorityColor(lead.prioridade)}>
+                              {lead.prioridade || "média"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="bg-background group-hover:bg-transparent">
+                            <div className="flex items-center gap-1">
+                              {[1, 2, 3].map((i) => (
+                                <Flame
+                                  key={i}
+                                  className={i <= temp ? "h-4 w-4 text-orange-500" : "h-4 w-4 text-muted-foreground"}
+                                />
+                              ))}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground tabular-nums bg-background group-hover:bg-transparent text-center">
+                            {cadence ? String(cadence) : "—"}
+                          </TableCell>
+                          <TableCell className="bg-background group-hover:bg-transparent">
+                            <Badge variant="outline" className="text-xs">{getLifecycleDays(lead.created_at)} dias</Badge>
+                          </TableCell>
+                          <TableCell className="bg-background group-hover:bg-transparent text-sm font-medium">
+                            {typeof lead.value === "number" ? `R$ ${lead.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : "—"}
+                          </TableCell>
+                          <TableCell className="bg-background group-hover:bg-transparent text-sm truncate w-[130px]" title={lead.source || "—"}>
+                            {lead.source || "—"}
+                          </TableCell>
+                          <TableCell className="bg-background group-hover:bg-transparent text-sm truncate w-[130px]" title={cidade}>
+                            {cidade}
+                          </TableCell>
+                          <TableCell className="bg-background group-hover:bg-transparent text-sm capitalize">
+                            {lead.product_service || "—"}
+                          </TableCell>
+                          <TableCell className="bg-background group-hover:bg-transparent text-sm">
+                            {lead.cpf_cnpj || "—"}
+                          </TableCell>
+                          <TableCell className="bg-background group-hover:bg-transparent text-sm capitalize">
+                            {lead.contact_origin?.replace("_", " ") || "—"}
+                          </TableCell>
+                          <TableCell className="bg-background group-hover:bg-transparent text-sm capitalize">
+                            {lead.gmn_status?.replace("_", " ") || "—"}
+                          </TableCell>
+                          <TableCell className="bg-background group-hover:bg-transparent text-sm capitalize">
+                            {lead.google_ads_level?.replace("_", " ") || "—"}
+                          </TableCell>
+                          <TableCell className="bg-background group-hover:bg-transparent text-sm capitalize">
+                            {lead.meta_ads_level?.replace("_", " ") || "—"}
+                          </TableCell>
+                          <TableCell className="bg-background group-hover:bg-transparent text-sm capitalize">
+                            {lead.social_media_status?.replace("_", " ") || "—"}
+                          </TableCell>
+                          <TableCell className="bg-background group-hover:bg-transparent">
                             {st.concluida ? (
-                              <Badge className="bg-emerald-600 hover:bg-emerald-700">Pré-qualificado</Badge>
+                              <Badge className="bg-emerald-600 hover:bg-emerald-700 text-[10px]">Pré-qualificado</Badge>
                             ) : (
-                              <Badge variant="outline">Pré-qual pendente</Badge>
+                              <Badge variant="outline" className="text-[10px]">Pendente</Badge>
                             )}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          <div className="text-sm">{decisorNome}</div>
-                          <div className="text-xs text-muted-foreground">{decisorTelefone || "—"}</div>
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{lead.nicho || "—"}</TableCell>
-                        <TableCell>
-                          <Badge className={getPriorityColor(lead.prioridade)}>
-                            {lead.prioridade || "média"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            {[1, 2, 3].map((i) => (
-                              <Flame
-                                key={i}
-                                className={i <= temp ? "h-4 w-4 text-orange-500" : "h-4 w-4 text-muted-foreground"}
-                              />
-                            ))}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground tabular-nums">
-                          {cadence ? String(cadence) : "—"}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{getLifecycleDays(lead.created_at)} dias</Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
-                            <Button variant="outline" size="sm" onClick={() => openPreQual(lead)}>
-                              {st.concluida ? "Editar" : "Pré-qualificar"}
-                            </Button>
-                            <Button
-                              size="sm"
-                              className="gap-2"
-                              disabled={!canQualify}
-                              onClick={() => handleEtapaChange(lead.id, "qualificados")}
-                            >
-                              <CheckCircle2 className="h-4 w-4" />
-                              Qualificar
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
-                )}
-              </TableBody>
-            </Table>
+                          </TableCell>
+                          <TableCell className="sticky right-0 z-10 text-right bg-background group-hover:bg-muted/50 border-l shadow-[-4px_0_4px_rgba(0,0,0,0.05)]">
+                            <div className="flex justify-end gap-2">
+                              <Button variant="outline" size="sm" onClick={() => openPreQual(lead)} className="bg-background h-8 text-xs">
+                                {st.concluida ? "Editar" : "Pré-qualificar"}
+                              </Button>
+                              <Button
+                                size="sm"
+                                className="gap-2 h-8 text-xs"
+                                disabled={!canQualify}
+                                onClick={() => handleEtapaChange(lead.id, "qualificados")}
+                              >
+                                <CheckCircle2 className="h-4 w-4" />
+                                Qualificar
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           </div>
         </TabsContent>
       </Tabs>

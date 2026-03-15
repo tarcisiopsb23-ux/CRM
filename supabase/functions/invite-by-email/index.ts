@@ -8,26 +8,18 @@ const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const APP_URL = Deno.env.get("APP_URL") ?? "http://localhost:5173";
 
 // CORS: restringe origem quando APP_URL configurado (produção); "*" em dev
-function getCorsHeaders() {
-  const appUrl = Deno.env.get("APP_URL");
-  let origin = "*";
-  if (appUrl) {
-    try {
-      origin = new URL(appUrl).origin;
-    } catch {
-      origin = "*";
-    }
-  }
+function getCorsHeaders(req: Request) {
+  const origin = req.headers.get("Origin") || "*";
   return {
     "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Headers":
-      "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   };
 }
 
-const corsHeaders = getCorsHeaders();
-
 serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req);
+  
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -36,15 +28,25 @@ serve(async (req) => {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(
-        JSON.stringify({ error: "Não autorizado" }),
+        JSON.stringify({ error: "Cabeçalho de autorização ausente" }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const { email } = await req.json();
-    if (!email || typeof email !== "string") {
+    let body;
+    try {
+      body = await req.json();
+    } catch (e) {
       return new Response(
-        JSON.stringify({ error: "E-mail é obrigatório" }),
+        JSON.stringify({ error: "Corpo da requisição inválido (JSON esperado)" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const { email } = body;
+    if (!email || typeof email !== "string" || !email.includes("@")) {
+      return new Response(
+        JSON.stringify({ error: "E-mail válido é obrigatório" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -84,7 +86,10 @@ serve(async (req) => {
 
     if (rpcError) {
       return new Response(
-        JSON.stringify({ error: "Falha ao criar convite" }),
+        JSON.stringify({ 
+          error: rpcError.message || "Falha ao criar convite",
+          details: rpcError
+        }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

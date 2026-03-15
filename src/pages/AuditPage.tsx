@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useAdminAuditLogs } from "@/hooks/useAuditLogs";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -11,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, History, Filter } from "lucide-react";
+import { Loader2, History, Filter, Download, FileText, Table as TableIcon } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -31,6 +32,10 @@ const TABLE_LABELS: Record<string, string> = {
   contracts: "Contratos",
   goals: "Metas",
   teams: "Equipes",
+  projects: "Projetos",
+  tasks: "Tarefas",
+  events: "Agenda",
+  invitation_tokens: "Convites",
 };
 
 export default function AuditPage() {
@@ -41,7 +46,7 @@ export default function AuditPage() {
   const [filterTable, setFilterTable] = useState("");
   const [filterAction, setFilterAction] = useState("");
 
-  const { data: logs = [], isLoading, error } = useAdminAuditLogs(organizationId, 200);
+  const { data: logs = [], isLoading, error } = useAdminAuditLogs(organizationId, 500);
 
   const filteredLogs = useMemo(() => {
     return logs.filter((log) => {
@@ -61,10 +66,34 @@ export default function AuditPage() {
   }, [logs, filterDateFrom, filterDateTo, filterResponsible, filterTable, filterAction]);
 
   const uniqueTables = useMemo(() => [...new Set(logs.map((l) => l.table_name).filter(Boolean))] as string[], [logs]);
-  const uniqueResponsibles = useMemo(
-    () => [...new Set(logs.map((l) => l.changed_by_name).filter(Boolean))] as string[],
-    [logs]
-  );
+
+  const exportToCSV = () => {
+    if (filteredLogs.length === 0) return;
+
+    const headers = ["Data/Hora", "Módulo", "Ação", "Responsável", "Alterações"];
+    const rows = filteredLogs.map(log => [
+      log.changed_at ? format(new Date(log.changed_at), "dd/MM/yyyy HH:mm") : "-",
+      TABLE_LABELS[log.table_name ?? ""] ?? log.table_name ?? "-",
+      ACTION_LABELS[log.action ?? ""] ?? log.action ?? "-",
+      log.changed_by_name ?? "-",
+      log.changes ? JSON.stringify(log.changes).replace(/"/g, '""') : "-"
+    ]);
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(e => e.map(cell => `"${cell}"`).join(","))
+    ].join("\n");
+
+    const blob = new Blob(["\ufeff" + csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `relatorio_auditoria_${format(new Date(), "yyyy-MM-dd")}.csv`);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   return (
     <div className="space-y-6">
@@ -73,62 +102,79 @@ export default function AuditPage() {
           <p className="text-muted-foreground">Nenhuma organização encontrada.</p>
         </div>
       ) : null}
-      <div>
-        <h1 className="font-display text-2xl font-bold text-foreground">
-          Auditoria
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Histórico de inclusões, alterações e exclusões no sistema
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="font-display text-2xl font-bold text-foreground">
+            Auditoria
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Histórico de inclusões, alterações e exclusões no sistema
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={exportToCSV}
+            disabled={filteredLogs.length === 0}
+            className="gap-2"
+          >
+            <Download className="h-4 w-4" />
+            Exportar CSV
+          </Button>
+        </div>
       </div>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="pb-3">
           <div className="flex items-center justify-between gap-4">
             <h2 className="text-lg font-semibold flex items-center gap-2">
               <History className="h-5 w-5" />
               Log de alterações
             </h2>
+            <Badge variant="secondary" className="font-normal">
+              {filteredLogs.length} registros encontrados
+            </Badge>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mt-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mt-4 p-4 bg-muted/30 rounded-lg border border-border/50">
             <div>
-              <Label className="text-xs">Data de</Label>
+              <Label className="text-xs font-bold uppercase text-muted-foreground">Data de</Label>
               <Input
                 type="date"
                 value={filterDateFrom}
                 onChange={(e) => setFilterDateFrom(e.target.value)}
-                className="h-8 mt-0.5"
+                className="h-9 mt-1 bg-background"
               />
             </div>
             <div>
-              <Label className="text-xs">Data até</Label>
+              <Label className="text-xs font-bold uppercase text-muted-foreground">Data até</Label>
               <Input
                 type="date"
                 value={filterDateTo}
                 onChange={(e) => setFilterDateTo(e.target.value)}
-                className="h-8 mt-0.5"
+                className="h-9 mt-1 bg-background"
               />
             </div>
             <div>
-              <Label className="text-xs">Responsável</Label>
+              <Label className="text-xs font-bold uppercase text-muted-foreground">Responsável</Label>
               <Input
                 placeholder="Filtrar por nome"
                 value={filterResponsible}
                 onChange={(e) => setFilterResponsible(e.target.value)}
-                className="h-8 mt-0.5"
+                className="h-9 mt-1 bg-background"
               />
             </div>
             <div>
-              <Label className="text-xs">Módulo/Tabela</Label>
+              <Label className="text-xs font-bold uppercase text-muted-foreground">Módulo/Tabela</Label>
               <Select
                 value={filterTable || "all"}
                 onValueChange={(v) => setFilterTable(v === "all" ? "" : v)}
               >
-                <SelectTrigger className="h-8 mt-0.5">
+                <SelectTrigger className="h-9 mt-1 bg-background">
                   <SelectValue placeholder="Todos" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="all">Todos os módulos</SelectItem>
                   {uniqueTables.map((t) => (
                     <SelectItem key={t} value={t}>
                       {TABLE_LABELS[t] ?? t}
@@ -138,16 +184,16 @@ export default function AuditPage() {
               </Select>
             </div>
             <div>
-              <Label className="text-xs">Tipo</Label>
+              <Label className="text-xs font-bold uppercase text-muted-foreground">Tipo de Ação</Label>
               <Select
                 value={filterAction || "all"}
                 onValueChange={(v) => setFilterAction(v === "all" ? "" : v)}
               >
-                <SelectTrigger className="h-8 mt-0.5">
-                  <SelectValue placeholder="Todos" />
+                <SelectTrigger className="h-9 mt-1 bg-background">
+                  <SelectValue placeholder="Todas" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="all">Todas as ações</SelectItem>
                   <SelectItem value="INSERT">Inclusão</SelectItem>
                   <SelectItem value="UPDATE">Alteração</SelectItem>
                   <SelectItem value="DELETE">Exclusão</SelectItem>
@@ -158,65 +204,98 @@ export default function AuditPage() {
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="flex items-center gap-2 text-muted-foreground py-12">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Carregando...
+            <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+              <Loader2 className="h-8 w-8 animate-spin mb-4 text-primary" />
+              <p>Carregando registros de auditoria...</p>
             </div>
           ) : error ? (
-            <p className="text-destructive py-8">
-              Erro ao carregar: {(error as Error).message}
-            </p>
+            <div className="bg-destructive/10 border border-destructive/20 text-destructive p-4 rounded-md">
+              <p className="font-bold">Erro ao carregar:</p>
+              <p>{(error as Error).message}</p>
+            </div>
           ) : filteredLogs.length === 0 ? (
-            <p className="text-muted-foreground py-12 text-center">
-              {logs.length === 0
-                ? "Nenhum registro de auditoria encontrado."
-                : "Nenhum resultado para os filtros aplicados."}
-            </p>
+            <div className="flex flex-col items-center justify-center py-20 bg-muted/10 rounded-lg border-2 border-dashed">
+              <Filter className="h-10 w-10 text-muted-foreground/30 mb-2" />
+              <p className="text-muted-foreground font-medium">
+                {logs.length === 0
+                  ? "Nenhum registro de auditoria encontrado."
+                  : "Nenhum resultado para os filtros aplicados."}
+              </p>
+              {logs.length > 0 && (
+                <Button variant="link" onClick={() => {
+                  setFilterDateFrom("");
+                  setFilterDateTo("");
+                  setFilterResponsible("");
+                  setFilterTable("");
+                  setFilterAction("");
+                }}>
+                  Limpar todos os filtros
+                </Button>
+              )}
+            </div>
           ) : (
-            <div className="rounded-md border overflow-hidden">
-              <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/50 sticky top-0">
+            <div className="rounded-lg border shadow-sm overflow-hidden bg-background">
+              <div className="overflow-x-auto max-h-[600px] overflow-y-auto scrollbar-thin scrollbar-thumb-muted-foreground/20 hover:scrollbar-thumb-muted-foreground/40">
+                <table className="w-full text-sm border-separate border-spacing-0">
+                  <thead className="bg-muted/50 sticky top-0 z-10">
                     <tr>
-                      <th className="text-left p-3 font-medium">Data/Hora</th>
-                      <th className="text-left p-3 font-medium">Tabela</th>
-                      <th className="text-left p-3 font-medium">Ação</th>
-                      <th className="text-left p-3 font-medium">Quem</th>
-                      <th className="text-left p-3 font-medium">Detalhes</th>
+                      <th className="text-left p-4 font-bold text-muted-foreground uppercase text-[10px] border-b bg-muted/50">Data/Hora</th>
+                      <th className="text-left p-4 font-bold text-muted-foreground uppercase text-[10px] border-b bg-muted/50">Módulo</th>
+                      <th className="text-left p-4 font-bold text-muted-foreground uppercase text-[10px] border-b bg-muted/50">Ação</th>
+                      <th className="text-left p-4 font-bold text-muted-foreground uppercase text-[10px] border-b bg-muted/50">Responsável</th>
+                      <th className="text-left p-4 font-bold text-muted-foreground uppercase text-[10px] border-b bg-muted/50">Alterações</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y">
                     {filteredLogs.map((log) => (
                       <tr
                         key={log.id ?? `${log.table_name}-${log.record_id}-${log.changed_at}`}
-                        className="border-t border-border hover:bg-muted/30"
+                        className="hover:bg-muted/30 transition-colors"
                       >
-                        <td className="p-3 text-muted-foreground whitespace-nowrap">
+                        <td className="p-4 text-muted-foreground whitespace-nowrap font-medium">
                           {log.changed_at
                             ? format(new Date(log.changed_at), "dd/MM/yyyy HH:mm", {
                                 locale: ptBR,
                               })
                             : "-"}
                         </td>
-                        <td className="p-3 font-medium">{log.table_name ?? "-"}</td>
-                        <td className="p-3">
+                        <td className="p-4">
+                          <Badge variant="outline" className="font-medium bg-background gap-1.5">
+                            <TableIcon className="h-3 w-3" />
+                            {TABLE_LABELS[log.table_name ?? ""] ?? log.table_name ?? "-"}
+                          </Badge>
+                        </td>
+                        <td className="p-4">
                           <span
-                            className={
+                            className={cn(
+                              "inline-flex items-center px-2 py-1 rounded-full text-[10px] font-bold uppercase",
                               log.action === "INSERT"
-                                ? "text-emerald-600"
+                                ? "bg-emerald-100 text-emerald-700"
                                 : log.action === "DELETE"
-                                  ? "text-red-600"
-                                  : "text-amber-600"
-                            }
+                                  ? "bg-red-100 text-red-700"
+                                  : "bg-amber-100 text-amber-700"
+                            )}
                           >
                             {ACTION_LABELS[log.action ?? ""] ?? log.action ?? "-"}
                           </span>
                         </td>
-                        <td className="p-3">{log.changed_by_name ?? "-"}</td>
-                        <td className="p-3 max-w-xs truncate" title={JSON.stringify(log.changes)}>
-                          {log.changes && typeof log.changes === "object"
-                            ? Object.keys(log.changes as Record<string, unknown>).join(", ")
-                            : "-"}
+                        <td className="p-4 font-medium text-foreground">
+                          <div className="flex items-center gap-2">
+                            <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary">
+                              {log.changed_by_name?.substring(0, 2).toUpperCase() ?? "??"}
+                            </div>
+                            {log.changed_by_name ?? "-"}
+                          </div>
+                        </td>
+                        <td className="p-4 max-w-md">
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <FileText className="h-3.5 w-3.5" />
+                            <span className="truncate" title={JSON.stringify(log.changes)}>
+                              {log.changes && typeof log.changes === "object"
+                                ? Object.keys((log.changes as any).new || (log.changes as any).old || log.changes).join(", ")
+                                : "-"}
+                            </span>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -228,5 +307,18 @@ export default function AuditPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function Badge({ children, variant = "default", className }: { children: React.ReactNode, variant?: "default" | "secondary" | "outline", className?: string }) {
+  const variants = {
+    default: "bg-primary text-primary-foreground",
+    secondary: "bg-secondary text-secondary-foreground",
+    outline: "text-foreground border border-input"
+  };
+  return (
+    <span className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors", variants[variant], className)}>
+      {children}
+    </span>
   );
 }

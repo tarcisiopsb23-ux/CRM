@@ -74,7 +74,6 @@ export function InviteMemberDialog({ open, onOpenChange, initialMode = "email" }
     setSuccess(null);
     setLoading(true);
     try {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
       
@@ -92,23 +91,38 @@ export function InviteMemberDialog({ open, onOpenChange, initialMode = "email" }
         body: JSON.stringify({ email: trimmed }),
       });
 
-      const data = await res.json();
+      let data;
+      const contentType = res.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        throw new Error(text || `Erro do servidor (${res.status})`);
+      }
 
       if (!res.ok) {
-        throw new Error(data.error ?? "Erro ao enviar convite");
+        // Se o erro for 400 e houver detalhes da RPC
+        const errorMsg = data.error || "Erro ao enviar convite";
+        throw new Error(errorMsg);
       }
 
       setSuccess(data.message ?? "Convite enviado por e-mail!");
       setEmail("");
       
-      // Fechar após um delay curto em caso de sucesso
       setTimeout(() => {
         onOpenChange(false);
         setSuccess(null);
       }, 2000);
 
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Erro ao enviar convite");
+      console.error("[InviteMemberDialog] Error:", e);
+      const msg = e instanceof Error ? e.message : "Erro ao enviar convite";
+      
+      if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
+        setError("Erro de rede. Verifique se extensões de navegador (como Blur ou AdBlock) estão bloqueando a requisição.");
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }

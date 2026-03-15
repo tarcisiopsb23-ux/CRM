@@ -704,59 +704,61 @@ export default function ClientsPage() {
             </p>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Empresa</TableHead>
-                  <TableHead>Efetivação</TableHead>
-                  <TableHead>Serviço</TableHead>
-                  <TableHead className="text-right">Valor</TableHead>
-                  <TableHead className="text-right">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {efetivadosParaConverter.map((l) => {
-                  const efet = leadEfetivacaoDates.data?.get(String(l.id)) ?? null;
-                  const efetLabel = efet ? format(parseISO(efet), "dd/MM/yyyy", { locale: ptBR }) : "—";
-                  const serviceId = (l.product_service as string | null) ?? null;
-                  const service = serviceId ? (SERVICE_LABELS[serviceId] ?? serviceId) : "—";
-                  return (
-                    <TableRow key={l.id}>
-                      <TableCell className="font-medium">{l.company || l.name}</TableCell>
-                      <TableCell>{efetLabel}</TableCell>
-                      <TableCell>{service}</TableCell>
-                      <TableCell className="text-right">R$ {Number(l.value ?? 0).toFixed(2).replace(".", ",")}</TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-1">
-                          <Button size="sm" onClick={() => openFromLead(l.id)}>
-                            <UserCheck className="h-4 w-4 mr-1" />
-                            Finalizar
-                          </Button>
-                          <Button size="icon" variant="ghost" onClick={() => openLeadView(l.id)} aria-label="Visualizar lead">
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          <Button size="icon" variant="ghost" onClick={() => openLeadEdit(l.id)} aria-label="Editar lead">
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="text-destructive"
-                            onClick={async () => {
-                              if (!window.confirm("Excluir este lead?")) return;
-                              await removeLead(l.id);
-                            }}
-                            aria-label="Excluir lead"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+            <div className="rounded-md border bg-background overflow-hidden">
+              <Table className="border-separate border-spacing-0">
+                <TableHeader className="sticky top-0 z-10 bg-background shadow-sm">
+                  <TableRow className="bg-background hover:bg-background">
+                    <TableHead className="bg-background border-b">Empresa</TableHead>
+                    <TableHead className="bg-background border-b">Efetivação</TableHead>
+                    <TableHead className="bg-background border-b">Serviço</TableHead>
+                    <TableHead className="text-right bg-background border-b">Valor</TableHead>
+                    <TableHead className="text-right bg-background border-b">Ações</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody className="bg-background">
+                  {efetivadosParaConverter.map((l) => {
+                    const efet = leadEfetivacaoDates.data?.get(String(l.id)) ?? null;
+                    const efetLabel = efet ? format(parseISO(efet), "dd/MM/yyyy", { locale: ptBR }) : "—";
+                    const serviceId = (l.product_service as string | null) ?? null;
+                    const service = serviceId ? (SERVICE_LABELS[serviceId] ?? serviceId) : "—";
+                    return (
+                      <TableRow key={l.id} className="bg-background hover:bg-muted/30 transition-colors group">
+                        <TableCell className="font-medium bg-background group-hover:bg-transparent">{l.company || l.name}</TableCell>
+                        <TableCell className="bg-background group-hover:bg-transparent">{efetLabel}</TableCell>
+                        <TableCell className="bg-background group-hover:bg-transparent">{service}</TableCell>
+                        <TableCell className="text-right bg-background group-hover:bg-transparent">R$ {Number(l.value ?? 0).toFixed(2).replace(".", ",")}</TableCell>
+                        <TableCell className="text-right bg-background group-hover:bg-transparent">
+                          <div className="flex justify-end gap-1">
+                            <Button size="sm" onClick={() => openFromLead(l.id)}>
+                              <UserCheck className="h-4 w-4 mr-1" />
+                              Finalizar
+                            </Button>
+                            <Button size="icon" variant="ghost" onClick={() => openLeadView(l.id)} aria-label="Visualizar lead" className="bg-background hover:bg-muted">
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button size="icon" variant="ghost" onClick={() => openLeadEdit(l.id)} aria-label="Editar lead" className="bg-background hover:bg-muted">
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="text-destructive bg-background hover:bg-muted"
+                              onClick={async () => {
+                                if (!window.confirm("Excluir este lead?")) return;
+                                await removeLead(l.id);
+                              }}
+                              aria-label="Excluir lead"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -775,41 +777,43 @@ export default function ClientsPage() {
             ) : clients.length === 0 ? (
               <p className="text-muted-foreground">Nenhum cliente cadastrado.</p>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Nome</TableHead>
-                    <TableHead>Decisor</TableHead>
-                    <TableHead>Tel. decisor</TableHead>
-                    <TableHead className="text-right">Total contratos</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {clients.map((c) => {
-                    const decisor = c.decision_maker_name || c.responsible_name || "—";
-                    const decisorPhone = c.decision_maker_phone || c.responsible_phone || "—";
-                    const total = contractsByClientTotals.get(c.id) ?? 0;
-                    const hasSuspended = clientsWithSuspendedContracts.has(c.id);
-                    return (
-                      <TableRow
-                        key={c.id}
-                        className="cursor-pointer"
-                        onClick={() => navigate(clientHref(String(c.id)))}
-                      >
-                        <TableCell className="font-medium">
-                          <div className="flex items-center gap-2">
-                            <span className="truncate">{c.company || c.name}</span>
-                            {hasSuspended ? <Badge variant="secondary">Suspenso</Badge> : null}
-                          </div>
-                        </TableCell>
-                        <TableCell>{decisor}</TableCell>
-                        <TableCell>{decisorPhone !== "—" ? formatPhoneBR(String(decisorPhone)) : "—"}</TableCell>
-                        <TableCell className="text-right">R$ {total.toFixed(2).replace(".", ",")}</TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+              <div className="rounded-md border bg-background overflow-hidden">
+                <Table className="border-separate border-spacing-0">
+                  <TableHeader className="sticky top-0 z-10 bg-background shadow-sm">
+                    <TableRow className="bg-background hover:bg-background">
+                      <TableHead className="bg-background border-b">Nome</TableHead>
+                      <TableHead className="bg-background border-b">Decisor</TableHead>
+                      <TableHead className="bg-background border-b">Tel. decisor</TableHead>
+                      <TableHead className="text-right bg-background border-b">Total contratos</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody className="bg-background">
+                    {clients.map((c) => {
+                      const decisor = c.decision_maker_name || c.responsible_name || "—";
+                      const decisorPhone = c.decision_maker_phone || c.responsible_phone || "—";
+                      const total = contractsByClientTotals.get(c.id) ?? 0;
+                      const hasSuspended = clientsWithSuspendedContracts.has(c.id);
+                      return (
+                        <TableRow
+                          key={c.id}
+                          className="cursor-pointer bg-background hover:bg-muted/30 transition-colors group"
+                          onClick={() => navigate(clientHref(String(c.id)))}
+                        >
+                          <TableCell className="font-medium bg-background group-hover:bg-transparent">
+                            <div className="flex items-center gap-2">
+                              <span className="truncate">{c.company || c.name}</span>
+                              {hasSuspended ? <Badge variant="secondary">Suspenso</Badge> : null}
+                            </div>
+                          </TableCell>
+                          <TableCell className="bg-background group-hover:bg-transparent">{decisor}</TableCell>
+                          <TableCell className="bg-background group-hover:bg-transparent">{decisorPhone !== "—" ? formatPhoneBR(String(decisorPhone)) : "—"}</TableCell>
+                          <TableCell className="text-right bg-background group-hover:bg-transparent">R$ {total.toFixed(2).replace(".", ",")}</TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -1136,25 +1140,25 @@ export default function ClientsPage() {
             ) : (clientContractsQuery.data ?? []).length === 0 ? (
               <p className="text-sm text-muted-foreground">Nenhum contrato.</p>
             ) : (
-              <div className="rounded-lg border border-border overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Serviço</TableHead>
-                      <TableHead>Contratação</TableHead>
-                      <TableHead>Vencimento</TableHead>
-                      <TableHead className="text-right">Total</TableHead>
-                      <TableHead className="text-right">Ações</TableHead>
+              <div className="rounded-lg border border-border overflow-hidden bg-background">
+                <Table className="border-separate border-spacing-0">
+                  <TableHeader className="sticky top-0 z-10 bg-background shadow-sm">
+                    <TableRow className="bg-background hover:bg-background">
+                      <TableHead className="bg-background border-b">Serviço</TableHead>
+                      <TableHead className="bg-background border-b">Contratação</TableHead>
+                      <TableHead className="bg-background border-b">Vencimento</TableHead>
+                      <TableHead className="text-right bg-background border-b">Total</TableHead>
+                      <TableHead className="text-right bg-background border-b">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
-                  <TableBody>
+                  <TableBody className="bg-background">
                     {(clientContractsQuery.data ?? []).map((ct) => (
-                      <TableRow key={ct.id}>
-                        <TableCell className="font-medium">{ct.service_contracted || ct.title}</TableCell>
-                        <TableCell>{ct.contract_date ? format(parseISO(ct.contract_date), "dd/MM/yyyy", { locale: ptBR }) : "—"}</TableCell>
-                        <TableCell>{ct.first_payment_due_date ? format(parseISO(ct.first_payment_due_date), "dd/MM/yyyy", { locale: ptBR }) : "—"}</TableCell>
-                        <TableCell className="text-right">R$ {(contractTotalById.get(String(ct.id)) ?? 0).toFixed(2).replace(".", ",")}</TableCell>
-                        <TableCell className="text-right">
+                      <TableRow key={ct.id} className="bg-background hover:bg-muted/30 transition-colors group">
+                        <TableCell className="font-medium bg-background group-hover:bg-transparent">{ct.service_contracted || ct.title}</TableCell>
+                        <TableCell className="bg-background group-hover:bg-transparent">{ct.contract_date ? format(parseISO(ct.contract_date), "dd/MM/yyyy", { locale: ptBR }) : "—"}</TableCell>
+                        <TableCell className="bg-background group-hover:bg-transparent">{ct.first_payment_due_date ? format(parseISO(ct.first_payment_due_date), "dd/MM/yyyy", { locale: ptBR }) : "—"}</TableCell>
+                        <TableCell className="text-right bg-background group-hover:bg-transparent">R$ {(contractTotalById.get(String(ct.id)) ?? 0).toFixed(2).replace(".", ",")}</TableCell>
+                        <TableCell className="text-right bg-background group-hover:bg-transparent">
                           <div className="flex justify-end gap-1">
                             {String(ct.status ?? "") === "ativo" ? (
                               <Button
@@ -1168,6 +1172,7 @@ export default function ClientsPage() {
                                 }}
                                 disabled={!canManageContracts || suspendContract.isPending}
                                 aria-label="Suspender"
+                                className="bg-background hover:bg-muted"
                               >
                                 <PauseCircle className="h-4 w-4" />
                               </Button>
@@ -1182,6 +1187,7 @@ export default function ClientsPage() {
                                 }}
                                 disabled={!canManageContracts || reactivateContract.isPending}
                                 aria-label="Reativar"
+                                className="bg-background hover:bg-muted"
                               >
                                 <RotateCw className="h-4 w-4" />
                               </Button>
@@ -1208,6 +1214,7 @@ export default function ClientsPage() {
                                 setContractModalOpen(true);
                               }}
                               aria-label="Visualizar"
+                              className="bg-background hover:bg-muted"
                             >
                               <Eye className="h-4 w-4" />
                             </Button>
@@ -1234,6 +1241,7 @@ export default function ClientsPage() {
                               }}
                               disabled={!canManageContracts}
                               aria-label="Alterar"
+                              className="bg-background hover:bg-muted"
                             >
                               <Pencil className="h-4 w-4" />
                             </Button>
@@ -1248,13 +1256,14 @@ export default function ClientsPage() {
                               }}
                               disabled={!canManageContracts}
                               aria-label="Encerrar"
+                              className="bg-background hover:bg-muted"
                             >
                               <UserCheck className="h-4 w-4" />
                             </Button>
                             <Button
                               size="icon"
                               variant="ghost"
-                              className="text-destructive"
+                              className="text-destructive bg-background hover:bg-muted"
                               onClick={async () => {
                                 if (!window.confirm("Excluir este contrato?")) return;
                                 await deleteContract.mutateAsync({ id: ct.id, client_id: viewing.id });
