@@ -33,19 +33,7 @@ export function CompleteRegistrationPage() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [phone, setPhone] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [cpf, setCpf] = useState("");
-  const [rg, setRg] = useState("");
-  const [pixKey, setPixKey] = useState("");
-  const [addressStreet, setAddressStreet] = useState("");
-  const [addressCity, setAddressCity] = useState("");
-  const [addressState, setAddressState] = useState("");
-  const [addressZip, setAddressZip] = useState("");
-  const [educationLevel, setEducationLevel] = useState("fundamental");
-  const [graduation, setGraduation] = useState("");
-  const [jobTitle, setJobTitle] = useState("");
-  const [notes, setNotes] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [validating, setValidating] = useState(false);
   const [tokenValid, setTokenValid] = useState<boolean | null>(null);
@@ -112,44 +100,12 @@ export function CompleteRegistrationPage() {
       setErr("E-mail é obrigatório");
       return;
     }
-    if (!phone.trim()) {
-      setErr("Telefone é obrigatório");
+    if (password.length < 6) {
+      setErr("A senha deve ter no mínimo 6 caracteres");
       return;
     }
-    if (!displayName.trim()) {
-      setErr("Nome de exibição é obrigatório");
-      return;
-    }
-    if (!cpf.trim()) {
-      setErr("CPF é obrigatório");
-      return;
-    }
-    if (!rg.trim()) {
-      setErr("RG é obrigatório");
-      return;
-    }
-    if (!pixKey.trim()) {
-      setErr("Chave PIX é obrigatória");
-      return;
-    }
-    if (!addressStreet.trim()) {
-      setErr("Endereço é obrigatório");
-      return;
-    }
-    if (!addressCity.trim()) {
-      setErr("Cidade é obrigatória");
-      return;
-    }
-    if (!addressState.trim()) {
-      setErr("Estado é obrigatório");
-      return;
-    }
-    if (!addressZip.trim()) {
-      setErr("CEP é obrigatório");
-      return;
-    }
-    if (!jobTitle.trim()) {
-      setErr("Cargo é obrigatório");
+    if (password !== confirmPassword) {
+      setErr("As senhas não coincidem");
       return;
     }
 
@@ -159,29 +115,14 @@ export function CompleteRegistrationPage() {
     }
     setLoading(true);
 
-    const extraMetadata = {
-      phone,
-      display_name: displayName,
-      cpf,
-      rg,
-      pix_key: pixKey,
-      address_street: addressStreet,
-      address_city: addressCity,
-      address_state: addressState,
-      address_zip: addressZip,
-      education_level: educationLevel,
-      graduation,
-      job_title: jobTitle,
-      notes,
-    };
-
     try {
       if (isCodeFlowResolved) {
-        await signUpWithCode(email, password, fullName.trim(), t, extraMetadata);
+        await signUpWithCode(email, password, fullName.trim(), t);
       } else {
-        await signUp(email, password, fullName.trim(), t, extraMetadata);
+        await signUp(email, password, fullName.trim(), t);
       }
       setSuccess(true);
+      // O ProtectedRoute redirecionará para /profile-setup se o perfil estiver incompleto
       setTimeout(() => navigate("/"), 2000);
     } catch (error) {
       setErr(error instanceof Error ? error.message : "Erro ao cadastrar");
@@ -271,85 +212,53 @@ export function CompleteRegistrationPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Nome de exibição *
+                    E-mail *
                   </label>
                   <input
-                    type="text"
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    readOnly={!isCodeFlowResolved}
                     required
                     className={cn(
-                      "w-full px-3 py-2 rounded-md border border-gray-300 text-sm",
-                      "focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      "w-full px-3 py-2 rounded-md border text-sm",
+                      isCodeFlowResolved
+                        ? "border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary"
+                        : "border-gray-200 bg-gray-50 text-gray-600"
                     )}
-                    placeholder="Como você quer ser chamado"
+                    placeholder={isCodeFlowResolved ? "seu@email.com" : undefined}
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      E-mail *
+                      Definir Senha *
                     </label>
                     <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      readOnly={!isCodeFlowResolved}
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
                       required
-                      className={cn(
-                        "w-full px-3 py-2 rounded-md border text-sm",
-                        isCodeFlowResolved
-                          ? "border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary"
-                          : "border-gray-200 bg-gray-50 text-gray-600"
-                      )}
-                      placeholder={isCodeFlowResolved ? "seu@email.com" : undefined}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Telefone *
-                    </label>
-                    <input
-                      type="tel"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      required
+                      minLength={6}
+                      autoComplete="new-password"
                       className={cn(
                         "w-full px-3 py-2 rounded-md border border-gray-300 text-sm",
                         "focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                       )}
-                      placeholder="(00) 00000-0000"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      CPF *
-                    </label>
-                    <input
-                      type="text"
-                      value={cpf}
-                      onChange={(e) => setCpf(e.target.value)}
-                      required
-                      className={cn(
-                        "w-full px-3 py-2 rounded-md border border-gray-300 text-sm",
-                        "focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                      )}
-                      placeholder="000.000.000-00"
                     />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      RG *
+                      Confirmar Senha *
                     </label>
                     <input
-                      type="text"
-                      value={rg}
-                      onChange={(e) => setRg(e.target.value)}
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
                       required
+                      minLength={6}
+                      autoComplete="new-password"
                       className={cn(
                         "w-full px-3 py-2 rounded-md border border-gray-300 text-sm",
                         "focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
@@ -357,180 +266,7 @@ export function CompleteRegistrationPage() {
                     />
                   </div>
                 </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Chave PIX *
-                  </label>
-                  <input
-                    type="text"
-                    value={pixKey}
-                    onChange={(e) => setPixKey(e.target.value)}
-                    required
-                    className={cn(
-                      "w-full px-3 py-2 rounded-md border border-gray-300 text-sm",
-                      "focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                    )}
-                    placeholder="E-mail, CPF, Telefone ou Aleatória"
-                  />
-                </div>
-
-                <div className="space-y-4 pt-2 border-t">
-                  <h3 className="text-sm font-semibold text-gray-900">Endereço</h3>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Rua e Número *
-                    </label>
-                    <input
-                      type="text"
-                      value={addressStreet}
-                      onChange={(e) => setAddressStreet(e.target.value)}
-                      required
-                      className={cn(
-                        "w-full px-3 py-2 rounded-md border border-gray-300 text-sm",
-                        "focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                      )}
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Cidade *
-                      </label>
-                      <input
-                        type="text"
-                        value={addressCity}
-                        onChange={(e) => setAddressCity(e.target.value)}
-                        required
-                        className={cn(
-                          "w-full px-3 py-2 rounded-md border border-gray-300 text-sm",
-                          "focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                        )}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Estado *
-                      </label>
-                      <input
-                        type="text"
-                        value={addressState}
-                        onChange={(e) => setAddressState(e.target.value)}
-                        required
-                        className={cn(
-                          "w-full px-3 py-2 rounded-md border border-gray-300 text-sm",
-                          "focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                        )}
-                        placeholder="Ex: SP"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      CEP *
-                    </label>
-                    <input
-                      type="text"
-                      value={addressZip}
-                      onChange={(e) => setAddressZip(e.target.value)}
-                      required
-                      className={cn(
-                        "w-full px-3 py-2 rounded-md border border-gray-300 text-sm",
-                        "focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                      )}
-                      placeholder="00000-000"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-4 pt-2 border-t">
-                  <h3 className="text-sm font-semibold text-gray-900">Formação e Cargo</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Escolaridade *
-                      </label>
-                      <select
-                        value={educationLevel}
-                        onChange={(e) => setEducationLevel(e.target.value)}
-                        className={cn(
-                          "w-full px-3 py-2 rounded-md border border-gray-300 text-sm bg-white",
-                          "focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                        )}
-                      >
-                        <option value="fundamental">Fundamental</option>
-                        <option value="medio">Médio</option>
-                        <option value="superior">Superior</option>
-                        <option value="pos">Pós-graduação</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Graduação
-                      </label>
-                      <input
-                        type="text"
-                        value={graduation}
-                        onChange={(e) => setGraduation(e.target.value)}
-                        className={cn(
-                          "w-full px-3 py-2 rounded-md border border-gray-300 text-sm",
-                          "focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                        )}
-                        placeholder="Ex: Marketing"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Cargo *
-                    </label>
-                    <input
-                      type="text"
-                      value={jobTitle}
-                      onChange={(e) => setJobTitle(e.target.value)}
-                      required
-                      className={cn(
-                        "w-full px-3 py-2 rounded-md border border-gray-300 text-sm",
-                        "focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                      )}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2 pt-2 border-t">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Observações
-                  </label>
-                  <textarea
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    className={cn(
-                      "w-full px-3 py-2 rounded-md border border-gray-300 text-sm",
-                      "focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                    )}
-                    placeholder="Informações adicionais..."
-                    rows={3}
-                  />
-                </div>
-
-                <div className="pt-2 border-t">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Definir Senha *
-                  </label>
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    minLength={6}
-                    autoComplete="new-password"
-                    className={cn(
-                      "w-full px-3 py-2 rounded-md border border-gray-300 text-sm",
-                      "focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                    )}
-                  />
-                  <p className="text-xs text-gray-500 mt-1">Mínimo de 6 caracteres</p>
-                </div>
+                <p className="text-[10px] text-gray-500">Mínimo de 6 caracteres</p>
               </>
             )}
 
@@ -547,16 +283,8 @@ export function CompleteRegistrationPage() {
                   !tokenValid ||
                   !fullName.trim() ||
                   !email.trim() ||
-                  !phone.trim() ||
-                  !displayName.trim() ||
-                  !cpf.trim() ||
-                  !rg.trim() ||
-                  !pixKey.trim() ||
-                  !addressStreet.trim() ||
-                  !addressCity.trim() ||
-                  !addressState.trim() ||
-                  !addressZip.trim() ||
-                  !jobTitle.trim()
+                  !password ||
+                  password !== confirmPassword
                 }
               >
                 {loading ? "Cadastrando..." : "Criar conta"}

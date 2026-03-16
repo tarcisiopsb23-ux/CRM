@@ -11,6 +11,7 @@ import { TimeclockGuard } from "@/components/auth/TimeclockGuard";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { LoginPage } from "@/pages/LoginPage";
 import { CompleteRegistrationPage } from "@/pages/CompleteRegistrationPage";
+import { ProfileSetupPage } from "@/pages/ProfileSetupPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LeadsKanbanPage } from "./pages/LeadsKanbanPage";
@@ -53,6 +54,11 @@ function App() {
               <Routes>
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/complete-registration" element={<CompleteRegistrationPage />} />
+                <Route path="/profile-setup" element={
+                  <ProtectedRoute>
+                    <ProfileSetupPage />
+                  </ProtectedRoute>
+                } />
                 <Route
                   element={ 
                     <ProtectedRoute>

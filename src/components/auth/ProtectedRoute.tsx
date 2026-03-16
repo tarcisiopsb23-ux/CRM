@@ -72,6 +72,14 @@ export function ProtectedRoute({
     );
   }
 
+  // Verificar se o perfil está completo
+  const isProfileSetupPath = location.pathname === '/profile-setup';
+  const isProfileIncomplete = profile && !(profile.metadata as any)?.profile_completed;
+
+  if (profile && isProfileIncomplete && !isProfileSetupPath) {
+    return <Navigate to="/profile-setup" replace />;
+  }
+
   if (requireRole && profile) {
     const ROLE_ORDER: UserRole[] = ['viewer', 'member', 'manager', 'admin', 'owner'];
     const userLevel = ROLE_ORDER.indexOf(profile.role);

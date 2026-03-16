@@ -160,6 +160,7 @@ serve(async (req) => {
         commission_percent: typeof commission_percent === "number" ? commission_percent : 0,
         overtime_factor: typeof overtime_factor === "number" ? overtime_factor : 1,
         notes: typeof notes === "string" ? notes.trim() : "",
+        profile_completed: true,
         direct_organization_id: orgId,
       },
     });
@@ -209,6 +210,7 @@ serve(async (req) => {
               commission_percent: typeof commission_percent === "number" ? commission_percent : 0,
               overtime_factor: typeof overtime_factor === "number" ? overtime_factor : 1,
               notes: typeof notes === "string" ? notes.trim() : "",
+              profile_completed: true,
             },
           },
           { onConflict: "id" }
