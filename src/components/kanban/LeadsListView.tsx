@@ -28,6 +28,8 @@ const getPriorityColor = (p?: string | null) => {
 };
 
 export function LeadsListView({ leads, onDetalhes, onEdit, onDelete, onEtapaChange }: LeadsListViewProps) {
+  // Cache breaker: 2026-03-16 06:10
+
   const formatDateSafe = (dateStr?: string | null) => {
     if (!dateStr) return "-";
     try {
@@ -235,3 +237,4 @@ export function LeadsListView({ leads, onDetalhes, onEdit, onDelete, onEtapaChan
     </div>
   );
 }
+
