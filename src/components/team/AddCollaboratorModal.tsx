@@ -385,7 +385,7 @@ export function AddCollaboratorModal({
                         <SelectItem value="superior">Superior Completo</SelectItem>
                         <SelectItem value="mestrado_incompleto">Mestrado Incompleto</SelectItem>
                         <SelectItem value="mestrado_andamento">Mestrado em Andamento</SelectItem>
-                        <SelectItem value="pos">Pós-graduação / Mestrado Completo</SelectItem>
+                        <SelectItem value="pos">Mestrado Completo</SelectItem>
                         <SelectItem value="doutorado_incompleto">Doutorado Incompleto</SelectItem>
                         <SelectItem value="doutorado_andamento">Doutorado em Andamento</SelectItem>
                         <SelectItem value="doutorado">Doutorado Completo</SelectItem>
