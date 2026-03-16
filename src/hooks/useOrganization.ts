@@ -27,7 +27,7 @@ export function useOrganizationData(organizationId: string | undefined) {
   });
 
   const update = useMutation({
-    mutationFn: async (updates: { name?: string; logo_url?: string | null; settings?: any }) => {
+    mutationFn: async (updates: { name?: string; logo_url?: string | null; settings?: Record<string, unknown> }) => {
       if (!organizationId) throw new Error("No organization ID");
       const { data, error } = await supabase
         .from("organizations")

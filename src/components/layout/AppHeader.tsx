@@ -168,8 +168,9 @@ export function AppHeader() {
       await refetchProfile();
       setProfileOpen(false);
       toast.success("Perfil atualizado com sucesso");
-    } catch (err: any) {
-      toast.error(err.message || "Erro ao atualizar perfil");
+    } catch (err) {
+      const error = err as Error;
+      toast.error(error.message || "Erro ao atualizar perfil");
     } finally {
       setUploading(false);
     }
@@ -188,8 +189,9 @@ export function AppHeader() {
       setNewPassword("");
       setConfirmNewPassword("");
       toast.success("Senha alterada com sucesso");
-    } catch (err: any) {
-      toast.error(err.message || "Erro ao alterar senha");
+    } catch (err) {
+      const error = err as Error;
+      toast.error(error.message || "Erro ao alterar senha");
     } finally {
       setUploading(false);
     }
@@ -225,12 +227,13 @@ export function AppHeader() {
       
       await refetchProfile();
       toast.success("Foto atualizada com sucesso");
-    } catch (err: any) {
-      console.error("Erro no upload:", err);
-      if (err.message === "Bucket not found" || err.error === "Bucket not found") {
+    } catch (err) {
+      const error = err as Error;
+      console.error("Erro no upload:", error);
+      if (error.message === "Bucket not found") {
         toast.error("Configuração pendente: O bucket 'avatars' não foi encontrado no Supabase. Verifique a migração SQL.");
       } else {
-        toast.error(err.message || "Erro ao fazer upload da foto");
+        toast.error(error.message || "Erro ao fazer upload da foto");
       }
     } finally {
       setUploading(false);
@@ -249,8 +252,9 @@ export function AppHeader() {
       if (error) throw error;
       await refetchProfile();
       toast.success("Foto removida");
-    } catch (err: any) {
-      toast.error(err.message || "Erro ao remover foto");
+    } catch (err) {
+      const error = err as Error;
+      toast.error(error.message || "Erro ao remover foto");
     } finally {
       setUploading(false);
     }

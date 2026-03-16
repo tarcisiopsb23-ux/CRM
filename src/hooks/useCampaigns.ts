@@ -54,7 +54,7 @@ export function useCampaigns() {
         // Como a view pode não existir ainda no banco em produção, usamos any para evitar erro de TS na compilação
         // e um try/catch para fallback pro mock
         const { data, error } = await supabase
-          .from("campaign_performance" as any)
+          .from("campaign_performance" as never)
           .select("*")
           .eq("organization_id", organizationId);
           

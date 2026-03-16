@@ -129,12 +129,13 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
 
       setForm((f) => ({ ...f, avatar_url: publicUrl }));
       toast.success("Foto carregada. Salve para confirmar.");
-    } catch (err: any) {
-      console.error("Erro no upload:", err);
-      if (err.message === "Bucket not found" || err.error === "Bucket not found") {
+    } catch (err) {
+      const error = err as Error;
+      console.error("Erro no upload:", error);
+      if (error.message === "Bucket not found") {
         toast.error("Configuração pendente: O bucket 'avatars' não foi encontrado no Supabase.");
       } else {
-        toast.error(err.message || "Erro ao fazer upload da foto");
+        toast.error(error.message || "Erro ao fazer upload da foto");
       }
     } finally {
       setUploading(false);
@@ -213,8 +214,9 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
       setEditing(null);
       setViewing(null);
       toast.success("Colaborador salvo com sucesso");
-    } catch (err: any) {
-      toast.error(err.message || "Erro ao salvar colaborador");
+    } catch (err) {
+      const error = err as Error;
+      toast.error(error.message || "Erro ao salvar colaborador");
     }
   };
 

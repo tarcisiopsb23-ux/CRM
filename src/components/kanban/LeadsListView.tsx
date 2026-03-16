@@ -6,11 +6,11 @@ import { differenceInCalendarDays, format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Eye, Pencil, Trash2, Flame, ExternalLink } from "lucide-react";
 import { formatBRL, formatPhoneBR } from "@/lib/formatters";
-import { ETAPAS_KANBAN, type Lead, type EtapaKanban } from "@/types/database";
+import { ETAPAS_KANBAN, type Lead, type EtapaKanban, type LeadWithResponsavel } from "@/types/database";
 import { cn } from "@/lib/utils";
 
 interface LeadsListViewProps {
-  leads: Lead[];
+  leads: LeadWithResponsavel[];
   onDetalhes: (lead: Lead) => void;
   onEdit: (lead: Lead) => void;
   onDelete: (id: string) => void;
@@ -159,8 +159,8 @@ export function LeadsListView({ leads, onDetalhes, onEdit, onDelete, onEtapaChan
                     </Select>
                   </TableCell>
                   <TableCell className="bg-background group-hover:bg-muted/50">
-                    <div className="truncate w-[130px]" title={(lead as any).responsavel?.full_name || "—"}>
-                      {(lead as any).responsavel?.full_name || "—"}
+                    <div className="truncate w-[130px]" title={lead.responsavel?.full_name || "—"}>
+                      {lead.responsavel?.full_name || "—"}
                     </div>
                   </TableCell>
                   <TableCell className="bg-background group-hover:bg-muted/50">
@@ -171,7 +171,7 @@ export function LeadsListView({ leads, onDetalhes, onEdit, onDelete, onEtapaChan
                   </TableCell>
                   <TableCell className="text-xs bg-background group-hover:bg-muted/50">{lead.cpf_cnpj || "-"}</TableCell>
                   <TableCell className="text-xs truncate w-[130px] bg-background group-hover:bg-muted/50" title={lead.nicho || "-"}>{lead.nicho || "-"}</TableCell>
-                  <TableCell className="text-xs truncate w-[130px] bg-background group-hover:bg-muted/50" title={(lead.metadata as any)?.cidade || "-"}>{(lead.metadata as any)?.cidade || "-"}</TableCell>
+                  <TableCell className="text-xs truncate w-[130px] bg-background group-hover:bg-muted/50" title={(lead.metadata as { cidade?: string })?.cidade || "-"}>{(lead.metadata as { cidade?: string })?.cidade || "-"}</TableCell>
                   <TableCell className="text-xs truncate w-[130px] bg-background group-hover:bg-muted/50" title={lead.source || "-"}>{lead.source || "-"}</TableCell>
                   <TableCell className="text-xs truncate w-[280px] bg-background group-hover:bg-muted/50" title={lead.notes || "-"}>{lead.notes || "-"}</TableCell>
                   <TableCell className="text-xs bg-background group-hover:bg-muted/50">{formatDateSafe(lead.first_contact_date)}</TableCell>

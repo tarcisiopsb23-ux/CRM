@@ -6,7 +6,7 @@ export function DynamicFavicon() {
   const { data: organization } = useOrganizationData(orgId);
 
   useEffect(() => {
-    const settings = organization?.settings as any;
+    const settings = organization?.settings as { favicon_url?: string };
     const faviconUrl = settings?.favicon_url;
     
     if (faviconUrl) {

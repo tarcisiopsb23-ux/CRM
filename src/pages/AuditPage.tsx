@@ -293,7 +293,7 @@ export default function AuditPage() {
                             <FileText className="h-3.5 w-3.5" />
                             <span className="truncate" title={JSON.stringify(log.changes)}>
                               {log.changes && typeof log.changes === "object"
-                                ? Object.keys((log.changes as any).new || (log.changes as any).old || log.changes).join(", ")
+                                ? Object.keys((log.changes as { new?: object; old?: object }).new || (log.changes as { new?: object; old?: object }).old || log.changes).join(", ")
                                 : "-"}
                             </span>
                           </div>

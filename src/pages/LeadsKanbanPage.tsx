@@ -19,7 +19,7 @@ import { ChevronDown, ChevronUp, Flame, CheckCircle2, Plus, Loader2, Upload, Lay
 import { parseCsvText } from "@/lib/parseCsv";
 import { differenceInCalendarDays, parseISO } from "date-fns";
 import { formatPhoneBR } from "@/lib/formatters";
-import type { Lead, EtapaKanban } from "@/types/database";
+import type { Lead, EtapaKanban, LeadWithResponsavel } from "@/types/database";
 
 export function LeadsKanbanPage() {
   const organizationId = useOrganization();
@@ -420,7 +420,7 @@ export function LeadsKanbanPage() {
                       const decisorTelefoneRaw = lead.decision_maker ? lead.decision_maker_phone : lead.phone;
                       const decisorTelefone = decisorTelefoneRaw ? formatPhoneBR(decisorTelefoneRaw) : null;
                       const contatoTelefone = lead.phone ? formatPhoneBR(lead.phone) : null;
-                      const cidade = (lead.metadata as any)?.cidade || "—";
+                      const cidade = (lead.metadata as { cidade?: string })?.cidade || "—";
                       
                       return (
                         <TableRow key={lead.id} className="hover:bg-muted/50 bg-background transition-colors group">
@@ -431,7 +431,7 @@ export function LeadsKanbanPage() {
                             </div>
                           </TableCell>
                           <TableCell className="bg-background group-hover:bg-transparent text-sm">
-                            {(lead as any).responsavel?.full_name || "—"}
+                            {(lead as LeadWithResponsavel).responsavel?.full_name || "—"}
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground bg-background group-hover:bg-transparent">
                             <div className="text-sm truncate w-[130px]" title={decisorNome}>{decisorNome}</div>

@@ -94,9 +94,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       throw new Error("Não foi possível carregar seu perfil.");
-    } catch (err: any) {
-      console.error("[Auth] Erro no carregamento do perfil:", err.message);
-      setError(err);
+    } catch (err) {
+      const error = err as Error;
+      console.error("[Auth] Erro no carregamento do perfil:", error.message);
+      setError(error);
       return null;
     } finally {
       fetchingProfileRef.current = null;

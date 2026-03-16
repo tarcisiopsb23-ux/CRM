@@ -162,7 +162,7 @@ export function useRepPPunches(filters: {
   return useQuery({
     queryKey: key,
     queryFn: async () => {
-      let q = supabase.from("rep_p_punches_with_status" as any).select("*");
+      let q = supabase.from("rep_p_punches_with_status" as never).select("*");
       if (organizationId) q = q.eq("organization_id", organizationId);
       if (userId) q = q.eq("user_id", userId);
       if (fromIso) q = q.gte("occurred_at", fromIso);
@@ -184,7 +184,7 @@ export function useRepPAdminActions(punchId: string | null) {
     queryFn: async () => {
       if (!punchId) return [];
       const { data, error } = await supabase
-        .from("rep_p_admin_actions" as any)
+        .from("rep_p_admin_actions" as never)
         .select("*")
         .eq("punch_id", punchId)
         .order("action_at", { ascending: false });
