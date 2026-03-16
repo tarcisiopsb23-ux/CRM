@@ -28,7 +28,6 @@ export function ProfileSetupPage() {
   const [addressZip, setAddressZip] = useState("");
   const [educationLevel, setEducationLevel] = useState("fundamental");
   const [graduation, setGraduation] = useState("");
-  const [jobTitle, setJobTitle] = useState("");
   const [notes, setNotes] = useState("");
 
   useEffect(() => {
@@ -45,7 +44,6 @@ export function ProfileSetupPage() {
       setAddressZip(meta.address_zip || "");
       setEducationLevel(meta.education_level || "fundamental");
       setGraduation(meta.graduation || "");
-      setJobTitle(meta.job_title || "");
       setNotes(meta.notes || "");
     }
   }, [profile]);
@@ -55,8 +53,7 @@ export function ProfileSetupPage() {
     if (!user) return;
 
     if (!phone.trim() || !displayName.trim() || !cpf.trim() || !rg.trim() || !pixKey.trim() || 
-        !addressStreet.trim() || !addressCity.trim() || !addressState.trim() || !addressZip.trim() || 
-        !jobTitle.trim()) {
+        !addressStreet.trim() || !addressCity.trim() || !addressState.trim() || !addressZip.trim()) {
       toast.error("Por favor, preencha todos os campos obrigatórios (*)");
       return;
     }
@@ -79,7 +76,6 @@ export function ProfileSetupPage() {
             address_zip: addressZip.trim(),
             education_level: educationLevel,
             graduation: graduation.trim(),
-            job_title: jobTitle.trim(),
             notes: notes.trim(),
             profile_completed: true
           }
@@ -234,16 +230,6 @@ export function ProfileSetupPage() {
                     placeholder="Curso"
                   />
                 </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="jobTitle">Cargo *</Label>
-                <Input
-                  id="jobTitle"
-                  value={jobTitle}
-                  onChange={(e) => setJobTitle(e.target.value)}
-                  placeholder="Seu cargo atual"
-                  required
-                />
               </div>
             </div>
 
