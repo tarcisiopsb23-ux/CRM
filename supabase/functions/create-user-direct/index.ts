@@ -31,7 +31,27 @@ serve(async (req) => {
       );
     }
 
-    let body: { email?: string; password?: string; full_name?: string; job_title?: string };
+    let body: {
+      email?: string;
+      password?: string;
+      full_name?: string;
+      phone?: string;
+      display_name?: string;
+      cpf?: string;
+      rg?: string;
+      pix_key?: string;
+      address_street?: string;
+      address_city?: string;
+      address_state?: string;
+      address_zip?: string;
+      education_level?: string;
+      graduation?: string;
+      job_title?: string;
+      base_salary?: number;
+      commission_percent?: number;
+      overtime_factor?: number;
+      notes?: string;
+    };
     try {
       body = await req.json();
     } catch {
@@ -40,7 +60,27 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-    const { email, password, full_name, job_title } = body;
+    const {
+      email,
+      password,
+      full_name,
+      phone,
+      display_name,
+      cpf,
+      rg,
+      pix_key,
+      address_street,
+      address_city,
+      address_state,
+      address_zip,
+      education_level,
+      graduation,
+      job_title,
+      base_salary,
+      commission_percent,
+      overtime_factor,
+      notes,
+    } = body;
     const emailTrim = typeof email === "string" ? email.trim().toLowerCase() : "";
     if (!emailTrim || !emailTrim.includes("@")) {
       return new Response(
@@ -104,6 +144,22 @@ serve(async (req) => {
       email_confirm: true,
       user_metadata: {
         full_name: typeof full_name === "string" ? full_name.trim() || emailTrim.split("@")[0] : emailTrim.split("@")[0],
+        phone: typeof phone === "string" ? phone.trim() : "",
+        display_name: typeof display_name === "string" ? display_name.trim() : "",
+        cpf: typeof cpf === "string" ? cpf.trim() : "",
+        rg: typeof rg === "string" ? rg.trim() : "",
+        pix_key: typeof pix_key === "string" ? pix_key.trim() : "",
+        address_street: typeof address_street === "string" ? address_street.trim() : "",
+        address_city: typeof address_city === "string" ? address_city.trim() : "",
+        address_state: typeof address_state === "string" ? address_state.trim() : "",
+        address_zip: typeof address_zip === "string" ? address_zip.trim() : "",
+        education_level: typeof education_level === "string" ? education_level : "fundamental",
+        graduation: typeof graduation === "string" ? graduation.trim() : "",
+        job_title: typeof job_title === "string" ? job_title.trim() : "",
+        base_salary: typeof base_salary === "number" ? base_salary : 0,
+        commission_percent: typeof commission_percent === "number" ? commission_percent : 0,
+        overtime_factor: typeof overtime_factor === "number" ? overtime_factor : 1,
+        notes: typeof notes === "string" ? notes.trim() : "",
         direct_organization_id: orgId,
       },
     });
@@ -123,7 +179,6 @@ serve(async (req) => {
     }
 
     const newUserId = newUser?.user?.id;
-    const safeJobTitle = typeof job_title === "string" ? job_title.trim() : "";
     if (newUserId) {
       const baseFullName =
         typeof full_name === "string" ? full_name.trim() || emailTrim.split("@")[0] : emailTrim.split("@")[0];
@@ -136,8 +191,25 @@ serve(async (req) => {
             organization_id: orgId,
             full_name: baseFullName,
             email: emailTrim,
+            phone: typeof phone === "string" ? phone.trim() : null,
             role: "member",
-            metadata: safeJobTitle ? { job_title: safeJobTitle } : {},
+            metadata: {
+              display_name: typeof display_name === "string" ? display_name.trim() : "",
+              cpf: typeof cpf === "string" ? cpf.trim() : "",
+              rg: typeof rg === "string" ? rg.trim() : "",
+              pix_key: typeof pix_key === "string" ? pix_key.trim() : "",
+              address_street: typeof address_street === "string" ? address_street.trim() : "",
+              address_city: typeof address_city === "string" ? address_city.trim() : "",
+              address_state: typeof address_state === "string" ? address_state.trim() : "",
+              address_zip: typeof address_zip === "string" ? address_zip.trim() : "",
+              education_level: typeof education_level === "string" ? education_level : "fundamental",
+              graduation: typeof graduation === "string" ? graduation.trim() : "",
+              job_title: typeof job_title === "string" ? job_title.trim() : "",
+              base_salary: typeof base_salary === "number" ? base_salary : 0,
+              commission_percent: typeof commission_percent === "number" ? commission_percent : 0,
+              overtime_factor: typeof overtime_factor === "number" ? overtime_factor : 1,
+              notes: typeof notes === "string" ? notes.trim() : "",
+            },
           },
           { onConflict: "id" }
         );

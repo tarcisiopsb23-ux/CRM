@@ -18,8 +18,8 @@ interface AuthContextValue {
   loading: boolean;
   error: Error | null;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, fullName: string, invitationToken: string) => Promise<void>;
-  signUpWithCode: (email: string, password: string, fullName: string, registrationCode: string) => Promise<void>;
+  signUp: (email: string, password: string, fullName: string, invitationToken: string, metadata?: Record<string, any>) => Promise<void>;
+  signUpWithCode: (email: string, password: string, fullName: string, registrationCode: string, metadata?: Record<string, any>) => Promise<void>;
   signOut: () => Promise<void>;
   refetchProfile: () => Promise<void>;
 }
@@ -226,7 +226,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signUp = useCallback(
-    async (email: string, password: string, fullName: string, invitationToken: string) => {
+    async (email: string, password: string, fullName: string, invitationToken: string, metadata?: Record<string, any>) => {
       setError(null);
       const { error: err } = await supabase.auth.signUp({
         email,
@@ -235,6 +235,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           data: {
             full_name: fullName || email.split('@')[0],
             invitation_token: invitationToken.trim(),
+            ...metadata
           },
         },
       });
@@ -245,7 +246,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const signUpWithCode = useCallback(
-    async (email: string, password: string, fullName: string, registrationCode: string) => {
+    async (email: string, password: string, fullName: string, registrationCode: string, metadata?: Record<string, any>) => {
       setError(null);
       const { error: err } = await supabase.auth.signUp({
         email,
@@ -254,6 +255,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           data: {
             full_name: fullName || email.split('@')[0],
             registration_code: registrationCode.trim(),
+            ...metadata
           },
         },
       });

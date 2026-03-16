@@ -23,13 +23,31 @@ BEGIN
   IF direct_org IS NOT NULL AND TRIM(direct_org) != '' THEN
     new_org_id := direct_org::UUID;
     IF EXISTS (SELECT 1 FROM organizations WHERE id = new_org_id) THEN
-      INSERT INTO public.profiles (id, organization_id, full_name, email, role)
+      INSERT INTO public.profiles (id, organization_id, full_name, email, phone, role, metadata)
       VALUES (
         NEW.id,
         new_org_id,
         COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.email),
         COALESCE(NEW.email, ''),
-        'member'
+        NEW.raw_user_meta_data->>'phone',
+        'member',
+        jsonb_build_object(
+          'display_name', NEW.raw_user_meta_data->>'display_name',
+          'cpf', NEW.raw_user_meta_data->>'cpf',
+          'rg', NEW.raw_user_meta_data->>'rg',
+          'pix_key', NEW.raw_user_meta_data->>'pix_key',
+          'address_street', NEW.raw_user_meta_data->>'address_street',
+          'address_city', NEW.raw_user_meta_data->>'address_city',
+          'address_state', NEW.raw_user_meta_data->>'address_state',
+          'address_zip', NEW.raw_user_meta_data->>'address_zip',
+          'education_level', NEW.raw_user_meta_data->>'education_level',
+          'graduation', NEW.raw_user_meta_data->>'graduation',
+          'job_title', NEW.raw_user_meta_data->>'job_title',
+          'base_salary', (NEW.raw_user_meta_data->>'base_salary')::NUMERIC,
+          'commission_percent', (NEW.raw_user_meta_data->>'commission_percent')::NUMERIC,
+          'overtime_factor', (NEW.raw_user_meta_data->>'overtime_factor')::NUMERIC,
+          'notes', NEW.raw_user_meta_data->>'notes'
+        )
       );
       RETURN NEW;
     END IF;
@@ -43,34 +61,57 @@ BEGIN
 
   IF token_val IS NOT NULL AND TRIM(token_val) != '' THEN
     SELECT id, organization_id INTO token_row
-    FROM invitation_tokens
+    FROM public.invitation_tokens
     WHERE token = TRIM(token_val)
       AND used_by IS NULL
       AND expires_at > NOW();
 
     IF NOT FOUND THEN
       SELECT id, organization_id INTO token_row
-      FROM registration_codes
+      FROM public.registration_codes
       WHERE code = TRIM(token_val)
         AND used_by IS NULL
         AND expires_at > NOW();
+    ELSE
+      UPDATE public.invitation_tokens
+      SET used_by = NEW.id, used_at = NOW()
+      WHERE id = token_row.id;
     END IF;
 
-    IF FOUND THEN
+    IF token_row.id IS NOT NULL THEN
       new_org_id := token_row.organization_id;
-      -- Marca token/código como usado
-      IF EXISTS (SELECT 1 FROM invitation_tokens WHERE id = token_row.id) THEN
-        UPDATE invitation_tokens SET used_by = NEW.id, used_at = NOW() WHERE id = token_row.id;
-      ELSE
-        UPDATE registration_codes SET used_by = NEW.id, used_at = NOW() WHERE id = token_row.id;
+      
+      IF NOT EXISTS (SELECT 1 FROM public.invitation_tokens WHERE id = token_row.id) THEN
+        UPDATE public.registration_codes
+        SET used_by = NEW.id, used_at = NOW()
+        WHERE id = token_row.id;
       END IF;
-      INSERT INTO public.profiles (id, organization_id, full_name, email, role)
+
+      INSERT INTO public.profiles (id, organization_id, full_name, email, phone, role, metadata)
       VALUES (
         NEW.id,
         new_org_id,
         COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.email),
-        NEW.email,
-        'member'
+        COALESCE(NEW.email, ''),
+        NEW.raw_user_meta_data->>'phone',
+        'member',
+        jsonb_build_object(
+          'display_name', NEW.raw_user_meta_data->>'display_name',
+          'cpf', NEW.raw_user_meta_data->>'cpf',
+          'rg', NEW.raw_user_meta_data->>'rg',
+          'pix_key', NEW.raw_user_meta_data->>'pix_key',
+          'address_street', NEW.raw_user_meta_data->>'address_street',
+          'address_city', NEW.raw_user_meta_data->>'address_city',
+          'address_state', NEW.raw_user_meta_data->>'address_state',
+          'address_zip', NEW.raw_user_meta_data->>'address_zip',
+          'education_level', NEW.raw_user_meta_data->>'education_level',
+          'graduation', NEW.raw_user_meta_data->>'graduation',
+          'job_title', NEW.raw_user_meta_data->>'job_title',
+          'base_salary', (NEW.raw_user_meta_data->>'base_salary')::NUMERIC,
+          'commission_percent', (NEW.raw_user_meta_data->>'commission_percent')::NUMERIC,
+          'overtime_factor', (NEW.raw_user_meta_data->>'overtime_factor')::NUMERIC,
+          'notes', NEW.raw_user_meta_data->>'notes'
+        )
       );
       RETURN NEW;
     END IF;
