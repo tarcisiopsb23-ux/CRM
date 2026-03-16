@@ -45,9 +45,6 @@ export function CompleteRegistrationPage() {
   const [educationLevel, setEducationLevel] = useState("fundamental");
   const [graduation, setGraduation] = useState("");
   const [jobTitle, setJobTitle] = useState("");
-  const [baseSalary, setBaseSalary] = useState("");
-  const [commissionPercent, setCommissionPercent] = useState("");
-  const [overtimeFactor, setOvertimeFactor] = useState("1");
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [validating, setValidating] = useState(false);
@@ -155,14 +152,6 @@ export function CompleteRegistrationPage() {
       setErr("Cargo é obrigatório");
       return;
     }
-    if (!baseSalary.trim()) {
-      setErr("Salário base é obrigatório");
-      return;
-    }
-    if (!overtimeFactor.trim()) {
-      setErr("Fator de hora extra é obrigatório");
-      return;
-    }
 
     if (!tokenValid) {
       setErr(isCodeFlowResolved ? "Código inválido ou expirado." : "Convite inválido ou expirado.");
@@ -183,9 +172,6 @@ export function CompleteRegistrationPage() {
       education_level: educationLevel,
       graduation,
       job_title: jobTitle,
-      base_salary: parseFloat(baseSalary.replace(",", ".")) || 0,
-      commission_percent: parseFloat(commissionPercent.replace(",", ".")) || 0,
-      overtime_factor: parseFloat(overtimeFactor.replace(",", ".")) || 1,
       notes,
     };
 
@@ -511,59 +497,6 @@ export function CompleteRegistrationPage() {
                   </div>
                 </div>
 
-                <div className="space-y-4 pt-2 border-t">
-                  <h3 className="text-sm font-semibold text-gray-900">Remuneração</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Salário Base *
-                      </label>
-                      <input
-                        type="text"
-                        value={baseSalary}
-                        onChange={(e) => setBaseSalary(e.target.value)}
-                        required
-                        className={cn(
-                          "w-full px-3 py-2 rounded-md border border-gray-300 text-sm",
-                          "focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                        )}
-                        placeholder="0,00"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Comissão (%)
-                      </label>
-                      <input
-                        type="text"
-                        value={commissionPercent}
-                        onChange={(e) => setCommissionPercent(e.target.value)}
-                        className={cn(
-                          "w-full px-3 py-2 rounded-md border border-gray-300 text-sm",
-                          "focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                        )}
-                        placeholder="0"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Fator Hora Extra *
-                    </label>
-                    <input
-                      type="text"
-                      value={overtimeFactor}
-                      onChange={(e) => setOvertimeFactor(e.target.value)}
-                      required
-                      className={cn(
-                        "w-full px-3 py-2 rounded-md border border-gray-300 text-sm",
-                        "focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                      )}
-                      placeholder="1.0"
-                    />
-                  </div>
-                </div>
-
                 <div className="space-y-2 pt-2 border-t">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Observações
@@ -623,9 +556,7 @@ export function CompleteRegistrationPage() {
                   !addressCity.trim() ||
                   !addressState.trim() ||
                   !addressZip.trim() ||
-                  !jobTitle.trim() ||
-                  !baseSalary.trim() ||
-                  !overtimeFactor.trim()
+                  !jobTitle.trim()
                 }
               >
                 {loading ? "Cadastrando..." : "Criar conta"}
