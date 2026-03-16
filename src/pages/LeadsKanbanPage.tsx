@@ -15,7 +15,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
-import { ChevronDown, ChevronUp, Flame, CheckCircle2, Plus, Loader2, Upload, LayoutList, Kanban as KanbanIcon } from "lucide-react";
+import { ChevronDown, ChevronUp, Flame, CheckCircle2, Plus, Loader2, Upload, LayoutList, Kanban as KanbanIcon, Search } from "lucide-react";
+import { fetchAddressByCep } from "@/lib/viacep";
 import { parseCsvText } from "@/lib/parseCsv";
 import { differenceInCalendarDays, parseISO } from "date-fns";
 import { formatPhoneBR } from "@/lib/formatters";
@@ -39,6 +40,7 @@ export function LeadsKanbanPage() {
   const [csvImportResult, setCsvImportResult] = useState<{ created: number; errors: string[] } | null>(null);
   const [editing, setEditing] = useState<Lead | null>(null);
   const [preQualLead, setPreQualLead] = useState<Lead | null>(null);
+  const [searchingCep, setSearchingCep] = useState(false);
   const [preQualForm, setPreQualForm] = useState({
     resultado: "apto" as "apto" | "inapto",
     notas: "",
@@ -110,6 +112,30 @@ export function LeadsKanbanPage() {
     cadence: "",
     temperature: 0,
   });
+
+  const handleCepSearch = async (cep: string) => {
+    const cleanCep = cep.replace(/\D/g, "");
+    if (cleanCep.length === 8) {
+      setSearchingCep(true);
+      try {
+        const address = await fetchAddressByCep(cleanCep);
+        if (address) {
+          setPreQualLeadForm((f) => ({
+            ...f,
+            cidade: address.localidade,
+          }));
+          toast.success("Cidade preenchida pelo CEP!");
+        } else {
+          toast.error("CEP não encontrado.");
+        }
+      } catch (error) {
+        toast.error("Erro ao buscar CEP.");
+      } finally {
+        setSearchingCep(false);
+      }
+    }
+  };
+
   const [editForm, setEditForm] = useState({
     company: "",
     name: "",
@@ -698,6 +724,26 @@ export function LeadsKanbanPage() {
                       value={preQualLeadForm.last_contact_date}
                       onChange={(e) => setPreQualLeadForm({ ...preQualLeadForm, last_contact_date: e.target.value })}
                     />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>CEP</Label>
+                    <div className="relative">
+                      <Input
+                        placeholder="Pesquisar CEP..."
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val.replace(/\D/g, "").length === 8) {
+                            handleCepSearch(val);
+                          }
+                        }}
+                      />
+                      {searchingCep && (
+                        <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <div className="space-y-2">

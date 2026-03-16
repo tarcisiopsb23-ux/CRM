@@ -18,6 +18,8 @@ import { useJobTitleCatalog } from "@/hooks/useJobTitleCatalog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { fetchAddressByCep } from "@/lib/viacep";
+import { toast } from "sonner";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
 
@@ -54,12 +56,35 @@ export function AddCollaboratorModal({
   const [overtimeFactor, setOvertimeFactor] = useState("1");
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
+  const [searchingCep, setSearchingCep] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const jobTitleOptions = useMemo(() => {
     const catalogTitles = (catalog.data ?? []).map((r) => r.job_title);
     return getJobTitleOptions({ extra: catalogTitles, includeDefaults: false });
   }, [catalog.data]);
+
+  async function handleCepSearch(cep: string) {
+    const cleanCep = cep.replace(/\D/g, "");
+    if (cleanCep.length === 8) {
+      setSearchingCep(true);
+      try {
+        const address = await fetchAddressByCep(cleanCep);
+        if (address) {
+          setAddressStreet(`${address.logradouro}${address.bairro ? `, ${address.bairro}` : ""}`);
+          setAddressCity(address.localidade);
+          setAddressState(address.uf);
+          toast.success("Endereço preenchido pelo CEP!");
+        } else {
+          toast.error("CEP não encontrado.");
+        }
+      } catch (error) {
+        toast.error("Erro ao buscar CEP.");
+      } finally {
+        setSearchingCep(false);
+      }
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -319,13 +344,26 @@ export function AddCollaboratorModal({
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="addressZip">CEP *</Label>
-                  <Input
-                    id="addressZip"
-                    value={addressZip}
-                    onChange={(e) => setAddressZip(e.target.value)}
-                    placeholder="00000-000"
-                    required
-                  />
+                  <div className="relative">
+                    <Input
+                      id="addressZip"
+                      value={addressZip}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setAddressZip(val);
+                        if (val.replace(/\D/g, "").length === 8) {
+                          handleCepSearch(val);
+                        }
+                      }}
+                      placeholder="00000-000"
+                      required
+                    />
+                    {searchingCep && (
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -342,8 +380,15 @@ export function AddCollaboratorModal({
                       <SelectContent>
                         <SelectItem value="fundamental">Fundamental</SelectItem>
                         <SelectItem value="medio">Médio</SelectItem>
-                        <SelectItem value="superior">Superior</SelectItem>
-                        <SelectItem value="pos">Pós-graduação</SelectItem>
+                        <SelectItem value="superior_incompleto">Ensino Superior Incompleto</SelectItem>
+                        <SelectItem value="superior_andamento">Ensino Superior em Andamento</SelectItem>
+                        <SelectItem value="superior">Superior Completo</SelectItem>
+                        <SelectItem value="mestrado_incompleto">Mestrado Incompleto</SelectItem>
+                        <SelectItem value="mestrado_andamento">Mestrado em Andamento</SelectItem>
+                        <SelectItem value="pos">Pós-graduação / Mestrado Completo</SelectItem>
+                        <SelectItem value="doutorado_incompleto">Doutorado Incompleto</SelectItem>
+                        <SelectItem value="doutorado_andamento">Doutorado em Andamento</SelectItem>
+                        <SelectItem value="doutorado">Doutorado Completo</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

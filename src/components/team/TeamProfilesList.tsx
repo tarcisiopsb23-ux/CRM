@@ -21,7 +21,8 @@ import type { TeamMemberRow } from "@/hooks/useTeams";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useProfiles } from "@/hooks/useProfiles";
 import { usePayrollsByProfile } from "@/hooks/usePayrolls";
-import { Trash2, Camera } from "lucide-react";
+import { Trash2, Camera, Search, Plus, Loader2, Pencil } from "lucide-react";
+import { fetchAddressByCep } from "@/lib/viacep";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSupplierExpenses } from "@/hooks/useFinancial";
 import { format } from "date-fns";
@@ -60,6 +61,7 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
   const employeesPermission = usePermissionForScope("team", "employees");
   const navigate = useNavigate();
   const [allPaymentsOpen, setAllPaymentsOpen] = useState(false);
+  const [searchingCep, setSearchingCep] = useState(false);
   const [editing, setEditing] = useState<ProfileRow | null>(null);
   const [viewing, setViewing] = useState<ProfileRow | null>(null);
   const [form, setForm] = useState<{ full_name: string; email: string; phone: string; role: string; is_active: boolean; avatar_url: string | null }>({
@@ -182,6 +184,32 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
       is_active: !!p.is_active,
       avatar_url: p.avatar_url,
     });
+  };
+
+  const handleCepSearch = async (cep: string) => {
+    const cleanCep = cep.replace(/\D/g, "");
+    if (cleanCep.length === 8) {
+      setSearchingCep(true);
+      try {
+        const address = await fetchAddressByCep(cleanCep);
+        if (address) {
+          setExtraForm((f) => ({
+            ...f,
+            address_street: `${address.logradouro}${address.bairro ? `, ${address.bairro}` : ""}`,
+            address_city: address.localidade,
+            address_state: address.uf,
+            address_zip: address.cep,
+          }));
+          toast.success("Endereço preenchido pelo CEP!");
+        } else {
+          toast.error("CEP não encontrado.");
+        }
+      } catch (error) {
+        toast.error("Erro ao buscar CEP.");
+      } finally {
+        setSearchingCep(false);
+      }
+    }
   };
 
   const handleSave = async () => {
@@ -714,18 +742,35 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Endereço (rua)</Label>
-                <Input value={extraForm.address_street} onChange={(e) => setExtraForm((f) => ({ ...f, address_street: e.target.value }))} />
-              </div>
-              <div>
                 <Label>CEP</Label>
-                <Input value={extraForm.address_zip} onChange={(e) => setExtraForm((f) => ({ ...f, address_zip: e.target.value }))} />
+                <div className="relative">
+                  <Input
+                    value={extraForm.address_zip}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setExtraForm((f) => ({ ...f, address_zip: val }));
+                      if (val.replace(/\D/g, "").length === 8) {
+                        handleCepSearch(val);
+                      }
+                    }}
+                    placeholder="00000-000"
+                  />
+                  {searchingCep && (
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label>Cidade</Label>
                 <Input value={extraForm.address_city} onChange={(e) => setExtraForm((f) => ({ ...f, address_city: e.target.value }))} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <Label>Endereço (rua)</Label>
+                <Input value={extraForm.address_street} onChange={(e) => setExtraForm((f) => ({ ...f, address_street: e.target.value }))} />
               </div>
               <div>
                 <Label>UF</Label>
@@ -738,12 +783,17 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
                 <Select value={extraForm.education_level} onValueChange={(v) => setExtraForm((f) => ({ ...f, education_level: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="fundamental">Ensino Fundamental</SelectItem>
-                    <SelectItem value="medio">Ensino Médio</SelectItem>
-                    <SelectItem value="superior">Ensino Superior</SelectItem>
-                    <SelectItem value="pos">Pós-graduação</SelectItem>
-                    <SelectItem value="mestrado">Mestrado</SelectItem>
-                    <SelectItem value="doutorado">Doutorado</SelectItem>
+                    <SelectItem value="fundamental">Fundamental</SelectItem>
+                    <SelectItem value="medio">Médio</SelectItem>
+                    <SelectItem value="superior_incompleto">Ensino Superior Incompleto</SelectItem>
+                    <SelectItem value="superior_andamento">Ensino Superior em Andamento</SelectItem>
+                    <SelectItem value="superior">Superior Completo</SelectItem>
+                    <SelectItem value="mestrado_incompleto">Mestrado Incompleto</SelectItem>
+                    <SelectItem value="mestrado_andamento">Mestrado em Andamento</SelectItem>
+                    <SelectItem value="pos">Pós-graduação / Mestrado Completo</SelectItem>
+                    <SelectItem value="doutorado_incompleto">Doutorado Incompleto</SelectItem>
+                    <SelectItem value="doutorado_andamento">Doutorado em Andamento</SelectItem>
+                    <SelectItem value="doutorado">Doutorado Completo</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

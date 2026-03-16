@@ -13,7 +13,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Loader2, Trash2 } from "lucide-react";
+import { Plus, Loader2, Pencil, Trash2, Search } from "lucide-react";
+import { fetchAddressByCep } from "@/lib/viacep";
+import { toast } from "sonner";
 import type { Supplier } from "@/types/crm";
 
 const SUPPLIER_CATEGORIES = [
@@ -37,6 +39,7 @@ export default function SuppliersPage() {
   const organizationId = useOrganization();
   const { data: suppliers = [], isLoading, create, update, remove } = useSuppliers(organizationId);
   const [modalOpen, setModalOpen] = useState(false);
+  const [searchingCep, setSearchingCep] = useState(false);
   const [editing, setEditing] = useState<Supplier | null>(null);
   const [form, setForm] = useState<Partial<Supplier>>({
     name: "",
@@ -85,6 +88,32 @@ export default function SuppliersPage() {
       pix: s.pix ?? "",
     });
     setModalOpen(true);
+  };
+
+  const handleCepSearch = async (cep: string) => {
+    const cleanCep = cep.replace(/\D/g, "");
+    if (cleanCep.length === 8) {
+      setSearchingCep(true);
+      try {
+        const address = await fetchAddressByCep(cleanCep);
+        if (address) {
+          setForm({
+            ...form,
+            address_street: `${address.logradouro}${address.bairro ? `, ${address.bairro}` : ""}`,
+            address_city: address.localidade,
+            address_state: address.uf,
+            address_zip: address.cep,
+          });
+          toast.success("Endereço preenchido pelo CEP!");
+        } else {
+          toast.error("CEP não encontrado.");
+        }
+      } catch (error) {
+        toast.error("Erro ao buscar CEP.");
+      } finally {
+        setSearchingCep(false);
+      }
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -236,15 +265,36 @@ export default function SuppliersPage() {
                 />
               </div>
             </div>
-            <div>
-              <Label>Endereço</Label>
-              <Input
-                value={form.address_street ?? ""}
-                onChange={(e) => setForm({ ...form, address_street: e.target.value })}
-                placeholder="Rua, número, bairro"
-              />
-            </div>
             <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <Label>Endereço</Label>
+                <Input
+                  value={form.address_street ?? ""}
+                  onChange={(e) => setForm({ ...form, address_street: e.target.value })}
+                  placeholder="Rua, número, bairro"
+                />
+              </div>
+              <div>
+                <Label>CEP</Label>
+                <div className="relative">
+                  <Input
+                    value={form.address_zip ?? ""}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setForm({ ...form, address_zip: val });
+                      if (val.replace(/\D/g, "").length === 8) {
+                        handleCepSearch(val);
+                      }
+                    }}
+                    placeholder="00000-000"
+                  />
+                  {searchingCep && (
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    </div>
+                  )}
+                </div>
+              </div>
               <div>
                 <Label>Cidade</Label>
                 <Input

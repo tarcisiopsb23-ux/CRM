@@ -39,7 +39,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Eye, Pencil, Plus, UserCheck, Loader2, Trash2, PauseCircle, RotateCw } from "lucide-react";
+import { Eye, Pencil, Plus, UserCheck, Loader2, Trash2, PauseCircle, RotateCw, Search } from "lucide-react";
+import { fetchAddressByCep } from "@/lib/viacep";
+import { toast } from "sonner";
 import type { Client } from "@/types/crm";
 import { formatCpfCnpj, formatPhoneBR } from "@/lib/formatters";
 import { addMonths, endOfMonth, format, isWithinInterval, parseISO, startOfMonth } from "date-fns";
@@ -92,6 +94,7 @@ export default function ClientsPage() {
   const [delinquentOpen, setDelinquentOpen] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [searchingCep, setSearchingCep] = useState(false);
   const navigate = useNavigate();
   const { clientId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -111,6 +114,32 @@ export default function ClientsPage() {
     responsible_name: "",
     responsible_phone: "",
   });
+
+  const handleCepSearch = async (cep: string) => {
+    const cleanCep = cep.replace(/\D/g, "");
+    if (cleanCep.length === 8) {
+      setSearchingCep(true);
+      try {
+        const address = await fetchAddressByCep(cleanCep);
+        if (address) {
+          setForm((f) => ({
+            ...f,
+            address_street: `${address.logradouro}${address.bairro ? `, ${address.bairro}` : ""}`,
+            address_city: address.localidade,
+            address_state: address.uf,
+            address_zip: address.cep,
+          }));
+          toast.success("Endereço preenchido pelo CEP!");
+        } else {
+          toast.error("CEP não encontrado.");
+        }
+      } catch (error) {
+        toast.error("Erro ao buscar CEP.");
+      } finally {
+        setSearchingCep(false);
+      }
+    }
+  };
 
   const efetivados = leads.filter((l) => l.etapa_kanban === "efetivados");
   const leadsById = useMemo(() => new Map(leads.map((l) => [l.id, l])), [leads]);
@@ -894,6 +923,27 @@ export default function ClientsPage() {
                 />
               </div>
               <div>
+                <Label>CEP</Label>
+                <div className="relative">
+                  <Input
+                    value={form.address_zip ?? ""}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setForm({ ...form, address_zip: val });
+                      if (val.replace(/\D/g, "").length === 8) {
+                        handleCepSearch(val);
+                      }
+                    }}
+                    placeholder="00000-000"
+                  />
+                  {searchingCep && (
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div>
                 <Label>Cidade</Label>
                 <Input
                   value={form.address_city ?? ""}
@@ -907,6 +957,14 @@ export default function ClientsPage() {
                   value={form.address_street ?? ""}
                   onChange={(e) => setForm({ ...form, address_street: e.target.value })}
                   placeholder="Rua, número, bairro"
+                />
+              </div>
+              <div>
+                <Label>UF</Label>
+                <Input
+                  value={form.address_state ?? ""}
+                  onChange={(e) => setForm({ ...form, address_state: e.target.value })}
+                  placeholder="Estado"
                 />
               </div>
               <div>
