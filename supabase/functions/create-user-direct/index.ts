@@ -6,26 +6,18 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // CORS: restringe origem quando APP_URL configurado (produção); "*" em dev
-function getCorsHeaders() {
-  const appUrl = Deno.env.get("APP_URL");
-  let origin = "*";
-  if (appUrl) {
-    try {
-      origin = new URL(appUrl).origin;
-    } catch {
-      /* mantém * */
-    }
-  }
+function getCorsHeaders(req: Request) {
+  const origin = req.headers.get("Origin") || "*";
   return {
     "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Headers":
-      "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   };
 }
 
-const corsHeaders = getCorsHeaders();
-
 serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req);
+  
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -64,20 +56,14 @@ serve(async (req) => {
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    if (!supabaseServiceKey) {
-      return new Response(
-        JSON.stringify({ error: "Configuração do servidor incompleta" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Cliente com token do admin para validar org
-    const supabaseAdmin = createClient(supabaseUrl, supabaseAnonKey, {
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    
+    // Cliente com token do admin para validar sessão
+    const authClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: authHeader } },
     });
-    const { data: { user: adminUser } } = await supabaseAdmin.auth.getUser();
+    
+    const { data: { user: adminUser } } = await authClient.auth.getUser();
     if (!adminUser) {
       return new Response(
         JSON.stringify({ error: "Sessão expirada. Faça login novamente." }),
@@ -85,7 +71,12 @@ serve(async (req) => {
       );
     }
 
-    const { data: profile } = await supabaseAdmin
+    // Cliente administrativo para realizar as operações no banco e auth
+    const adminClient = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+
+    const { data: profile } = await adminClient
       .from("profiles")
       .select("organization_id, role")
       .eq("id", adminUser.id)
@@ -106,12 +97,8 @@ serve(async (req) => {
       );
     }
 
-    // Cliente com service role para criar usuário
-    const supabaseService = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
-
-    const { data: newUser, error: createError } = await supabaseService.auth.admin.createUser({
+    // Criar usuário diretamente via admin API
+    const { data: newUser, error: createError } = await adminClient.auth.admin.createUser({
       email: emailTrim,
       password,
       email_confirm: true,
@@ -130,17 +117,18 @@ serve(async (req) => {
         );
       }
       return new Response(
-        JSON.stringify({ error: "Falha ao cadastrar colaborador" }),
+        JSON.stringify({ error: `Falha ao cadastrar colaborador: ${createError.message}` }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
     const newUserId = newUser?.user?.id;
     const safeJobTitle = typeof job_title === "string" ? job_title.trim() : "";
-    if (newUserId && safeJobTitle) {
+    if (newUserId) {
       const baseFullName =
         typeof full_name === "string" ? full_name.trim() || emailTrim.split("@")[0] : emailTrim.split("@")[0];
-      await supabaseService
+      
+      const { error: profileError } = await adminClient
         .from("profiles")
         .upsert(
           {
@@ -149,10 +137,14 @@ serve(async (req) => {
             full_name: baseFullName,
             email: emailTrim,
             role: "member",
-            metadata: { job_title: safeJobTitle },
+            metadata: safeJobTitle ? { job_title: safeJobTitle } : {},
           },
           { onConflict: "id" }
         );
+        
+      if (profileError) {
+        console.error("[CreateUserDirect] Profile Upsert Error:", profileError);
+      }
     }
 
     return new Response(

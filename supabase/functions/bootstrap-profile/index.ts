@@ -1,23 +1,14 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-function getCorsHeaders() {
-  const appUrl = Deno.env.get("APP_URL");
-  let origin = "*";
-  if (appUrl) {
-    try {
-      origin = new URL(appUrl).origin;
-    } catch {
-      origin = "*";
-    }
-  }
+function getCorsHeaders(req: Request) {
+  const origin = req.headers.get("Origin") || "*";
   return {
     "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   };
 }
-
-const corsHeaders = getCorsHeaders();
 
 type ProfileRow = {
   id: string;
@@ -34,6 +25,8 @@ type ProfileRow = {
 };
 
 serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req);
+
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -48,33 +41,27 @@ serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    if (!supabaseServiceKey) {
-      return new Response(JSON.stringify({ error: "Configuração do servidor incompleta" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const supabaseUser = createClient(supabaseUrl, supabaseAnonKey, {
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    
+    // Cliente para verificar a sessão do usuário
+    const authClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: authHeader } },
     });
-    const { data: userRes, error: userErr } = await supabaseUser.auth.getUser();
-    if (userErr) throw userErr;
-    const user = userRes.user;
-    if (!user) {
+    
+    const { data: { user }, error: userErr } = await authClient.auth.getUser();
+    if (userErr || !user) {
       return new Response(JSON.stringify({ error: "Sessão expirada. Faça login novamente." }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const supabaseService = createClient(supabaseUrl, supabaseServiceKey, {
+    // Cliente administrativo para operações de perfil e organização
+    const adminClient = createClient(supabaseUrl, supabaseServiceKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    const { data: existingProfile, error: profileErr } = await supabaseService
+    const { data: existingProfile, error: profileErr } = await adminClient
       .from("profiles")
       .select("*")
       .eq("id", user.id)
@@ -108,7 +95,7 @@ serve(async (req) => {
       const tokenVal = typeof tokenValRaw === "string" ? tokenValRaw.trim() : "";
       if (tokenVal) {
         const nowIso = new Date().toISOString();
-        const { data: tokenRow } = await supabaseService
+        const { data: tokenRow } = await adminClient
           .from("invitation_tokens")
           .select("id, organization_id")
           .eq("token", tokenVal)
@@ -119,12 +106,12 @@ serve(async (req) => {
         if (tokenRow?.organization_id) {
           organizationId = tokenRow.organization_id as string;
           role = "member";
-          await supabaseService
+          await adminClient
             .from("invitation_tokens")
             .update({ used_by: user.id, used_at: nowIso })
             .eq("id", tokenRow.id);
         } else {
-          const { data: codeRow } = await supabaseService
+          const { data: codeRow } = await adminClient
             .from("registration_codes")
             .select("id, organization_id")
             .eq("code", tokenVal)
@@ -134,7 +121,7 @@ serve(async (req) => {
           if (codeRow?.organization_id) {
             organizationId = codeRow.organization_id as string;
             role = "member";
-            await supabaseService
+            await adminClient
               .from("registration_codes")
               .update({ used_by: user.id, used_at: nowIso })
               .eq("id", codeRow.id);
@@ -147,7 +134,7 @@ serve(async (req) => {
       const uidPrefix = user.id.slice(0, 8);
       const slugBase = emailPrefix.toLowerCase().replace(/[^a-z0-9]/g, "") || "org";
       const slug = `${slugBase}-${uidPrefix}`;
-      const { data: org, error: orgErr } = await supabaseService
+      const { data: org, error: orgErr } = await adminClient
         .from("organizations")
         .insert({ name: `${fullName}'s Organization`, slug })
         .select("id")
@@ -164,7 +151,7 @@ serve(async (req) => {
       email: email,
       role,
     };
-    const { data: createdProfile, error: insertErr } = await supabaseService
+    const { data: createdProfile, error: insertErr } = await adminClient
       .from("profiles")
       .insert(insertPayload)
       .select("*")

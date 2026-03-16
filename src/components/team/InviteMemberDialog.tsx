@@ -100,10 +100,15 @@ export function InviteMemberDialog({ open, onOpenChange, initialMode = "email" }
         throw new Error(text || `Erro do servidor (${res.status})`);
       }
 
-      if (!res.ok) {
-        // Se o erro for 400 e houver detalhes da RPC
-        const errorMsg = data.error || "Erro ao enviar convite";
-        throw new Error(errorMsg);
+      if (data.success === false) {
+        // Se falhou no e-mail mas criou o token, avisamos o usuário e mostramos o link
+        setSuccess(data.message);
+        // Podemos adicionar um log com o link se for necessário
+        console.warn("Link de convite manual:", data.link);
+        if (data.link) {
+          setError(`Você pode copiar este link manualmente para o convidado: ${data.link}`);
+        }
+        return;
       }
 
       setSuccess(data.message ?? "Convite enviado por e-mail!");

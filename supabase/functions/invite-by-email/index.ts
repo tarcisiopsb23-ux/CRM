@@ -5,7 +5,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-const APP_URL = Deno.env.get("APP_URL") ?? "http://localhost:5173";
+const RESEND_FROM_EMAIL = Deno.env.get("RESEND_FROM_EMAIL") ?? "Agência C8 <onboarding@resend.dev>";
+const APP_URL = Deno.env.get("APP_URL") ?? "https://ia-maestr-ia.whlwlh.easypanel.host/";
 
 // CORS: restringe origem quando APP_URL configurado (produção); "*" em dev
 function getCorsHeaders(req: Request) {
@@ -52,12 +53,14 @@ serve(async (req) => {
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    
+    // Cliente para verificar o usuário que está chamando (usando o token dele)
+    const authClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: authHeader } },
     });
 
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user } } = await authClient.auth.getUser();
     if (!user) {
       return new Response(
         JSON.stringify({ error: "Não autorizado" }),
@@ -65,7 +68,10 @@ serve(async (req) => {
       );
     }
 
-    const { data: profile } = await supabase
+    // Cliente administrativo para realizar as operações no banco
+    const adminClient = createClient(supabaseUrl, supabaseServiceKey);
+
+    const { data: profile } = await adminClient
       .from("profiles")
       .select("organization_id")
       .eq("id", user.id)
@@ -79,7 +85,10 @@ serve(async (req) => {
       );
     }
 
-    const { data: invite, error: rpcError } = await supabase.rpc(
+    // Chamamos a RPC usando o cliente do usuário para que os checks internos 
+    // (auth.uid(), user_has_role) funcionem corretamente.
+    // A função é SECURITY DEFINER, então ela tem permissão para inserir na tabela.
+    const { data: invite, error: rpcError } = await authClient.rpc(
       "create_invitation_token",
       { org_id: orgId, email_input: email.trim().toLowerCase() }
     );
@@ -105,7 +114,7 @@ serve(async (req) => {
           Authorization: `Bearer ${RESEND_API_KEY}`,
         },
         body: JSON.stringify({
-          from: "Maestr.IA <onboarding@resend.dev>",
+          from: RESEND_FROM_EMAIL,
           to: [email],
           subject: `Convite para ${orgName}`,
           html: `
@@ -118,10 +127,18 @@ serve(async (req) => {
       });
 
       if (!res.ok) {
-        await res.json().catch(() => null);
+        const resendError = await res.json().catch(() => ({ message: "Erro desconhecido no Resend" }));
+        console.error("[InviteByEmail] Resend Error:", resendError);
+        
+        // Fallback: se o e-mail falhar, retornamos o link para que o admin possa enviar manualmente
         return new Response(
-          JSON.stringify({ error: "Falha ao enviar e-mail. Verifique RESEND_API_KEY." }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          JSON.stringify({ 
+            success: false,
+            message: `O token foi criado, mas o e-mail não pôde ser enviado via Resend: ${resendError.message}`,
+            link: link,
+            details: resendError
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
     }
