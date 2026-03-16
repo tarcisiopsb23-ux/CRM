@@ -5,8 +5,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-const RESEND_FROM_EMAIL = Deno.env.get("RESEND_FROM_EMAIL") ?? "Agência C8 <onboarding@resend.dev>";
-const APP_URL = Deno.env.get("APP_URL") ?? "https://ia-maestr-ia.whlwlh.easypanel.host/";
+const RESEND_FROM_EMAIL = Deno.env.get("RESEND_FROM_EMAIL") ?? "Agência C8 <suporte@agenciac8.com.br>";
+const APP_URL = (Deno.env.get("APP_URL") ?? "https://ia-maestr-ia.whlwlh.easypanel.host").replace(/\/$/, "");
 
 // CORS: restringe origem quando APP_URL configurado (produção); "*" em dev
 function getCorsHeaders(req: Request) {
