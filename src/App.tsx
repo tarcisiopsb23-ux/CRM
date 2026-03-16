@@ -12,6 +12,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { LoginPage } from "@/pages/LoginPage";
 import { CompleteRegistrationPage } from "@/pages/CompleteRegistrationPage";
 import { ProfileSetupPage } from "@/pages/ProfileSetupPage";
+import { EditCollaboratorPage } from "@/pages/EditCollaboratorPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LeadsKanbanPage } from "./pages/LeadsKanbanPage";
@@ -84,7 +85,22 @@ function App() {
                     <Route path="/goals" element={<GoalsPage />} />
                     <Route path="/whatsapp" element={<WhatsApp />} />
                     <Route path="/meetings" element={<Meetings />} />
-                    <Route path="/team" element={<TeamPage />} />
+                    <Route
+                  path="/team"
+                  element={
+                    <ProtectedRoute requireRole="admin">
+                      <TeamPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/team/edit/:id"
+                  element={
+                    <ProtectedRoute requireRole="admin">
+                      <EditCollaboratorPage />
+                    </ProtectedRoute>
+                  }
+                />
                     <Route path="/team/employees/:profileId" element={<TeamPage />} />
                     <Route path="/campaign-reports" element={<CampaignReports />} />
                     <Route path="/general-reports" element={<GeneralReports />} />

@@ -55,6 +55,7 @@ export function AddCollaboratorModal({
   const [commissionPercent, setCommissionPercent] = useState("");
   const [overtimeFactor, setOvertimeFactor] = useState("1");
   const [notes, setNotes] = useState("");
+  const [role, setRole] = useState("member");
   const [loading, setLoading] = useState(false);
   const [searchingCep, setSearchingCep] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -171,6 +172,7 @@ export function AddCollaboratorModal({
           education_level: educationLevel,
           graduation: graduation.trim(),
           job_title: jobTitle.trim(),
+          role,
           base_salary: parseFloat(baseSalary.replace(",", ".")) || 0,
           commission_percent: parseFloat(commissionPercent.replace(",", ".")) || 0,
           overtime_factor: parseFloat(overtimeFactor.replace(",", ".")) || 1,
