@@ -238,3 +238,8 @@ export function LeadsListView({ leads, onDetalhes, onEdit, onDelete, onEtapaChan
   );
 }
 
+
+
+
+
+
