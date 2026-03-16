@@ -2,6 +2,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 
+import { Json } from "@/types/supabase";
+
 /** Returns the current user's organization ID from their profile. */
 export function useOrganization() {
   const { profile } = useAuth();
@@ -27,7 +29,7 @@ export function useOrganizationData(organizationId: string | undefined) {
   });
 
   const update = useMutation({
-    mutationFn: async (updates: { name?: string; logo_url?: string | null; settings?: Record<string, unknown> }) => {
+    mutationFn: async (updates: { name?: string; logo_url?: string | null; settings?: Json }) => {
       if (!organizationId) throw new Error("No organization ID");
       const { data, error } = await supabase
         .from("organizations")
