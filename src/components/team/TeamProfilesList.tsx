@@ -36,9 +36,6 @@ import { DocumentsCard } from "@/components/documents/DocumentsCard";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
-
 interface Props {
   profiles: ProfileRow[];
   teams: TeamRow[];
@@ -310,42 +307,30 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
       toast.error("As senhas não conferem");
       return;
     }
-    if (!SUPABASE_URL) {
-      toast.error("VITE_SUPABASE_URL não configurado");
-      return;
-    }
-    if (!SUPABASE_ANON_KEY) {
-      toast.error("VITE_SUPABASE_ANON_KEY não configurado");
-      return;
-    }
 
     setChangingPassword(true);
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) throw new Error("Sessão expirada. Faça login novamente.");
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) throw new Error("Sessão expirada. Faça login novamente.");
 
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/set-user-password`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ user_id: viewing.id, password: newPassword }),
+      const { data: refreshed, error: refreshErr } = await supabase.auth.refreshSession();
+      const accessToken = refreshed.session?.access_token ?? sessionData.session.access_token;
+      if (refreshErr || !accessToken) throw new Error("Sessão expirada. Faça login novamente.");
+
+      const { data, error } = await supabase.functions.invoke("set-user-password", {
+        body: { user_id: viewing.id, password: newPassword },
+        headers: { Authorization: `Bearer ${accessToken}` },
       });
-
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(data?.error || `Erro ${res.status}: ${res.statusText}`);
+      if (error) throw error;
+      if ((data as { error?: string } | null)?.error) throw new Error(String((data as any).error));
 
       toast.success("Senha alterada com sucesso");
       setPasswordOpen(false);
       setNewPassword("");
       setConfirmPassword("");
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Erro ao alterar senha");
+      const msg = err instanceof Error ? err.message : "Erro ao alterar senha";
+      toast.error(msg.includes("Invalid JWT") ? "Sessão expirada. Faça login novamente." : msg);
     } finally {
       setChangingPassword(false);
     }
