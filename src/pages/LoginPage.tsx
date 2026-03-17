@@ -1,27 +1,54 @@
 import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/lib/supabase';
 
 export function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const { signIn } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname ?? '/';
+  const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
     setLoading(true);
     try {
-      await signIn(email, password);
+      if (!SUPABASE_URL) throw new Error("VITE_SUPABASE_URL não configurado");
+
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/sign-in-with-lockout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        session?: { access_token: string; refresh_token: string };
+      };
+
+      if (!res.ok) {
+        throw new Error(data?.error || `Erro ${res.status}: ${res.statusText}`);
+      }
+
+      const session = data.session;
+      if (!session?.access_token || !session?.refresh_token) {
+        throw new Error("Falha ao iniciar sessão");
+      }
+
+      const { error: sessionErr } = await supabase.auth.setSession({
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+      });
+      if (sessionErr) throw sessionErr;
+
       navigate(from, { replace: true });
     } catch (err: any) {
       console.error("Erro no login:", err);
