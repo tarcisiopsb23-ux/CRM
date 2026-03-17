@@ -7,6 +7,7 @@ import { getJobTitleOptions } from "@/lib/jobTitles";
 import { usePermissionForScope } from "@/hooks/usePermissions";
 import { fetchAddressByCep } from "@/lib/viacep";
 import { supabase } from "@/lib/supabase";
+import { UserRole } from "@/types/auth";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
