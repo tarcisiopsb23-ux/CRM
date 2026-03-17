@@ -38,6 +38,7 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
 
 export function EditCollaboratorPage() {
   const { id } = useParams();
@@ -232,6 +233,10 @@ export function EditCollaboratorPage() {
       toast.error("VITE_SUPABASE_URL não configurado");
       return;
     }
+    if (!SUPABASE_ANON_KEY) {
+      toast.error("VITE_SUPABASE_ANON_KEY não configurado");
+      return;
+    }
 
     setChangingPassword(true);
     try {
@@ -243,6 +248,7 @@ export function EditCollaboratorPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          apikey: SUPABASE_ANON_KEY,
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ user_id: id, password: newPassword }),

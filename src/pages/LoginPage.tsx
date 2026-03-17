@@ -15,6 +15,7 @@ export function LoginPage() {
 
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname ?? '/';
   const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
+  const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -22,10 +23,15 @@ export function LoginPage() {
     setLoading(true);
     try {
       if (!SUPABASE_URL) throw new Error("VITE_SUPABASE_URL não configurado");
+      if (!SUPABASE_ANON_KEY) throw new Error("VITE_SUPABASE_ANON_KEY não configurado");
 
       const res = await fetch(`${SUPABASE_URL}/functions/v1/sign-in-with-lockout`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
         body: JSON.stringify({ email, password }),
       });
 
