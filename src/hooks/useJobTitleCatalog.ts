@@ -1,77 +1,89 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { useMemo } from "react";
+import { UserRole } from "@/types/auth";
 
 export type JobTitleCatalogRow = {
   id: string;
   organization_id: string;
   job_title: string;
+  role: UserRole;
   created_at: string | null;
   updated_at: string | null;
 };
 
-export function useJobTitleCatalog(organizationId: string | undefined) {
-  const qc = useQueryClient();
-  const supabaseUntyped = supabase as unknown as SupabaseClient;
+export function useJobTitleCatalog(organizationId: string | null) {
+  const queryClient = useQueryClient();
+
+  const queryKey = useMemo(() => ["job_title_catalog", organizationId], [organizationId]);
 
   const query = useQuery({
-    queryKey: ["job_title_catalog", organizationId],
+    queryKey,
     queryFn: async () => {
       if (!organizationId) return [];
-      const { data, error } = await supabaseUntyped
+      const { data, error } = await supabase
         .from("job_title_catalog")
-        .select("*")
+        .select("id, job_title, role")
         .eq("organization_id", organizationId)
         .order("job_title");
       if (error) throw error;
-      return (data ?? []) as unknown as JobTitleCatalogRow[];
+      return data;
     },
     enabled: !!organizationId,
   });
 
   const create = useMutation({
-    mutationFn: async (input: { job_title: string }) => {
-      if (!organizationId) throw new Error("Sem organização");
-      const title = input.job_title.trim();
-      if (!title) throw new Error("Informe um cargo");
-      const { error } = await supabaseUntyped
+    mutationFn: async (vars: { job_title: string }) => {
+      if (!organizationId) throw new Error("Organização não encontrada");
+      const { error } = await supabase
         .from("job_title_catalog")
-        .insert({ organization_id: organizationId, job_title: title });
+        .insert({ organization_id: organizationId, job_title: vars.job_title });
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["job_title_catalog", organizationId] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+  });
+
+  const update = useMutation({
+    mutationFn: async (vars: { id: string; role: UserRole }) => {
+      if (!organizationId) throw new Error("Organização não encontrada");
+      const { error } = await supabase
+        .from("job_title_catalog")
+        .update({ role: vars.role })
+        .eq("id", vars.id);
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
   });
 
   const rename = useMutation({
-    mutationFn: async (input: { old_title: string; new_title: string }) => {
-      const oldTitle = input.old_title.trim();
-      const newTitle = input.new_title.trim();
-      if (!oldTitle || !newTitle) throw new Error("Informe os cargos");
-      const { error } = await supabaseUntyped.rpc("job_title_rename", { p_old: oldTitle, p_new: newTitle });
+    mutationFn: async (vars: { old_title: string; new_title: string }) => {
+      if (!organizationId) throw new Error("Organização não encontrada");
+      const { error } = await supabase.rpc("job_title_rename", {
+        p_old: vars.old_title,
+        p_new: vars.new_title,
+      });
       if (error) throw error;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["job_title_catalog", organizationId] });
-      qc.invalidateQueries({ queryKey: ["job_title_role_mappings", organizationId] });
-      qc.invalidateQueries({ queryKey: ["job_title_permissions", organizationId] });
-      qc.invalidateQueries({ queryKey: ["profiles"] });
+      queryClient.invalidateQueries({ queryKey });
+      queryClient.invalidateQueries({ queryKey: ["profiles", organizationId] });
     },
   });
 
   const remove = useMutation({
-    mutationFn: async (input: { job_title: string }) => {
-      const title = input.job_title.trim();
-      if (!title) throw new Error("Informe um cargo");
-      const { error } = await supabaseUntyped.rpc("job_title_delete", { p_job_title: title });
+    mutationFn: async (vars: { job_title: string }) => {
+      if (!organizationId) throw new Error("Organização não encontrada");
+      const { error } = await supabase
+        .from("job_title_catalog")
+        .delete()
+        .eq("organization_id", organizationId)
+        .eq("job_title", vars.job_title);
       if (error) throw error;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["job_title_catalog", organizationId] });
-      qc.invalidateQueries({ queryKey: ["job_title_role_mappings", organizationId] });
-      qc.invalidateQueries({ queryKey: ["job_title_permissions", organizationId] });
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
   });
 
-  return { ...query, create, rename, remove };
+  return { ...query, create, rename, remove, update };
 }
 

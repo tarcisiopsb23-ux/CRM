@@ -151,6 +151,16 @@ export function EditCollaboratorPage() {
     if (!employeesPermission.canEdit || !id) return;
     setSubmitting(true);
     try {
+      // Look up role from job title catalog
+      const { data: catalogItem } = await supabase
+        .from("job_title_catalog")
+        .select("role")
+        .eq("organization_id", organizationId)
+        .eq("job_title", extraForm.job_title)
+        .single();
+
+      const newRole = (catalogItem?.role as UserRole) || profile.role || "member";
+
       const metadata = {
         ...(profile?.metadata as any || {}),
         ...extraForm,
@@ -161,6 +171,7 @@ export function EditCollaboratorPage() {
       await update.mutateAsync({
         id,
         ...form,
+        role: newRole,
         metadata,
       });
       toast.success("Colaborador atualizado");
@@ -311,15 +322,6 @@ export function EditCollaboratorPage() {
                 <datalist id="job_titles">
                   {jobTitleOptions.map(opt => <option key={opt} value={opt} />)}
                 </datalist>
-              </div>
-              <div className="space-y-2">
-                <Label>Permissão de Acesso</Label>
-                <Select value={form.role} onValueChange={v => setForm(f => ({ ...f, role: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(ROLE_LABELS).map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
-                  </SelectContent>
-                </Select>
               </div>
               <div className="space-y-2">
                 <Label>Salário Base (R$)</Label>

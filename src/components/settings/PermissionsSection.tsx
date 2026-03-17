@@ -2,20 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import { SettingsSection } from "./SettingsSection";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useProfiles } from "@/hooks/useProfiles";
-import { useJobTitlePermissionScopes, useJobTitlePermissions, useJobTitleRoleMappings, useUserPermissionScopes, useUserPermissions, MODULES, type PermissionModule, type UserRole } from "@/hooks/usePermissions";
+import { useJobTitlePermissionScopes, useJobTitlePermissions, useJobTitleRoleMappings, useUserPermissionScopes, useUserPermissions, MODULES, type PermissionModule } from "@/hooks/usePermissions";
 import { useAuth } from "@/contexts/AuthContext";
 import { getJobTitleFromProfileMetadata } from "@/lib/jobTitles";
 import { useJobTitleCatalog } from "@/hooks/useJobTitleCatalog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Loader2, Shield } from "lucide-react";
+import { Plus, Search, Loader2, Pencil, Trash2, Check, X, Shield } from "lucide-react";
+import { UserRole } from "@/types/auth";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -316,10 +311,11 @@ export function PermissionsSection() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b bg-muted/50">
-                        <th className="text-left py-3 px-4 font-medium">Cargo (Add colaborador)</th>
-                        <th className="text-left py-3 px-4 font-medium">Colaboradores</th>
-                        <th className="text-right py-3 px-4 font-medium">Ações</th>
-                      </tr>
+                          <th className="text-left py-3 px-4 font-medium">Cargo (Add colaborador)</th>
+                          <th className="text-left py-3 px-4 font-medium">Permissão</th>
+                          <th className="text-left py-3 px-4 font-medium">Colaboradores</th>
+                          <th className="text-right py-3 px-4 font-medium">Ações</th>
+                        </tr>
                     </thead>
                     <tbody>
                       {(catalog.data ?? []).map((r) => (
@@ -330,6 +326,24 @@ export function PermissionsSection() {
                             ) : (
                               <span className="font-medium">{r.job_title}</span>
                             )}
+                          </td>
+                          <td className="py-2 px-4">
+                            <Select
+                              value={r.role ?? "member"}
+                              onValueChange={(v) => catalog.update.mutate({ id: r.id, role: v as UserRole })}
+                              disabled={!isAdmin || catalog.update.isPending}
+                            >
+                              <SelectTrigger className="max-w-[180px]">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="owner">Proprietário</SelectItem>
+                                <SelectItem value="admin">Admin</SelectItem>
+                                <SelectItem value="manager">Gestor</SelectItem>
+                                <SelectItem value="member">Membro</SelectItem>
+                                <SelectItem value="viewer">Visualizador</SelectItem>
+                              </SelectContent>
+                            </Select>
                           </td>
                           <td className="py-2 px-4 text-muted-foreground">{cargoCounts.get(r.job_title) ?? 0}</td>
                           <td className="py-2 px-4">
@@ -389,44 +403,21 @@ export function PermissionsSection() {
                       <tr className="border-b bg-muted/50">
                         <th className="text-left py-3 px-4 font-medium">Cargo</th>
                         <th className="text-left py-3 px-4 font-medium">Colaboradores</th>
-                        <th className="text-left py-3 px-4 font-medium">user_role</th>
                       </tr>
                     </thead>
                     <tbody>
                       {cargoOptions.map((title) => {
-                        const current = mappingByTitle.get(title) ?? null;
                         return (
                           <tr key={title} className="border-b last:border-0 hover:bg-muted/30">
                             <td className="py-2 px-4 font-medium">{title}</td>
                             <td className="py-2 px-4 text-muted-foreground">{cargoCounts.get(title) ?? 0}</td>
-                            <td className="py-2 px-4">
-                              <Select
-                                value={current ?? "__none__"}
-                                onValueChange={(v) =>
-                                  mappings.upsert.mutate({ job_title: title, mapped_role: (v === "__none__" ? null : (v as UserRole)) })
-                                }
-                                disabled={!isAdmin || mappings.upsert.isPending}
-                              >
-                                <SelectTrigger className="max-w-[220px]">
-                                  <SelectValue placeholder="Não definido" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="__none__">Não definido</SelectItem>
-                                  <SelectItem value="owner">owner</SelectItem>
-                                  <SelectItem value="admin">admin</SelectItem>
-                                  <SelectItem value="manager">manager</SelectItem>
-                                  <SelectItem value="member">member</SelectItem>
-                                  <SelectItem value="viewer">viewer</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </td>
                           </tr>
                         );
                       })}
                       {cargoOptions.length === 0 && (
                         <tr>
-                          <td colSpan={3} className="py-8 text-center text-muted-foreground">
-                            Cadastre cargos na aba Cargos para vincular ao user_role.
+                          <td colSpan={2} className="py-8 text-center text-muted-foreground">
+                            Cadastre cargos na aba Cargos.
                           </td>
                         </tr>
                       )}
