@@ -14,6 +14,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -1038,6 +1039,14 @@ export default function ClientsPage() {
 
       {viewing ? (
         <div className="space-y-6">
+        <Tabs defaultValue="dados" className="w-full">
+          <TabsList className="mb-4">
+            <TabsTrigger value="dados">Dados cadastrais</TabsTrigger>
+            <TabsTrigger value="contratos">Contratos</TabsTrigger>
+            <TabsTrigger value="documentos">Documentos</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="dados" className="space-y-6">
         <Card>
           <CardHeader className="flex flex-row items-start justify-between gap-3">
             <div className="min-w-0">
@@ -1154,7 +1163,9 @@ export default function ClientsPage() {
             </div>
           </CardContent>
         </Card>
+          </TabsContent>
 
+          <TabsContent value="contratos" className="space-y-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-3">
             <CardTitle className="text-base">Contratos</CardTitle>
@@ -1341,7 +1352,9 @@ export default function ClientsPage() {
             )}
           </CardContent>
         </Card>
+          </TabsContent>
 
+          <TabsContent value="documentos" className="space-y-6">
         <DocumentsCard
           title="Documentos"
           variant="folders"
@@ -1364,6 +1377,8 @@ export default function ClientsPage() {
               : undefined
           }
         />
+          </TabsContent>
+        </Tabs>
         </div>
       ) : null}
 

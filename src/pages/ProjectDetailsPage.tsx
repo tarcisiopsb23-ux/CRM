@@ -279,7 +279,15 @@ export function ProjectDetailsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <Tabs defaultValue="dados" className="w-full space-y-4">
+        <TabsList>
+          <TabsTrigger value="dados">Dados cadastrais</TabsTrigger>
+          <TabsTrigger value="tarefas">Tarefas</TabsTrigger>
+          <TabsTrigger value="documentos">Documentos</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="dados" className="space-y-6">
+      <div className="grid grid-cols-1 gap-6">
         <Card className="h-full md:col-span-2 lg:col-span-2">
           <CardHeader>
             <CardTitle>Detalhes e status</CardTitle>
@@ -477,22 +485,11 @@ export function ProjectDetailsPage() {
             )}
           </CardContent>
         </Card>
-
-        <DocumentsCard
-          title="Documentos"
-          folderValue={(() => {
-            const meta = ((project as any).metadata ?? {}) as Record<string, unknown>;
-            const raw = (meta.drive_folder ?? meta.drive_folder_url ?? meta.folder ?? meta.pasta ?? "") as string;
-            const v = String(raw ?? "").trim();
-            return v || driveFolders.projects || null;
-          })()}
-          canEdit={projectsPermission.canEdit}
-          actionsDisplay="icons"
-          limit={5}
-        />
       </div>
-      
-      {/* Lista de Tarefas - Ocupa largura total abaixo */}
+
+        </TabsContent>
+
+        <TabsContent value="tarefas" className="space-y-6">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="flex items-center gap-2 text-base">
@@ -694,6 +691,24 @@ export function ProjectDetailsPage() {
             </Tabs>
         </CardContent>
       </Card>
+
+        </TabsContent>
+
+        <TabsContent value="documentos" className="space-y-6">
+          <DocumentsCard
+            title="Documentos"
+            folderValue={(() => {
+              const meta = ((project as any).metadata ?? {}) as Record<string, unknown>;
+              const raw = (meta.drive_folder ?? meta.drive_folder_url ?? meta.folder ?? meta.pasta ?? "") as string;
+              const v = String(raw ?? "").trim();
+              return v || driveFolders.projects || null;
+            })()}
+            canEdit={projectsPermission.canEdit}
+            actionsDisplay="icons"
+            limit={5}
+          />
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={isTaskModalOpen} onOpenChange={setIsTaskModalOpen}>
         <DialogContent className="max-w-[60vw] w-full max-h-[90vh] overflow-y-auto">

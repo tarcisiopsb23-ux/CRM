@@ -1,8 +1,11 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useSuppliers } from "@/hooks/useSuppliers";
+import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -13,10 +16,15 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Loader2, Pencil, Trash2, Search } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Plus, Loader2, Pencil, Trash2, Search, Eye } from "lucide-react";
 import { fetchAddressByCep } from "@/lib/viacep";
 import { toast } from "sonner";
-import type { Supplier } from "@/types/crm";
+import { DocumentsCard } from "@/components/documents/DocumentsCard";
+import type { Supplier, SupplierExpense } from "@/types/crm";
+import { formatBRL, formatCpfCnpj, formatPhoneBR } from "@/lib/formatters";
+import { format, parseISO } from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 const SUPPLIER_CATEGORIES = [
   "Serviços Terceirizados",
@@ -41,6 +49,8 @@ export default function SuppliersPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [searchingCep, setSearchingCep] = useState(false);
   const [editing, setEditing] = useState<Supplier | null>(null);
+  const [viewing, setViewing] = useState<Supplier | null>(null);
+  const [search, setSearch] = useState("");
   const [form, setForm] = useState<Partial<Supplier>>({
     name: "",
     document: "",
@@ -55,6 +65,38 @@ export default function SuppliersPage() {
   });
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return suppliers;
+    return suppliers.filter((s) => {
+      const hay = [
+        s.name,
+        s.document ?? "",
+        s.email ?? "",
+        s.phone ?? "",
+        s.service_category ?? "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [suppliers, search]);
+
+  const supplierExpenses = useQuery({
+    queryKey: ["supplier-expenses", organizationId, viewing?.id],
+    enabled: !!organizationId && !!viewing?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("supplier_expenses")
+        .select("id, supplier_id, description, value, due_date, status")
+        .eq("organization_id", organizationId)
+        .eq("supplier_id", viewing!.id)
+        .order("due_date", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as Array<Pick<SupplierExpense, "id" | "supplier_id" | "description" | "value" | "due_date" | "status">>;
+    },
+  });
 
   const openNew = () => {
     setEditing(null);
@@ -154,53 +196,232 @@ export default function SuppliersPage() {
         </Button>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Lista de fornecedores</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Carregando...
+      {viewing ? (
+        <Card>
+          <CardHeader className="flex flex-row items-start justify-between gap-3">
+            <div className="min-w-0">
+              <CardTitle className="text-base">Fornecedor</CardTitle>
+              <div className="mt-1 text-sm font-medium truncate">{viewing.name}</div>
+              <div className="text-sm text-muted-foreground truncate">
+                {(viewing.service_category || "—")}{viewing.email ? ` • ${viewing.email}` : ""}{viewing.phone ? ` • ${formatPhoneBR(viewing.phone)}` : ""}
+              </div>
             </div>
-          ) : suppliers.length === 0 ? (
-            <p className="text-muted-foreground">Nenhum fornecedor cadastrado.</p>
-          ) : (
-            <div className="space-y-2">
-              {suppliers.map((s) => (
-                <div
-                  key={s.id}
-                  className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/50 cursor-pointer"
-                  onClick={() => openEdit(s)}
-                >
-                  <div>
-                    <p className="font-medium">{s.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {s.service_category && `${s.service_category} • `}
-                      {s.email || s.phone}
-                    </p>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={() => openEdit(viewing)}>
+                <Pencil className="h-4 w-4 mr-1" /> Alterar
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => {
+                  if (!window.confirm("Excluir este fornecedor?")) return;
+                  remove.mutate(viewing.id);
+                  setViewing(null);
+                }}
+              >
+                <Trash2 className="h-4 w-4 mr-1" /> Excluir
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setViewing(null)}>
+                Fechar
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Tabs defaultValue="dados" className="w-full">
+              <TabsList className="mb-4">
+                <TabsTrigger value="dados">Dados cadastrais</TabsTrigger>
+                <TabsTrigger value="despesas">Despesas</TabsTrigger>
+                <TabsTrigger value="documentos">Documentos</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="dados" className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                  <div className="flex items-center justify-between rounded border p-3">
+                    <span className="text-muted-foreground">Nome</span>
+                    <span className="font-medium truncate max-w-[220px]">{viewing.name}</span>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-destructive"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (window.confirm("Excluir este fornecedor?")) {
-                        remove.mutate(s.id);
-                      }
-                    }}
-                    aria-label="Excluir"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <div className="flex items-center justify-between rounded border p-3">
+                    <span className="text-muted-foreground">Categoria</span>
+                    <span className="font-medium truncate max-w-[220px]">{viewing.service_category || "—"}</span>
+                  </div>
+                  <div className="flex items-center justify-between rounded border p-3">
+                    <span className="text-muted-foreground">CPF/CNPJ</span>
+                    <span className="font-medium">{viewing.document ? formatCpfCnpj(viewing.document) : "—"}</span>
+                  </div>
+                  <div className="flex items-center justify-between rounded border p-3">
+                    <span className="text-muted-foreground">Telefone</span>
+                    <span className="font-medium">{viewing.phone ? formatPhoneBR(viewing.phone) : "—"}</span>
+                  </div>
+                  <div className="flex items-center justify-between rounded border p-3">
+                    <span className="text-muted-foreground">E-mail</span>
+                    <span className="font-medium truncate max-w-[220px]">{viewing.email || "—"}</span>
+                  </div>
+                  <div className="flex items-center justify-between rounded border p-3">
+                    <span className="text-muted-foreground">Pix</span>
+                    <span className="font-medium truncate max-w-[220px]">{viewing.pix || "—"}</span>
+                  </div>
+                  <div className="flex items-center justify-between rounded border p-3 sm:col-span-2">
+                    <span className="text-muted-foreground">Endereço</span>
+                    <span className="font-medium truncate max-w-[420px]">{viewing.address_street || "—"}</span>
+                  </div>
+                  <div className="flex items-center justify-between rounded border p-3">
+                    <span className="text-muted-foreground">Cidade</span>
+                    <span className="font-medium">{viewing.address_city || "—"}</span>
+                  </div>
+                  <div className="flex items-center justify-between rounded border p-3">
+                    <span className="text-muted-foreground">UF</span>
+                    <span className="font-medium">{viewing.address_state || "—"}</span>
+                  </div>
+                  <div className="flex items-center justify-between rounded border p-3">
+                    <span className="text-muted-foreground">CEP</span>
+                    <span className="font-medium">{viewing.address_zip || "—"}</span>
+                  </div>
                 </div>
-              ))}
+              </TabsContent>
+
+              <TabsContent value="despesas" className="space-y-4">
+                <div className="rounded border overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Vencimento</TableHead>
+                        <TableHead>Descrição</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Valor</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {supplierExpenses.isLoading ? (
+                        <TableRow>
+                          <TableCell colSpan={4} className="py-6 text-center text-muted-foreground">
+                            Carregando...
+                          </TableCell>
+                        </TableRow>
+                      ) : (supplierExpenses.data ?? []).length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={4} className="py-6 text-center text-muted-foreground">
+                            Nenhuma despesa para este fornecedor.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        (supplierExpenses.data ?? []).map((e) => (
+                          <TableRow key={e.id}>
+                            <TableCell>{e.due_date ? format(parseISO(e.due_date), "dd/MM/yyyy", { locale: ptBR }) : "—"}</TableCell>
+                            <TableCell className="font-medium">{e.description}</TableCell>
+                            <TableCell className="capitalize">{e.status}</TableCell>
+                            <TableCell className="text-right font-semibold text-red-500">{formatBRL(Number(e.value ?? 0))}</TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="documentos" className="space-y-4">
+                <DocumentsCard
+                  title="Documentos"
+                  variant="folders"
+                  folderValue={(() => {
+                    const meta = (viewing.metadata ?? {}) as Record<string, unknown>;
+                    const raw = (meta.drive_folder ?? meta.drive_folder_url ?? meta.folder ?? meta.pasta ?? "") as string;
+                    const v = String(raw ?? "").trim();
+                    return v || null;
+                  })()}
+                  canEdit
+                  allowCreateFolder={false}
+                  onSetFolderValue={async (next) => {
+                    const current = (viewing.metadata ?? {}) as Record<string, unknown>;
+                    await update.mutateAsync({ id: viewing.id, metadata: { ...current, drive_folder: next || null } });
+                    setViewing({ ...viewing, metadata: { ...current, drive_folder: next || null } });
+                  }}
+                />
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader className="space-y-3">
+            <CardTitle className="text-base">Lista de fornecedores</CardTitle>
+            <div className="relative">
+              <Search className="h-4 w-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Buscar fornecedor..."
+                className="pl-9"
+              />
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Carregando...
+              </div>
+            ) : filtered.length === 0 ? (
+              <p className="text-muted-foreground">Nenhum fornecedor cadastrado.</p>
+            ) : (
+              <div className="space-y-2">
+                {filtered.map((s) => (
+                  <div
+                    key={s.id}
+                    className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/50 cursor-pointer"
+                    onClick={() => setViewing(s)}
+                  >
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{s.name}</p>
+                      <p className="text-sm text-muted-foreground truncate">
+                        {s.service_category && `${s.service_category} • `}
+                        {s.email || s.phone || "—"}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setViewing(s);
+                        }}
+                        aria-label="Visualizar"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEdit(s);
+                        }}
+                        aria-label="Alterar"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (window.confirm("Excluir este fornecedor?")) {
+                            remove.mutate(s.id);
+                          }
+                        }}
+                        aria-label="Excluir"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent className="max-w-lg">

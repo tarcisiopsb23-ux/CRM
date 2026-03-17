@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -533,159 +534,192 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
                 </div>
               </div>
 
-              {(() => {
-                const meta = (viewing.metadata ?? {}) as Record<string, unknown>;
-                const cpf = (meta.cpf as string | undefined) ?? "";
-                const rg = (meta.rg as string | undefined) ?? "";
-                const pixKey = (meta.pix_key as string | undefined) ?? "";
-                const jobTitle = String((meta.job_title ?? meta.cargo ?? "") as string).trim();
-                const baseSalary = Number((meta.base_salary as number | string | undefined) ?? 0);
-                const displayName = (meta.display_name as string | undefined) ?? "";
-                const addressStreet = (meta.address_street as string | undefined) ?? "";
-                const addressCity = (meta.address_city as string | undefined) ?? "";
-                const addressState = (meta.address_state as string | undefined) ?? "";
-                const addressZip = (meta.address_zip as string | undefined) ?? "";
-                const educationLevel = (meta.education_level as string | undefined) ?? "";
-                const graduation = (meta.graduation as string | undefined) ?? "";
-                const commissionPercent = Number((meta.commission_percent as number | string | undefined) ?? 0);
-                const overtimeFactor = Number((meta.overtime_factor as number | string | undefined) ?? 0);
-                const notes = (meta.notes as string | undefined) ?? "";
-                return (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                    <div className="flex items-center justify-between rounded border p-3">
-                      <span className="text-muted-foreground">Cargo</span>
-                      <span className="font-medium truncate max-w-[220px]">{jobTitle || "—"}</span>
-                    </div>
-                    <div className="flex items-center justify-between rounded border p-3">
-                      <span className="text-muted-foreground">Ativo</span>
-                      <span className="font-medium">{viewing.is_active ? "Sim" : "Não"}</span>
-                    </div>
-                    <div className="flex items-center justify-between rounded border p-3">
-                      <span className="text-muted-foreground">Nome de apresentação</span>
-                      <span className="font-medium">{displayName || "—"}</span>
-                    </div>
-                    <div className="flex items-center justify-between rounded border p-3">
-                      <span className="text-muted-foreground">CPF</span>
-                      <span className="font-medium">{cpf ? formatCpfCnpj(cpf) : "—"}</span>
-                    </div>
-                    <div className="flex items-center justify-between rounded border p-3">
-                      <span className="text-muted-foreground">RG</span>
-                      <span className="font-medium">{rg || "—"}</span>
-                    </div>
-                    <div className="flex items-center justify-between rounded border p-3">
-                      <span className="text-muted-foreground">Chave PIX</span>
-                      <span className="font-medium">{pixKey || "—"}</span>
-                    </div>
-                    <div className="flex items-center justify-between rounded border p-3">
-                      <span className="text-muted-foreground">Endereço</span>
-                      <span className="font-medium truncate max-w-[220px]">{addressStreet || "—"}</span>
-                    </div>
-                    <div className="flex items-center justify-between rounded border p-3">
-                      <span className="text-muted-foreground">Cidade</span>
-                      <span className="font-medium">{addressCity || "—"}</span>
-                    </div>
-                    <div className="flex items-center justify-between rounded border p-3">
-                      <span className="text-muted-foreground">UF</span>
-                      <span className="font-medium">{addressState || "—"}</span>
-                    </div>
-                    <div className="flex items-center justify-between rounded border p-3">
-                      <span className="text-muted-foreground">CEP</span>
-                      <span className="font-medium">{addressZip || "—"}</span>
-                    </div>
-                    <div className="flex items-center justify-between rounded border p-3">
-                      <span className="text-muted-foreground">Escolaridade</span>
-                      <span className="font-medium">{educationLevel || "—"}</span>
-                    </div>
-                    <div className="flex items-center justify-between rounded border p-3">
-                      <span className="text-muted-foreground">Graduação/Curso</span>
-                      <span className="font-medium">{graduation || "—"}</span>
-                    </div>
-                    <div className="flex items-center justify-between rounded border p-3">
-                      <span className="text-muted-foreground">Cargo</span>
-                      <span className="font-medium">{jobTitle || "—"}</span>
-                    </div>
-                    <div className="flex items-center justify-between rounded border p-3">
-                      <span className="text-muted-foreground">Salário base (cadastro)</span>
-                      <span className="font-medium">{formatBRL(baseSalary)}</span>
-                    </div>
-                    <div className="flex items-center justify-between rounded border p-3">
-                      <span className="text-muted-foreground">Comissão (cadastro)</span>
-                      <span className="font-medium">{commissionPercent ? `${commissionPercent}%` : "—"}</span>
-                    </div>
-                    <div className="flex items-center justify-between rounded border p-3">
-                      <span className="text-muted-foreground">Fator hora extra</span>
-                      <span className="font-medium">{overtimeFactor ? String(overtimeFactor) : "—"}</span>
-                    </div>
-                    <div className="flex items-center justify-between rounded border p-3 sm:col-span-2">
-                      <span className="text-muted-foreground">Observações</span>
-                      <span className="font-medium truncate max-w-[420px]">{notes || "—"}</span>
-                    </div>
-                  </div>
-                );
-              })()}
-            </CardContent>
-          </Card>
+              <Tabs defaultValue="dados" className="w-full">
+                <TabsList className="mb-4">
+                  <TabsTrigger value="dados">Dados cadastrais</TabsTrigger>
+                  <TabsTrigger value="pagamentos">Pagamentos</TabsTrigger>
+                  <TabsTrigger value="documentos">Documentos</TabsTrigger>
+                </TabsList>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-3">
-              <CardTitle className="text-base">Pagamentos</CardTitle>
-              {payrollHasMore ? (
-                <Button size="sm" variant="outline" onClick={() => setAllPaymentsOpen(true)}>
-                  Ver todos
-                </Button>
-              ) : null}
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="rounded border overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Referência</TableHead>
-                      <TableHead>Pagamento</TableHead>
-                      <TableHead className="text-right">Salário</TableHead>
-                      <TableHead className="text-right">Comissão</TableHead>
-                      <TableHead className="text-right">Bônus</TableHead>
-                      <TableHead className="text-right">H. Extra</TableHead>
-                      <TableHead className="text-right">Desc.</TableHead>
-                      <TableHead className="text-right">Total</TableHead>
-                      <TableHead>Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {payrollEntries.isLoading ? (
-                      <TableRow>
-                        <TableCell colSpan={9} className="py-6 text-center text-muted-foreground">
-                          Carregando...
-                        </TableCell>
-                      </TableRow>
-                    ) : payrollSorted.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={9} className="py-6 text-center text-muted-foreground">
-                          Nenhum pagamento lançado para este colaborador.
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      payrollLatest12.map((r) => (
-                        <TableRow key={r.id}>
-                          <TableCell>{format(new Date(r.reference_date), "MMM/yy", { locale: ptBR })}</TableCell>
-                          <TableCell>{r.payment_date ? format(new Date(r.payment_date), "dd/MM/yy", { locale: ptBR }) : "—"}</TableCell>
-                          <TableCell className="text-right">{formatBRL(r.base_salary)}</TableCell>
-                          <TableCell className="text-right">{formatBRL(r.commission)}</TableCell>
-                          <TableCell className="text-right">{formatBRL(r.bonus)}</TableCell>
-                          <TableCell className="text-right">{formatBRL(r.overtime)}</TableCell>
-                          <TableCell className="text-right">-{formatBRL(r.discounts)}</TableCell>
-                          <TableCell className="text-right font-medium">{formatBRL(r.total_value)}</TableCell>
-                          <TableCell>
-                            <Badge variant={r.status === "paid" ? "default" : "outline"} className={r.status === "paid" ? "bg-emerald-600" : ""}>
-                              {r.status === "paid" ? "Pago" : "Pendente"}
-                            </Badge>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
+                <TabsContent value="dados">
+                  {(() => {
+                    const meta = (viewing.metadata ?? {}) as Record<string, unknown>;
+                    const cpf = (meta.cpf as string | undefined) ?? "";
+                    const rg = (meta.rg as string | undefined) ?? "";
+                    const pixKey = (meta.pix_key as string | undefined) ?? "";
+                    const jobTitle = String((meta.job_title ?? meta.cargo ?? "") as string).trim();
+                    const baseSalary = Number((meta.base_salary as number | string | undefined) ?? 0);
+                    const displayName = (meta.display_name as string | undefined) ?? "";
+                    const addressStreet = (meta.address_street as string | undefined) ?? "";
+                    const addressCity = (meta.address_city as string | undefined) ?? "";
+                    const addressState = (meta.address_state as string | undefined) ?? "";
+                    const addressZip = (meta.address_zip as string | undefined) ?? "";
+                    const educationLevel = (meta.education_level as string | undefined) ?? "";
+                    const graduation = (meta.graduation as string | undefined) ?? "";
+                    const commissionPercent = Number((meta.commission_percent as number | string | undefined) ?? 0);
+                    const overtimeFactor = Number((meta.overtime_factor as number | string | undefined) ?? 0);
+                    const notes = (meta.notes as string | undefined) ?? "";
+                    return (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                        <div className="flex items-center justify-between rounded border p-3">
+                          <span className="text-muted-foreground">Cargo</span>
+                          <span className="font-medium truncate max-w-[220px]">{jobTitle || "—"}</span>
+                        </div>
+                        <div className="flex items-center justify-between rounded border p-3">
+                          <span className="text-muted-foreground">Ativo</span>
+                          <span className="font-medium">{viewing.is_active ? "Sim" : "Não"}</span>
+                        </div>
+                        <div className="flex items-center justify-between rounded border p-3">
+                          <span className="text-muted-foreground">Nome de apresentação</span>
+                          <span className="font-medium">{displayName || "—"}</span>
+                        </div>
+                        <div className="flex items-center justify-between rounded border p-3">
+                          <span className="text-muted-foreground">CPF</span>
+                          <span className="font-medium">{cpf ? formatCpfCnpj(cpf) : "—"}</span>
+                        </div>
+                        <div className="flex items-center justify-between rounded border p-3">
+                          <span className="text-muted-foreground">RG</span>
+                          <span className="font-medium">{rg || "—"}</span>
+                        </div>
+                        <div className="flex items-center justify-between rounded border p-3">
+                          <span className="text-muted-foreground">Chave PIX</span>
+                          <span className="font-medium">{pixKey || "—"}</span>
+                        </div>
+                        <div className="flex items-center justify-between rounded border p-3">
+                          <span className="text-muted-foreground">Endereço</span>
+                          <span className="font-medium truncate max-w-[220px]">{addressStreet || "—"}</span>
+                        </div>
+                        <div className="flex items-center justify-between rounded border p-3">
+                          <span className="text-muted-foreground">Cidade</span>
+                          <span className="font-medium">{addressCity || "—"}</span>
+                        </div>
+                        <div className="flex items-center justify-between rounded border p-3">
+                          <span className="text-muted-foreground">UF</span>
+                          <span className="font-medium">{addressState || "—"}</span>
+                        </div>
+                        <div className="flex items-center justify-between rounded border p-3">
+                          <span className="text-muted-foreground">CEP</span>
+                          <span className="font-medium">{addressZip || "—"}</span>
+                        </div>
+                        <div className="flex items-center justify-between rounded border p-3">
+                          <span className="text-muted-foreground">Escolaridade</span>
+                          <span className="font-medium">{educationLevel || "—"}</span>
+                        </div>
+                        <div className="flex items-center justify-between rounded border p-3">
+                          <span className="text-muted-foreground">Graduação/Curso</span>
+                          <span className="font-medium">{graduation || "—"}</span>
+                        </div>
+                        <div className="flex items-center justify-between rounded border p-3">
+                          <span className="text-muted-foreground">Salário base (cadastro)</span>
+                          <span className="font-medium">{formatBRL(baseSalary)}</span>
+                        </div>
+                        <div className="flex items-center justify-between rounded border p-3">
+                          <span className="text-muted-foreground">Comissão (cadastro)</span>
+                          <span className="font-medium">{commissionPercent ? `${commissionPercent}%` : "—"}</span>
+                        </div>
+                        <div className="flex items-center justify-between rounded border p-3">
+                          <span className="text-muted-foreground">Fator hora extra</span>
+                          <span className="font-medium">{overtimeFactor ? String(overtimeFactor) : "—"}</span>
+                        </div>
+                        <div className="flex items-center justify-between rounded border p-3 sm:col-span-2">
+                          <span className="text-muted-foreground">Observações</span>
+                          <span className="font-medium truncate max-w-[420px]">{notes || "—"}</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </TabsContent>
+
+                <TabsContent value="pagamentos">
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between gap-3">
+                      <CardTitle className="text-base">Pagamentos</CardTitle>
+                      {payrollHasMore ? (
+                        <Button size="sm" variant="outline" onClick={() => setAllPaymentsOpen(true)}>
+                          Ver todos
+                        </Button>
+                      ) : null}
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="rounded border overflow-hidden">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Referência</TableHead>
+                              <TableHead>Pagamento</TableHead>
+                              <TableHead className="text-right">Salário</TableHead>
+                              <TableHead className="text-right">Comissão</TableHead>
+                              <TableHead className="text-right">Bônus</TableHead>
+                              <TableHead className="text-right">H. Extra</TableHead>
+                              <TableHead className="text-right">Desc.</TableHead>
+                              <TableHead className="text-right">Total</TableHead>
+                              <TableHead>Status</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {payrollEntries.isLoading ? (
+                              <TableRow>
+                                <TableCell colSpan={9} className="py-6 text-center text-muted-foreground">
+                                  Carregando...
+                                </TableCell>
+                              </TableRow>
+                            ) : payrollSorted.length === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={9} className="py-6 text-center text-muted-foreground">
+                                  Nenhum pagamento lançado para este colaborador.
+                                </TableCell>
+                              </TableRow>
+                            ) : (
+                              payrollLatest12.map((r) => (
+                                <TableRow key={r.id}>
+                                  <TableCell>{format(new Date(r.reference_date), "MMM/yy", { locale: ptBR })}</TableCell>
+                                  <TableCell>{r.payment_date ? format(new Date(r.payment_date), "dd/MM/yy", { locale: ptBR }) : "—"}</TableCell>
+                                  <TableCell className="text-right">{formatBRL(r.base_salary)}</TableCell>
+                                  <TableCell className="text-right">{formatBRL(r.commission)}</TableCell>
+                                  <TableCell className="text-right">{formatBRL(r.bonus)}</TableCell>
+                                  <TableCell className="text-right">{formatBRL(r.overtime)}</TableCell>
+                                  <TableCell className="text-right">-{formatBRL(r.discounts)}</TableCell>
+                                  <TableCell className="text-right font-medium">{formatBRL(r.total_value)}</TableCell>
+                                  <TableCell>
+                                    <Badge variant={r.status === "paid" ? "default" : "outline"} className={r.status === "paid" ? "bg-emerald-600" : ""}>
+                                      {r.status === "paid" ? "Pago" : "Pendente"}
+                                    </Badge>
+                                  </TableCell>
+                                </TableRow>
+                              ))
+                            )}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                <TabsContent value="documentos">
+                  <DocumentsCard
+                    title="Documentos"
+                    variant="folders"
+                    folderValue={(() => {
+                      const meta = (viewing.metadata ?? {}) as Record<string, unknown>;
+                      const raw = (meta.drive_folder ?? meta.drive_folder_url ?? meta.folder ?? meta.pasta ?? "") as string;
+                      const v = String(raw ?? "").trim();
+                      return v || null;
+                    })()}
+                    canEdit={employeesPermission.canEdit}
+                    allowCreateFolder
+                    createFolderParentValue={driveFolders.team}
+                    createFolderName={(viewing.full_name || "Colaborador").trim()}
+                    onSetFolderValue={
+                      employeesPermission.canEdit
+                        ? async (next) => {
+                            const current = (viewing.metadata ?? {}) as Record<string, unknown>;
+                            await update.mutateAsync({ id: viewing.id, metadata: { ...current, drive_folder: next || null } });
+                          }
+                        : undefined
+                    }
+                  />
+                </TabsContent>
+              </Tabs>
             </CardContent>
           </Card>
 
