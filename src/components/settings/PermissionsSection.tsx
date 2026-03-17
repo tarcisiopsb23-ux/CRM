@@ -330,7 +330,7 @@ export function PermissionsSection() {
                           <td className="py-2 px-4">
                             <Select
                               value={r.role ?? "member"}
-                              onValueChange={(v) => catalog.update.mutate({ id: r.id, role: v as UserRole })}
+                              onValueChange={(v) => catalog.update.mutate({ id: r.id, job_title: r.job_title, role: v as UserRole })}
                               disabled={!isAdmin || catalog.update.isPending}
                             >
                               <SelectTrigger className="max-w-[180px]">

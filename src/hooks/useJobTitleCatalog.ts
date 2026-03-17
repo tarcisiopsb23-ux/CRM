@@ -45,13 +45,32 @@ export function useJobTitleCatalog(organizationId: string | null) {
   });
 
   const update = useMutation({
-    mutationFn: async (vars: { id: string; role: UserRole }) => {
+    mutationFn: async (vars: { id: string; job_title: string; role: UserRole }) => {
       if (!organizationId) throw new Error("Organização não encontrada");
       const { error } = await supabase
         .from("job_title_catalog")
         .update({ role: vars.role })
         .eq("id", vars.id);
       if (error) throw error;
+
+      const title = String(vars.job_title ?? "").trim();
+      if (!title) return;
+
+      const supabaseUntyped = supabase as unknown as SupabaseClient;
+
+      const { error: profilesError1 } = await supabaseUntyped
+        .from("profiles")
+        .update({ role: vars.role })
+        .eq("organization_id", organizationId)
+        .eq("metadata->>job_title", title);
+      if (profilesError1) throw profilesError1;
+
+      const { error: profilesError2 } = await supabaseUntyped
+        .from("profiles")
+        .update({ role: vars.role })
+        .eq("organization_id", organizationId)
+        .eq("metadata->>cargo", title);
+      if (profilesError2) throw profilesError2;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey }),
   });
@@ -86,4 +105,3 @@ export function useJobTitleCatalog(organizationId: string | null) {
 
   return { ...query, create, rename, remove, update };
 }
-

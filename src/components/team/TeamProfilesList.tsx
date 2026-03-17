@@ -35,14 +35,6 @@ import { DocumentsCard } from "@/components/documents/DocumentsCard";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 
-const ROLE_LABELS: Record<string, string> = {
-  owner: "Proprietário",
-  admin: "Admin",
-  manager: "Gestor",
-  member: "Membro",
-  viewer: "Visualizador",
-};
-
 interface Props {
   profiles: ProfileRow[];
   teams: TeamRow[];
@@ -351,7 +343,11 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
                     ) : null}
                   </div>
                   <Badge variant={p.is_active ? "default" : "secondary"}>
-                    {ROLE_LABELS[p.role] ?? p.role}
+                    {(() => {
+                      const meta = (p.metadata ?? {}) as Record<string, unknown>;
+                      const cargo = String((meta.job_title ?? meta.cargo ?? "") as string).trim();
+                      return cargo || "Sem cargo";
+                    })()}
                   </Badge>
                 </CardContent>
               </button>
@@ -414,7 +410,13 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
                   <div className="text-sm text-muted-foreground">{viewing.phone ? formatPhoneBR(viewing.phone) : "—"}</div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge variant={viewing.is_active ? "default" : "secondary"}>{ROLE_LABELS[viewing.role] ?? viewing.role}</Badge>
+                  <Badge variant={viewing.is_active ? "default" : "secondary"}>
+                    {(() => {
+                      const meta = (viewing.metadata ?? {}) as Record<string, unknown>;
+                      const cargo = String((meta.job_title ?? meta.cargo ?? "") as string).trim();
+                      return cargo || "Sem cargo";
+                    })()}
+                  </Badge>
                   {getTeamName(viewing.id) ? <Badge variant="outline">{getTeamName(viewing.id)}</Badge> : null}
                 </div>
               </div>
@@ -424,7 +426,7 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
                 const cpf = (meta.cpf as string | undefined) ?? "";
                 const rg = (meta.rg as string | undefined) ?? "";
                 const pixKey = (meta.pix_key as string | undefined) ?? "";
-                const jobTitle = (meta.job_title as string | undefined) ?? "";
+                const jobTitle = String((meta.job_title ?? meta.cargo ?? "") as string).trim();
                 const baseSalary = Number((meta.base_salary as number | string | undefined) ?? 0);
                 const displayName = (meta.display_name as string | undefined) ?? "";
                 const addressStreet = (meta.address_street as string | undefined) ?? "";
@@ -439,8 +441,8 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
                 return (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                     <div className="flex items-center justify-between rounded border p-3">
-                      <span className="text-muted-foreground">Permissão</span>
-                      <span className="font-medium">{ROLE_LABELS[viewing.role] ?? viewing.role}</span>
+                      <span className="text-muted-foreground">Cargo</span>
+                      <span className="font-medium truncate max-w-[220px]">{jobTitle || "—"}</span>
                     </div>
                     <div className="flex items-center justify-between rounded border p-3">
                       <span className="text-muted-foreground">Ativo</span>

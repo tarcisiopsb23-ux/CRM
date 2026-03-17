@@ -158,7 +158,7 @@ export function EditCollaboratorPage() {
         .select("role")
         .eq("organization_id", organizationId)
         .eq("job_title", extraForm.job_title)
-        .single();
+        .maybeSingle();
 
       const newRole = (catalogItem?.role as UserRole) || profile.role || "member";
 
