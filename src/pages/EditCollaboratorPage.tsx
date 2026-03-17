@@ -5,7 +5,6 @@ import { useOrganization } from "@/hooks/useOrganization";
 import { useJobTitleCatalog } from "@/hooks/useJobTitleCatalog";
 import { getJobTitleOptions } from "@/lib/jobTitles";
 import { usePermissionForScope } from "@/hooks/usePermissions";
-import { useAuth } from "@/contexts/AuthContext";
 import { fetchAddressByCep } from "@/lib/viacep";
 import { supabase } from "@/lib/supabase";
 import { UserRole } from "@/types/auth";
@@ -13,14 +12,6 @@ import { toast } from "sonner";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -37,26 +28,17 @@ const ROLE_LABELS: Record<string, string> = {
   viewer: "Visualizador",
 };
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
-
 export function EditCollaboratorPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const organizationId = useOrganization();
-  const { profile: me } = useAuth();
   const { data: profiles = [], update, isLoading: loadingProfiles } = useProfiles(organizationId);
   const catalog = useJobTitleCatalog(organizationId);
   const employeesPermission = usePermissionForScope("team", "employees");
-  const canResetPassword = me?.role === "admin" || me?.role === "owner";
 
   const [searchingCep, setSearchingCep] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [passwordOpen, setPasswordOpen] = useState(false);
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [changingPassword, setChangingPassword] = useState(false);
 
   const profile = useMemo(() => profiles.find(p => p.id === id), [profiles, id]);
 
@@ -218,130 +200,19 @@ export function EditCollaboratorPage() {
     }
   };
 
-  const handleChangePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!employeesPermission.canEdit || !id || !canResetPassword) return;
-    if (!newPassword || newPassword.length < 6) {
-      toast.error("Senha deve ter no mínimo 6 caracteres");
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      toast.error("As senhas não conferem");
-      return;
-    }
-    if (!SUPABASE_URL) {
-      toast.error("VITE_SUPABASE_URL não configurado");
-      return;
-    }
-    if (!SUPABASE_ANON_KEY) {
-      toast.error("VITE_SUPABASE_ANON_KEY não configurado");
-      return;
-    }
-
-    setChangingPassword(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) throw new Error("Sessão expirada. Faça login novamente.");
-
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/set-user-password`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ user_id: id, password: newPassword }),
-      });
-
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        throw new Error(data?.error || `Erro ${res.status}: ${res.statusText}`);
-      }
-
-      toast.success("Senha alterada com sucesso");
-      setPasswordOpen(false);
-      setNewPassword("");
-      setConfirmPassword("");
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Erro ao alterar senha");
-    } finally {
-      setChangingPassword(false);
-    }
-  };
-
   if (loadingProfiles) return <div className="p-8 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto" /></div>;
   if (!profile) return <div className="p-8 text-center">Colaborador não encontrado</div>;
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 p-4">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex items-center gap-4">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" onClick={() => navigate("/team")}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <h1 className="text-2xl font-bold">Editar Colaborador</h1>
         </div>
-        <Button
-          variant="outline"
-          onClick={() => setPasswordOpen(true)}
-          disabled={!employeesPermission.canEdit || !canResetPassword}
-        >
-          Alterar senha
-        </Button>
       </div>
-
-      <Dialog open={passwordOpen} onOpenChange={setPasswordOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Alterar senha</DialogTitle>
-            <DialogDescription>
-              Defina uma nova senha para este colaborador.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleChangePassword} className="space-y-4">
-            <div className="space-y-2">
-              <Label>Nova senha</Label>
-              <Input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                minLength={6}
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Confirmar senha</Label>
-              <Input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                minLength={6}
-                required
-              />
-            </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setPasswordOpen(false)}
-                disabled={changingPassword}
-              >
-                Cancelar
-              </Button>
-              <Button type="submit" disabled={changingPassword}>
-                {changingPassword ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Salvando...
-                  </>
-                ) : (
-                  "Salvar senha"
-                )}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
 
       <form onSubmit={handleSave} className="space-y-6">
         <Card>

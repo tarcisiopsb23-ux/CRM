@@ -7,6 +7,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -35,6 +36,9 @@ import { DocumentsCard } from "@/components/documents/DocumentsCard";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
+
 interface Props {
   profiles: ProfileRow[];
   teams: TeamRow[];
@@ -56,6 +60,10 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
   const [searchingCep, setSearchingCep] = useState(false);
   const [editing, setEditing] = useState<ProfileRow | null>(null);
   const [viewing, setViewing] = useState<ProfileRow | null>(null);
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
   const [form, setForm] = useState<{ full_name: string; email: string; phone: string; role: string; is_active: boolean; avatar_url: string | null }>({
     full_name: "",
     email: "",
@@ -288,6 +296,61 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
     setEditing(null);
   }, [profiles, selectedProfileId]);
 
+  const canResetPassword = (me?.role === "admin" || me?.role === "owner") && employeesPermission.canEdit;
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canResetPassword) return;
+    if (!viewing?.id) return;
+    if (!newPassword || newPassword.length < 6) {
+      toast.error("Senha deve ter no mínimo 6 caracteres");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("As senhas não conferem");
+      return;
+    }
+    if (!SUPABASE_URL) {
+      toast.error("VITE_SUPABASE_URL não configurado");
+      return;
+    }
+    if (!SUPABASE_ANON_KEY) {
+      toast.error("VITE_SUPABASE_ANON_KEY não configurado");
+      return;
+    }
+
+    setChangingPassword(true);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error("Sessão expirada. Faça login novamente.");
+
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/set-user-password`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ user_id: viewing.id, password: newPassword }),
+      });
+
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data?.error || `Erro ${res.status}: ${res.statusText}`);
+
+      toast.success("Senha alterada com sucesso");
+      setPasswordOpen(false);
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Erro ao alterar senha");
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
   if (loading) {
     return <div className="text-sm text-muted-foreground">Carregando...</div>;
   }
@@ -304,6 +367,51 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
 
   return (
     <div className="grid gap-3">
+      <Dialog open={passwordOpen} onOpenChange={setPasswordOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Alterar senha</DialogTitle>
+            <DialogDescription>Defina uma nova senha para este colaborador.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleChangePassword} className="space-y-4">
+            <div className="space-y-2">
+              <Label>Nova senha</Label>
+              <Input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                minLength={6}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Confirmar senha</Label>
+              <Input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                minLength={6}
+                required
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setPasswordOpen(false)} disabled={changingPassword}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={changingPassword || !canResetPassword}>
+                {changingPassword ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Salvando...
+                  </>
+                ) : (
+                  "Salvar senha"
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       {!selectedProfileId
         ? profiles.map((p) => (
             <Card key={p.id}>
@@ -380,6 +488,14 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
               <div className="flex items-center gap-2">
                 <Button size="sm" variant="outline" onClick={() => navigate(`/team/edit/${viewing.id}`)} disabled={!employeesPermission.canEdit}>
                   Editar
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setPasswordOpen(true)}
+                  disabled={!canResetPassword}
+                >
+                  Alterar senha
                 </Button>
                 <Button
                   size="sm"
