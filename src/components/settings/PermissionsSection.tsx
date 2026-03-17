@@ -6,6 +6,8 @@ import { useJobTitlePermissionScopes, useJobTitlePermissions, useJobTitleRoleMap
 import { useAuth } from "@/contexts/AuthContext";
 import { getJobTitleFromProfileMetadata } from "@/lib/jobTitles";
 import { useJobTitleCatalog } from "@/hooks/useJobTitleCatalog";
+import { supabase } from "@/lib/supabase";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -205,121 +207,205 @@ export function PermissionsSection() {
     return map;
   }, [userScopePermsData]);
 
-  const handleToggle = (
+  const clearUserOverridesForCargo = async (module: PermissionModule, scopeId?: string) => {
+    if (!organizationId) return;
+    if (!selectedCargo) return;
+
+    const supabaseUntyped = supabase as unknown as SupabaseClient;
+
+    const ids = new Set<string>();
+    const { data: byJobTitle } = await supabaseUntyped
+      .from("profiles")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("metadata->>job_title", selectedCargo)
+      .limit(10000);
+    for (const r of (byJobTitle ?? []) as Array<{ id: string }>) ids.add(r.id);
+
+    const { data: byCargo } = await supabaseUntyped
+      .from("profiles")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("metadata->>cargo", selectedCargo)
+      .limit(10000);
+    for (const r of (byCargo ?? []) as Array<{ id: string }>) ids.add(r.id);
+
+    const userIds = Array.from(ids);
+    if (userIds.length === 0) return;
+
+    const chunkSize = 250;
+    for (let i = 0; i < userIds.length; i += chunkSize) {
+      const chunk = userIds.slice(i, i + chunkSize);
+
+      if (scopeId) {
+        const { error } = await supabaseUntyped
+          .from("user_permission_scopes")
+          .delete()
+          .eq("organization_id", organizationId)
+          .eq("module", module)
+          .eq("scope", scopeId)
+          .in("user_id", chunk);
+        if (error) throw error;
+      } else {
+        const { error: e1 } = await supabaseUntyped
+          .from("user_permissions")
+          .delete()
+          .eq("organization_id", organizationId)
+          .eq("module", module)
+          .in("user_id", chunk);
+        if (e1) throw e1;
+
+        const { error: e2 } = await supabaseUntyped
+          .from("user_permission_scopes")
+          .delete()
+          .eq("organization_id", organizationId)
+          .eq("module", module)
+          .in("user_id", chunk);
+        if (e2) throw e2;
+      }
+    }
+  };
+
+  const handleToggle = async (
     module: PermissionModule,
     field: keyof Pick<(typeof permissions)[0], "can_view" | "can_create" | "can_edit" | "can_delete">,
     value: boolean
   ) => {
-    if (accessScope === "user") {
-      if (!selectedUserId) return;
-      const current = permByModule.get(module);
+    try {
+      if (accessScope === "user") {
+        if (!selectedUserId) return;
+        const current = permByModule.get(module);
+        const next = normalizeFlags({
+          can_view: field === "can_view" ? value : (current?.can_view ?? false),
+          can_create: field === "can_create" ? value : (current?.can_create ?? false),
+          can_edit: field === "can_edit" ? value : (current?.can_edit ?? false),
+          can_delete: field === "can_delete" ? value : (current?.can_delete ?? false),
+        });
+        await upsert.mutateAsync({ module, ...next });
+        return;
+      }
+
+      if (!selectedCargo) return;
+      const current = jobPermByModule.get(module);
       const next = normalizeFlags({
         can_view: field === "can_view" ? value : (current?.can_view ?? false),
         can_create: field === "can_create" ? value : (current?.can_create ?? false),
         can_edit: field === "can_edit" ? value : (current?.can_edit ?? false),
         can_delete: field === "can_delete" ? value : (current?.can_delete ?? false),
       });
-      upsert.mutate({ module, ...next });
-      return;
+      await jobTitlePerms.upsert.mutateAsync({ module, ...next });
+      await clearUserOverridesForCargo(module);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Erro ao atualizar permissões");
     }
-
-    if (!selectedCargo) return;
-    const current = jobPermByModule.get(module);
-    const next = normalizeFlags({
-      can_view: field === "can_view" ? value : (current?.can_view ?? false),
-      can_create: field === "can_create" ? value : (current?.can_create ?? false),
-      can_edit: field === "can_edit" ? value : (current?.can_edit ?? false),
-      can_delete: field === "can_delete" ? value : (current?.can_delete ?? false),
-    });
-    jobTitlePerms.upsert.mutate({ module, ...next });
   };
 
-  const handleMarkAllInModule = (module: PermissionModule) => {
-    if (accessScope === "user") {
-      if (!selectedUserId) return;
-      const current = permByModule.get(module) as unknown as PermFlags | undefined;
+  const handleMarkAllInModule = async (module: PermissionModule) => {
+    try {
+      if (accessScope === "user") {
+        if (!selectedUserId) return;
+        const current = permByModule.get(module) as unknown as PermFlags | undefined;
+        const next = normalizeFlags({
+          can_view: true,
+          can_create: true,
+          can_edit: true,
+          can_delete: isOwner ? true : (current?.can_delete ?? false),
+        });
+        await upsert.mutateAsync({ module, ...next });
+        return;
+      }
+
+      if (!selectedCargo) return;
+      const current = jobPermByModule.get(module) as unknown as PermFlags | undefined;
       const next = normalizeFlags({
         can_view: true,
         can_create: true,
         can_edit: true,
         can_delete: isOwner ? true : (current?.can_delete ?? false),
       });
-      upsert.mutate({ module, ...next });
-      return;
+      await jobTitlePerms.upsert.mutateAsync({ module, ...next });
+      await clearUserOverridesForCargo(module);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Erro ao atualizar permissões");
     }
-
-    if (!selectedCargo) return;
-    const current = jobPermByModule.get(module) as unknown as PermFlags | undefined;
-    const next = normalizeFlags({
-      can_view: true,
-      can_create: true,
-      can_edit: true,
-      can_delete: isOwner ? true : (current?.can_delete ?? false),
-    });
-    jobTitlePerms.upsert.mutate({ module, ...next });
   };
 
-  const handleToggleScope = (
+  const handleToggleScope = async (
     module: PermissionModule,
     scopeId: string,
     field: keyof PermFlags,
     value: boolean
   ) => {
-    if (accessScope === "user") {
-      if (!selectedUserId) return;
-      const current = userScopeByKey.get(`${module}::${scopeId}`) as unknown as PermFlags | undefined;
+    try {
+      if (accessScope === "user") {
+        if (!selectedUserId) return;
+        const current = userScopeByKey.get(`${module}::${scopeId}`) as unknown as PermFlags | undefined;
+        const next = normalizeFlags({
+          can_view: field === "can_view" ? value : getFieldValue(current ?? null, "can_view"),
+          can_create: field === "can_create" ? value : getFieldValue(current ?? null, "can_create"),
+          can_edit: field === "can_edit" ? value : getFieldValue(current ?? null, "can_edit"),
+          can_delete: field === "can_delete" ? value : getFieldValue(current ?? null, "can_delete"),
+        });
+        await userScopePerms.upsert.mutateAsync({ module, scope: scopeId, ...next });
+        return;
+      }
+
+      if (!selectedCargo) return;
+      const current = jobScopeByKey.get(`${module}::${scopeId}`) as unknown as PermFlags | undefined;
       const next = normalizeFlags({
         can_view: field === "can_view" ? value : getFieldValue(current ?? null, "can_view"),
         can_create: field === "can_create" ? value : getFieldValue(current ?? null, "can_create"),
         can_edit: field === "can_edit" ? value : getFieldValue(current ?? null, "can_edit"),
         can_delete: field === "can_delete" ? value : getFieldValue(current ?? null, "can_delete"),
       });
-      userScopePerms.upsert.mutate({ module, scope: scopeId, ...next });
-      return;
+      await jobTitleScopePerms.upsert.mutateAsync({ module, scope: scopeId, ...next });
+      await clearUserOverridesForCargo(module, scopeId);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Erro ao atualizar permissões");
     }
-
-    if (!selectedCargo) return;
-    const current = jobScopeByKey.get(`${module}::${scopeId}`) as unknown as PermFlags | undefined;
-    const next = normalizeFlags({
-      can_view: field === "can_view" ? value : getFieldValue(current ?? null, "can_view"),
-      can_create: field === "can_create" ? value : getFieldValue(current ?? null, "can_create"),
-      can_edit: field === "can_edit" ? value : getFieldValue(current ?? null, "can_edit"),
-      can_delete: field === "can_delete" ? value : getFieldValue(current ?? null, "can_delete"),
-    });
-    jobTitleScopePerms.upsert.mutate({ module, scope: scopeId, ...next });
   };
 
-  const handleMarkAllInScope = (module: PermissionModule, scopeId: string, canDeleteFallback: boolean) => {
-    if (accessScope === "user") {
-      if (!selectedUserId) return;
+  const handleMarkAllInScope = async (module: PermissionModule, scopeId: string, canDeleteFallback: boolean) => {
+    try {
+      if (accessScope === "user") {
+        if (!selectedUserId) return;
+        const next = normalizeFlags({
+          can_view: true,
+          can_create: true,
+          can_edit: true,
+          can_delete: isOwner ? true : canDeleteFallback,
+        });
+        await userScopePerms.upsert.mutateAsync({ module, scope: scopeId, ...next });
+        return;
+      }
+
+      if (!selectedCargo) return;
       const next = normalizeFlags({
         can_view: true,
         can_create: true,
         can_edit: true,
         can_delete: isOwner ? true : canDeleteFallback,
       });
-      userScopePerms.upsert.mutate({ module, scope: scopeId, ...next });
-      return;
+      await jobTitleScopePerms.upsert.mutateAsync({ module, scope: scopeId, ...next });
+      await clearUserOverridesForCargo(module, scopeId);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Erro ao atualizar permissões");
     }
-
-    if (!selectedCargo) return;
-    const next = normalizeFlags({
-      can_view: true,
-      can_create: true,
-      can_edit: true,
-      can_delete: isOwner ? true : canDeleteFallback,
-    });
-    jobTitleScopePerms.upsert.mutate({ module, scope: scopeId, ...next });
   };
 
-  const handleResetScope = (module: PermissionModule, scopeId: string) => {
-    if (accessScope === "user") {
-      if (!selectedUserId) return;
-      userScopePerms.remove.mutate({ module, scope: scopeId });
-      return;
+  const handleResetScope = async (module: PermissionModule, scopeId: string) => {
+    try {
+      if (accessScope === "user") {
+        if (!selectedUserId) return;
+        await userScopePerms.remove.mutateAsync({ module, scope: scopeId });
+        return;
+      }
+      if (!selectedCargo) return;
+      await jobTitleScopePerms.remove.mutateAsync({ module, scope: scopeId });
+      await clearUserOverridesForCargo(module, scopeId);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Erro ao atualizar permissões");
     }
-    if (!selectedCargo) return;
-    jobTitleScopePerms.remove.mutate({ module, scope: scopeId });
   };
 
   return (

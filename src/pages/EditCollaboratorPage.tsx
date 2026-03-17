@@ -9,6 +9,7 @@ import { fetchAddressByCep } from "@/lib/viacep";
 import { supabase } from "@/lib/supabase";
 import { UserRole } from "@/types/auth";
 import { toast } from "sonner";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -161,6 +162,21 @@ export function EditCollaboratorPage() {
         .maybeSingle();
 
       const newRole = (catalogItem?.role as UserRole) || profile.role || "member";
+
+      const supabaseUntyped = supabase as unknown as SupabaseClient;
+      const { error: permsError } = await supabaseUntyped
+        .from("user_permissions")
+        .delete()
+        .eq("organization_id", organizationId)
+        .eq("user_id", id);
+      if (permsError) throw permsError;
+
+      const { error: scopePermsError } = await supabaseUntyped
+        .from("user_permission_scopes")
+        .delete()
+        .eq("organization_id", organizationId)
+        .eq("user_id", id);
+      if (scopePermsError) throw scopePermsError;
 
       const metadata = {
         ...(profile?.metadata as any || {}),
