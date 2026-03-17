@@ -234,6 +234,31 @@ export function PermissionsSection() {
     jobTitlePerms.upsert.mutate({ module, ...next });
   };
 
+  const handleMarkAllInModule = (module: PermissionModule) => {
+    if (accessScope === "user") {
+      if (!selectedUserId) return;
+      const current = permByModule.get(module) as unknown as PermFlags | undefined;
+      const next = normalizeFlags({
+        can_view: true,
+        can_create: true,
+        can_edit: true,
+        can_delete: isOwner ? true : (current?.can_delete ?? false),
+      });
+      upsert.mutate({ module, ...next });
+      return;
+    }
+
+    if (!selectedCargo) return;
+    const current = jobPermByModule.get(module) as unknown as PermFlags | undefined;
+    const next = normalizeFlags({
+      can_view: true,
+      can_create: true,
+      can_edit: true,
+      can_delete: isOwner ? true : (current?.can_delete ?? false),
+    });
+    jobTitlePerms.upsert.mutate({ module, ...next });
+  };
+
   const handleToggleScope = (
     module: PermissionModule,
     scopeId: string,
@@ -260,6 +285,29 @@ export function PermissionsSection() {
       can_create: field === "can_create" ? value : getFieldValue(current ?? null, "can_create"),
       can_edit: field === "can_edit" ? value : getFieldValue(current ?? null, "can_edit"),
       can_delete: field === "can_delete" ? value : getFieldValue(current ?? null, "can_delete"),
+    });
+    jobTitleScopePerms.upsert.mutate({ module, scope: scopeId, ...next });
+  };
+
+  const handleMarkAllInScope = (module: PermissionModule, scopeId: string, canDeleteFallback: boolean) => {
+    if (accessScope === "user") {
+      if (!selectedUserId) return;
+      const next = normalizeFlags({
+        can_view: true,
+        can_create: true,
+        can_edit: true,
+        can_delete: isOwner ? true : canDeleteFallback,
+      });
+      userScopePerms.upsert.mutate({ module, scope: scopeId, ...next });
+      return;
+    }
+
+    if (!selectedCargo) return;
+    const next = normalizeFlags({
+      can_view: true,
+      can_create: true,
+      can_edit: true,
+      can_delete: isOwner ? true : canDeleteFallback,
     });
     jobTitleScopePerms.upsert.mutate({ module, scope: scopeId, ...next });
   };
@@ -508,15 +556,16 @@ export function PermissionsSection() {
                     <Loader2 className="h-5 w-5 animate-spin" />
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
+                  <div className="max-h-[70vh] overflow-auto">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="border-b bg-muted/50">
-                          <th className="text-left py-3 px-4 font-medium">Módulo</th>
-                          <th className="text-center py-3 px-3">{PERM_LABELS.can_view}</th>
-                          <th className="text-center py-3 px-3">{PERM_LABELS.can_create}</th>
-                          <th className="text-center py-3 px-3">{PERM_LABELS.can_edit}</th>
-                          <th className="text-center py-3 px-3">{PERM_LABELS.can_delete}</th>
+                        <tr className="border-b">
+                          <th className="sticky top-0 z-10 bg-muted/50 text-left py-3 px-4 font-medium">Módulo</th>
+                          <th className="sticky top-0 z-10 bg-muted/50 text-center py-3 px-3">{PERM_LABELS.can_view}</th>
+                          <th className="sticky top-0 z-10 bg-muted/50 text-center py-3 px-3">{PERM_LABELS.can_create}</th>
+                          <th className="sticky top-0 z-10 bg-muted/50 text-center py-3 px-3">{PERM_LABELS.can_edit}</th>
+                          <th className="sticky top-0 z-10 bg-muted/50 text-center py-3 px-3">{PERM_LABELS.can_delete}</th>
+                          <th className="sticky top-0 z-10 bg-muted/50 text-right py-3 px-4 font-medium">Ação</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -556,28 +605,39 @@ export function PermissionsSection() {
                                     />
                                   </td>
                                 ))}
+                                <td className="py-2 px-4 text-right">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleMarkAllInModule(m.id)}
+                                    disabled={disabled}
+                                  >
+                                    Marcar tudo
+                                  </Button>
+                                </td>
                               </tr>
                               {views.length > 0 && (
                                 <tr className="border-b last:border-0">
-                                  <td colSpan={5} className="p-0">
+                                  <td colSpan={6} className="p-0">
                                     <div className="px-4 py-3 bg-muted/20">
                                       <div className="text-xs text-muted-foreground mb-2">Sub-opções</div>
-                                      <div className="overflow-x-auto">
+                                      <div className="max-h-[260px] overflow-auto">
                                         <table className="w-full text-xs">
                                           <thead>
-                                            <tr className="border-b bg-muted/30">
-                                              <th className="text-left py-2 pr-3 font-medium">Janela/View</th>
-                                              <th className="text-center py-2 px-2">{PERM_LABELS.can_view}</th>
-                                              <th className="text-center py-2 px-2">{PERM_LABELS.can_create}</th>
-                                              <th className="text-center py-2 px-2">{PERM_LABELS.can_edit}</th>
-                                              <th className="text-center py-2 px-2">{PERM_LABELS.can_delete}</th>
-                                              <th className="text-right py-2 pl-3 font-medium">Ação</th>
+                                            <tr className="border-b">
+                                              <th className="sticky top-0 z-10 bg-muted/30 text-left py-2 pr-3 font-medium">Janela/View</th>
+                                              <th className="sticky top-0 z-10 bg-muted/30 text-center py-2 px-2">{PERM_LABELS.can_view}</th>
+                                              <th className="sticky top-0 z-10 bg-muted/30 text-center py-2 px-2">{PERM_LABELS.can_create}</th>
+                                              <th className="sticky top-0 z-10 bg-muted/30 text-center py-2 px-2">{PERM_LABELS.can_edit}</th>
+                                              <th className="sticky top-0 z-10 bg-muted/30 text-center py-2 px-2">{PERM_LABELS.can_delete}</th>
+                                              <th className="sticky top-0 z-10 bg-muted/30 text-right py-2 pl-3 font-medium">Ações</th>
                                             </tr>
                                           </thead>
                                           <tbody>
                                             {views.map((v) => {
                                               const r = scopeRow(v.id);
                                               const hasOverride = !!r;
+                                              const canDeleteFallback = effective(v.id, "can_delete");
                                               return (
                                                 <tr key={v.id} className="border-b last:border-0">
                                                   <td className="py-2 pr-3 font-medium">{v.label}</td>
@@ -591,14 +651,24 @@ export function PermissionsSection() {
                                                     </td>
                                                   ))}
                                                   <td className="py-2 pl-3 text-right">
-                                                    <Button
-                                                      variant="outline"
-                                                      size="sm"
-                                                      onClick={() => handleResetScope(m.id, v.id)}
-                                                      disabled={!hasOverride || disabled}
-                                                    >
-                                                      Resetar
-                                                    </Button>
+                                                    <div className="flex justify-end gap-2">
+                                                      <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={() => handleMarkAllInScope(m.id, v.id, canDeleteFallback)}
+                                                        disabled={disabled}
+                                                      >
+                                                        Marcar tudo
+                                                      </Button>
+                                                      <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={() => handleResetScope(m.id, v.id)}
+                                                        disabled={!hasOverride || disabled}
+                                                      >
+                                                        Resetar
+                                                      </Button>
+                                                    </div>
                                                   </td>
                                                 </tr>
                                               );
