@@ -332,12 +332,16 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
       setConfirmPassword("");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Erro ao alterar senha";
-      if (msg.includes("Invalid JWT") || msg.includes("JWT")) {
+      const raw = typeof err === "object" && err ? (err as any) : null;
+      const status = raw?.context?.status ?? raw?.status ?? null;
+      const serviceMsg = raw?.context?.body ? String(raw.context.body) : "";
+      const combined = [msg, serviceMsg].filter(Boolean).join(" ");
+      if (combined.includes("Invalid JWT") || combined.includes("JWT") || status === 401) {
         toast.error("Sessão expirada. Faça login novamente.");
         await signOut();
         return;
       }
-      toast.error(msg);
+      toast.error(combined || "Erro ao alterar senha");
     } finally {
       setChangingPassword(false);
     }
@@ -478,9 +482,6 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Button size="sm" variant="outline" onClick={() => navigate(`/team/edit/${viewing.id}`)} disabled={!employeesPermission.canEdit}>
-                  Editar
-                </Button>
                 <Button
                   size="sm"
                   variant="outline"
@@ -488,6 +489,9 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
                   disabled={!canResetPassword}
                 >
                   Alterar senha
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => navigate(`/team/edit/${viewing.id}`)} disabled={!employeesPermission.canEdit}>
+                  Editar
                 </Button>
                 <Button
                   size="sm"
