@@ -49,7 +49,7 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
   const orgSettings = useOrganizationSettings(organizationId);
   const driveFolders = getDriveFoldersFromOrganizationSettings(orgSettings.data);
   const { update, remove } = useProfiles(organizationId);
-  const { profile: me } = useAuth();
+  const { profile: me, signOut } = useAuth();
   const expenses = useSupplierExpenses(organizationId);
   const employeesPermission = usePermissionForScope("team", "employees");
   const navigate = useNavigate();
@@ -310,12 +310,14 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
 
     setChangingPassword(true);
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (!sessionData.session) throw new Error("Sessão expirada. Faça login novamente.");
+      const { error: refreshErr } = await supabase.auth.refreshSession();
+      if (refreshErr) throw refreshErr;
 
-      const { data: refreshed, error: refreshErr } = await supabase.auth.refreshSession();
-      const accessToken = refreshed.session?.access_token ?? sessionData.session.access_token;
-      if (refreshErr || !accessToken) throw new Error("Sessão expirada. Faça login novamente.");
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token ?? "";
+      if (!accessToken || accessToken.split(".").length !== 3) {
+        throw new Error("Sessão expirada. Faça login novamente.");
+      }
 
       const { data, error } = await supabase.functions.invoke("set-user-password", {
         body: { user_id: viewing.id, password: newPassword },
@@ -330,7 +332,12 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
       setConfirmPassword("");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Erro ao alterar senha";
-      toast.error(msg.includes("Invalid JWT") ? "Sessão expirada. Faça login novamente." : msg);
+      if (msg.includes("Invalid JWT") || msg.includes("JWT")) {
+        toast.error("Sessão expirada. Faça login novamente.");
+        await signOut();
+        return;
+      }
+      toast.error(msg);
     } finally {
       setChangingPassword(false);
     }
