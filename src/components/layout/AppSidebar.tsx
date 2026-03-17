@@ -41,6 +41,7 @@ const navItems: {
   { title: "Metas", url: "/goals", icon: Target, module: "goals" },
   { title: "WhatsApp", url: "/whatsapp", icon: MessageCircle, module: "whatsapp" },
   { title: "Reuniões IA", url: "/meetings", icon: Sparkles, module: "meetings" },
+  { title: "Meu cadastro", url: "/team/me", icon: UsersRound, module: null },
   { title: "Equipe", url: "/team", icon: UsersRound, module: "team" },
   { title: "Campanhas", url: "/campaign-reports", icon: Megaphone, module: "campaigns" },
   { title: "Relatórios", url: "/reports", icon: FileBarChart, module: "reports" },
@@ -92,6 +93,7 @@ export function AppSidebar() {
 
   const visibleItems = navItems.filter((item) => {
     if (item.module === "settings") return isAdmin;
+    if (item.url === "/team") return isAdmin;
     return !item.module || canViewByModule[item.module];
   });
 

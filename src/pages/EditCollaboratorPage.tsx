@@ -5,6 +5,7 @@ import { useOrganization } from "@/hooks/useOrganization";
 import { useJobTitleCatalog } from "@/hooks/useJobTitleCatalog";
 import { getJobTitleOptions } from "@/lib/jobTitles";
 import { usePermissionForScope } from "@/hooks/usePermissions";
+import { useAuth } from "@/contexts/AuthContext";
 import { fetchAddressByCep } from "@/lib/viacep";
 import { supabase } from "@/lib/supabase";
 import { UserRole } from "@/types/auth";
@@ -42,9 +43,11 @@ export function EditCollaboratorPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const organizationId = useOrganization();
+  const { profile: me } = useAuth();
   const { data: profiles = [], update, isLoading: loadingProfiles } = useProfiles(organizationId);
   const catalog = useJobTitleCatalog(organizationId);
   const employeesPermission = usePermissionForScope("team", "employees");
+  const canResetPassword = me?.role === "admin" || me?.role === "owner";
 
   const [searchingCep, setSearchingCep] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -216,7 +219,7 @@ export function EditCollaboratorPage() {
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!employeesPermission.canEdit || !id) return;
+    if (!employeesPermission.canEdit || !id || !canResetPassword) return;
     if (!newPassword || newPassword.length < 6) {
       toast.error("Senha deve ter no mínimo 6 caracteres");
       return;
@@ -276,7 +279,7 @@ export function EditCollaboratorPage() {
         <Button
           variant="outline"
           onClick={() => setPasswordOpen(true)}
-          disabled={!employeesPermission.canEdit}
+          disabled={!employeesPermission.canEdit || !canResetPassword}
         >
           Alterar senha
         </Button>

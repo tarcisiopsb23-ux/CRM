@@ -123,6 +123,14 @@ serve(async (req) => {
       });
     }
 
+    const { data: userData, error: userErr } = await adminClient.auth.admin.getUserById(userId);
+    if (userErr) throw userErr;
+    const emailToClear = userData?.user?.email ? String(userData.user.email).trim().toLowerCase() : "";
+    if (emailToClear) {
+      const { error: clearErr } = await adminClient.from("login_attempts").delete().eq("email", emailToClear);
+      if (clearErr) throw clearErr;
+    }
+
     return new Response(JSON.stringify({ success: true }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -135,4 +143,3 @@ serve(async (req) => {
     });
   }
 });
-

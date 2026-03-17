@@ -11,15 +11,10 @@ function getCorsHeaders(req: Request) {
 }
 
 const WINDOW_MINUTES = 15;
-const LOCK_MINUTES = 30;
 const MAX_ATTEMPTS = 3;
 
 function nowIso() {
   return new Date().toISOString();
-}
-
-function addMinutes(d: Date, minutes: number) {
-  return new Date(d.getTime() + minutes * 60_000);
 }
 
 serve(async (req) => {
@@ -76,17 +71,15 @@ serve(async (req) => {
 
     const { data: attemptRow, error: attemptErr } = await adminClient
       .from("login_attempts")
-      .select("email, attempts, window_start, locked_until")
+      .select("email, attempts, window_start, locked_until, require_reset")
       .eq("email", email)
       .maybeSingle();
     if (attemptErr) throw attemptErr;
 
-    const lockedUntil = attemptRow?.locked_until ? new Date(attemptRow.locked_until as string) : null;
-    if (lockedUntil && lockedUntil.getTime() > now.getTime()) {
+    if (attemptRow?.require_reset) {
       return new Response(
         JSON.stringify({
-          error: `Acesso bloqueado. Tente novamente após ${LOCK_MINUTES} minutos.`,
-          locked_until: lockedUntil.toISOString(),
+          error: "Acesso bloqueado. Procure um superior para alterar a senha.",
         }),
         { status: 423, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
@@ -111,8 +104,7 @@ serve(async (req) => {
 
     if (signInError || !signInData.session) {
       const nextAttempts = attempts + 1;
-      const shouldLock = nextAttempts >= MAX_ATTEMPTS;
-      const lockUntilIso = shouldLock ? addMinutes(now, LOCK_MINUTES).toISOString() : null;
+      const requireReset = nextAttempts >= MAX_ATTEMPTS;
 
       const { error: upsertErr } = await adminClient
         .from("login_attempts")
@@ -121,18 +113,18 @@ serve(async (req) => {
             email,
             attempts: nextAttempts,
             window_start: nextWindowStart.toISOString(),
-            locked_until: lockUntilIso,
+            locked_until: null,
+            require_reset: requireReset,
             updated_at: nowIso(),
           },
           { onConflict: "email" }
         );
       if (upsertErr) throw upsertErr;
 
-      if (shouldLock) {
+      if (requireReset) {
         return new Response(
           JSON.stringify({
-            error: `Acesso bloqueado por ${LOCK_MINUTES} minutos após ${MAX_ATTEMPTS} tentativas inválidas.`,
-            locked_until: lockUntilIso,
+            error: "Acesso bloqueado. Procure um superior para alterar a senha.",
           }),
           { status: 423, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
@@ -141,7 +133,7 @@ serve(async (req) => {
       if (nextAttempts === 2) {
         return new Response(
           JSON.stringify({
-            error: `Senha incorreta. Mais uma tentativa e o acesso será bloqueado por ${LOCK_MINUTES} minutos.`,
+            error: "Senha incorreta. Mais uma tentativa e o acesso será bloqueado. Procure um superior para alterar a senha.",
             remaining_attempts: 1,
           }),
           { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -171,4 +163,3 @@ serve(async (req) => {
     });
   }
 });
-
