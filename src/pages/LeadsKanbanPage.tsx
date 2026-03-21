@@ -405,28 +405,28 @@ export function LeadsKanbanPage() {
           <div className="rounded-md border bg-background overflow-hidden">
             <div className="overflow-x-auto">
               <Table className="border-separate border-spacing-0 min-w-[3000px]">
-                <TableHeader className="sticky top-0 z-10 bg-background shadow-sm">
+                <TableHeader className="sticky top-0 z-30 bg-background shadow-sm">
                   <TableRow className="bg-background hover:bg-background">
-                    <TableHead className="sticky left-0 z-20 bg-background border-b border-r w-[250px] shadow-[2px_0_4px_rgba(0,0,0,0.05)]">Empresa / Contato</TableHead>
-                    <TableHead className="bg-background border-b w-[150px]">Responsável</TableHead>
-                    <TableHead className="bg-background border-b w-[150px]">Decisor</TableHead>
-                    <TableHead className="bg-background border-b w-[150px]">Nicho</TableHead>
-                    <TableHead className="bg-background border-b w-[100px]">Prioridade</TableHead>
-                    <TableHead className="bg-background border-b w-[120px]">Temperatura</TableHead>
-                    <TableHead className="bg-background border-b w-[100px]">Cadência</TableHead>
-                    <TableHead className="bg-background border-b w-[120px]">Tempo de Vida</TableHead>
-                    <TableHead className="bg-background border-b w-[150px]">Valor</TableHead>
-                    <TableHead className="bg-background border-b w-[150px]">Origem</TableHead>
-                    <TableHead className="bg-background border-b w-[150px]">Cidade</TableHead>
-                    <TableHead className="bg-background border-b w-[150px]">Produto/Serviço</TableHead>
-                    <TableHead className="bg-background border-b w-[150px]">CPF/CNPJ</TableHead>
-                    <TableHead className="bg-background border-b w-[150px]">Origem Contato</TableHead>
-                    <TableHead className="bg-background border-b w-[150px]">Status GMN</TableHead>
-                    <TableHead className="bg-background border-b w-[150px]">Google Ads</TableHead>
-                    <TableHead className="bg-background border-b w-[150px]">Meta Ads</TableHead>
-                    <TableHead className="bg-background border-b w-[150px]">Social Media</TableHead>
-                    <TableHead className="bg-background border-b w-[150px]">Status Pré-qual</TableHead>
-                    <TableHead className="sticky right-0 z-20 bg-background border-b border-l w-[220px] shadow-[-4px_0_4px_rgba(0,0,0,0.05)] text-center">Ações</TableHead>
+                    <TableHead className="sticky left-0 z-40 bg-background border-b border-r w-[250px] shadow-[2px_0_4px_rgba(0,0,0,0.05)] font-bold text-foreground">Empresa / Contato</TableHead>
+                    <TableHead className="bg-background border-b w-[150px] font-bold text-foreground">Responsável</TableHead>
+                    <TableHead className="bg-background border-b w-[150px] font-bold text-foreground">Decisor</TableHead>
+                    <TableHead className="bg-background border-b w-[150px] font-bold text-foreground">Nicho</TableHead>
+                    <TableHead className="bg-background border-b w-[100px] font-bold text-foreground">Prioridade</TableHead>
+                    <TableHead className="bg-background border-b w-[120px] font-bold text-foreground">Temperatura</TableHead>
+                    <TableHead className="bg-background border-b w-[100px] font-bold text-foreground">Cadência</TableHead>
+                    <TableHead className="bg-background border-b w-[120px] font-bold text-foreground">Tempo de Vida</TableHead>
+                    <TableHead className="bg-background border-b w-[150px] font-bold text-foreground">Valor</TableHead>
+                    <TableHead className="bg-background border-b w-[150px] font-bold text-foreground">Origem</TableHead>
+                    <TableHead className="bg-background border-b w-[150px] font-bold text-foreground">Cidade</TableHead>
+                    <TableHead className="bg-background border-b w-[150px] font-bold text-foreground">Produto/Serviço</TableHead>
+                    <TableHead className="bg-background border-b w-[150px] font-bold text-foreground">CPF/CNPJ</TableHead>
+                    <TableHead className="bg-background border-b w-[150px] font-bold text-foreground">Origem Contato</TableHead>
+                    <TableHead className="bg-background border-b w-[150px] font-bold text-foreground">Status GMN</TableHead>
+                    <TableHead className="bg-background border-b w-[150px] font-bold text-foreground">Google Ads</TableHead>
+                    <TableHead className="bg-background border-b w-[150px] font-bold text-foreground">Meta Ads</TableHead>
+                    <TableHead className="bg-background border-b w-[150px] font-bold text-foreground">Social Media</TableHead>
+                    <TableHead className="bg-background border-b w-[150px] font-bold text-foreground">Status Pré-qual</TableHead>
+                    <TableHead className="sticky right-0 z-40 bg-background border-b border-l w-[220px] shadow-[-4px_0_4px_rgba(0,0,0,0.05)] text-center font-bold text-foreground">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody className="bg-background">
@@ -449,29 +449,29 @@ export function LeadsKanbanPage() {
                       const cidade = (lead.metadata as { cidade?: string })?.cidade || "—";
                       
                       return (
-                        <TableRow key={lead.id} className="hover:bg-muted/50 bg-background transition-colors group">
-                          <TableCell className="sticky left-0 z-10 bg-background border-r font-medium group-hover:bg-muted/50 shadow-[2px_0_4px_rgba(0,0,0,0.05)]">
+                        <TableRow key={lead.id} className="hover:bg-muted bg-background transition-colors group">
+                          <TableCell className="sticky left-0 z-10 bg-background border-r font-medium group-hover:bg-muted shadow-[2px_0_4px_rgba(0,0,0,0.05)]">
                             <div className="font-medium truncate w-[230px]" title={lead.company || "—"}>{lead.company || "—"}</div>
                             <div className="text-xs text-muted-foreground truncate w-[230px]" title={lead.name}>
                               {lead.name || "—"}{contatoTelefone ? ` • ${contatoTelefone}` : ""}
                             </div>
                           </TableCell>
-                          <TableCell className="bg-background group-hover:bg-transparent text-sm">
+                          <TableCell className="bg-background group-hover:bg-muted text-sm">
                             {(lead as LeadWithResponsavel).responsavel?.full_name || "—"}
                           </TableCell>
-                          <TableCell className="text-sm text-muted-foreground bg-background group-hover:bg-transparent">
+                          <TableCell className="text-sm text-muted-foreground bg-background group-hover:bg-muted">
                             <div className="text-sm truncate w-[130px]" title={decisorNome}>{decisorNome}</div>
                             <div className="text-xs text-muted-foreground">{decisorTelefone || "—"}</div>
                           </TableCell>
-                          <TableCell className="text-sm text-muted-foreground bg-background group-hover:bg-transparent truncate w-[130px]" title={lead.nicho || "—"}>
+                          <TableCell className="text-sm text-muted-foreground bg-background group-hover:bg-muted truncate w-[130px]" title={lead.nicho || "—"}>
                             {lead.nicho || "—"}
                           </TableCell>
-                          <TableCell className="bg-background group-hover:bg-transparent">
+                          <TableCell className="bg-background group-hover:bg-muted">
                             <Badge className={getPriorityColor(lead.prioridade)}>
                               {lead.prioridade || "média"}
                             </Badge>
                           </TableCell>
-                          <TableCell className="bg-background group-hover:bg-transparent">
+                          <TableCell className="bg-background group-hover:bg-muted">
                             <div className="flex items-center gap-1">
                               {[1, 2, 3].map((i) => (
                                 <Flame
@@ -481,50 +481,50 @@ export function LeadsKanbanPage() {
                               ))}
                             </div>
                           </TableCell>
-                          <TableCell className="text-sm text-muted-foreground tabular-nums bg-background group-hover:bg-transparent text-center">
+                          <TableCell className="text-sm text-muted-foreground tabular-nums bg-background group-hover:bg-muted text-center">
                             {cadence ? String(cadence) : "—"}
                           </TableCell>
-                          <TableCell className="bg-background group-hover:bg-transparent">
+                          <TableCell className="bg-background group-hover:bg-muted">
                             <Badge variant="outline" className="text-xs">{getLifecycleDays(lead.created_at)} dias</Badge>
                           </TableCell>
-                          <TableCell className="bg-background group-hover:bg-transparent text-sm font-medium">
+                          <TableCell className="bg-background group-hover:bg-muted text-sm font-medium">
                             {typeof lead.value === "number" ? `R$ ${lead.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : "—"}
                           </TableCell>
-                          <TableCell className="bg-background group-hover:bg-transparent text-sm truncate w-[130px]" title={lead.source || "—"}>
+                          <TableCell className="bg-background group-hover:bg-muted text-sm truncate w-[130px]" title={lead.source || "—"}>
                             {lead.source || "—"}
                           </TableCell>
-                          <TableCell className="bg-background group-hover:bg-transparent text-sm truncate w-[130px]" title={cidade}>
+                          <TableCell className="bg-background group-hover:bg-muted text-sm truncate w-[130px]" title={cidade}>
                             {cidade}
                           </TableCell>
-                          <TableCell className="bg-background group-hover:bg-transparent text-sm capitalize">
+                          <TableCell className="bg-background group-hover:bg-muted text-sm capitalize">
                             {lead.product_service || "—"}
                           </TableCell>
-                          <TableCell className="bg-background group-hover:bg-transparent text-sm">
+                          <TableCell className="bg-background group-hover:bg-muted text-sm">
                             {lead.cpf_cnpj || "—"}
                           </TableCell>
-                          <TableCell className="bg-background group-hover:bg-transparent text-sm capitalize">
+                          <TableCell className="bg-background group-hover:bg-muted text-sm capitalize">
                             {lead.contact_origin?.replace("_", " ") || "—"}
                           </TableCell>
-                          <TableCell className="bg-background group-hover:bg-transparent text-sm capitalize">
+                          <TableCell className="bg-background group-hover:bg-muted text-sm capitalize">
                             {lead.gmn_status?.replace("_", " ") || "—"}
                           </TableCell>
-                          <TableCell className="bg-background group-hover:bg-transparent text-sm capitalize">
+                          <TableCell className="bg-background group-hover:bg-muted text-sm capitalize">
                             {lead.google_ads_level?.replace("_", " ") || "—"}
                           </TableCell>
-                          <TableCell className="bg-background group-hover:bg-transparent text-sm capitalize">
+                          <TableCell className="bg-background group-hover:bg-muted text-sm capitalize">
                             {lead.meta_ads_level?.replace("_", " ") || "—"}
                           </TableCell>
-                          <TableCell className="bg-background group-hover:bg-transparent text-sm capitalize">
+                          <TableCell className="bg-background group-hover:bg-muted text-sm capitalize">
                             {lead.social_media_status?.replace("_", " ") || "—"}
                           </TableCell>
-                          <TableCell className="bg-background group-hover:bg-transparent">
+                          <TableCell className="bg-background group-hover:bg-muted">
                             {st.concluida ? (
                               <Badge className="bg-emerald-600 hover:bg-emerald-700 text-[10px]">Pré-qualificado</Badge>
                             ) : (
                               <Badge variant="outline" className="text-[10px]">Pendente</Badge>
                             )}
                           </TableCell>
-                          <TableCell className="sticky right-0 z-10 text-right bg-background group-hover:bg-muted/50 border-l shadow-[-4px_0_4px_rgba(0,0,0,0.05)]">
+                          <TableCell className="sticky right-0 z-10 text-right bg-background group-hover:bg-muted border-l shadow-[-4px_0_4px_rgba(0,0,0,0.05)]">
                             <div className="flex justify-end gap-2">
                               <Button variant="outline" size="sm" onClick={() => openPreQual(lead)} className="bg-background h-8 text-xs">
                                 {st.concluida ? "Editar" : "Pré-qualificar"}

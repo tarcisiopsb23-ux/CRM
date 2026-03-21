@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useSuppliers } from "@/hooks/useSuppliers";
 import { supabase } from "@/lib/supabase";
+import { useIntegration, getDriveFoldersFromOrganizationSettings, useOrganizationSettings } from "@/hooks/useSettings";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -25,6 +26,8 @@ import type { Supplier, SupplierExpense } from "@/types/crm";
 import { formatBRL, formatCpfCnpj, formatPhoneBR } from "@/lib/formatters";
 import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import type { N8nConfig } from "@/types/settings";
+import { createDriveFolder } from "@/lib/driveDocuments";
 
 const SUPPLIER_CATEGORIES = [
   "Serviços Terceirizados",
@@ -46,6 +49,10 @@ const SUPPLIER_CATEGORIES = [
 export default function SuppliersPage() {
   const organizationId = useOrganization();
   const { data: suppliers = [], isLoading, create, update, remove } = useSuppliers(organizationId);
+  const orgSettings = useOrganizationSettings(organizationId);
+  const driveFolders = useMemo(() => getDriveFoldersFromOrganizationSettings(orgSettings.data), [orgSettings.data]);
+  const { data: n8nIntegration } = useIntegration(organizationId, "n8n");
+  const n8nConfig = (n8nIntegration as { config?: N8nConfig } | null)?.config;
   const [modalOpen, setModalOpen] = useState(false);
   const [searchingCep, setSearchingCep] = useState(false);
   const [editing, setEditing] = useState<Supplier | null>(null);
@@ -165,7 +172,30 @@ export default function SuppliersPage() {
       if (editing) {
         await update.mutateAsync({ ...form, id: editing.id } as Partial<Supplier> & { id: string });
       } else {
-        await create.mutateAsync({ ...form, name: form.name! });
+        const created = await create.mutateAsync({ ...form, name: form.name! });
+        const parentFolderId = driveFolders.suppliers?.trim() || "";
+        const currentMeta = (created.metadata ?? {}) as Record<string, unknown>;
+        const existingFolder = String((currentMeta.drive_folder ?? currentMeta.drive_folder_url ?? "") as string).trim();
+        if (!existingFolder && parentFolderId && n8nConfig) {
+          try {
+            const folder = await createDriveFolder({
+              config: n8nConfig,
+              parentFolderId,
+              name: created.name.trim(),
+            });
+            const updatedSupplier = await update.mutateAsync({
+              id: created.id,
+              metadata: { ...currentMeta, drive_folder: folder.id },
+            });
+            setViewing(updatedSupplier);
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : "Erro ao criar pasta no Drive";
+            toast.error(msg);
+            setViewing(created);
+          }
+        } else {
+          setViewing(created);
+        }
       }
       setModalOpen(false);
     } catch (err) {
@@ -329,11 +359,13 @@ export default function SuppliersPage() {
                     return v || null;
                   })()}
                   canEdit
-                  allowCreateFolder={false}
+                  allowCreateFolder
+                  createFolderParentValue={driveFolders.suppliers}
+                  createFolderName={(viewing.name || "Fornecedor").trim()}
                   onSetFolderValue={async (next) => {
                     const current = (viewing.metadata ?? {}) as Record<string, unknown>;
-                    await update.mutateAsync({ id: viewing.id, metadata: { ...current, drive_folder: next || null } });
-                    setViewing({ ...viewing, metadata: { ...current, drive_folder: next || null } });
+                    const updatedSupplier = await update.mutateAsync({ id: viewing.id, metadata: { ...current, drive_folder: next || null } });
+                    setViewing(updatedSupplier);
                   }}
                 />
               </TabsContent>

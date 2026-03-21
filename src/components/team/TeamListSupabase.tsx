@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,12 +10,14 @@ import type { TeamMemberRow } from "@/hooks/useTeams";
 import type { ProfileRow } from "@/hooks/useProfiles";
 import { Plus, Pencil, Trash2, UserPlus, UserMinus } from "lucide-react";
 
+import { Switch } from "@/components/ui/switch";
+
 interface Props {
   teams: TeamRow[];
   profiles: ProfileRow[];
   members: TeamMemberRow[];
-  onCreate: (name: string) => void;
-  onUpdate: (id: string, name: string) => void;
+  onCreate: (input: { name: string; type: 'comercial' | 'operacional'; is_portfolio: boolean }) => void;
+  onUpdate: (id: string, input: { name: string; type: 'comercial' | 'operacional'; is_portfolio: boolean }) => void;
   onDelete: (id: string) => void;
   onAddMember?: (teamId: string, profileId: string) => void;
   onRemoveMember?: (teamId: string, profileId: string) => void;
@@ -44,6 +46,9 @@ export function TeamListSupabase({
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<TeamRow | null>(null);
   const [name, setName] = useState("");
+  const [type, setType] = useState<'comercial' | 'operacional'>('operacional');
+  const [isPortfolio, setIsPortfolio] = useState(false);
+  const [leadId, setLeadId] = useState<string | null>(null);
   const [memberModal, setMemberModal] = useState<TeamRow | null>(null);
   const [selectedProfile, setSelectedProfile] = useState<string>("");
 
@@ -56,12 +61,18 @@ export function TeamListSupabase({
     if (!allowCreate) return;
     setEditing(null);
     setName("");
+    setType('operacional');
+    setIsPortfolio(false);
+    setLeadId(null);
     setFormOpen(true);
   };
   const openEdit = (t: TeamRow) => {
     if (!allowEdit) return;
     setEditing(t);
     setName(t.name);
+    setType(t.type);
+    setIsPortfolio(t.is_portfolio);
+    setLeadId(t.lead_id || null);
     setFormOpen(true);
   };
 
@@ -69,10 +80,18 @@ export function TeamListSupabase({
     if (editing && !allowEdit) return;
     if (!editing && !allowCreate) return;
     if (!name.trim()) return;
+    
+    const payload = { 
+      name: name.trim(), 
+      type, 
+      is_portfolio: type === 'comercial' ? isPortfolio : false,
+      lead_id: leadId
+    };
+
     if (editing) {
-      onUpdate(editing.id, name.trim());
+      onUpdate(editing.id, payload);
     } else {
-      onCreate(name.trim());
+      onCreate(payload);
     }
     setFormOpen(false);
   };
@@ -80,9 +99,16 @@ export function TeamListSupabase({
   const teamMembers = (teamId: string) =>
     members.filter((m) => m.team_id === teamId).map((m) => profiles.find((p) => p.id === m.profile_id)).filter(Boolean) as ProfileRow[];
 
-  const profilesNotInTeam = (teamId: string) => {
-    const inTeam = new Set(members.filter((m) => m.team_id === teamId).map((m) => m.profile_id));
-    return profiles.filter((p) => !inTeam.has(p.id));
+  const profilesNotInAnyTeam = useMemo(() => {
+    const membersSet = new Set(members.map((m) => m.profile_id));
+    return profiles.filter((p) => !membersSet.has(p.id));
+  }, [profiles, members]);
+
+  const profilesNotInThisTeam = (teamId: string) => {
+    const inThisTeam = new Set(members.filter((m) => m.team_id === teamId).map((m) => m.profile_id));
+    // Regra: se o colaborador já estiver em QUALQUER outra equipe, ele não pode ser selecionado
+    const inOtherTeams = new Set(members.filter((m) => m.team_id !== teamId).map((m) => m.profile_id));
+    return profiles.filter((p) => !inThisTeam.has(p.id) && !inOtherTeams.has(p.id));
   };
 
   if (loading) {
@@ -105,7 +131,19 @@ export function TeamListSupabase({
             <Card key={team.id}>
               <CardContent className="p-5">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-display font-semibold text-foreground">{team.name}</h3>
+                  <div className="space-y-1">
+                    <h3 className="font-display font-semibold text-foreground">{team.name}</h3>
+                    <div className="flex gap-1.5">
+                      <Badge variant="secondary" className="text-[10px] uppercase">
+                        {team.type}
+                      </Badge>
+                      {team.is_portfolio && (
+                        <Badge className="text-[10px] uppercase bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-none">
+                          Carteira
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
                   <div className="flex gap-1">
                     <Button variant="ghost" size="icon" onClick={() => openEdit(team)} disabled={!allowEdit}>
                       <Pencil className="h-4 w-4" />
@@ -166,10 +204,75 @@ export function TeamListSupabase({
               </Button>
             </div>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label>Nome</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Comercial" />
+          <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-4">
+              <div>
+                <Label>Nome</Label>
+                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Comercial" />
+              </div>
+              <div>
+                <Label>Tipo de Equipe</Label>
+                <Select value={type} onValueChange={(v: any) => setType(v)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="operacional">Operacional</SelectItem>
+                    <SelectItem value="comercial">Comercial</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Responsável pela Equipe</Label>
+                <Select value={leadId || "none"} onValueChange={(v) => setLeadId(v === "none" ? null : v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione um responsável" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Nenhum responsável</SelectItem>
+                    {profiles
+                      .filter(p => {
+                        // 1. Filtrar por role (admin/owner)
+                        const isAdminOrOwner = p.role === 'admin' || p.role === 'owner';
+                        if (!isAdminOrOwner) return false;
+
+                        // 2. Regra: se o colaborador já estiver em OUTRA equipe (como membro ou líder), não pode ser selecionado
+                        // (Permitir se for da equipe que estamos editando no momento)
+                        const isInOtherTeam = members.some(m => m.profile_id === p.id && m.team_id !== editing?.id);
+                        if (isInOtherTeam) return false;
+
+                        return true;
+                      })
+                      .map(p => (
+                        <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>
+                      ))
+                    }
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-4 border-l pl-6">
+              {type === 'comercial' ? (
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label>Gerenciar Carteira</Label>
+                      <p className="text-[10px] text-muted-foreground">Esta equipe gerencia uma carteira de clientes.</p>
+                    </div>
+                    <Switch 
+                      checked={isPortfolio} 
+                      onCheckedChange={setIsPortfolio}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-xs text-muted-foreground text-center italic">
+                    Equipes operacionais não podem ser vinculadas a carteiras de clientes.
+                  </p>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -210,7 +313,7 @@ export function TeamListSupabase({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">Selecione um colaborador</SelectItem>
-                  {profilesNotInTeam(memberModal.id).map((p) => (
+                  {profilesNotInThisTeam(memberModal.id).map((p) => (
                     <SelectItem key={p.id} value={p.id}>
                       {p.full_name} ({p.email})
                     </SelectItem>

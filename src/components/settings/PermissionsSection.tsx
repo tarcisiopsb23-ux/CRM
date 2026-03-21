@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { SettingsSection } from "./SettingsSection";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useProfiles } from "@/hooks/useProfiles";
@@ -43,6 +43,7 @@ const MODULE_VIEWS: Partial<Record<PermissionModule, Array<{ id: string; label: 
     { id: "teams", label: "Equipes" },
     { id: "payroll", label: "Folha de Pagamento" },
     { id: "timeclock", label: "Controle de Ponto" },
+    { id: "timeclock_edit", label: "Editar/Excluir Registros de Ponto" },
   ],
   settings: [
     { id: "permissions", label: "Cargos e Permissões" },
@@ -174,7 +175,7 @@ export function PermissionsSection() {
     setSelectedCargo(cargoOptions[0]);
   }, [accessScope, cargoOptions, selectedCargo]);
 
-  const { data: permissions = [], isLoading, upsert } = useUserPermissions(
+  const { data: permissions = [], isLoading, upsert, remove: removeUserPerm } = useUserPermissions(
     organizationId,
     selectedUserId
   );
@@ -324,6 +325,21 @@ export function PermissionsSection() {
         can_delete: isOwner ? true : (current?.can_delete ?? false),
       });
       await jobTitlePerms.upsert.mutateAsync({ module, ...next });
+      await clearUserOverridesForCargo(module);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Erro ao atualizar permissões");
+    }
+  };
+
+  const handleResetModule = async (module: PermissionModule) => {
+    try {
+      if (accessScope === "user") {
+        if (!selectedUserId) return;
+        await removeUserPerm.mutateAsync({ module });
+        return;
+      }
+      if (!selectedCargo) return;
+      await jobTitlePerms.remove.mutateAsync({ module });
       await clearUserOverridesForCargo(module);
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Erro ao atualizar permissões");
@@ -646,12 +662,12 @@ export function PermissionsSection() {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b">
-                          <th className="sticky top-0 z-10 bg-muted/50 text-left py-3 px-4 font-medium">Módulo</th>
-                          <th className="sticky top-0 z-10 bg-muted/50 text-center py-3 px-3">{PERM_LABELS.can_view}</th>
-                          <th className="sticky top-0 z-10 bg-muted/50 text-center py-3 px-3">{PERM_LABELS.can_create}</th>
-                          <th className="sticky top-0 z-10 bg-muted/50 text-center py-3 px-3">{PERM_LABELS.can_edit}</th>
-                          <th className="sticky top-0 z-10 bg-muted/50 text-center py-3 px-3">{PERM_LABELS.can_delete}</th>
-                          <th className="sticky top-0 z-10 bg-muted/50 text-right py-3 px-4 font-medium">Ação</th>
+                          <th className="sticky top-0 z-30 bg-muted text-left py-3 px-4 font-medium border-b shadow-sm">Módulo</th>
+                          <th className="sticky top-0 z-30 bg-muted text-center py-3 px-3 border-b shadow-sm">{PERM_LABELS.can_view}</th>
+                          <th className="sticky top-0 z-30 bg-muted text-center py-3 px-3 border-b shadow-sm">{PERM_LABELS.can_create}</th>
+                          <th className="sticky top-0 z-30 bg-muted text-center py-3 px-3 border-b shadow-sm">{PERM_LABELS.can_edit}</th>
+                          <th className="sticky top-0 z-30 bg-muted text-center py-3 px-3 border-b shadow-sm">{PERM_LABELS.can_delete}</th>
+                          <th className="sticky top-0 z-30 bg-muted text-right py-3 px-4 font-medium border-b shadow-sm">Ação</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -679,8 +695,8 @@ export function PermissionsSection() {
                           };
 
                           return (
-                            <>
-                              <tr key={m.id} className="border-b hover:bg-muted/30">
+                            <React.Fragment key={m.id}>
+                              <tr className="border-b hover:bg-muted/30">
                                 <td className="py-2 px-4 font-medium">{m.label}</td>
                                 {(["can_view", "can_create", "can_edit", "can_delete"] as const).map((field) => (
                                   <td key={field} className="py-2 px-3 text-center">
@@ -692,14 +708,24 @@ export function PermissionsSection() {
                                   </td>
                                 ))}
                                 <td className="py-2 px-4 text-right">
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => handleMarkAllInModule(m.id)}
-                                    disabled={disabled}
-                                  >
-                                    Marcar tudo
-                                  </Button>
+                                  <div className="flex justify-end gap-2">
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => handleMarkAllInModule(m.id)}
+                                      disabled={disabled}
+                                    >
+                                      Marcar tudo
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => handleResetModule(m.id)}
+                                      disabled={!flags || disabled}
+                                    >
+                                      Resetar
+                                    </Button>
+                                  </div>
                                 </td>
                               </tr>
                               {views.length > 0 && (
@@ -711,12 +737,12 @@ export function PermissionsSection() {
                                         <table className="w-full text-xs">
                                           <thead>
                                             <tr className="border-b">
-                                              <th className="sticky top-0 z-10 bg-muted/30 text-left py-2 pr-3 font-medium">Janela/View</th>
-                                              <th className="sticky top-0 z-10 bg-muted/30 text-center py-2 px-2">{PERM_LABELS.can_view}</th>
-                                              <th className="sticky top-0 z-10 bg-muted/30 text-center py-2 px-2">{PERM_LABELS.can_create}</th>
-                                              <th className="sticky top-0 z-10 bg-muted/30 text-center py-2 px-2">{PERM_LABELS.can_edit}</th>
-                                              <th className="sticky top-0 z-10 bg-muted/30 text-center py-2 px-2">{PERM_LABELS.can_delete}</th>
-                                              <th className="sticky top-0 z-10 bg-muted/30 text-right py-2 pl-3 font-medium">Ações</th>
+                                              <th className="sticky top-0 z-20 bg-muted text-left py-2 pr-3 font-medium border-b">Janela/View</th>
+                                              <th className="sticky top-0 z-20 bg-muted text-center py-2 px-2 border-b">{PERM_LABELS.can_view}</th>
+                                              <th className="sticky top-0 z-20 bg-muted text-center py-2 px-2 border-b">{PERM_LABELS.can_create}</th>
+                                              <th className="sticky top-0 z-20 bg-muted text-center py-2 px-2 border-b">{PERM_LABELS.can_edit}</th>
+                                              <th className="sticky top-0 z-20 bg-muted text-center py-2 px-2 border-b">{PERM_LABELS.can_delete}</th>
+                                              <th className="sticky top-0 z-20 bg-muted text-right py-2 pl-3 font-medium border-b">Ações</th>
                                             </tr>
                                           </thead>
                                           <tbody>
@@ -766,7 +792,7 @@ export function PermissionsSection() {
                                   </td>
                                 </tr>
                               )}
-                            </>
+                            </React.Fragment>
                           );
                         })}
                       </tbody>

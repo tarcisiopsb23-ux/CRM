@@ -23,6 +23,7 @@ export default tseslint.config(
       "react-hooks/set-state-in-effect": "off",
       "react-refresh/only-export-components": "off",
       "@typescript-eslint/no-unused-vars": "off",
+      "@typescript-eslint/no-explicit-any": "off",
     },
   },
 );

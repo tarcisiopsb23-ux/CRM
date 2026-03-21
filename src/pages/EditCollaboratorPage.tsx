@@ -100,10 +100,29 @@ export function EditCollaboratorPage() {
     }
   }, [profile]);
 
+  const EXCLUSIVE_TITLES = ["CEO", "CMO", "COO", "CFO", "VP"];
+
   const jobTitleOptions = useMemo(() => {
     const catalogTitles = (catalog.data ?? []).map((r) => r.job_title);
-    return getJobTitleOptions({ extra: catalogTitles, includeDefaults: false });
-  }, [catalog.data]);
+    const options = getJobTitleOptions({ extra: catalogTitles, includeDefaults: false });
+
+    // Check which exclusive titles are already taken by OTHER profiles
+    const takenTitles = new Set(
+      profiles
+        .filter(p => p.id !== id) // Exclude current user
+        .map(p => {
+          const meta = (p.metadata ?? {}) as Record<string, any>;
+          return (meta.job_title || meta.cargo || "").trim().toUpperCase();
+        })
+        .filter(t => EXCLUSIVE_TITLES.includes(t))
+    );
+
+    return options.map(title => {
+      const upper = title.toUpperCase();
+      const isDisabled = EXCLUSIVE_TITLES.includes(upper) && takenTitles.has(upper);
+      return { value: title, label: isDisabled ? `${title} (Já ocupado por outro)` : title, disabled: isDisabled };
+    });
+  }, [catalog.data, profiles, id]);
 
   const handleCepSearch = async (cep: string) => {
     const cleanCep = cep.replace(/\D/g, "");
@@ -333,14 +352,21 @@ export function EditCollaboratorPage() {
               </div>
               <div className="space-y-2">
                 <Label>Cargo</Label>
-                <Input
+                <Select
                   value={extraForm.job_title}
-                  onChange={e => setExtraForm(f => ({ ...f, job_title: e.target.value }))}
-                  list="job_titles"
-                />
-                <datalist id="job_titles">
-                  {jobTitleOptions.map(opt => <option key={opt} value={opt} />)}
-                </datalist>
+                  onValueChange={v => setExtraForm(f => ({ ...f, job_title: v }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o cargo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {jobTitleOptions.map(opt => (
+                      <SelectItem key={opt.value} value={opt.value} disabled={opt.disabled}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label>Salário Base (R$)</Label>

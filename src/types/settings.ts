@@ -3,7 +3,14 @@ export type IntegrationType =
   | "webhooks"
   | "n8n"
   | "whatsapp"
-  | "google_calendar";
+  | "google_calendar"
+  | "resend";
+
+export interface ResendConfig {
+  apiKey?: string;
+  fromEmail?: string;
+  fromName?: string;
+}
 
 export interface ApiKeyItem {
   id: string;
@@ -26,6 +33,11 @@ export interface N8nConfig {
   baseUrl?: string;
   apiKey?: string;
   webhookPath?: string;
+  leadWebhookUrl?: string;
+  clientWebhookUrl?: string;
+  financialWebhookUrl?: string;
+  marketingWebhookUrl?: string;
+  notificationsWebhookUrl?: string;
 }
 
 export interface WhatsAppConfig {
@@ -46,7 +58,8 @@ export type IntegrationConfig =
   | WebhookConfig
   | N8nConfig
   | WhatsAppConfig
-  | GoogleCalendarConfig;
+  | GoogleCalendarConfig
+  | ResendConfig;
 
 export interface OrganizationIntegration {
   id: string;

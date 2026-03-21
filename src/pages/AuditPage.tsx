@@ -23,6 +23,106 @@ const ACTION_LABELS: Record<string, string> = {
   DELETE: "Exclusão",
 };
 
+// Campos ignorados na descrição (técnicos/sem valor semântico)
+const IGNORED_FIELDS = new Set([
+  "id", "organization_id", "created_at", "updated_at", "metadata",
+  "lead_id", "client_id", "supplier_id", "record_id", "changed_by",
+]);
+
+// Campos monetários
+const CURRENCY_FIELDS = new Set(["value", "revenue", "salary", "target_value", "current_value"]);
+
+// Mapa de nomes de campo → label legível
+const FIELD_LABELS: Record<string, string> = {
+  name: "Nome", email: "E-mail", phone: "Telefone", niche: "Nicho",
+  origin: "Origem", address: "Endereço", company: "Empresa", document: "Documento",
+  status: "Status", contract_status: "Status do contrato",
+  contract_start: "Início do contrato", contract_end: "Fim do contrato",
+  value: "Valor", due_date: "Vencimento", paid_at: "Data de pagamento",
+  description: "Descrição", category: "Categoria", platform: "Plataforma",
+  title: "Título", start_at: "Início", end_at: "Fim", type: "Tipo",
+  full_name: "Nome completo", role: "Perfil", job_title: "Cargo",
+  department: "Departamento", salary: "Salário", hired_at: "Admissão",
+  target_value: "Meta", current_value: "Valor atual",
+  period_start: "Início período", period_end: "Fim período",
+  responsible_id: "Responsável", priority: "Prioridade",
+  etapa_kanban: "Etapa", assigned_to: "Atribuído a", prioridade: "Prioridade",
+  notes: "Observações", portfolio_team_id: "Carteira",
+};
+
+// Mapa de valores conhecidos → texto legível
+const VALUE_LABELS: Record<string, Record<string, string>> = {
+  status: { pago: "Pago", pendente: "Pendente", atrasado: "Atrasado", cancelado: "Cancelado", ativo: "Ativo" },
+  contract_status: { ativo: "Ativo", cancelado: "Cancelado", suspenso: "Suspenso", encerrado: "Encerrado" },
+  etapa_kanban: {
+    leads_recebidos: "Leads Recebidos", qualificados: "Qualificados",
+    reuniao_agendada: "Reunião Agendada", emissao_contrato: "Negociações",
+    efetivados: "Efetivados", desqualificado: "Desqualificado",
+  },
+  role: { admin: "Administrador", manager: "Gestor", member: "Membro", viewer: "Visualizador" },
+  prioridade: { alta: "Alta", media: "Média", baixa: "Baixa", urgente: "Urgente" },
+  priority: { high: "Alta", medium: "Média", low: "Baixa" },
+  type: { meeting: "Reunião", task: "Tarefa", call: "Ligação", other: "Outro" },
+};
+
+function fmtVal(field: string, val: unknown): string {
+  if (val === null || val === undefined || val === "") return "vazio";
+  const str = String(val);
+  if (VALUE_LABELS[field]?.[str]) return VALUE_LABELS[field][str];
+  if (CURRENCY_FIELDS.has(field)) {
+    const n = Number(val);
+    if (!isNaN(n)) return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  }
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+    try { return new Date(str).toLocaleDateString("pt-BR"); } catch { /* noop */ }
+  }
+  return str.length > 40 ? str.slice(0, 40) + "…" : str;
+}
+
+function recordLabel(rec: Record<string, unknown>): string {
+  return String(rec.name ?? rec.title ?? rec.full_name ?? rec.email ?? rec.description ?? "").trim();
+}
+
+function formatChangeSummary(action: string, changes: unknown): string {
+  if (!changes || typeof changes !== "object") return "-";
+
+  const c = changes as { new?: Record<string, unknown>; old?: Record<string, unknown> };
+
+  if (action === "INSERT") {
+    const rec = c.new ?? (changes as Record<string, unknown>);
+    const label = recordLabel(rec);
+    return label ? `Criou "${label}"` : "Novo registro criado";
+  }
+
+  if (action === "DELETE") {
+    const rec = c.old ?? (changes as Record<string, unknown>);
+    const label = recordLabel(rec);
+    return label ? `Removeu "${label}"` : "Registro excluído";
+  }
+
+  // UPDATE — comparar old vs new, ignorar campos técnicos
+  if (c.new && c.old) {
+    const recLabel = recordLabel(c.old);
+    const changed = Object.keys(c.new)
+      .filter((k) => !IGNORED_FIELDS.has(k) && JSON.stringify(c.new![k]) !== JSON.stringify(c.old![k]));
+
+    if (changed.length === 0) return recLabel ? `Atualizou "${recLabel}"` : "Atualização sem mudanças visíveis";
+
+    const parts = changed.slice(0, 2).map((k) => {
+      const fieldLabel = FIELD_LABELS[k] ?? k;
+      const oldVal = fmtVal(k, c.old![k]);
+      const newVal = fmtVal(k, c.new![k]);
+      return `${fieldLabel}: "${oldVal}" → "${newVal}"`;
+    });
+
+    const suffix = changed.length > 2 ? ` (+${changed.length - 2} campo${changed.length - 2 > 1 ? "s" : ""})` : "";
+    const context = recLabel ? ` em "${recLabel}"` : "";
+    return parts.join(" | ") + suffix + context;
+  }
+
+  return "-";
+}
+
 const TABLE_LABELS: Record<string, string> = {
   clients: "Clientes",
   suppliers: "Fornecedores",
@@ -238,13 +338,13 @@ export default function AuditPage() {
             <div className="rounded-lg border shadow-sm overflow-hidden bg-background">
               <div className="overflow-x-auto max-h-[600px] overflow-y-auto scrollbar-thin scrollbar-thumb-muted-foreground/20 hover:scrollbar-thumb-muted-foreground/40">
                 <table className="w-full text-sm border-separate border-spacing-0">
-                  <thead className="bg-muted/50 sticky top-0 z-10">
+                  <thead className="bg-muted sticky top-0 z-20 shadow-sm">
                     <tr>
-                      <th className="text-left p-4 font-bold text-muted-foreground uppercase text-[10px] border-b bg-muted/50">Data/Hora</th>
-                      <th className="text-left p-4 font-bold text-muted-foreground uppercase text-[10px] border-b bg-muted/50">Módulo</th>
-                      <th className="text-left p-4 font-bold text-muted-foreground uppercase text-[10px] border-b bg-muted/50">Ação</th>
-                      <th className="text-left p-4 font-bold text-muted-foreground uppercase text-[10px] border-b bg-muted/50">Responsável</th>
-                      <th className="text-left p-4 font-bold text-muted-foreground uppercase text-[10px] border-b bg-muted/50">Alterações</th>
+                      <th className="text-left p-4 font-bold text-muted-foreground uppercase text-[10px] border-b bg-muted">Data/Hora</th>
+                      <th className="text-left p-4 font-bold text-muted-foreground uppercase text-[10px] border-b bg-muted">Módulo</th>
+                      <th className="text-left p-4 font-bold text-muted-foreground uppercase text-[10px] border-b bg-muted">Ação</th>
+                      <th className="text-left p-4 font-bold text-muted-foreground uppercase text-[10px] border-b bg-muted">Responsável</th>
+                      <th className="text-left p-4 font-bold text-muted-foreground uppercase text-[10px] border-b bg-muted">Alterações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
@@ -290,11 +390,9 @@ export default function AuditPage() {
                         </td>
                         <td className="p-4 max-w-md">
                           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <FileText className="h-3.5 w-3.5" />
+                            <FileText className="h-3.5 w-3.5 shrink-0" />
                             <span className="truncate" title={JSON.stringify(log.changes)}>
-                              {log.changes && typeof log.changes === "object"
-                                ? Object.keys((log.changes as { new?: object; old?: object }).new || (log.changes as { new?: object; old?: object }).old || log.changes).join(", ")
-                                : "-"}
+                              {formatChangeSummary(log.action ?? "", log.changes)}
                             </span>
                           </div>
                         </td>

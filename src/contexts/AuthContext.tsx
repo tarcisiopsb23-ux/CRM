@@ -62,38 +62,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // 3. Se ainda não encontrou, tenta criar o perfil (fluxo simplificado)
-      console.log("[Auth] Perfil não encontrado, criando novo perfil...");
+      console.log("[Auth] Perfil não encontrado, tentando criar organização e perfil...");
       const orgSlug = user.email?.split('@')[0]?.replace(/[^a-z0-9]/g, '') || 'org';
       const uniqueSlug = `${orgSlug}-${uid.slice(0, 5)}`;
       
+      let orgId: string | undefined;
+
+      // Tenta inserir a organização
       const { data: org, error: orgError } = await supabase
         .from('organizations')
         .insert({ name: `${orgSlug.toUpperCase()} Org`, slug: uniqueSlug })
         .select('id')
-        .single();
+        .maybeSingle();
 
-      const orgId = org?.id;
-      if (!orgId && !orgError?.message.includes("duplicate")) throw new Error("Falha ao vincular organização");
+      if (org?.id) {
+        orgId = org.id;
+      } else if (orgError?.message.includes("duplicate")) {
+        // Se já existe uma organização com esse slug, tenta buscar o ID dela
+        const { data: existingOrg } = await supabase
+          .from('organizations')
+          .select('id')
+          .eq('slug', uniqueSlug)
+          .maybeSingle();
+        orgId = existingOrg?.id;
+      }
 
-      const { data: newProfile, error: profileError } = await supabase
+      if (!orgId) {
+        console.error("[Auth] Erro ao criar/buscar organização:", orgError);
+        throw new Error(`Falha ao vincular organização: ${orgError?.message || 'Erro desconhecido'}`);
+      }
+
+      // 4. Cria o perfil vinculado
+      console.log("[Auth] Criando perfil vinculado à organização:", orgId);
+      const { data: newProfile, error: createError } = await supabase
         .from('profiles')
         .insert({
           id: uid,
-          organization_id: orgId || (await supabase.from('organizations').select('id').eq('slug', uniqueSlug).single()).data?.id,
-          full_name: user.user_metadata?.full_name || orgSlug,
+          organization_id: orgId,
+          full_name: user.user_metadata?.full_name || user.email?.split('@')[0],
           email: user.email!,
           role: 'owner'
         })
-        .select('*')
-        .single();
+        .select('*, organization:organizations(*)')
+        .maybeSingle();
 
-      if (newProfile) {
-        setProfile(newProfile as Profile);
-        setError(null);
-        return newProfile as Profile;
+      if (createError || !newProfile) {
+        console.error("[Auth] Erro ao criar perfil:", createError);
+        throw new Error(`Falha ao criar perfil de usuário: ${createError?.message || 'Erro desconhecido'}`);
       }
 
-      throw new Error("Não foi possível carregar seu perfil.");
+      console.log("[Auth] Novo perfil criado com sucesso.");
+      setProfile(newProfile as Profile);
+      setError(null);
+      return newProfile as Profile;
     } catch (err) {
       const error = err as Error;
       console.error("[Auth] Erro no carregamento do perfil:", error.message);
@@ -177,6 +198,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       subscription.unsubscribe();
     };
   }, [fetchProfile]);
+
+  // ── Single-session enforcement via Realtime ──────────────────────────────
+  // Subscribe to the user_sessions row. When another device logs in, the
+  // edge function bumps force_logout_at with a new session_token. If the
+  // token stored in sessionStorage doesn't match, this session is stale and
+  // must be signed out.
+  useEffect(() => {
+    if (!user) return;
+
+    const myToken = sessionStorage.getItem("session_token");
+
+    const channel = supabase
+      .channel(`user_session_${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "user_sessions",
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          const row = payload.new as { session_token?: string } | null;
+          if (!row) return;
+          // If the token in the DB differs from ours, another device logged in
+          if (row.session_token && row.session_token !== myToken) {
+            console.log("[Auth] Sessão encerrada — login detectado em outro dispositivo.");
+            signOut();
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, signOut]);
 
   useEffect(() => {
     let timeoutId: NodeJS.Timeout;

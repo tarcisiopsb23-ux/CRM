@@ -1,6 +1,11 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { useOrganization } from "@/hooks/useOrganization";
+import { usePayrollsByProfile } from "@/hooks/usePayrolls";
+import { useRepPPunches, useTimeClockState, useRegisterPunch } from "@/hooks/useTimeClock";
+import { useTeams, useTeamMembers } from "@/hooks/useTeams";
+import { useProfiles } from "@/hooks/useProfiles";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,42 +13,152 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  Dialog, DialogContent, DialogDescription,
+  DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import {
+  ArrowLeft, Loader2, User, DollarSign, Clock,
+  CheckCircle2, AlertCircle, Calendar, LogIn, LogOut, Users,
+} from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
+import { ptBR } from "date-fns/locale";
+
+const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+const PUNCH_LABELS: Record<string, string> = {
+  entrada: "Entrada",
+  saida_intervalo: "Saída Intervalo",
+  retorno_intervalo: "Retorno Intervalo",
+  saida_final: "Saída Final",
+};
+
+const PUNCH_COLORS: Record<string, string> = {
+  entrada: "bg-emerald-100 text-emerald-700",
+  saida_intervalo: "bg-amber-100 text-amber-700",
+  retorno_intervalo: "bg-blue-100 text-blue-700",
+  saida_final: "bg-slate-100 text-slate-700",
+};
+
+type Tab = "dados" | "pagamentos" | "ponto" | "equipe";
+
+function Field({ label, value }: { label: string; value?: string | null }) {
+  return (
+    <div className="flex items-center justify-between rounded-lg border border-border p-3">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <span className="text-sm font-medium text-foreground">{value || "—"}</span>
+    </div>
+  );
+}
 
 export default function MyProfilePage() {
   const navigate = useNavigate();
-  const { user, profile, loading } = useAuth();
+  const { user, profile, loading, signOut } = useAuth();
+  const organizationId = useOrganization();
+
+  // Dados de equipe do usuário
+  const { data: teams = [] } = useTeams(organizationId);
+  const { data: teamMembers = [] } = useTeamMembers(organizationId);
+  const { data: profiles = [] } = useProfiles(organizationId);
+
+  const myTeam = useMemo(() => {
+    const membership = teamMembers.find((m) => m.profile_id === profile?.id);
+    if (!membership) return null;
+    return teams.find((t) => t.id === membership.team_id) ?? null;
+  }, [teams, teamMembers, profile?.id]);
+
+  const myTeamMembers = useMemo(() => {
+    if (!myTeam) return [];
+    return teamMembers
+      .filter((m) => m.team_id === myTeam.id)
+      .map((m) => profiles.find((p) => p.id === m.profile_id))
+      .filter(Boolean);
+  }, [myTeam, teamMembers, profiles]);
+
+  const teamLead = useMemo(() => {
+    if (!myTeam?.lead_id) return null;
+    return profiles.find((p) => p.id === myTeam.lead_id) ?? null;
+  }, [myTeam, profiles]);
+
+  const [activeTab, setActiveTab] = useState<Tab>("dados");
   const [open, setOpen] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [changing, setChanging] = useState(false);
 
+  // Admin/owner são isentos — não mostram botão de ponto
+  const isExempt = profile?.role === "owner" || profile?.role === "admin";
+
+  // Timeclock state — sabe qual batida é permitida agora
+  const { data: clockState, isLoading: clockLoading } = useTimeClockState();
+  const registerPunch = useRegisterPunch();
+
+  const nextAllowed = clockState?.next_allowed ?? [];
+  const canEnter = nextAllowed.includes("entrada");
+  const canExit  = nextAllowed.includes("saida_final");
+  const canBreak  = nextAllowed.includes("saida_intervalo");
+  const canReturn = nextAllowed.includes("retorno_intervalo");
+
+  const handlePunch = async () => {
+    // Prioridade: entrada → saida_intervalo → retorno_intervalo → saida_final
+    let type: "entrada" | "saida_intervalo" | "retorno_intervalo" | "saida_final";
+    if (canEnter)       type = "entrada";
+    else if (canBreak)  type = "saida_intervalo";
+    else if (canReturn) type = "retorno_intervalo";
+    else if (canExit)   type = "saida_final";
+    else { toast.error("Nenhuma batida permitida no momento."); return; }
+
+    try {
+      await registerPunch.mutateAsync({ type });
+      toast.success(`${PUNCH_LABELS[type]} registrada com sucesso!`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Erro ao registrar ponto");
+    }
+  };
+
+  const punchButtonLabel = () => {
+    if (clockLoading) return "Carregando...";
+    if (canEnter)  return "Registrar Entrada";
+    if (canBreak)  return "Saída Intervalo";
+    if (canReturn) return "Retorno Intervalo";
+    if (canExit)   return "Registrar Saída";
+    return "Ponto Encerrado";
+  };
+  const punchButtonVariant = canEnter ? "default" : canExit ? "destructive" : "secondary";
+  const PunchIcon = canEnter ? LogIn : LogOut;
+
+  // Payroll data for this profile
+  const { data: payrolls = [], isLoading: payrollLoading } = usePayrollsByProfile(
+    organizationId, profile?.id
+  );
+
+  // Timeclock — last 3 months
+  const fromIso = startOfMonth(subMonths(new Date(), 2)).toISOString();
+  const toIso   = endOfMonth(new Date()).toISOString();
+  const { data: punches = [], isLoading: punchLoading } = useRepPPunches({
+    organizationId: organizationId ?? undefined,
+    userId: profile?.id,
+    fromIso,
+    toIso,
+    status: "ativo",
+  });
+
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPassword || newPassword.length < 6) {
-      toast.error("Senha deve ter no mínimo 6 caracteres");
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      toast.error("As senhas não conferem");
-      return;
-    }
-
+    if (!newPassword || newPassword.length < 6) { toast.error("Senha deve ter no mínimo 6 caracteres"); return; }
+    if (newPassword !== confirmPassword) { toast.error("As senhas não conferem"); return; }
     setChanging(true);
     try {
-      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      const { data, error } = await supabase.functions.invoke("change-my-password", { body: { password: newPassword } });
       if (error) throw error;
+      if ((data as { error?: string } | null)?.error) throw new Error(String((data as any).error));
       toast.success("Senha alterada com sucesso");
       setOpen(false);
       setNewPassword("");
       setConfirmPassword("");
+      await signOut();
+      navigate("/login", { replace: true });
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Erro ao alterar senha");
     } finally {
@@ -51,59 +166,344 @@ export default function MyProfilePage() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  if (loading) return (
+    <div className="flex items-center justify-center min-h-[400px]">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  );
 
-  if (!user || !profile) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <p className="text-muted-foreground">Perfil não encontrado.</p>
-      </div>
-    );
-  }
+  // Perfil ainda carregando (auth resolveu mas profile ainda não chegou)
+  if (!user || !profile) return (
+    <div className="flex items-center justify-center min-h-[400px]">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  );
 
   const meta = (profile.metadata ?? {}) as Record<string, unknown>;
-  const jobTitle = String((meta.job_title ?? meta.cargo ?? "") as string).trim();
+  const str  = (k: string) => String((meta[k] ?? "") as string).trim() || null;
+
+  // Group punches by date
+  const punchByDate = punches.reduce<Record<string, typeof punches>>((acc, p) => {
+    const day = p.occurred_at.slice(0, 10);
+    if (!acc[day]) acc[day] = [];
+    acc[day].push(p);
+    return acc;
+  }, {});
+  const punchDays = Object.keys(punchByDate).sort((a, b) => b.localeCompare(a));
+
+  const tabs: { key: Tab; label: string; icon: React.ElementType }[] = [
+    { key: "dados",      label: "Dados Cadastrais", icon: User },
+    { key: "pagamentos", label: "Pagamentos",        icon: DollarSign },
+    { key: "ponto",      label: "Folha de Ponto",    icon: Clock },
+    { key: "equipe",     label: "Equipe",             icon: Users },
+  ];
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 p-4">
+      {/* Header */}
       <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={() => navigate("/")}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <h1 className="text-2xl font-bold">Meu cadastro</h1>
+          <div>
+            <h1 className="text-2xl font-bold">{profile.full_name}</h1>
+            <p className="text-sm text-muted-foreground">{str("job_title") ?? "Colaborador"}</p>
+          </div>
         </div>
-        <Button variant="outline" onClick={() => setOpen(true)}>
-          Alterar senha
-        </Button>
+        <div className="flex items-center gap-2">
+          {isExempt ? (
+            <span className="text-xs text-muted-foreground italic px-2">
+              Isento de registro de ponto
+            </span>
+          ) : (
+            <Button
+              size="sm"
+              variant={punchButtonVariant}
+              onClick={handlePunch}
+              disabled={clockLoading || registerPunch.isPending || (!canEnter && !canExit && !canBreak && !canReturn)}
+              className="gap-2"
+            >
+              {registerPunch.isPending
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : <PunchIcon className="h-4 w-4" />}
+              {punchButtonLabel()}
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+            Alterar senha
+          </Button>
+        </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Dados</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          <div className="flex items-center justify-between rounded border p-3">
-            <span className="text-muted-foreground">Nome</span>
-            <span className="font-medium">{profile.full_name}</span>
-          </div>
-          <div className="flex items-center justify-between rounded border p-3">
-            <span className="text-muted-foreground">E-mail</span>
-            <span className="font-medium">{profile.email}</span>
-          </div>
-          <div className="flex items-center justify-between rounded border p-3">
-            <span className="text-muted-foreground">Cargo</span>
-            <span className="font-medium">{jobTitle || "—"}</span>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Tabs */}
+      <div className="flex gap-1 bg-muted p-1 rounded-xl border border-border w-fit">
+        {tabs.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setActiveTab(key)}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
+              activeTab === key
+                ? "bg-background text-primary shadow-sm border border-border"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Icon className="h-4 w-4" /> {label}
+          </button>
+        ))}
+      </div>
 
+      {/* ── Dados Cadastrais ── */}
+      {activeTab === "dados" && (
+        <div className="space-y-4">
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-base">Informações Pessoais</CardTitle></CardHeader>
+            <CardContent className="space-y-2">
+              <Field label="Nome completo"  value={profile.full_name} />
+              <Field label="E-mail"         value={profile.email} />
+              <Field label="Telefone"       value={profile.phone} />
+              <Field label="CPF"            value={str("cpf")} />
+              <Field label="RG"             value={str("rg")} />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-base">Dados Profissionais</CardTitle></CardHeader>
+            <CardContent className="space-y-2">
+              <Field label="Cargo"          value={str("job_title")} />
+              <Field label="Departamento"   value={str("department")} />
+              <Field label="Data de admissão" value={str("hired_at") ? format(new Date(str("hired_at")!), "dd/MM/yyyy") : null} />
+              <Field label="Nível de escolaridade" value={str("education_level")} />
+              <Field label="Formação"       value={str("graduation")} />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-base">Endereço</CardTitle></CardHeader>
+            <CardContent className="space-y-2">
+              <Field label="Logradouro"     value={str("address_street")} />
+              <Field label="Cidade"         value={str("address_city")} />
+              <Field label="Estado"         value={str("address_state")} />
+              <Field label="CEP"            value={str("address_zip")} />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-base">Dados Bancários</CardTitle></CardHeader>
+            <CardContent className="space-y-2">
+              <Field label="Chave PIX"      value={str("pix_key")} />
+              <Field label="Banco"          value={str("bank_name")} />
+              <Field label="Agência"        value={str("bank_agency")} />
+              <Field label="Conta"          value={str("bank_account")} />
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* ── Pagamentos ── */}
+      {activeTab === "pagamentos" && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Histórico de Pagamentos</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {payrollLoading ? (
+              <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+            ) : payrolls.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2">
+                <DollarSign className="h-8 w-8 opacity-30" />
+                <p className="text-sm">Nenhum pagamento registrado.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-2 px-3 text-[10px] uppercase text-muted-foreground font-bold">Competência</th>
+                      <th className="text-right py-2 px-3 text-[10px] uppercase text-muted-foreground font-bold">Salário Base</th>
+                      <th className="text-right py-2 px-3 text-[10px] uppercase text-muted-foreground font-bold">Comissão</th>
+                      <th className="text-right py-2 px-3 text-[10px] uppercase text-muted-foreground font-bold">Bônus</th>
+                      <th className="text-right py-2 px-3 text-[10px] uppercase text-muted-foreground font-bold">Descontos</th>
+                      <th className="text-right py-2 px-3 text-[10px] uppercase text-muted-foreground font-bold">Total</th>
+                      <th className="text-center py-2 px-3 text-[10px] uppercase text-muted-foreground font-bold">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {payrolls.map((p) => (
+                      <tr key={p.id} className="hover:bg-muted/30 transition-colors">
+                        <td className="py-3 px-3 font-medium">
+                          {format(new Date(p.reference_date + "-01"), "MMMM yyyy", { locale: ptBR })
+                            .replace(/^\w/, c => c.toUpperCase())}
+                        </td>
+                        <td className="py-3 px-3 text-right">{fmt(p.base_salary)}</td>
+                        <td className="py-3 px-3 text-right text-emerald-600">{fmt(p.commission)}</td>
+                        <td className="py-3 px-3 text-right text-emerald-600">{fmt(p.bonus)}</td>
+                        <td className="py-3 px-3 text-right text-rose-600">-{fmt(p.discounts)}</td>
+                        <td className="py-3 px-3 text-right font-bold">{fmt(p.total_value)}</td>
+                        <td className="py-3 px-3 text-center">
+                          {p.status === "paid" ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">
+                              <CheckCircle2 className="h-3 w-3" /> Pago
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full bg-amber-100 text-amber-700">
+                              <AlertCircle className="h-3 w-3" /> Pendente
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Folha de Ponto ── */}
+      {activeTab === "ponto" && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Folha de Ponto — Últimos 3 meses</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {punchLoading ? (
+              <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+            ) : punchDays.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2">
+                <Clock className="h-8 w-8 opacity-30" />
+                <p className="text-sm">Nenhum registro de ponto encontrado.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {punchDays.map((day) => {
+                  const dayPunches = punchByDate[day].sort((a, b) =>
+                    a.occurred_at.localeCompare(b.occurred_at)
+                  );
+                  return (
+                    <div key={day} className="rounded-lg border border-border p-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span className="text-sm font-semibold text-foreground">
+                          {format(new Date(day + "T12:00:00"), "EEEE, dd 'de' MMMM", { locale: ptBR })
+                            .replace(/^\w/, c => c.toUpperCase())}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {dayPunches.map((punch) => (
+                          <div key={punch.id} className="flex items-center gap-1.5">
+                            <span className={cn("text-[10px] font-bold px-2 py-1 rounded-full", PUNCH_COLORS[punch.punch_type])}>
+                              {PUNCH_LABELS[punch.punch_type] ?? punch.punch_type}
+                            </span>
+                            <span className="text-xs text-muted-foreground font-mono">
+                              {format(new Date(punch.occurred_at), "HH:mm")}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Equipe ── */}
+      {activeTab === "equipe" && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Minha Equipe</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {!myTeam ? (
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2">
+                <Users className="h-8 w-8 opacity-30" />
+                <p className="text-sm">Você não está vinculado a nenhuma equipe.</p>
+              </div>
+            ) : (
+              <div className="space-y-5">
+                {/* Info da equipe */}
+                <div className="rounded-lg border border-border p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Nome da equipe</span>
+                    <span className="text-sm font-semibold">{myTeam.name}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Tipo</span>
+                    <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-muted capitalize">
+                      {myTeam.type}
+                    </span>
+                  </div>
+                  {myTeam.is_portfolio && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Carteira de clientes</span>
+                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Sim</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Responsável */}
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Responsável</p>
+                  {teamLead ? (
+                    <div className="flex items-center gap-3 rounded-lg border border-border p-3">
+                      <Avatar className="h-9 w-9">
+                        <AvatarImage src={teamLead.avatar_url || ""} alt={teamLead.full_name} />
+                        <AvatarFallback className="text-sm">
+                          {teamLead.full_name.split(" ").filter(Boolean).map((n) => n[0]).slice(0, 2).join("").toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{teamLead.full_name}</p>
+                        <p className="text-xs text-muted-foreground truncate">{teamLead.email}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Sem responsável definido.</p>
+                  )}
+                </div>
+
+                {/* Integrantes */}
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                    Integrantes ({myTeamMembers.length})
+                  </p>
+                  <div className="space-y-2">
+                    {myTeamMembers.map((member) => {
+                      if (!member) return null;
+                      const isMe = member.id === profile?.id;
+                      const isLead = member.id === myTeam.lead_id;
+                      const meta = (member.metadata ?? {}) as Record<string, unknown>;
+                      const cargo = String(meta.job_title ?? meta.cargo ?? "").trim();
+                      return (
+                        <div key={member.id} className="flex items-center gap-3 rounded-lg border border-border p-3">
+                          <Avatar className="h-8 w-8">
+                            <AvatarImage src={member.avatar_url || ""} alt={member.full_name} />
+                            <AvatarFallback className="text-xs">
+                              {member.full_name.split(" ").filter(Boolean).map((n) => n[0]).slice(0, 2).join("").toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-medium truncate">{member.full_name}</p>
+                              {isMe && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-semibold">Você</span>}
+                              {isLead && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">Responsável</span>}
+                            </div>
+                            {cargo && <p className="text-xs text-muted-foreground truncate">{cargo}</p>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Dialog alterar senha */}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -113,36 +513,16 @@ export default function MyProfilePage() {
           <form onSubmit={handleChangePassword} className="space-y-4">
             <div className="space-y-2">
               <Label>Nova senha</Label>
-              <Input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                minLength={6}
-                required
-              />
+              <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} minLength={6} required />
             </div>
             <div className="space-y-2">
               <Label>Confirmar senha</Label>
-              <Input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                minLength={6}
-                required
-              />
+              <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} minLength={6} required />
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={changing}>
-                Cancelar
-              </Button>
+              <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={changing}>Cancelar</Button>
               <Button type="submit" disabled={changing}>
-                {changing ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Salvando...
-                  </>
-                ) : (
-                  "Salvar senha"
-                )}
+                {changing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Salvando...</> : "Salvar senha"}
               </Button>
             </DialogFooter>
           </form>

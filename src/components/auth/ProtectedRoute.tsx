@@ -37,7 +37,7 @@ export function ProtectedRoute({
         <h2 className="text-xl font-semibold text-foreground">
           Perfil não encontrado
         </h2>
-        <p className="text-muted-foreground text-center max-w-md">
+        <div className="text-muted-foreground text-center max-w-md text-sm">
           {error ? (
             <>
               Erro ao carregar seu perfil. Isso pode ser causado por extensões do navegador (como Mapify ou Blur) bloqueando a conexão.
@@ -52,7 +52,7 @@ export function ProtectedRoute({
           ) : (
             'Seu perfil não foi carregado. Isso pode acontecer se sua conta ainda não estiver configurada.'
           )}
-        </p>
+        </div>
         <div className="flex flex-col gap-2 w-full max-w-xs">
           <Button 
             onClick={() => window.location.reload()} 

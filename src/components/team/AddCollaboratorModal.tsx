@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useOrganization } from "@/hooks/useOrganization";
+import { useProfiles } from "@/hooks/useProfiles";
 import { getJobTitleOptions } from "@/lib/jobTitles";
 import { useJobTitleCatalog } from "@/hooks/useJobTitleCatalog";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -59,10 +60,32 @@ export function AddCollaboratorModal({
   const [searchingCep, setSearchingCep] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const { data: profiles = [] } = useProfiles(organizationId);
+
+  const EXCLUSIVE_TITLES = ["CEO", "CMO", "COO", "CFO", "VP"];
+
   const jobTitleOptions = useMemo(() => {
     const catalogTitles = (catalog.data ?? []).map((r) => r.job_title);
-    return getJobTitleOptions({ extra: catalogTitles, includeDefaults: false });
-  }, [catalog.data]);
+    const options = getJobTitleOptions({ extra: catalogTitles, includeDefaults: false });
+    
+    // Check which exclusive titles are already taken
+    const takenTitles = new Set(
+      profiles
+        .map(p => {
+          const meta = (p.metadata ?? {}) as Record<string, any>;
+          return (meta.job_title || meta.cargo || "").trim().toUpperCase();
+        })
+        .filter(t => EXCLUSIVE_TITLES.includes(t))
+    );
+
+    return options.map(title => {
+      const upper = title.toUpperCase();
+      if (EXCLUSIVE_TITLES.includes(upper) && takenTitles.has(upper)) {
+        return { value: title, label: `${title} (Já ocupado)`, disabled: true };
+      }
+      return { value: title, label: title, disabled: false };
+    });
+  }, [catalog.data, profiles]);
 
   async function handleCepSearch(cep: string) {
     const cleanCep = cep.replace(/\D/g, "");
@@ -404,19 +427,18 @@ export function AddCollaboratorModal({
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="jobTitle">Cargo *</Label>
-                  <Input
-                    id="jobTitle"
-                    value={jobTitle}
-                    onChange={(e) => setJobTitle(e.target.value)}
-                    placeholder="Ex: Analista de Marketing"
-                    list="job_title_options"
-                    required
-                  />
-                  <datalist id="job_title_options">
-                    {jobTitleOptions.map((t) => (
-                      <option key={t} value={t} />
-                    ))}
-                  </datalist>
+                  <Select value={jobTitle} onValueChange={setJobTitle} required>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione o cargo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {jobTitleOptions.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value} disabled={opt.disabled}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 

@@ -114,7 +114,8 @@ export function useTimeClockState() {
       return data as unknown as RepPTodayState;
     },
     enabled: !!orgId && !!profile?.id,
-    refetchInterval: 60_000,
+    staleTime: 0,          // sempre busca dados frescos após invalidação
+    refetchInterval: 30_000,
   });
 }
 
@@ -305,6 +306,32 @@ export function useRepPAdminAuthorizeReentry() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["rep_p"] });
       qc.invalidateQueries({ queryKey: ["rep_p_punches"] });
+    },
+  });
+}
+
+export function useRepPAdminAuthorizeLimit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      userId: string;
+      forDate: string;
+      authType: "late_break" | "late_return" | "overtime";
+      justification: string;
+      authorizedMinutes?: number; // obrigatório para overtime
+    }) => {
+      const { data, error } = await rpc("rep_p_admin_authorize_limit", {
+        p_user_id:            input.userId,
+        p_for_date:           input.forDate,
+        p_auth_type:          input.authType,
+        p_justification:      input.justification,
+        p_authorized_minutes: input.authorizedMinutes ?? null,
+      });
+      if (error) throw error;
+      return data as unknown as string;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["rep_p"] });
     },
   });
 }

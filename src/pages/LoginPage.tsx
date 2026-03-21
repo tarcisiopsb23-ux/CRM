@@ -38,6 +38,7 @@ export function LoginPage() {
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
         session?: { access_token: string; refresh_token: string };
+        session_token?: string;
       };
 
       if (!res.ok) {
@@ -54,6 +55,11 @@ export function LoginPage() {
         refresh_token: session.refresh_token,
       });
       if (sessionErr) throw sessionErr;
+
+      // Store the session token so AuthContext can detect forced logout
+      if (data.session_token) {
+        sessionStorage.setItem("session_token", data.session_token);
+      }
 
       navigate(from, { replace: true });
     } catch (err: any) {

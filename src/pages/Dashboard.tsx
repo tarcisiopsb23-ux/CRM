@@ -4,6 +4,7 @@ import { TeamRanking } from "@/components/dashboard/TeamRanking";
 import { FinancialSummary } from "@/components/dashboard/FinancialSummary";
 import { PendingConversations } from "@/components/dashboard/PendingConversations";
 import { StatsRow } from "@/components/dashboard/StatsRow";
+import { LeadSourcesWidget } from "@/components/dashboard/LeadSourcesWidget";
 
 export default function Dashboard() {
   return (
@@ -28,6 +29,10 @@ export default function Dashboard() {
         <FinancialSummary />
         <TeamRanking />
         <PendingConversations />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <LeadSourcesWidget />
       </div>
     </div>
   );

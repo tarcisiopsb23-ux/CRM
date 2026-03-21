@@ -52,11 +52,11 @@ export default function TeamPage() {
     if (profileId) setTab("employees");
   }, [profileId]);
 
-  const handleCreateTeam = (name: string) => {
-    create.mutate({ name });
+  const handleCreateTeam = (input: { name: string; type: 'comercial' | 'operacional'; is_portfolio: boolean }) => {
+    create.mutate(input);
   };
-  const handleUpdateTeam = (id: string, name: string) => {
-    update.mutate({ id, name });
+  const handleUpdateTeam = (id: string, input: { name: string; type: 'comercial' | 'operacional'; is_portfolio: boolean }) => {
+    update.mutate({ id, ...input });
   };
   const handleDeleteTeam = (id: string) => {
     remove.mutate(id);

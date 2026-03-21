@@ -4,6 +4,8 @@ import { useOrganization } from "@/hooks/useOrganization";
 import { useSalesAnalytics } from "@/hooks/useSalesAnalytics";
 import { useContractMetrics } from "@/hooks/useContractMetrics";
 import { useClients } from "@/hooks/useClients";
+import { useTeams } from "@/hooks/useTeams";
+import { useLeadsKanban } from "@/hooks/useLeadsKanban";
 import {
   getPeriodDateRange,
   isDateInRange,
@@ -19,8 +21,10 @@ import {
   LeadsByMonthChart,
   StagePerformanceTable,
 } from "@/components/analytics";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import {
   Dialog,
   DialogContent,
@@ -45,18 +49,69 @@ import {
   RotateCw,
   PauseCircle,
   Calendar,
+  Trophy,
+  Award,
+  Search,
+  ExternalLink
 } from "lucide-react";
 
 export function SalesDashboardPage() {
   const navigate = useNavigate();
   const organizationId = useOrganization();
   const [period, setPeriod] = useState<PeriodOption>("mes_atual");
+  const [filterPortfolioId, setFilterPortfolioId] = useState<string>("all");
+
   const range = useMemo(() => getPeriodDateRange(period), [period]);
 
   const analytics = useSalesAnalytics(organizationId, { range });
   const contractMetrics = useContractMetrics(organizationId, { range });
   const clientsQuery = useClients(organizationId);
   const clients = useMemo(() => clientsQuery.data ?? [], [clientsQuery.data]);
+  const { data: teams = [] } = useTeams(organizationId);
+  const { leads = [] } = useLeadsKanban(organizationId, { includeConverted: true });
+
+  const portfolios = useMemo(() => teams.filter(t => t.is_portfolio && t.type === 'comercial'), [teams]);
+
+  // Filtered Data based on Portfolio
+  const filteredClients = useMemo(() => {
+    if (filterPortfolioId === "all") return clients;
+    return clients.filter(c => (c as any).portfolio_team_id === filterPortfolioId);
+  }, [clients, filterPortfolioId]);
+
+  // Ranking de Vendedores
+  const sellerRanking = useMemo(() => {
+    const sellers: Record<string, { name: string, contracts: number, revenue: number }> = {};
+    filteredClients.forEach((client: any) => {
+      if (client.lead_id) {
+        const lead = leads.find(l => l.id === client.lead_id);
+        const sellerId = lead?.assigned_to;
+        const sellerName = lead?.assigned_to_name || "Sem atribuição";
+        if (sellerId) {
+          if (!sellers[sellerId]) sellers[sellerId] = { name: sellerName, contracts: 0, revenue: 0 };
+          sellers[sellerId].contracts += 1;
+          sellers[sellerId].revenue += Number(client.revenue || 0);
+        }
+      }
+    });
+    return Object.values(sellers).sort((a, b) => b.revenue - a.revenue);
+  }, [filteredClients, leads]);
+
+  // Ranking de Carteiras
+  const portfolioRanking = useMemo(() => {
+    const rankings: Record<string, { name: string, revenue: number, contracts: number }> = {};
+    clients.forEach((client: any) => {
+      if (client.portfolio_team_id) {
+        const team = teams.find(t => t.id === client.portfolio_team_id);
+        if (team) {
+          if (!rankings[team.id]) rankings[team.id] = { name: team.name, revenue: 0, contracts: 0 };
+          rankings[team.id].revenue += Number(client.revenue || 0);
+          rankings[team.id].contracts += 1;
+        }
+      }
+    });
+    return Object.values(rankings).sort((a, b) => b.revenue - a.revenue);
+  }, [clients, teams]);
+
   const [contractsModal, setContractsModal] = useState<null | "suspended_month" | "reactivated_month" | "overdue" | "recovered_month">(null);
   const [contractsSearch, setContractsSearch] = useState("");
 
@@ -247,6 +302,17 @@ export function SalesDashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Select value={filterPortfolioId} onValueChange={setFilterPortfolioId}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Todas as carteiras" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas as carteiras</SelectItem>
+              {portfolios.map(p => (
+                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Calendar className="h-4 w-4 text-muted-foreground" />
           <Select value={period} onValueChange={(v) => setPeriod(v as PeriodOption)}>
             <SelectTrigger className="w-[180px]">
@@ -261,6 +327,67 @@ export function SalesDashboardPage() {
             </SelectContent>
           </Select>
         </div>
+      </div>
+
+      {/* Rankings Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card className="border-none shadow-sm ring-1 ring-slate-200">
+          <CardHeader className="pb-2">
+            <div className="flex items-center gap-2">
+              <Trophy className="h-4 w-4 text-amber-500" />
+              <CardTitle className="text-sm font-bold uppercase tracking-wider">Top Vendedores</CardTitle>
+            </div>
+            <CardDescription className="text-[10px]">Maiores faturamentos e volume de contratos</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {sellerRanking.slice(0, 5).map((seller, idx) => (
+                <div key={idx} className="flex items-center justify-between p-2 rounded-lg hover:bg-slate-50 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-bold text-slate-400">#{idx + 1}</span>
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-bold text-slate-800">{seller.name}</p>
+                      <p className="text-[10px] text-slate-500">{seller.contracts} contratos fechados</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs font-bold text-emerald-600">R$ {seller.revenue.toLocaleString('pt-BR')}</p>
+                  </div>
+                </div>
+              ))}
+              {sellerRanking.length === 0 && <p className="text-[10px] text-muted-foreground text-center py-4">Sem dados de vendas.</p>}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-none shadow-sm ring-1 ring-slate-200">
+          <CardHeader className="pb-2">
+            <div className="flex items-center gap-2">
+              <Award className="h-4 w-4 text-blue-500" />
+              <CardTitle className="text-sm font-bold uppercase tracking-wider">Ranking de Carteiras</CardTitle>
+            </div>
+            <CardDescription className="text-[10px]">Desempenho por equipe comercial</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {portfolioRanking.slice(0, 5).map((portfolio, idx) => (
+                <div key={idx} className="flex items-center justify-between p-2 rounded-lg hover:bg-slate-50 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-bold text-slate-400">#{idx + 1}</span>
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-bold text-slate-800">{portfolio.name}</p>
+                      <p className="text-[10px] text-slate-500">{portfolio.contracts} contratos</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs font-bold text-indigo-600">R$ {portfolio.revenue.toLocaleString('pt-BR')}</p>
+                  </div>
+                </div>
+              ))}
+              {portfolioRanking.length === 0 && <p className="text-[10px] text-muted-foreground text-center py-4">Sem dados de carteiras.</p>}
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Top metrics */}

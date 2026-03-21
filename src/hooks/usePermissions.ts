@@ -4,7 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import type { Database } from "@/types/supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export type PermissionModule = Database["public"]["Enums"]["permission_module"];
+export type PermissionModule = Database["public"]["Enums"]["permission_module"] | "performance" | "integrations";
 export type UserRole = Database["public"]["Enums"]["user_role"];
 
 export interface UserPermissionRow {
@@ -38,6 +38,8 @@ export const MODULES: { id: PermissionModule; label: string }[] = [
   { id: "campaigns", label: "Campanhas" },
   { id: "audit", label: "Auditoria" },
   { id: "timeclock", label: "Ponto Eletrônico" },
+  { id: "performance", label: "Dashboard de Performance" },
+  { id: "integrations", label: "Integrações" },
 ];
 
 export interface JobTitleRoleMappingRow {
@@ -110,6 +112,8 @@ const ROUTE_TO_MODULE: Record<string, PermissionModule> = {
   "/sales-analytics": "sales_analytics",
   "/audit": "audit",
   "/timeclock": "timeclock",
+  "/performance": "performance",
+  "/integrations": "integrations",
 };
 
 export type PermissionResult = { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean };
@@ -144,8 +148,8 @@ export function baselineFor(role: UserRole, module: PermissionModule | null, sco
     return { canView: false, canCreate: false, canEdit: false, canDelete: false };
   }
 
-  // Analytics de Vendas e Dashboard Global: restritivo
-  if (module === "sales_analytics" || module === "dashboard") {
+  // Analytics de Vendas, Dashboard Global, Performance Hub e Integrações: restritivo
+  if (module === "sales_analytics" || module === "dashboard" || module === "performance" || module === "integrations") {
     if (role === "manager") return { canView: true, canCreate: true, canEdit: true, canDelete: false };
     return { canView: false, canCreate: false, canEdit: false, canDelete: false };
   }
@@ -178,6 +182,10 @@ export function applyHardOverrides(role: UserRole, module: PermissionModule | nu
   }
 
   if (module === "audit" && role !== "owner" && role !== "admin" && role !== "manager") {
+    return { canView: false, canCreate: false, canEdit: false, canDelete: false };
+  }
+
+  if ((module === "performance" || module === "integrations") && role !== "owner" && role !== "admin" && role !== "manager") {
     return { canView: false, canCreate: false, canEdit: false, canDelete: false };
   }
 
@@ -371,7 +379,22 @@ export function useUserPermissions(organizationId: string | undefined, userId: s
       qc.invalidateQueries({ queryKey: ["user_permissions", organizationId, userId] }),
   });
 
-  return { ...query, upsert };
+  const remove = useMutation({
+    mutationFn: async (input: { module: PermissionModule }) => {
+      if (!organizationId || !userId) throw new Error("Sem organização ou usuário");
+      const { error } = await supabase
+        .from("user_permissions")
+        .delete()
+        .eq("user_id", userId)
+        .eq("organization_id", organizationId)
+        .eq("module", input.module);
+      if (error) throw error;
+    },
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["user_permissions", organizationId, userId] }),
+  });
+
+  return { ...query, upsert, remove };
 }
 
 export function useUserPermissionScopes(organizationId: string | undefined, userId: string | null) {
@@ -528,7 +551,25 @@ export function useJobTitlePermissions(organizationId: string | undefined, jobTi
     },
   });
 
-  return { ...query, upsert };
+  const remove = useMutation({
+    mutationFn: async (input: { module: PermissionModule }) => {
+      if (!organizationId || !jobTitle) throw new Error("Sem organização ou cargo");
+      const supabaseUntyped = supabase as unknown as SupabaseClient;
+      const { error } = await supabaseUntyped
+        .from("job_title_permissions")
+        .delete()
+        .eq("organization_id", organizationId)
+        .eq("job_title", jobTitle)
+        .eq("module", input.module);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["job_title_permissions", organizationId, jobTitle] });
+      qc.invalidateQueries({ queryKey: ["user_permissions"] });
+    },
+  });
+
+  return { ...query, upsert, remove };
 }
 
 export function useJobTitlePermissionScopes(organizationId: string | undefined, jobTitle: string | null) {

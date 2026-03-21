@@ -59,6 +59,7 @@ export interface Lead {
   stage_id: string;
   etapa_kanban: EtapaKanban;
   assigned_to: string | null;
+  assigned_to_name?: string | null;
   source: string | null;
   name: string;
   email: string | null;

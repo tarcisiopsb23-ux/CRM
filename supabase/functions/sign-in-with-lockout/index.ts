@@ -148,10 +148,26 @@ serve(async (req) => {
 
     await adminClient.from("login_attempts").delete().eq("email", email);
 
+    // ── Single-session enforcement ──────────────────────────────────────────
+    // Upsert a row for this user. Any existing session watching this row via
+    // Realtime will see force_logout_at change and sign itself out.
+    const sessionToken = crypto.randomUUID();
+    await adminClient.from("user_sessions").upsert(
+      {
+        user_id: signInData.user.id,
+        session_token: sessionToken,
+        force_logout_at: new Date().toISOString(),
+        logged_in_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" }
+    );
+
     return new Response(
       JSON.stringify({
         session: signInData.session,
         user: signInData.user,
+        session_token: sessionToken,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

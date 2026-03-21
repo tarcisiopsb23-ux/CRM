@@ -11,10 +11,12 @@ import { useLeadsKanban } from "@/hooks/useLeadsKanban";
 import { useTeams, useTeamMembers } from "@/hooks/useTeams";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useCampaigns } from "@/hooks/useCampaigns";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { SalesFunnel } from "@/components/ui/sales-funnel";
+import { useFunnelStages } from "@/hooks/useFunnelStages";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Download, FileDown, Users, DollarSign, Target, Kanban, FolderKanban, TrendingUp, AlertTriangle, Megaphone } from "lucide-react";
@@ -146,6 +148,9 @@ export default function ReportsPage() {
   const [profileFilter, setProfileFilter] = useState("all");
   const [clientFilter, setClientFilter] = useState("all");
   const [reportTemplate, setReportTemplate] = useState<ReportTemplate>("macro");
+
+  // Funil de Vendas
+  const { stages: funnelStages, isLoading: funnelLoading } = useFunnelStages(orgId);
 
   const requestOvertime = useRepPRequestOvertime();
   const [selectedOvertime, setSelectedOvertime] = useState<{ workDate: string; minutes: number } | null>(null);
@@ -1355,21 +1360,18 @@ export default function ReportsPage() {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
           <Card>
-            <CardContent className="p-4">
-              <h3 className="font-medium mb-3">Funil de Vendas</h3>
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart layout="vertical" data={funnelData} margin={{ left: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
-                  <XAxis type="number" hide />
-                  <YAxis dataKey="stage" type="category" width={80} />
-                  <Tooltip cursor={{fill: 'transparent'}} />
-                  <Bar dataKey="count" name="Leads" radius={[0, 4, 4, 0]}>
-                    {funnelData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.fill} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+            <CardHeader className="pb-2">
+              <CardTitle>Funil de Vendas</CardTitle>
+              <CardDescription>Leads que passaram por cada etapa no período</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-4">
+              {funnelLoading ? (
+                <p className="text-sm text-muted-foreground text-center py-8">Carregando...</p>
+              ) : (
+                <SalesFunnel
+                  steps={funnelStages.map(s => ({ label: s.label, value: s.value, rateLabel: "Conv." }))}
+                />
+              )}
             </CardContent>
           </Card>
           <Card>

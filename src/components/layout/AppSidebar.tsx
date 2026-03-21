@@ -16,6 +16,7 @@ import {
   FileBarChart,
   BarChart3,
   History,
+  Share2,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -72,6 +73,7 @@ export function AppSidebar() {
   const { canView: canViewReports } = useModulePermission("reports");
   const { canView: canViewCampaigns } = useModulePermission("campaigns");
   const { canView: canViewAudit } = useModulePermission("audit");
+  const { canView: canViewIntegrations } = useModulePermission("integrations");
 
   const canViewByModule: Record<string, boolean> = {
     dashboard: canViewDashboard,
@@ -89,6 +91,7 @@ export function AppSidebar() {
     reports: canViewReports,
     campaigns: canViewCampaigns,
     audit: canViewAudit,
+    integrations: canViewIntegrations,
   };
 
   const visibleItems = navItems.filter((item) => {

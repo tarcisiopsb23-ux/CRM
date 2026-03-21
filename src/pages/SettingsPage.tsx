@@ -6,12 +6,13 @@ import {
   N8nSection,
   WhatsAppSection,
   GoogleCalendarSection,
+  ResendSection,
   PermissionsSection,
 } from "@/components/settings";
 import { InviteMemberDialog } from "@/components/team/InviteMemberDialog";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Mail, Link as LinkIcon, Sun, Moon, Monitor, Type, Palette, Cloud, UserPlus, FolderOpen, ImagePlus, Loader2 } from "lucide-react";
+import { Mail, Link as LinkIcon, Sun, Moon, Monitor, Type, Palette, Cloud, UserPlus, FolderOpen, ImagePlus, Loader2, Megaphone } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useOrganization, useOrganizationData } from "@/hooks/useOrganization";
@@ -27,6 +28,9 @@ import {
   setDriveFoldersInOrganizationSettings,
   useOrganizationSettings,
 } from "@/hooks/useSettings";
+
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 
 export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -49,9 +53,34 @@ export function SettingsPage() {
   const [clientsFolder, setClientsFolder] = useState(driveFolders.clients ?? "");
   const [projectsFolder, setProjectsFolder] = useState(driveFolders.projects ?? "");
   const [teamFolder, setTeamFolder] = useState(driveFolders.team ?? "");
+  const [suppliersFolder, setSuppliersFolder] = useState(driveFolders.suppliers ?? "");
   const [driveClientId, setDriveClientId] = useState(driveApi.clientId ?? "");
   const [driveClientSecret, setDriveClientSecret] = useState(driveApi.clientSecret ?? "");
   const [driveRefreshToken, setDriveRefreshToken] = useState(driveApi.refreshToken ?? "");
+
+  const marketingSettings = useMemo(() => {
+    const s = (orgData.data as any)?.marketing_settings as any;
+    return {
+      meta_ads: s?.meta_ads || { enabled: false, account_id: "" },
+      google_ads: s?.google_ads || { enabled: false, account_id: "" }
+    };
+  }, [orgData.data]);
+
+  const [metaEnabled, setMetaEnabled] = useState(false);
+  const [metaAccountId, setMetaAccountId] = useState("");
+  const [googleEnabled, setGoogleEnabled] = useState(false);
+  const [googleAccountId, setGoogleAccountId] = useState("");
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  useEffect(() => {
+    if (orgData.data && !isInitialized) {
+      setMetaEnabled(marketingSettings.meta_ads.enabled);
+      setMetaAccountId(marketingSettings.meta_ads.account_id || "");
+      setGoogleEnabled(marketingSettings.google_ads.enabled);
+      setGoogleAccountId(marketingSettings.google_ads.account_id || "");
+      setIsInitialized(true);
+    }
+  }, [marketingSettings, orgData.data, isInitialized]);
 
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteMode, setInviteMode] = useState<"email" | "link">("email");
@@ -100,7 +129,8 @@ export function SettingsPage() {
     setClientsFolder(driveFolders.clients ?? "");
     setProjectsFolder(driveFolders.projects ?? "");
     setTeamFolder(driveFolders.team ?? "");
-  }, [driveFolders.clients, driveFolders.projects, driveFolders.team]);
+    setSuppliersFolder(driveFolders.suppliers ?? "");
+  }, [driveFolders.clients, driveFolders.projects, driveFolders.team, driveFolders.suppliers]);
 
   useEffect(() => {
     setDriveClientId(driveApi.clientId ?? "");
@@ -182,8 +212,86 @@ export function SettingsPage() {
             )}
           </SettingsSection>
 
+          <SettingsSection
+            title="Performance de Marketing (Agência via n8n)"
+            description="Configure os IDs das contas para que o n8n possa sincronizar os resultados de marketing da sua agência."
+            icon={<Megaphone className="h-5 w-5" />}
+          >
+            {orgData.isLoading ? (
+              <p className="text-sm text-gray-400">Carregando...</p>
+            ) : (
+              <div className="space-y-6">
+                <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-900/30 rounded-lg">
+                  <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
+                    <strong>Como funciona:</strong> O CRM não se conecta diretamente às APIs de anúncios. 
+                    Você deve configurar um workflow no <strong>n8n</strong> que extraia os dados do Google/Meta e os envie para este CRM usando o <strong>Organization ID</strong> e os <strong>Account IDs</strong> abaixo.
+                  </p>
+                </div>
+
+                <div className="space-y-4 p-4 border rounded-lg bg-slate-50 dark:bg-slate-900/50">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded bg-blue-600 flex items-center justify-center text-white font-bold text-xs">M</div>
+                      <div>
+                        <Label className="text-sm font-bold">Meta Ads</Label>
+                        <p className="text-[10px] text-muted-foreground">ID da conta para o n8n filtrar</p>
+                      </div>
+                    </div>
+                    <Switch checked={metaEnabled} onCheckedChange={setMetaEnabled} />
+                  </div>
+                  {metaEnabled && (
+                    <SettingsInput
+                      label="ID da Conta de Anúncios (act_...)"
+                      value={metaAccountId}
+                      onChange={setMetaAccountId}
+                      placeholder="act_xxxxxxxxxxxxxxx"
+                    />
+                  )}
+                </div>
+
+                <div className="space-y-4 p-4 border rounded-lg bg-slate-50 dark:bg-slate-900/50">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded bg-amber-500 flex items-center justify-center text-white font-bold text-xs">G</div>
+                      <div>
+                        <Label className="text-sm font-bold">Google Ads</Label>
+                        <p className="text-[10px] text-muted-foreground">ID da conta para o n8n filtrar</p>
+                      </div>
+                    </div>
+                    <Switch checked={googleEnabled} onCheckedChange={setGoogleEnabled} />
+                  </div>
+                  {googleEnabled && (
+                    <SettingsInput
+                      label="ID do Cliente (xxx-xxx-xxxx)"
+                      value={googleAccountId}
+                      onChange={setGoogleAccountId}
+                      placeholder="xxx-xxx-xxxx"
+                    />
+                  )}
+                </div>
+
+                <Button
+                  onClick={async () => {
+                    await orgData.update.mutateAsync({
+                      marketing_settings: {
+                        meta_ads: { enabled: metaEnabled, account_id: metaAccountId.trim() || null },
+                        google_ads: { enabled: googleEnabled, account_id: googleAccountId.trim() || null }
+                      }
+                    });
+                    toast.success("Configurações de performance via n8n atualizadas!");
+                  }}
+                  disabled={orgData.update.isPending || !organizationId}
+                  className="w-full"
+                >
+                  {orgData.update.isPending ? "Salvando..." : "Salvar Configurações de Performance"}
+                </Button>
+              </div>
+            )}
+          </SettingsSection>
+
           <WebhooksSection />
           <N8nSection />
+          <ResendSection />
           <WhatsAppSection />
           <GoogleCalendarSection />
         </TabsContent>
@@ -426,12 +534,19 @@ export function SettingsPage() {
                   onChange={setTeamFolder}
                   placeholder="ID da pasta no Google Drive"
                 />
+                <SettingsInput
+                  label="Pasta de Fornecedores (ID)"
+                  value={suppliersFolder}
+                  onChange={setSuppliersFolder}
+                  placeholder="ID da pasta no Google Drive"
+                />
                 <Button
                   onClick={async () => {
                     const nextSettings = setDriveFoldersInOrganizationSettings(orgSettings.data, {
                       clients: clientsFolder.trim() || null,
                       projects: projectsFolder.trim() || null,
                       team: teamFolder.trim() || null,
+                      suppliers: suppliersFolder.trim() || null,
                     });
                     await orgSettings.update.mutateAsync(nextSettings);
                   }}

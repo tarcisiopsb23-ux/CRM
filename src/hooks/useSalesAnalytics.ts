@@ -154,12 +154,23 @@ async function fetchAnalytics(organizationId: string, range?: DateRange): Promis
     return d && d >= monthStart && d <= monthEnd;
   }).length;
 
-  const wonLeads = filteredLeadsByRange.filter((l) =>
-    WON_STAGES.includes(l.etapa_kanban ?? "")
-  ).length;
-  const lostLeads = filteredLeadsByRange.filter((l) =>
-    LOST_STAGES.includes(l.etapa_kanban ?? "")
-  ).length;
+  // wonLeads and lostLeads should be based on history in the period
+  // but we also include current status for leads created in the period 
+  // that might not have a history record yet (though they should have one if moved)
+  const wonLeadsIds = new Set(
+    filteredHistoryByRange
+      .filter((h) => WON_STAGES.includes(h.to_stage))
+      .map((h) => h.lead_id)
+  );
+  
+  const lostLeadsIds = new Set(
+    filteredHistoryByRange
+      .filter((h) => LOST_STAGES.includes(h.to_stage))
+      .map((h) => h.lead_id)
+  );
+
+  const wonLeads = wonLeadsIds.size;
+  const lostLeads = lostLeadsIds.size;
   const disqualifiedLeads = filteredLeadsByRange.filter((l) => (l.etapa_kanban ?? "") === "desqualificado").length;
 
   const lostReasonCounts: Record<string, number> = {};
@@ -179,15 +190,12 @@ async function fetchAnalytics(organizationId: string, range?: DateRange): Promis
     .filter((l) => OPEN_STAGES.includes(l.etapa_kanban ?? ""))
     .reduce((sum, l) => sum + Number(l.value ?? 0), 0);
 
-  const closedRevenue = filteredLeadsByRange
-    .filter((l) => WON_STAGES.includes(l.etapa_kanban ?? ""))
+  const closedRevenue = leadsList
+    .filter((l) => wonLeadsIds.has(l.id))
     .reduce((sum, l) => sum + Number(l.value ?? 0), 0);
 
-  const wonCount = filteredLeadsByRange.filter((l) =>
-    WON_STAGES.includes(l.etapa_kanban ?? "")
-  ).length;
   const totalClosed = wonLeads + lostLeads;
-  const winRate = totalClosed > 0 ? wonCount / totalClosed : 0;
+  const winRate = totalClosed > 0 ? wonLeads / totalClosed : 0;
   const forecastRevenue = pipelineValue * winRate;
 
   // 5. Conversion rates from history

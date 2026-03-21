@@ -75,9 +75,9 @@ export function LeadsListView({ leads, onDetalhes, onEdit, onDelete, onEtapaChan
     <div className="relative rounded-md border bg-background flex flex-col h-[calc(100vh-250px)] min-h-[400px]">
       <div className="overflow-auto flex-1 scrollbar-thin scrollbar-thumb-muted-foreground/20 hover:scrollbar-thumb-muted-foreground/40">
         <Table className="min-w-[4000px] border-separate border-spacing-0">
-          <TableHeader className="sticky top-0 z-20 bg-background shadow-sm">
+          <TableHeader className="sticky top-0 z-30 bg-background shadow-sm">
             <TableRow className="bg-background hover:bg-background">
-              <TableHead className="sticky left-0 z-30 bg-background border-r w-[250px] shadow-[2px_0_4px_rgba(0,0,0,0.05)]">Empresa / Nome</TableHead>
+              <TableHead className="sticky left-0 z-40 bg-background border-r w-[250px] shadow-[2px_0_4px_rgba(0,0,0,0.05)]">Empresa / Nome</TableHead>
               <TableHead className="w-[200px]">Contato</TableHead>
               <TableHead className="w-[150px]">Valor</TableHead>
               <TableHead className="w-[120px]">Prioridade</TableHead>
@@ -107,7 +107,7 @@ export function LeadsListView({ leads, onDetalhes, onEdit, onDelete, onEtapaChan
               <TableHead className="w-[200px]">Motivo Perda</TableHead>
               <TableHead className="w-[100px]">Cadência</TableHead>
               <TableHead className="w-[100px]">Temperatura</TableHead>
-              <TableHead className="sticky right-0 z-30 bg-background border-l w-[150px] text-center shadow-[-4px_0_4px_rgba(0,0,0,0.05)]">Ações</TableHead>
+              <TableHead className="sticky right-0 z-40 bg-background border-l w-[150px] text-center shadow-[-4px_0_4px_rgba(0,0,0,0.05)]">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody className="bg-background">
@@ -121,9 +121,9 @@ export function LeadsListView({ leads, onDetalhes, onEdit, onDelete, onEtapaChan
               leads.map((lead) => (
                 <TableRow 
                   key={lead.id} 
-                  className="hover:bg-muted/50 group transition-colors bg-background"
+                  className="hover:bg-muted group transition-colors bg-background"
                 >
-                  <TableCell className="sticky left-0 z-10 bg-background border-r font-medium group-hover:bg-muted/50 shadow-[2px_0_4px_rgba(0,0,0,0.05)]">
+                  <TableCell className="sticky left-0 z-20 bg-background border-r font-medium group-hover:bg-muted shadow-[2px_0_4px_rgba(0,0,0,0.05)]">
                     <div className="truncate w-[230px]" title={lead.company || "Sem empresa"}>
                       {lead.company || "Sem empresa"}
                     </div>
@@ -131,19 +131,19 @@ export function LeadsListView({ leads, onDetalhes, onEdit, onDelete, onEtapaChan
                       {lead.name}
                     </div>
                   </TableCell>
-                  <TableCell className="bg-background group-hover:bg-muted/50">
+                  <TableCell className="bg-background group-hover:bg-muted">
                     <div className="text-sm truncate w-[180px]" title={lead.email || "-"}>{lead.email || "-"}</div>
                     <div className="text-xs text-muted-foreground">{lead.phone ? formatPhoneBR(lead.phone) : "-"}</div>
                   </TableCell>
-                  <TableCell className="font-semibold bg-background group-hover:bg-muted/50">{typeof lead.value === "number" ? formatBRL(lead.value) : "-"}</TableCell>
-                  <TableCell className="bg-background group-hover:bg-muted/50">
+                  <TableCell className="font-semibold bg-background group-hover:bg-muted">{typeof lead.value === "number" ? formatBRL(lead.value) : "-"}</TableCell>
+                  <TableCell className="bg-background group-hover:bg-muted">
                     <Badge className={cn("text-[10px] px-1.5 py-0 h-5", getPriorityColor(lead.prioridade))}>
                       {lead.prioridade || "média"}
                     </Badge>
                   </TableCell>
-                  <TableCell className="bg-background group-hover:bg-muted/50">
+                  <TableCell className="bg-background group-hover:bg-muted">
                     <Select 
-                      value={lead.etapa_kanban || "leads_recebidos"} 
+                      value={lead.etapa_kanban || "leads_rece_recebidos"} 
                       onValueChange={(v) => onEtapaChange(lead.id, v as EtapaKanban)}
                     >
                       <SelectTrigger className="h-7 text-xs w-[180px] bg-background">
@@ -158,58 +158,58 @@ export function LeadsListView({ leads, onDetalhes, onEdit, onDelete, onEtapaChan
                       </SelectContent>
                     </Select>
                   </TableCell>
-                  <TableCell className="bg-background group-hover:bg-muted/50">
+                  <TableCell className="bg-background group-hover:bg-muted">
                     <div className="truncate w-[130px]" title={lead.responsavel?.full_name || "—"}>
                       {lead.responsavel?.full_name || "—"}
                     </div>
                   </TableCell>
-                  <TableCell className="bg-background group-hover:bg-muted/50">
+                  <TableCell className="bg-background group-hover:bg-muted">
                     <Badge variant="outline" className="text-[10px] h-5 bg-background">{getLifecycleDays(lead.created_at)} dias</Badge>
                   </TableCell>
-                  <TableCell className="text-muted-foreground text-xs bg-background group-hover:bg-muted/50">
+                  <TableCell className="text-muted-foreground text-xs bg-background group-hover:bg-muted">
                     {formatDateSafe(lead.created_at)}
                   </TableCell>
-                  <TableCell className="text-xs bg-background group-hover:bg-muted/50">{lead.cpf_cnpj || "-"}</TableCell>
-                  <TableCell className="text-xs truncate w-[130px] bg-background group-hover:bg-muted/50" title={lead.nicho || "-"}>{lead.nicho || "-"}</TableCell>
-                  <TableCell className="text-xs truncate w-[130px] bg-background group-hover:bg-muted/50" title={(lead.metadata as { cidade?: string })?.cidade || "-"}>{(lead.metadata as { cidade?: string })?.cidade || "-"}</TableCell>
-                  <TableCell className="text-xs truncate w-[130px] bg-background group-hover:bg-muted/50" title={lead.source || "-"}>{lead.source || "-"}</TableCell>
-                  <TableCell className="text-xs truncate w-[280px] bg-background group-hover:bg-muted/50" title={lead.notes || "-"}>{lead.notes || "-"}</TableCell>
-                  <TableCell className="text-xs bg-background group-hover:bg-muted/50">{formatDateSafe(lead.first_contact_date)}</TableCell>
-                  <TableCell className="text-xs bg-background group-hover:bg-muted/50">{formatDateSafe(lead.last_contact_date)}</TableCell>
-                  <TableCell className="text-xs capitalize bg-background group-hover:bg-muted/50">{lead.product_service || "-"}</TableCell>
-                  <TableCell className="text-xs capitalize bg-background group-hover:bg-muted/50">{lead.contact_origin?.replace("_", " ") || "-"}</TableCell>
-                  <TableCell className="text-xs bg-background group-hover:bg-muted/50">{lead.decision_maker ? "Sim" : "Não"}</TableCell>
-                  <TableCell className="text-xs truncate w-[130px] bg-background group-hover:bg-muted/50" title={lead.decision_maker_name || "-"}>{lead.decision_maker_name || "-"}</TableCell>
-                  <TableCell className="text-xs bg-background group-hover:bg-muted/50">{lead.decision_maker_phone ? formatPhoneBR(lead.decision_maker_phone) : "-"}</TableCell>
-                  <TableCell className="text-xs bg-background group-hover:bg-muted/50">
+                  <TableCell className="text-xs bg-background group-hover:bg-muted">{lead.cpf_cnpj || "-"}</TableCell>
+                  <TableCell className="text-xs truncate w-[130px] bg-background group-hover:bg-muted" title={lead.nicho || "-"}>{lead.nicho || "-"}</TableCell>
+                  <TableCell className="text-xs truncate w-[130px] bg-background group-hover:bg-muted" title={(lead.metadata as { cidade?: string })?.cidade || "-"}>{(lead.metadata as { cidade?: string })?.cidade || "-"}</TableCell>
+                  <TableCell className="text-xs truncate w-[130px] bg-background group-hover:bg-muted" title={lead.source || "-"}>{lead.source || "-"}</TableCell>
+                  <TableCell className="text-xs truncate w-[280px] bg-background group-hover:bg-muted" title={lead.notes || "-"}>{lead.notes || "-"}</TableCell>
+                  <TableCell className="text-xs bg-background group-hover:bg-muted">{formatDateSafe(lead.first_contact_date)}</TableCell>
+                  <TableCell className="text-xs bg-background group-hover:bg-muted">{formatDateSafe(lead.last_contact_date)}</TableCell>
+                  <TableCell className="text-xs capitalize bg-background group-hover:bg-muted">{lead.product_service || "-"}</TableCell>
+                  <TableCell className="text-xs capitalize bg-background group-hover:bg-muted">{lead.contact_origin?.replace("_", " ") || "-"}</TableCell>
+                  <TableCell className="text-xs bg-background group-hover:bg-muted">{lead.decision_maker ? "Sim" : "Não"}</TableCell>
+                  <TableCell className="text-xs truncate w-[130px] bg-background group-hover:bg-muted" title={lead.decision_maker_name || "-"}>{lead.decision_maker_name || "-"}</TableCell>
+                  <TableCell className="text-xs bg-background group-hover:bg-muted">{lead.decision_maker_phone ? formatPhoneBR(lead.decision_maker_phone) : "-"}</TableCell>
+                  <TableCell className="text-xs bg-background group-hover:bg-muted">
                     {lead.gbp_url ? (
                       <a href={lead.gbp_url} target="_blank" rel="noopener noreferrer" className="text-primary flex items-center gap-1 hover:underline">
                         Abrir <ExternalLink className="h-3 w-3" />
                       </a>
                     ) : "-"}
                   </TableCell>
-                  <TableCell className="text-xs bg-background group-hover:bg-muted/50">
+                  <TableCell className="text-xs bg-background group-hover:bg-muted">
                     {lead.instagram_url ? (
                       <a href={lead.instagram_url} target="_blank" rel="noopener noreferrer" className="text-primary flex items-center gap-1 hover:underline">
                         Abrir <ExternalLink className="h-3 w-3" />
                       </a>
                     ) : "-"}
                   </TableCell>
-                  <TableCell className="text-xs bg-background group-hover:bg-muted/50">
+                  <TableCell className="text-xs bg-background group-hover:bg-muted">
                     {lead.website_url ? (
                       <a href={lead.website_url} target="_blank" rel="noopener noreferrer" className="text-primary flex items-center gap-1 hover:underline">
                         Abrir <ExternalLink className="h-3 w-3" />
                       </a>
                     ) : "-"}
                   </TableCell>
-                  <TableCell className="text-xs capitalize bg-background group-hover:bg-muted/50">{lead.gmn_status?.replace("_", " ") || "-"}</TableCell>
-                  <TableCell className="text-xs capitalize bg-background group-hover:bg-muted/50">{lead.google_ads_level?.replace("_", " ") || "-"}</TableCell>
-                  <TableCell className="text-xs capitalize bg-background group-hover:bg-muted/50">{lead.meta_ads_level?.replace("_", " ") || "-"}</TableCell>
-                  <TableCell className="text-xs capitalize bg-background group-hover:bg-muted/50">{lead.social_media_status?.replace("_", " ") || "-"}</TableCell>
-                  <TableCell className="text-xs truncate w-[180px] bg-background group-hover:bg-muted/50" title={lead.lost_reason || "-"}>{lead.lost_reason || "-"}</TableCell>
-                  <TableCell className="text-xs bg-background group-hover:bg-muted/50">{lead.cadence || "-"}</TableCell>
-                  <TableCell className="bg-background group-hover:bg-muted/50">{renderTemperature(lead.temperature)}</TableCell>
-                  <TableCell className="sticky right-0 z-10 bg-background border-l group-hover:bg-muted/50 shadow-[-4px_0_4px_rgba(0,0,0,0.05)]">
+                  <TableCell className="text-xs capitalize bg-background group-hover:bg-muted">{lead.gmn_status?.replace("_", " ") || "-"}</TableCell>
+                  <TableCell className="text-xs capitalize bg-background group-hover:bg-muted">{lead.google_ads_level?.replace("_", " ") || "-"}</TableCell>
+                  <TableCell className="text-xs capitalize bg-background group-hover:bg-muted">{lead.meta_ads_level?.replace("_", " ") || "-"}</TableCell>
+                  <TableCell className="text-xs capitalize bg-background group-hover:bg-muted">{lead.social_media_status?.replace("_", " ") || "-"}</TableCell>
+                  <TableCell className="text-xs truncate w-[180px] bg-background group-hover:bg-muted" title={lead.lost_reason || "-"}>{lead.lost_reason || "-"}</TableCell>
+                  <TableCell className="text-xs bg-background group-hover:bg-muted">{lead.cadence || "-"}</TableCell>
+                  <TableCell className="bg-background group-hover:bg-muted">{renderTemperature(lead.temperature)}</TableCell>
+                  <TableCell className="sticky right-0 z-20 bg-background border-l group-hover:bg-muted shadow-[-4px_0_4px_rgba(0,0,0,0.05)]">
                     <div className="flex items-center justify-center gap-1">
                       <Button variant="ghost" size="icon" className="h-7 w-7 bg-background hover:bg-muted" onClick={() => onDetalhes(lead)} title="Visualizar">
                         <Eye className="h-3.5 w-3.5" />

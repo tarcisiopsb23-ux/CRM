@@ -47,6 +47,7 @@ serve(async (req) => {
       education_level?: string;
       graduation?: string;
       job_title?: string;
+      role?: string;
       base_salary?: number;
       commission_percent?: number;
       overtime_factor?: number;
@@ -76,6 +77,7 @@ serve(async (req) => {
       education_level,
       graduation,
       job_title,
+      role: bodyRole,
       base_salary,
       commission_percent,
       overtime_factor,
@@ -137,6 +139,21 @@ serve(async (req) => {
       );
     }
 
+    // Buscar permissão vinculada ao cargo no catálogo
+    let finalRole = (bodyRole as any) || "member";
+    if (job_title) {
+      const { data: catalogItem } = await adminClient
+        .from("job_title_catalog")
+        .select("role")
+        .eq("organization_id", orgId)
+        .eq("job_title", job_title.trim())
+        .single();
+      
+      if (catalogItem?.role) {
+        finalRole = catalogItem.role;
+      }
+    }
+
     // Criar usuário diretamente via admin API
     const { data: newUser, error: createError } = await adminClient.auth.admin.createUser({
       email: emailTrim,
@@ -193,7 +210,7 @@ serve(async (req) => {
             full_name: baseFullName,
             email: emailTrim,
             phone: typeof phone === "string" ? phone.trim() : null,
-            role: "member",
+            role: finalRole,
             metadata: {
               display_name: typeof display_name === "string" ? display_name.trim() : "",
               cpf: typeof cpf === "string" ? cpf.trim() : "",

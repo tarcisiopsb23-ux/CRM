@@ -13,10 +13,12 @@ import { LoginPage } from "@/pages/LoginPage";
 import { CompleteRegistrationPage } from "@/pages/CompleteRegistrationPage";
 import { ProfileSetupPage } from "@/pages/ProfileSetupPage";
 import { EditCollaboratorPage } from "@/pages/EditCollaboratorPage";
+import MyProfilePage from "@/pages/MyProfilePage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LeadsKanbanPage } from "./pages/LeadsKanbanPage";
 import ClientsPage from "./pages/ClientsPage";
+import IntegrationsPage from "./pages/IntegrationsPage";
 import FinancialPage from "./pages/FinancialPage";
 import Agenda from "./pages/Agenda";
 import ProjectsPage from "./pages/ProjectsPage";
@@ -33,7 +35,12 @@ import NotFound from "./pages/NotFound";
 import ReportsPage from "./pages/ReportsPage";
 import { TimeClockPunchPage } from "./pages/TimeClockPunchPage";
 import { TimeClockLockedPage } from "./pages/TimeClockLockedPage";
+import { TimeclockEntryPage } from "./pages/TimeclockEntryPage";
+import { PublicDashboardPage } from "./pages/PublicDashboardPage";
+import { PublicDashboardLoginPage } from "./pages/PublicDashboardLoginPage";
 import { DynamicFavicon } from "@/components/layout/DynamicFavicon";
+import { DynamicTitle } from "@/components/layout/DynamicTitle";
+import { PublicDemoDashboardPage } from "./pages/PublicDemoDashboardPage";
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000 } } });
 
@@ -43,6 +50,7 @@ function App() {
       <UserPreferencesProvider>
         <AuthProvider>
           <DynamicFavicon />
+          <DynamicTitle />
           <TooltipProvider>
             <Toaster />
             <Sonner />
@@ -53,11 +61,27 @@ function App() {
               }}
             >
               <Routes>
+                {/* Rotas Públicas - Devem vir PRIMEIRO para evitar conflitos */}
+                <Route path="/demo/dashboard" element={<PublicDemoDashboardPage />} />
+                <Route path="/public/dashboard/:slug" element={<PublicDashboardPage />} />
+                <Route path="/public/dashboard/:slug/login" element={<PublicDashboardLoginPage />} />
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/complete-registration" element={<CompleteRegistrationPage />} />
                 <Route path="/profile-setup" element={
                   <ProtectedRoute>
                     <ProfileSetupPage />
+                  </ProtectedRoute>
+                } />
+                {/* Tela de registro de ponto — fora do AppLayout, sem sidebar */}
+                <Route path="/timeclock/entry" element={
+                  <ProtectedRoute>
+                    <TimeclockEntryPage />
+                  </ProtectedRoute>
+                } />
+                {/* Tela de ponto encerrado — fora do AppLayout, sem sidebar */}
+                <Route path="/timeclock/locked" element={
+                  <ProtectedRoute>
+                    <TimeClockLockedPage />
                   </ProtectedRoute>
                 } />
                 <Route
@@ -71,12 +95,13 @@ function App() {
                 >
                   <Route element={<ModuleGuard />}>
                     <Route path="/timeclock/punch" element={<TimeClockPunchPage />} />
-                    <Route path="/timeclock/locked" element={<TimeClockLockedPage />} />
                     <Route path="/" element={<DashboardPage />} />
+                    <Route path="/performance" element={<Navigate to="/?tab=performance" replace />} />
                     <Route path="/kanban" element={<LeadsKanbanPage />} />
                     <Route path="/leads" element={<Navigate to="/kanban" replace />} />
                     <Route path="/clients" element={<ClientsPage />} />
                     <Route path="/clients/:clientId" element={<ClientsPage />} />
+                    <Route path="/integrations" element={<IntegrationsPage />} />
                     <Route path="/suppliers" element={<Navigate to="/financial?tab=suppliers" replace />} />
                     <Route path="/financial" element={<FinancialPage />} />
                     <Route path="/agenda" element={<Agenda />} />
@@ -85,6 +110,14 @@ function App() {
                     <Route path="/goals" element={<GoalsPage />} />
                     <Route path="/whatsapp" element={<WhatsApp />} />
                     <Route path="/meetings" element={<Meetings />} />
+                    <Route
+                      path="/team/me"
+                      element={
+                        <ProtectedRoute>
+                          <MyProfilePage />
+                        </ProtectedRoute>
+                      }
+                    />
                     <Route
                   path="/team"
                   element={

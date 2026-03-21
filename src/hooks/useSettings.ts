@@ -38,6 +38,9 @@ export function useIntegration(
   const upsert = useMutation({
     mutationFn: async (config: IntegrationConfig) => {
       if (!organizationId) throw new Error("No organization");
+
+      console.log(`[Settings] Salvando configuração '${integrationType}' para a organização: ${organizationId}`);
+
       const { data, error } = await supabase
         .from("organization_integrations")
         .upsert(
@@ -74,6 +77,7 @@ export type DriveFoldersByModule = {
   clients: string | null;
   projects: string | null;
   team: string | null;
+  suppliers: string | null;
 };
 
 export type DriveApiSettings = {
@@ -83,13 +87,14 @@ export type DriveApiSettings = {
 };
 
 export function getDriveFoldersFromOrganizationSettings(settings: unknown): DriveFoldersByModule {
-  if (!isRecord(settings)) return { clients: null, projects: null, team: null };
+  if (!isRecord(settings)) return { clients: null, projects: null, team: null, suppliers: null };
   const drive = isRecord(settings.drive) ? settings.drive : null;
   const folders = drive && isRecord(drive.folders) ? drive.folders : null;
   const clients = folders && typeof folders.clients === "string" ? folders.clients : null;
   const projects = folders && typeof folders.projects === "string" ? folders.projects : null;
   const team = folders && typeof folders.team === "string" ? folders.team : null;
-  return { clients, projects, team };
+  const suppliers = folders && typeof folders.suppliers === "string" ? folders.suppliers : null;
+  return { clients, projects, team, suppliers };
 }
 
 export function getDriveApiFromOrganizationSettings(settings: unknown): DriveApiSettings {
@@ -113,6 +118,7 @@ export function setDriveFoldersInOrganizationSettings(
   if ("clients" in next) folders.clients = next.clients ?? null;
   if ("projects" in next) folders.projects = next.projects ?? null;
   if ("team" in next) folders.team = next.team ?? null;
+  if ("suppliers" in next) folders.suppliers = next.suppliers ?? null;
 
   drive.folders = folders;
   base.drive = drive;

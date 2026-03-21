@@ -4,6 +4,8 @@ import { supabase } from "@/lib/supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useClients } from "@/hooks/useClients";
+import { useTeams } from "@/hooks/useTeams";
+import { useProfiles } from "@/hooks/useProfiles";
 import { useLeadsKanban } from "@/hooks/useLeadsKanban";
 import { usePayments } from "@/hooks/useFinancial";
 import { useContractsByClient, useCreateContract, useDeleteContract, useEndContract, useReactivateContract, useSuspendContract, useUpdateContract } from "@/hooks/useContracts";
@@ -50,6 +52,10 @@ import { ptBR } from "date-fns/locale";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { DocumentsCard } from "@/components/documents/DocumentsCard";
 
+import { ClientIntegrationsTab } from "@/components/clients/ClientIntegrationsTab";
+import { ClientKPIsTab } from "@/components/clients/ClientKPIsTab";
+import { ClientPerformanceTab } from "@/components/clients/ClientPerformanceTab";
+
 const DEFAULT_REGISTRATION_TYPE = "cliente" as const;
 const SERVICE_LABELS: Record<string, string> = {
   assessoria: "Assessoria",
@@ -67,6 +73,9 @@ export default function ClientsPage() {
   const { profile } = useAuth();
   const { canCreate, canEdit, canDelete } = useModulePermission("clients");
   const { data: clients = [], isLoading, error: fetchError, create, update, remove } = useClients(organizationId);
+  const { data: teams = [] } = useTeams(organizationId);
+  const { data: allProfiles = [] } = useProfiles(organizationId);
+  const portfolios = useMemo(() => teams.filter(t => t.is_portfolio && t.type === 'comercial'), [teams]);
   const { leads, updateLead, removeLead } = useLeadsKanban(organizationId);
   const paymentsQuery = usePayments(organizationId);
   const contractMetrics = useContractMetrics(organizationId);
@@ -114,7 +123,15 @@ export default function ClientsPage() {
     registration_type: DEFAULT_REGISTRATION_TYPE,
     responsible_name: "",
     responsible_phone: "",
+    portfolio_team_id: "",
   });
+
+  const [filterPortfolioId, setFilterPortfolioId] = useState<string>("all");
+
+  const filteredClients = useMemo(() => {
+    if (filterPortfolioId === "all") return clients;
+    return clients.filter(c => c.portfolio_team_id === filterPortfolioId);
+  }, [clients, filterPortfolioId]);
 
   const handleCepSearch = async (cep: string) => {
     const cleanCep = cep.replace(/\D/g, "");
@@ -447,6 +464,7 @@ export default function ClientsPage() {
       responsible_phone: c.responsible_phone ?? "",
       decision_maker_name: c.decision_maker_name ?? "",
       decision_maker_phone: c.decision_maker_phone ?? "",
+      portfolio_team_id: c.portfolio_team_id ?? "",
     });
     setModalOpen(true);
   };
@@ -479,10 +497,19 @@ export default function ClientsPage() {
     setSubmitting(true);
     setSubmitError(null);
     try {
+      // Remove campos UUID vazios para evitar erro de sintaxe 22P02
+      const cleanedForm = { ...form };
+      if (cleanedForm.portfolio_team_id === "") {
+        delete cleanedForm.portfolio_team_id;
+      }
+      if (cleanedForm.lead_id === "") {
+        delete cleanedForm.lead_id;
+      }
+
       if (editing) {
-        await update.mutateAsync({ ...form, id: editing.id } as Partial<Client> & { id: string });
+        await update.mutateAsync({ ...cleanedForm, id: editing.id } as Partial<Client> & { id: string });
       } else {
-        const created = await create.mutateAsync({ ...form, name: form.name! });
+        const created = await create.mutateAsync({ ...cleanedForm, name: cleanedForm.name! });
         if (fromLeadId) {
           const l = leadsById.get(fromLeadId);
           await updateLead(fromLeadId, {
@@ -736,13 +763,13 @@ export default function ClientsPage() {
           <CardContent>
             <div className="rounded-md border bg-background overflow-hidden">
               <Table className="border-separate border-spacing-0">
-                <TableHeader className="sticky top-0 z-10 bg-background shadow-sm">
+                <TableHeader className="sticky top-0 z-20 bg-background shadow-sm">
                   <TableRow className="bg-background hover:bg-background">
-                    <TableHead className="bg-background border-b">Empresa</TableHead>
-                    <TableHead className="bg-background border-b">Efetivação</TableHead>
-                    <TableHead className="bg-background border-b">Serviço</TableHead>
-                    <TableHead className="text-right bg-background border-b">Valor</TableHead>
-                    <TableHead className="text-right bg-background border-b">Ações</TableHead>
+                    <TableHead className="bg-background border-b font-bold text-foreground">Empresa</TableHead>
+                    <TableHead className="bg-background border-b font-bold text-foreground">Efetivação</TableHead>
+                    <TableHead className="bg-background border-b font-bold text-foreground">Serviço</TableHead>
+                    <TableHead className="text-right bg-background border-b font-bold text-foreground">Valor</TableHead>
+                    <TableHead className="text-right bg-background border-b font-bold text-foreground">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody className="bg-background">
@@ -795,8 +822,22 @@ export default function ClientsPage() {
 
       {!clientId && (
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-base">Lista de clientes</CardTitle>
+            <div className="flex items-center gap-2">
+              <Search className="h-4 w-4 text-muted-foreground" />
+              <Select value={filterPortfolioId} onValueChange={setFilterPortfolioId}>
+                <SelectTrigger className="w-[200px] h-8 text-xs">
+                  <SelectValue placeholder="Filtrar por carteira" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas as carteiras</SelectItem>
+                  {portfolios.map(p => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -804,25 +845,27 @@ export default function ClientsPage() {
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Carregando...
               </div>
-            ) : clients.length === 0 ? (
-              <p className="text-muted-foreground">Nenhum cliente cadastrado.</p>
+            ) : filteredClients.length === 0 ? (
+              <p className="text-muted-foreground">Nenhum cliente encontrado para este filtro.</p>
             ) : (
               <div className="rounded-md border bg-background overflow-hidden">
                 <Table className="border-separate border-spacing-0">
-                  <TableHeader className="sticky top-0 z-10 bg-background shadow-sm">
-                    <TableRow className="bg-background hover:bg-background">
-                      <TableHead className="bg-background border-b">Nome</TableHead>
-                      <TableHead className="bg-background border-b">Decisor</TableHead>
-                      <TableHead className="bg-background border-b">Tel. decisor</TableHead>
-                      <TableHead className="text-right bg-background border-b">Total contratos</TableHead>
-                    </TableRow>
-                  </TableHeader>
+                  <TableHeader className="sticky top-0 z-20 bg-background shadow-sm">
+                  <TableRow className="bg-background hover:bg-background">
+                    <TableHead className="bg-background border-b font-bold text-foreground">Nome</TableHead>
+                    <TableHead className="bg-background border-b font-bold text-foreground">Carteira</TableHead>
+                    <TableHead className="bg-background border-b font-bold text-foreground">Decisor</TableHead>
+                    <TableHead className="bg-background border-b font-bold text-foreground">Tel. decisor</TableHead>
+                    <TableHead className="text-right bg-background border-b font-bold text-foreground">Total contratos</TableHead>
+                  </TableRow>
+                </TableHeader>
                   <TableBody className="bg-background">
-                    {clients.map((c) => {
+                    {filteredClients.map((c) => {
                       const decisor = c.decision_maker_name || c.responsible_name || "—";
                       const decisorPhone = c.decision_maker_phone || c.responsible_phone || "—";
                       const total = contractsByClientTotals.get(c.id) ?? 0;
                       const hasSuspended = clientsWithSuspendedContracts.has(c.id);
+                      const portfolio = portfolios.find(p => p.id === c.portfolio_team_id);
                       return (
                         <TableRow
                           key={c.id}
@@ -834,6 +877,13 @@ export default function ClientsPage() {
                               <span className="truncate">{c.company || c.name}</span>
                               {hasSuspended ? <Badge variant="secondary">Suspenso</Badge> : null}
                             </div>
+                          </TableCell>
+                          <TableCell className="bg-background group-hover:bg-transparent">
+                            {portfolio ? (
+                              <Badge variant="outline" className="text-[10px] font-normal">
+                                {portfolio.name}
+                              </Badge>
+                            ) : "—"}
                           </TableCell>
                           <TableCell className="bg-background group-hover:bg-transparent">{decisor}</TableCell>
                           <TableCell className="bg-background group-hover:bg-transparent">{decisorPhone !== "—" ? formatPhoneBR(String(decisorPhone)) : "—"}</TableCell>
@@ -1018,6 +1068,42 @@ export default function ClientsPage() {
                   placeholder="0,00"
                 />
               </div>
+              <div>
+                <Label>Carteira Responsável</Label>
+                <Select
+                  value={form.portfolio_team_id || "none"}
+                  onValueChange={(v) => {
+                    const portfolioId = v === "none" ? null : v;
+                    let nextResponsibleName = form.responsible_name;
+                    
+                    if (portfolioId) {
+                      const selectedTeam = teams.find(t => t.id === portfolioId);
+                      if (selectedTeam?.lead_id) {
+                        const leader = allProfiles.find(p => p.id === selectedTeam.lead_id);
+                        if (leader) {
+                          nextResponsibleName = leader.full_name;
+                        }
+                      }
+                    }
+                    
+                    setForm({ 
+                      ...form, 
+                      portfolio_team_id: portfolioId,
+                      responsible_name: nextResponsibleName
+                    });
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione uma carteira" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Nenhuma carteira</SelectItem>
+                    {portfolios.map(p => (
+                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <DialogFooter>
               {submitError && (
@@ -1039,11 +1125,45 @@ export default function ClientsPage() {
 
       {viewing ? (
         <div className="space-y-6">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="font-display text-2xl font-bold text-foreground truncate">
+              {viewing.company || viewing.name || "Cliente"}
+            </h1>
+            <p className="text-sm text-muted-foreground truncate">
+              {viewing.email || "—"} {viewing.phone ? `• ${formatPhoneBR(viewing.phone)}` : ""}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => navigate(listHref)}>
+              Voltar
+            </Button>
+            <Button type="button" size="sm" onClick={() => openEdit(viewing)} disabled={!canEdit}>
+              Alterar
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
+              onClick={() => {
+                if (!window.confirm("Excluir este cliente?")) return;
+                remove.mutate(viewing.id);
+                navigate(listHref);
+              }}
+              disabled={!canDelete}
+            >
+              Excluir
+            </Button>
+          </div>
+        </div>
         <Tabs defaultValue="dados" className="w-full">
           <TabsList className="mb-4">
             <TabsTrigger value="dados">Dados cadastrais</TabsTrigger>
             <TabsTrigger value="contratos">Contratos</TabsTrigger>
             <TabsTrigger value="documentos">Documentos</TabsTrigger>
+            <TabsTrigger value="integracoes">Integrações</TabsTrigger>
+            <TabsTrigger value="kpis">Indicadores (KPIs)</TabsTrigger>
+            <TabsTrigger value="performance">Performance</TabsTrigger>
           </TabsList>
 
           <TabsContent value="dados" className="space-y-6">
@@ -1056,9 +1176,6 @@ export default function ClientsPage() {
                 {viewing.email || "—"} {viewing.phone ? `• ${formatPhoneBR(viewing.phone)}` : ""}
               </div>
             </div>
-            <Button type="button" variant="outline" size="sm" onClick={() => navigate(listHref)}>
-              Fechar
-            </Button>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1142,24 +1259,6 @@ export default function ClientsPage() {
                 <p className="text-sm text-muted-foreground">Lead de origem</p>
                 <p className="font-medium">{viewing.lead_id || "—"}</p>
               </div>
-            </div>
-
-            <div className="flex justify-end gap-2">
-              <Button type="button" onClick={() => openEdit(viewing)} disabled={!canEdit}>
-                Alterar cliente
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={() => {
-                  if (!window.confirm("Excluir este cliente?")) return;
-                  remove.mutate(viewing.id);
-                  navigate(listHref);
-                }}
-                disabled={!canDelete}
-              >
-                Excluir
-              </Button>
             </div>
           </CardContent>
         </Card>
@@ -1377,6 +1476,18 @@ export default function ClientsPage() {
               : undefined
           }
         />
+          </TabsContent>
+
+          <TabsContent value="integracoes">
+            <ClientIntegrationsTab organizationId={organizationId} clientId={viewing.id} />
+          </TabsContent>
+
+          <TabsContent value="kpis">
+            <ClientKPIsTab organizationId={organizationId} clientId={viewing.id} />
+          </TabsContent>
+
+          <TabsContent value="performance">
+            <ClientPerformanceTab organizationId={organizationId} clientId={viewing.id} />
           </TabsContent>
         </Tabs>
         </div>

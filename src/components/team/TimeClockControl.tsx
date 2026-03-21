@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+﻿import { useMemo, useState } from "react";
 import { format, startOfWeek, endOfWeek, parseISO } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
@@ -11,6 +11,7 @@ import {
   useRepPAdminCorrectPunch,
   useRepPAdminCreatePunch,
   useRepPAdminVoidPunch,
+  useRepPAdminAuthorizeLimit,
   useRepPPunches,
   type RepPPunchRow,
   type RepPPunchType,
@@ -254,6 +255,71 @@ export function TimeClockControl() {
     }
   };
 
+  // ── Autorizar limite (intervalo tardio / retorno tardio) ──────────────────
+  const [limitOpen, setLimitOpen] = useState(false);
+  const [limitForm, setLimitForm] = useState<{
+    userId: string;
+    forDate: string;
+    authType: "late_break" | "late_return";
+    justification: string;
+  }>({
+    userId: "",
+    forDate: format(new Date(), "yyyy-MM-dd"),
+    authType: "late_break",
+    justification: "",
+  });
+  const authorizeLimit = useRepPAdminAuthorizeLimit();
+  const submitLimit = async () => {
+    try {
+      if (!limitForm.userId) throw new Error("Selecione um colaborador");
+      if (!limitForm.justification.trim()) throw new Error("Justificativa obrigatória");
+      await authorizeLimit.mutateAsync({
+        userId: limitForm.userId,
+        forDate: limitForm.forDate,
+        authType: limitForm.authType,
+        justification: limitForm.justification,
+      });
+      toast.success("Autorização concedida — colaborador tem 5 minutos para registrar");
+      setLimitOpen(false);
+      setLimitForm((p) => ({ ...p, justification: "" }));
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Erro ao autorizar");
+    }
+  };
+
+  // ── Autorizar hora extra ──────────────────────────────────────────────────
+  const [overtimeOpen, setOvertimeOpen] = useState(false);
+  const [overtimeForm, setOvertimeForm] = useState<{
+    userId: string;
+    forDate: string;
+    authorizedMinutes: number;
+    justification: string;
+  }>({
+    userId: "",
+    forDate: format(new Date(), "yyyy-MM-dd"),
+    authorizedMinutes: 60,
+    justification: "",
+  });
+  const submitOvertime = async () => {
+    try {
+      if (!overtimeForm.userId) throw new Error("Selecione um colaborador");
+      if (!overtimeForm.justification.trim()) throw new Error("Justificativa obrigatória");
+      if (overtimeForm.authorizedMinutes <= 0) throw new Error("Informe a quantidade de minutos autorizados");
+      await authorizeLimit.mutateAsync({
+        userId: overtimeForm.userId,
+        forDate: overtimeForm.forDate,
+        authType: "overtime",
+        justification: overtimeForm.justification,
+        authorizedMinutes: overtimeForm.authorizedMinutes,
+      });
+      toast.success(`Hora extra autorizada: ${overtimeForm.authorizedMinutes} min — colaborador tem 5 minutos para registrar saída`);
+      setOvertimeOpen(false);
+      setOvertimeForm((p) => ({ ...p, justification: "" }));
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Erro ao autorizar hora extra");
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
@@ -262,7 +328,13 @@ export function TimeClockControl() {
           <p className="text-sm text-muted-foreground">Registros imutáveis com histórico e rastreabilidade.</p>
         </div>
         {isAdmin && (
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap justify-end">
+            <Button variant="outline" onClick={() => setLimitOpen(true)}>
+              Autorizar entrada fora do horário
+            </Button>
+            <Button variant="outline" onClick={() => setOvertimeOpen(true)}>
+              Autorizar hora extra
+            </Button>
             <Button variant="outline" onClick={() => setAuthOpen(true)}>
               Autorizar nova entrada
             </Button>
@@ -727,6 +799,124 @@ export function TimeClockControl() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Dialog: Autorizar entrada fora do horário */}
+      <Dialog open={limitOpen} onOpenChange={setLimitOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Autorizar entrada fora do horário</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Concede ao colaborador 5 minutos para registrar a marcação fora do limite permitido.
+          </p>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>Colaborador</Label>
+              <Select value={limitForm.userId} onValueChange={(v) => setLimitForm((p) => ({ ...p, userId: v }))}>
+                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectContent>
+                  {profiles.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Data</Label>
+              <Input type="date" value={limitForm.forDate} onChange={(e) => setLimitForm((p) => ({ ...p, forDate: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label>Tipo de autorização</Label>
+              <Select
+                value={limitForm.authType}
+                onValueChange={(v) => setLimitForm((p) => ({ ...p, authType: v as "late_break" | "late_return" }))}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="late_break">Saída para intervalo após 6h30</SelectItem>
+                  <SelectItem value="late_return">Retorno do intervalo após 2h</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Justificativa</Label>
+              <Input
+                value={limitForm.justification}
+                onChange={(e) => setLimitForm((p) => ({ ...p, justification: e.target.value }))}
+                placeholder="Obrigatória"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLimitOpen(false)} disabled={authorizeLimit.isPending}>
+              Cancelar
+            </Button>
+            <Button onClick={submitLimit} disabled={authorizeLimit.isPending}>
+              {authorizeLimit.isPending ? "Autorizando..." : "Autorizar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Autorizar hora extra */}
+      <Dialog open={overtimeOpen} onOpenChange={setOvertimeOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Autorizar hora extra</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Permite que o colaborador registre saída após 8 horas. Informe quantos minutos extras estão autorizados.
+          </p>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>Colaborador</Label>
+              <Select value={overtimeForm.userId} onValueChange={(v) => setOvertimeForm((p) => ({ ...p, userId: v }))}>
+                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectContent>
+                  {profiles.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Data</Label>
+              <Input type="date" value={overtimeForm.forDate} onChange={(e) => setOvertimeForm((p) => ({ ...p, forDate: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label>Minutos extras autorizados</Label>
+              <Input
+                type="number"
+                min={1}
+                max={480}
+                value={overtimeForm.authorizedMinutes}
+                onChange={(e) => setOvertimeForm((p) => ({ ...p, authorizedMinutes: Number(e.target.value) }))}
+              />
+              <p className="text-xs text-muted-foreground">
+                {overtimeForm.authorizedMinutes > 0
+                  ? `${Math.floor(overtimeForm.authorizedMinutes / 60)}h${overtimeForm.authorizedMinutes % 60 > 0 ? ` ${overtimeForm.authorizedMinutes % 60}min` : ""} extras`
+                  : "Informe a quantidade"}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <Label>Justificativa</Label>
+              <Input
+                value={overtimeForm.justification}
+                onChange={(e) => setOvertimeForm((p) => ({ ...p, justification: e.target.value }))}
+                placeholder="Obrigatória"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOvertimeOpen(false)} disabled={authorizeLimit.isPending}>
+              Cancelar
+            </Button>
+            <Button onClick={submitOvertime} disabled={authorizeLimit.isPending}>
+              {authorizeLimit.isPending ? "Autorizando..." : "Autorizar hora extra"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -741,3 +931,4 @@ function StatCard({ label, value, accent }: { label: string; value: string; acce
     </Card>
   );
 }
+

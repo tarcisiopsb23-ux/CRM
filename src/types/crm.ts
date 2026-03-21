@@ -25,6 +25,7 @@ export interface Client {
   priority: string | null;
   responsible_name: string | null;
   responsible_phone: string | null;
+  portfolio_team_id?: string | null;
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
