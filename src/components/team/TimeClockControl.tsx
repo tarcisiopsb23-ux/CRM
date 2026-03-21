@@ -1,12 +1,11 @@
-﻿import { useMemo, useState } from "react";
+﻿import { useMemo, useState, useCallback } from "react";
 import { format, startOfWeek, endOfWeek, parseISO } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
-import {
-  useRepPAdminActions,
+import { useRepPAdminActions,
   useRepPAdminAuthorizeReentry,
   useRepPAdminCorrectPunch,
   useRepPAdminCreatePunch,
@@ -16,6 +15,7 @@ import {
   type RepPPunchRow,
   type RepPPunchType,
 } from "@/hooks/useTimeClock";
+import { usePermissionForScope } from "@/hooks/usePermissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Shield } from "lucide-react";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "@/components/ui/sonner";
@@ -77,7 +78,13 @@ export function TimeClockControl() {
   const { profile: me } = useAuth();
   const { data: profiles = [] } = useProfiles(orgId);
 
-  const isAdmin = me?.role === "owner" || me?.role === "admin";
+  const { canView: canEditTimeclock, isAdminOrOwner: isAdmin } = usePermissionForScope("team", "timeclock_edit");
+
+  // Excluir owners e admins das listas de ponto — eles são isentos
+  const timeclockProfiles = useMemo(
+    () => profiles.filter((p) => p.role !== "owner" && p.role !== "admin"),
+    [profiles]
+  );
 
   const [filterUser, setFilterUser] = useState<string>(isAdmin ? "all" : me?.id ?? "all");
   const [filterFrom, setFilterFrom] = useState<string>(() => format(new Date(), "yyyy-MM-dd"));
@@ -287,9 +294,54 @@ export function TimeClockControl() {
     }
   };
 
+  // ── Relatório de Auditoria ────────────────────────────────────────────────
+  const [auditOpen, setAuditOpen] = useState(false);
+  const [auditFrom, setAuditFrom] = useState(() => format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), "yyyy-MM-dd"));
+  const [auditTo, setAuditTo] = useState(() => format(new Date(), "yyyy-MM-dd"));
+  const [auditUser, setAuditUser] = useState("all");
+
+  const auditPunches = useRepPPunches({
+    organizationId: auditOpen ? (orgId ?? undefined) : undefined,
+    userId: auditUser === "all" ? undefined : auditUser,
+    fromIso: auditOpen ? new Date(`${auditFrom}T00:00:00`).toISOString() : undefined,
+    toIso: auditOpen ? new Date(`${auditTo}T23:59:59`).toISOString() : undefined,
+    status: "all",
+  });
+
+  const exportAuditCSV = useCallback(() => {
+    const rows = auditPunches.data ?? [];
+    if (!rows.length) { toast.error("Nenhum registro no período selecionado"); return; }
+    const header = ["id", "colaborador", "data", "hora", "tipo", "status", "origem", "ip", "prev_hash", "integrity_hash"];
+    const lines = rows.map((r) => {
+      const dt = fmtDateTime(r.occurred_at);
+      const name = profileNameById.get(r.user_id) ?? r.user_id;
+      const typeLabel = TYPE_OPTIONS.find((t) => t.value === r.punch_type)?.label ?? r.punch_type;
+      return [
+        r.id,
+        `"${name}"`,
+        dt.date,
+        dt.time,
+        typeLabel,
+        r.status,
+        r.origin,
+        r.ip ?? "",
+        r.prev_hash ?? "",
+        r.integrity_hash,
+      ].join(",");
+    });
+    const csv = [header.join(","), ...lines].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `auditoria_ponto_${auditFrom}_${auditTo}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Relatório exportado com sucesso");
+  }, [auditPunches.data, auditFrom, auditTo, profileNameById]);
+
   // ── Autorizar hora extra ──────────────────────────────────────────────────
-  const [overtimeOpen, setOvertimeOpen] = useState(false);
-  const [overtimeForm, setOvertimeForm] = useState<{
+  const [overtimeOpen, setOvertimeOpen] = useState(false);  const [overtimeForm, setOvertimeForm] = useState<{
     userId: string;
     forDate: string;
     authorizedMinutes: number;
@@ -329,6 +381,9 @@ export function TimeClockControl() {
         </div>
         {isAdmin && (
           <div className="flex gap-2 flex-wrap justify-end">
+            <Button variant="outline" onClick={() => setAuditOpen(true)}>
+              <Shield className="h-4 w-4 mr-1" /> Relatório de Auditoria
+            </Button>
             <Button variant="outline" onClick={() => setLimitOpen(true)}>
               Autorizar entrada fora do horário
             </Button>
@@ -408,7 +463,7 @@ export function TimeClockControl() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos</SelectItem>
-                {profiles.map((p) => (
+                {timeclockProfiles.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
                     {p.full_name}
                   </SelectItem>
@@ -472,14 +527,13 @@ export function TimeClockControl() {
                 <TableHead>Tipo</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Origem</TableHead>
-                <TableHead>Hash</TableHead>
                 <TableHead className="text-right">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {punches.isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="py-6 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="py-6 text-center text-muted-foreground">
                     Carregando...
                   </TableCell>
                 </TableRow>
@@ -498,7 +552,6 @@ export function TimeClockControl() {
                         <Badge variant={r.status === "ativo" ? "default" : "outline"}>{r.status}</Badge>
                       </TableCell>
                       <TableCell className="text-sm">{r.origin}</TableCell>
-                      <TableCell className="text-xs font-mono">{shortHash(r.integrity_hash)}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
                           <Button variant="outline" size="sm" onClick={() => setSelected(r)}>
@@ -545,7 +598,7 @@ export function TimeClockControl() {
                 })
               ) : (
                 <TableRow>
-                  <TableCell colSpan={8} className="py-6 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="py-6 text-center text-muted-foreground">
                     Nenhum registro encontrado.
                   </TableCell>
                 </TableRow>
@@ -555,73 +608,71 @@ export function TimeClockControl() {
         </CardContent>
       </Card>
 
-      {selected ? (
-        <Card>
-          <CardHeader className="flex flex-row items-start justify-between gap-3">
-            <CardTitle className="text-base">Detalhes do registro</CardTitle>
-            <Button variant="outline" size="sm" onClick={() => setSelected(null)}>
-              Fechar
-            </Button>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <Dialog open={!!selected} onOpenChange={(open) => { if (!open) setSelected(null); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Detalhes do registro</DialogTitle>
+          </DialogHeader>
+          {selected && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <Card>
+                  <CardContent className="p-4 space-y-1">
+                    <p className="text-xs text-muted-foreground">Colaborador</p>
+                    <p className="text-sm font-medium">{profileNameById.get(selected.user_id) ?? selected.user_id}</p>
+                    <p className="text-xs text-muted-foreground mt-2">Tipo</p>
+                    <p className="text-sm">{TYPE_OPTIONS.find((t) => t.value === selected.punch_type)?.label ?? selected.punch_type}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4 space-y-1">
+                    <p className="text-xs text-muted-foreground">Data/Hora</p>
+                    <p className="text-sm font-medium">{fmtDateTime(selected.occurred_at).date} {fmtDateTime(selected.occurred_at).time}</p>
+                    <p className="text-xs text-muted-foreground mt-2">Origem</p>
+                    <p className="text-sm">{selected.origin}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4 space-y-1">
+                    <p className="text-xs text-muted-foreground">Status</p>
+                    <p className="text-sm font-medium">{selected.status}</p>
+                    <p className="text-xs text-muted-foreground mt-2">Origem</p>
+                    <p className="text-sm">{selected.origin}</p>
+                  </CardContent>
+                </Card>
+              </div>
+
               <Card>
-                <CardContent className="p-4 space-y-1">
-                  <p className="text-xs text-muted-foreground">Colaborador</p>
-                  <p className="text-sm font-medium">{profileNameById.get(selected.user_id) ?? selected.user_id}</p>
-                  <p className="text-xs text-muted-foreground mt-2">Tipo</p>
-                  <p className="text-sm">{TYPE_OPTIONS.find((t) => t.value === selected.punch_type)?.label ?? selected.punch_type}</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4 space-y-1">
-                  <p className="text-xs text-muted-foreground">Data/Hora</p>
-                  <p className="text-sm font-medium">{fmtDateTime(selected.occurred_at).date} {fmtDateTime(selected.occurred_at).time}</p>
-                  <p className="text-xs text-muted-foreground mt-2">Origem</p>
-                  <p className="text-sm">{selected.origin}</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4 space-y-1">
-                  <p className="text-xs text-muted-foreground">Status</p>
-                  <p className="text-sm font-medium">{selected.status}</p>
-                  <p className="text-xs text-muted-foreground mt-2">Hash</p>
-                  <p className="text-xs font-mono break-all">{selected.integrity_hash}</p>
+                <CardHeader>
+                  <p className="text-sm font-medium">Histórico de alterações</p>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {selectedActions.isLoading ? (
+                    <p className="text-sm text-muted-foreground">Carregando...</p>
+                  ) : selectedActions.data?.length ? (
+                    <div className="space-y-2">
+                      {selectedActions.data.map((a) => (
+                        <div key={a.id} className="rounded border p-3">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-medium">{a.action_type}</p>
+                            <p className="text-xs text-muted-foreground">{fmtDateTime(a.action_at).date} {fmtDateTime(a.action_at).time}</p>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">{a.justification}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <Alert>
+                      <AlertTitle>Sem alterações</AlertTitle>
+                      <AlertDescription>Este registro não possui ações administrativas.</AlertDescription>
+                    </Alert>
+                  )}
                 </CardContent>
               </Card>
             </div>
-
-            <Card>
-              <CardHeader>
-                <p className="text-sm font-medium">Histórico de alterações</p>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {selectedActions.isLoading ? (
-                  <p className="text-sm text-muted-foreground">Carregando...</p>
-                ) : selectedActions.data?.length ? (
-                  <div className="space-y-2">
-                    {selectedActions.data.map((a) => (
-                      <div key={a.id} className="rounded border p-3">
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-medium">{a.action_type}</p>
-                          <p className="text-xs text-muted-foreground">{fmtDateTime(a.action_at).date} {fmtDateTime(a.action_at).time}</p>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-1">{a.justification}</p>
-                        <p className="text-xs font-mono break-all mt-2">{a.integrity_hash}</p>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <Alert>
-                    <AlertTitle>Sem alterações</AlertTitle>
-                    <AlertDescription>Este registro não possui ações administrativas.</AlertDescription>
-                  </Alert>
-                )}
-              </CardContent>
-            </Card>
-          </CardContent>
-        </Card>
-      ) : null}
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
@@ -636,7 +687,7 @@ export function TimeClockControl() {
                   <SelectValue placeholder="Colaborador" />
                 </SelectTrigger>
                 <SelectContent>
-                  {profiles.map((p) => (
+                  {timeclockProfiles.map((p) => (
                     <SelectItem key={p.id} value={p.id}>
                       {p.full_name}
                     </SelectItem>
@@ -772,7 +823,7 @@ export function TimeClockControl() {
                   <SelectValue placeholder="Colaborador" />
                 </SelectTrigger>
                 <SelectContent>
-                  {profiles.map((p) => (
+                  {timeclockProfiles.map((p) => (
                     <SelectItem key={p.id} value={p.id}>
                       {p.full_name}
                     </SelectItem>
@@ -815,7 +866,7 @@ export function TimeClockControl() {
               <Select value={limitForm.userId} onValueChange={(v) => setLimitForm((p) => ({ ...p, userId: v }))}>
                 <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent>
-                  {profiles.map((p) => (
+                  {timeclockProfiles.map((p) => (
                     <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>
                   ))}
                 </SelectContent>
@@ -858,9 +909,58 @@ export function TimeClockControl() {
         </DialogContent>
       </Dialog>
 
+      {/* Dialog: Relatório de Auditoria */}
+      <Dialog open={auditOpen} onOpenChange={setAuditOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Shield className="h-4 w-4" /> Relatório de Auditoria
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Gera um CSV com todos os campos técnicos dos registros, incluindo hashes de integridade, para fins de auditoria e fiscalização.
+          </p>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>Colaborador</Label>
+              <Select value={auditUser} onValueChange={setAuditUser}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  {timeclockProfiles.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label>Data inicial</Label>
+                <Input type="date" value={auditFrom} onChange={(e) => setAuditFrom(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label>Data final</Label>
+                <Input type="date" value={auditTo} onChange={(e) => setAuditTo(e.target.value)} />
+              </div>
+            </div>
+            {auditPunches.isLoading && <p className="text-xs text-muted-foreground">Carregando registros...</p>}
+            {!auditPunches.isLoading && (
+              <p className="text-xs text-muted-foreground">
+                {auditPunches.data?.length ?? 0} registro(s) encontrado(s) no período.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAuditOpen(false)}>Cancelar</Button>
+            <Button onClick={exportAuditCSV} disabled={auditPunches.isLoading || !auditPunches.data?.length}>
+              <Shield className="h-4 w-4 mr-1" /> Exportar CSV
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Dialog: Autorizar hora extra */}
-      <Dialog open={overtimeOpen} onOpenChange={setOvertimeOpen}>
-        <DialogContent>
+      <Dialog open={overtimeOpen} onOpenChange={setOvertimeOpen}>        <DialogContent>
           <DialogHeader>
             <DialogTitle>Autorizar hora extra</DialogTitle>
           </DialogHeader>
@@ -873,7 +973,7 @@ export function TimeClockControl() {
               <Select value={overtimeForm.userId} onValueChange={(v) => setOvertimeForm((p) => ({ ...p, userId: v }))}>
                 <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                 <SelectContent>
-                  {profiles.map((p) => (
+                  {timeclockProfiles.map((p) => (
                     <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>
                   ))}
                 </SelectContent>

@@ -72,6 +72,7 @@ export default function ClientsPage() {
   const driveFolders = useMemo(() => getDriveFoldersFromOrganizationSettings(orgSettings.data), [orgSettings.data]);
   const { profile } = useAuth();
   const { canCreate, canEdit, canDelete } = useModulePermission("clients");
+  const { canEdit: canManageContracts } = useModulePermission("financial");
   const { data: clients = [], isLoading, error: fetchError, create, update, remove } = useClients(organizationId);
   const { data: teams = [] } = useTeams(organizationId);
   const { data: allProfiles = [] } = useProfiles(organizationId);
@@ -79,7 +80,6 @@ export default function ClientsPage() {
   const { leads, updateLead, removeLead } = useLeadsKanban(organizationId);
   const paymentsQuery = usePayments(organizationId);
   const contractMetrics = useContractMetrics(organizationId);
-  const canManageContracts = profile?.role === "owner" || profile?.role === "admin";
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Client | null>(null);
   const [fromLeadId, setFromLeadId] = useState<string | null>(null);

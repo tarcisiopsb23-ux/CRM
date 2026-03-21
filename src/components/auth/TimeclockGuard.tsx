@@ -1,25 +1,24 @@
 ﻿import { useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { useAuth } from "@/contexts/AuthContext";
 import { useTimeClockState } from "@/hooks/useTimeClock";
+import { usePermissionForScope } from "@/hooks/usePermissions";
 
 /**
  * Bloqueia acesso ao sistema para usuarios que:
  * 1. Ainda nao registraram entrada → /timeclock/entry
  * 2. Ja registraram saida final → /timeclock/locked
- * Admin e owner sao isentos — nunca bloqueados.
+ * Usuarios com permissao "team/timeclock" sao isentos — nunca bloqueados.
  */
 export function TimeclockGuard({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { profile } = useAuth();
   const { data: clockState, isLoading } = useTimeClockState();
 
-  const isExempt = profile?.role === "owner" || profile?.role === "admin";
+  const { canView: isExempt, isLoading: permLoading } = usePermissionForScope("team", "timeclock");
 
   useEffect(() => {
     if (isExempt) return;
-    if (isLoading) return;
+    if (isLoading || permLoading) return;
     if (!clockState) return;
 
     const path = location.pathname;
@@ -36,7 +35,7 @@ export function TimeclockGuard({ children }: { children: React.ReactNode }) {
     if (clockState.has_final_exit && !isOnLockedPage && !isOnEntryPage) {
       navigate("/timeclock/locked", { replace: true });
     }
-  }, [clockState, isLoading, isExempt, navigate, location.pathname]);
+  }, [clockState, isLoading, permLoading, isExempt, navigate, location.pathname]);
 
   return <>{children}</>;
 }

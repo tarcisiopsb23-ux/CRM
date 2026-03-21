@@ -83,6 +83,13 @@ function recordLabel(rec: Record<string, unknown>): string {
   return String(rec.name ?? rec.title ?? rec.full_name ?? rec.email ?? rec.description ?? "").trim();
 }
 
+function getRecordName(changes: unknown): string {
+  if (!changes || typeof changes !== "object") return "-";
+  const c = changes as { new?: Record<string, unknown>; old?: Record<string, unknown> };
+  const rec = c.new ?? c.old ?? (changes as Record<string, unknown>);
+  return recordLabel(rec) || "-";
+}
+
 function formatChangeSummary(action: string, changes: unknown): string {
   if (!changes || typeof changes !== "object") return "-";
 
@@ -126,17 +133,22 @@ function formatChangeSummary(action: string, changes: unknown): string {
 const TABLE_LABELS: Record<string, string> = {
   clients: "Clientes",
   suppliers: "Fornecedores",
-  payments: "Financeiro (receber)",
-  supplier_expenses: "Financeiro (pagar)",
-  leads: "Leads",
-  profiles: "Usuários",
-  contracts: "Contratos",
+  payments: "Financeiro",
+  supplier_expenses: "Financeiro",
+  leads: "CRM",
+  profiles: "Equipe & Colaboradores",
+  contracts: "Clientes",
   goals: "Metas",
-  teams: "Equipes",
+  teams: "Equipe & Colaboradores",
   projects: "Projetos",
-  tasks: "Tarefas",
+  tasks: "Projetos",
   events: "Agenda",
-  invitation_tokens: "Convites",
+  invitation_tokens: "Configurações",
+  whatsapp_conversations: "CRM",
+  registration_codes: "Configurações",
+  rep_p_punches: "Controle de Ponto",
+  rep_p_inconsistencies: "Controle de Ponto",
+  rep_p_overtime_authorizations: "Controle de Ponto",
 };
 
 export default function AuditPage() {
@@ -171,10 +183,11 @@ export default function AuditPage() {
   const exportToCSV = () => {
     if (filteredLogs.length === 0) return;
 
-    const headers = ["Data/Hora", "Módulo", "Ação", "Responsável", "Alterações"];
+    const headers = ["Data/Hora", "Módulo", "Registro", "Ação", "Responsável", "Alterações"];
     const rows = filteredLogs.map(log => [
       log.changed_at ? format(new Date(log.changed_at), "dd/MM/yyyy HH:mm") : "-",
       TABLE_LABELS[log.table_name ?? ""] ?? log.table_name ?? "-",
+      getRecordName(log.changes),
       ACTION_LABELS[log.action ?? ""] ?? log.action ?? "-",
       log.changed_by_name ?? "-",
       log.changes ? JSON.stringify(log.changes).replace(/"/g, '""') : "-"
@@ -342,6 +355,7 @@ export default function AuditPage() {
                     <tr>
                       <th className="text-left p-4 font-bold text-muted-foreground uppercase text-[10px] border-b bg-muted">Data/Hora</th>
                       <th className="text-left p-4 font-bold text-muted-foreground uppercase text-[10px] border-b bg-muted">Módulo</th>
+                      <th className="text-left p-4 font-bold text-muted-foreground uppercase text-[10px] border-b bg-muted">Registro</th>
                       <th className="text-left p-4 font-bold text-muted-foreground uppercase text-[10px] border-b bg-muted">Ação</th>
                       <th className="text-left p-4 font-bold text-muted-foreground uppercase text-[10px] border-b bg-muted">Responsável</th>
                       <th className="text-left p-4 font-bold text-muted-foreground uppercase text-[10px] border-b bg-muted">Alterações</th>
@@ -365,6 +379,11 @@ export default function AuditPage() {
                             <TableIcon className="h-3 w-3" />
                             {TABLE_LABELS[log.table_name ?? ""] ?? log.table_name ?? "-"}
                           </Badge>
+                        </td>
+                        <td className="p-4 text-sm text-foreground font-medium max-w-[160px]">
+                          <span className="truncate block" title={getRecordName(log.changes)}>
+                            {getRecordName(log.changes)}
+                          </span>
                         </td>
                         <td className="p-4">
                           <span

@@ -7,6 +7,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export type PermissionModule = Database["public"]["Enums"]["permission_module"] | "performance" | "integrations";
 export type UserRole = Database["public"]["Enums"]["user_role"];
 
+// Módulos que existem apenas no frontend — não fazem parte do enum permission_module
+// no banco. Queries com esses valores causam erro 22P02 (invalid enum input).
+const CLIENT_ONLY_MODULES = new Set<PermissionModule>(["performance", "integrations"]);
+
 export interface UserPermissionRow {
   id: string;
   user_id: string;
@@ -154,20 +158,41 @@ export function baselineFor(role: UserRole, module: PermissionModule | null, sco
     return { canView: false, canCreate: false, canEdit: false, canDelete: false };
   }
 
+  // Módulos operacionais liberados por padrão para todos os roles não-admin
+  // (timeclock e agenda são necessários para qualquer colaborador)
+  // NOTA: module=timeclock = acesso à página de ponto (sempre true)
+  //       scope team/timeclock = ISENÇÃO do ponto (false por padrão, só owner/admin via applyHardOverrides)
+  if (module === "timeclock") {
+    if (scope === "timeclock") return { canView: false, canCreate: false, canEdit: false, canDelete: false };
+    return { canView: true, canCreate: true, canEdit: false, canDelete: false };
+  }
+  if (module === "agenda") {
+    if (role === "viewer") return { canView: true, canCreate: false, canEdit: false, canDelete: false };
+    return { canView: true, canCreate: true, canEdit: true, canDelete: false };
+  }
+
+  // team/timeclock scope = isenção do ponto — false por padrão para todos não-admin
+  if (module === "team" && scope === "timeclock") {
+    return { canView: false, canCreate: false, canEdit: false, canDelete: false };
+  }
+
+  // viewer: fechado por padrão exceto team (pode ver equipe e folha)
   if (role === "viewer") {
     if (module === "team") {
       if (!scope) return { canView: true, canCreate: false, canEdit: false, canDelete: false };
       if (scope === "payroll") return { canView: true, canCreate: false, canEdit: false, canDelete: false };
       return { canView: false, canCreate: false, canEdit: false, canDelete: false };
     }
-    if (module === "timeclock") return { canView: true, canCreate: true, canEdit: false, canDelete: false };
     return { canView: false, canCreate: false, canEdit: false, canDelete: false };
   }
 
-  if (role === "manager") return { canView: true, canCreate: true, canEdit: true, canDelete: false };
-  
-  // Default para member (CRM, Projetos etc. são abertos por padrão)
-  return { canView: true, canCreate: true, canEdit: true, canDelete: false };
+  // manager: fechado por padrão — acesso deve ser concedido explicitamente.
+  // Módulos operacionais (timeclock, agenda) já foram liberados acima.
+  if (role === "manager") return { canView: false, canCreate: false, canEdit: false, canDelete: false };
+
+  // member: fechado por padrão — acesso deve ser concedido explicitamente via
+  // user_permissions ou job_title_permissions.
+  return { canView: false, canCreate: false, canEdit: false, canDelete: false };
 }
 
 export function applyHardOverrides(role: UserRole, module: PermissionModule | null, scope: string | null, perms: PermissionResult): PermissionResult {
@@ -190,6 +215,51 @@ export function applyHardOverrides(role: UserRole, module: PermissionModule | nu
   }
 
   return perms;
+}
+
+/**
+ * Pure helper that determines if a data-fetch query should be enabled.
+ * Returns true only when canView is true AND isLoading is false.
+ * Useful for property-based testing of data-fetch gates.
+ */
+export function resolveQueryEnabled(canView: boolean, isLoading: boolean): boolean {
+  return canView === true && isLoading === false;
+}
+
+/**
+ * Pure helper that represents the UI gate pattern.
+ * A UI element controlled by canView should be visible if and only if canView === true.
+ * This is the identity function for the UI gate pattern.
+ */
+export function resolveUIGate(canView: boolean): boolean {
+  return canView;
+}
+
+/**
+ * Pure helper that mirrors the hook resolution logic without React hooks.
+ * Applies user_permissions overrides first, then job_title_permissions, then falls back to baselineFor.
+ * Useful for property-based testing.
+ */
+export function resolvePermission(
+  role: UserRole,
+  module: PermissionModule | null,
+  userPerms: Pick<UserPermissionRow, "module" | "can_view" | "can_create" | "can_edit" | "can_delete">[],
+  jobPerms: Pick<JobTitlePermissionRow, "module" | "can_view" | "can_create" | "can_edit" | "can_delete">[]
+): PermissionResult {
+  const base = baselineFor(role, module);
+  if (!module) return base;
+
+  const userPerm = userPerms.find((p) => p.module === module) ?? null;
+  const jobPerm = jobPerms.find((p) => p.module === module) ?? null;
+
+  const resolved: PermissionResult = {
+    canView: userPerm?.can_view ?? jobPerm?.can_view ?? base.canView,
+    canCreate: userPerm?.can_create ?? jobPerm?.can_create ?? base.canCreate,
+    canEdit: userPerm?.can_edit ?? jobPerm?.can_edit ?? base.canEdit,
+    canDelete: userPerm?.can_delete ?? jobPerm?.can_delete ?? base.canDelete,
+  };
+
+  return applyHardOverrides(role, module, null, resolved);
 }
 
 /** Hook para checar permissão de módulo. Owner tem acesso total irrestrito. */
@@ -235,12 +305,13 @@ export function useModulePermission(module: PermissionModule | null) {
     },
     enabled: !!profile?.organization_id && !!jobTitle && !isAdminOrOwner && module !== null,
   });
-
-  const userPerm = module ? userPermissions.find((p) => p.module === module) : null;
   const jobPerm = module ? jobTitlePermissions.find((p) => p.module === module) : null;
   const base = profile?.role ? baselineFor(profile.role as UserRole, module) : { canView: false, canCreate: false, canEdit: false, canDelete: false };
 
   const supabaseUntyped = supabase as unknown as SupabaseClient;
+
+  // Módulos client-only não existem no enum do banco — pular queries de scope para evitar erro 22P02
+  const canQueryDB = !!module && !CLIENT_ONLY_MODULES.has(module);
 
   const { data: userScopeCanView = false } = useQuery({
     queryKey: ["user_permission_scopes", profile?.id, profile?.organization_id, module, "any_view"],
@@ -257,7 +328,7 @@ export function useModulePermission(module: PermissionModule | null) {
       if (error) return false;
       return (data ?? []).length > 0;
     },
-    enabled: !!profile?.id && !!profile?.organization_id && !!module && !isAdminOrOwner,
+    enabled: !!profile?.id && !!profile?.organization_id && canQueryDB && !isAdminOrOwner,
   });
 
   const { data: jobScopeCanView = false } = useQuery({
@@ -275,8 +346,10 @@ export function useModulePermission(module: PermissionModule | null) {
       if (error) return false;
       return (data ?? []).length > 0;
     },
-    enabled: !!profile?.organization_id && !!jobTitle && !!module && !isAdminOrOwner,
+    enabled: !!profile?.organization_id && !!jobTitle && canQueryDB && !isAdminOrOwner,
   });
+
+  const userPerm = module ? userPermissions.find((p) => p.module === module) : null;
 
   // Módulo null => acesso total. Owner => acesso total SEMPRE (ignora hard overrides).
   if (!module || isOwner) {
@@ -318,6 +391,9 @@ export function useModulePermission(module: PermissionModule | null) {
 /** Retorna módulo para uma rota (ex: /kanban -> kanban) */
 export function getModuleForRoute(pathname: string): PermissionModule | null {
   if (pathname === "/") return "dashboard";
+  // Rotas pessoais/operacionais sem restrição de módulo
+  if (pathname === "/team/me" || pathname.startsWith("/team/me?")) return null;
+  if (pathname.startsWith("/timeclock/punch")) return null;
   const exact = ROUTE_TO_MODULE[pathname];
   if (exact) return exact;
   for (const [route, mod] of Object.entries(ROUTE_TO_MODULE)) {
@@ -651,7 +727,10 @@ export function usePermissionForScope(module: PermissionModule | null, scope: st
 
   const supabaseUntyped = supabase as unknown as SupabaseClient;
 
-  const { data: userPermissions = [] } = useQuery({
+  // Módulos client-only não existem no enum do banco — pular queries para evitar erro 22P02
+  const canQueryDB = !!module && !CLIENT_ONLY_MODULES.has(module);
+
+  const { data: userPermissions = [], isLoading: loadingUserPerms } = useQuery({
     queryKey: ["user_permissions", profile?.id, profile?.organization_id, module],
     queryFn: async () => {
       if (!profile?.id || !profile?.organization_id || !module) return [];
@@ -664,10 +743,10 @@ export function usePermissionForScope(module: PermissionModule | null, scope: st
       if (error) return [];
       return (data ?? []) as UserPermissionRow[];
     },
-    enabled: !!profile?.id && !!profile?.organization_id && !!module && !isAdminOrOwner,
+    enabled: !!profile?.id && !!profile?.organization_id && canQueryDB && !isAdminOrOwner,
   });
 
-  const { data: jobPermissions = [] } = useQuery({
+  const { data: jobPermissions = [], isLoading: loadingJobPerms } = useQuery({
     queryKey: ["job_title_permissions", profile?.organization_id, jobTitle, module],
     queryFn: async () => {
       if (!profile?.organization_id || !jobTitle || !module) return [];
@@ -680,10 +759,10 @@ export function usePermissionForScope(module: PermissionModule | null, scope: st
       if (error) return [];
       return (data ?? []) as unknown as JobTitlePermissionRow[];
     },
-    enabled: !!profile?.organization_id && !!jobTitle && !!module && !isAdminOrOwner,
+    enabled: !!profile?.organization_id && !!jobTitle && canQueryDB && !isAdminOrOwner,
   });
 
-  const { data: userScopePerms = [] } = useQuery({
+  const { data: userScopePerms = [], isLoading: loadingUserScope } = useQuery({
     queryKey: ["user_permission_scopes", profile?.id, profile?.organization_id, module, scope],
     queryFn: async () => {
       if (!profile?.id || !profile?.organization_id || !module || !scope) return [];
@@ -698,10 +777,10 @@ export function usePermissionForScope(module: PermissionModule | null, scope: st
       if (error) return [];
       return (data ?? []) as unknown as UserPermissionScopeRow[];
     },
-    enabled: !!profile?.id && !!profile?.organization_id && !!module && !!scope && !isAdminOrOwner,
+    enabled: !!profile?.id && !!profile?.organization_id && canQueryDB && !!scope && !isAdminOrOwner,
   });
 
-  const { data: jobScopePerms = [] } = useQuery({
+  const { data: jobScopePerms = [], isLoading: loadingJobScope } = useQuery({
     queryKey: ["job_title_permission_scopes", profile?.organization_id, jobTitle, module, scope],
     queryFn: async () => {
       if (!profile?.organization_id || !jobTitle || !module || !scope) return [];
@@ -716,8 +795,10 @@ export function usePermissionForScope(module: PermissionModule | null, scope: st
       if (error) return [];
       return (data ?? []) as unknown as JobTitlePermissionScopeRow[];
     },
-    enabled: !!profile?.organization_id && !!jobTitle && !!module && !!scope && !isAdminOrOwner,
+    enabled: !!profile?.organization_id && !!jobTitle && canQueryDB && !!scope && !isAdminOrOwner,
   });
+
+  const isLoading = loadingUserPerms || loadingJobPerms || loadingUserScope || loadingJobScope;
 
   if (!module || isAdminOrOwner) {
     return {
@@ -726,6 +807,7 @@ export function usePermissionForScope(module: PermissionModule | null, scope: st
       canEdit: true,
       canDelete: true,
       isAdminOrOwner: true,
+      isLoading: false,
     };
   }
 
@@ -742,7 +824,7 @@ export function usePermissionForScope(module: PermissionModule | null, scope: st
   };
 
   if (!scope) {
-    return { ...applyHardOverrides(role, module, null, base), isAdminOrOwner: false };
+    return { ...applyHardOverrides(role, module, null, base), isAdminOrOwner: false, isLoading };
   }
 
   const userScope = userScopePerms[0] ?? null;
@@ -754,5 +836,5 @@ export function usePermissionForScope(module: PermissionModule | null, scope: st
     canDelete: userScope?.can_delete ?? jobScope?.can_delete ?? base.canDelete,
   };
 
-  return { ...applyHardOverrides(role, module, scope, scoped), isAdminOrOwner: false };
+  return { ...applyHardOverrides(role, module, scope, scoped), isAdminOrOwner: false, isLoading };
 }

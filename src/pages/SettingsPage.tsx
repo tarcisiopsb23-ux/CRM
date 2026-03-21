@@ -17,7 +17,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useOrganization, useOrganizationData } from "@/hooks/useOrganization";
 import { useUserPreferences } from "@/contexts/UserPreferencesContext";
-import { useAuth } from "@/contexts/AuthContext";
+import { usePermissionForScope } from "@/hooks/usePermissions";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
@@ -34,14 +34,13 @@ import { Label } from "@/components/ui/label";
 
 export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const { profile } = useAuth();
   const { theme, setTheme, fontSize, setFontSize, sidebarColor, setSidebarColor } = useUserPreferences();
   const validTabs = useMemo(() => new Set(["permissions", "integrations", "general"]), []);
   const tabParamRaw = searchParams.get("tab");
   const tabParam = tabParamRaw === "api" ? "integrations" : tabParamRaw;
   const tab = (tabParam && validTabs.has(tabParam) ? tabParam : "permissions") as "permissions" | "integrations" | "general";
 
-  const isOwner = profile?.role === "owner";
+  const { canView: canViewBranding } = usePermissionForScope("settings", "general");
   const organizationId = useOrganization();
   const orgData = useOrganizationData(organizationId);
   const orgSettings = useOrganizationSettings(organizationId);
@@ -388,7 +387,7 @@ export function SettingsPage() {
           </SettingsSection>
 
           {/* Identidade Visual (Apenas Owner) */}
-          {isOwner && (
+          {canViewBranding && (
             <SettingsSection
               title="Identidade Visual (Branding)"
               description="Personalize o logotipo e o favicon da sua organização."

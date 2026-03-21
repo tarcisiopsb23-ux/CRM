@@ -51,15 +51,26 @@ interface Props {
   members: TeamMemberRow[];
   selectedProfileId?: string | null;
   loading?: boolean;
+  // Permite que o pai controle a abertura dos dialogs de ponto
+  externalLimitOpen?: boolean;
+  onExternalLimitOpenChange?: (v: boolean) => void;
+  externalOvertimeOpen?: boolean;
+  onExternalOvertimeOpenChange?: (v: boolean) => void;
+  externalManualPunchOpen?: boolean;
+  onExternalManualPunchOpenChange?: (v: boolean) => void;
 }
 
-export function TeamProfilesList({ profiles, teams, members, selectedProfileId, loading }: Props) {
+export function TeamProfilesList({ profiles, teams, members, selectedProfileId, loading,
+  externalLimitOpen, onExternalLimitOpenChange,
+  externalOvertimeOpen, onExternalOvertimeOpenChange,
+  externalManualPunchOpen, onExternalManualPunchOpenChange,
+}: Props) {
   const organizationId = useOrganization();
   const orgSettings = useOrganizationSettings(organizationId);
   const driveFolders = getDriveFoldersFromOrganizationSettings(orgSettings.data);
   const { update, remove } = useProfiles(organizationId);
   const { profile: me } = useAuth();
-  const isAdmin = me?.role === "owner" || me?.role === "admin";
+  const { canView: canEditTimeclock, isAdminOrOwner: isAdmin } = usePermissionForScope("team", "timeclock_edit");
   const expenses = useSupplierExpenses(organizationId);
   const employeesPermission = usePermissionForScope("team", "employees");
   const navigate = useNavigate();
@@ -71,12 +82,23 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [profileToDelete, setProfileToDelete] = useState<ProfileRow | null>(null);
 
-  // Dialogs de ponto
-  const [limitOpen, setLimitOpen] = useState(false);
+  // Dialogs de ponto — suportam controle externo (via props) ou interno
+  const [limitOpenInternal, setLimitOpenInternal] = useState(false);
+  const limitOpen = externalLimitOpen !== undefined ? externalLimitOpen : limitOpenInternal;
+  const setLimitOpen = (v: boolean) => { setLimitOpenInternal(v); onExternalLimitOpenChange?.(v); };
+
   const [limitForm, setLimitForm] = useState<{ authType: "late_break" | "late_return"; justification: string }>({ authType: "late_break", justification: "" });
-  const [overtimeOpen, setOvertimeOpen] = useState(false);
+
+  const [overtimeOpenInternal, setOvertimeOpenInternal] = useState(false);
+  const overtimeOpen = externalOvertimeOpen !== undefined ? externalOvertimeOpen : overtimeOpenInternal;
+  const setOvertimeOpen = (v: boolean) => { setOvertimeOpenInternal(v); onExternalOvertimeOpenChange?.(v); };
+
   const [overtimeForm, setOvertimeForm] = useState<{ authorizedMinutes: number; justification: string }>({ authorizedMinutes: 60, justification: "" });
-  const [manualPunchOpen, setManualPunchOpen] = useState(false);
+
+  const [manualPunchOpenInternal, setManualPunchOpenInternal] = useState(false);
+  const manualPunchOpen = externalManualPunchOpen !== undefined ? externalManualPunchOpen : manualPunchOpenInternal;
+  const setManualPunchOpen = (v: boolean) => { setManualPunchOpenInternal(v); onExternalManualPunchOpenChange?.(v); };
+
   const [manualPunchForm, setManualPunchForm] = useState<{ date: string; time: string; type: RepPPunchType; justification: string }>({
     date: format(new Date(), "yyyy-MM-dd"),
     time: format(new Date(), "HH:mm"),
@@ -357,7 +379,7 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
     setEditing(null);
   }, [profiles, selectedProfileId]);
 
-  const canResetPassword = (me?.role === "admin" || me?.role === "owner") && employeesPermission.canEdit;
+  const canResetPassword = isAdmin && employeesPermission.canEdit;
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -641,42 +663,25 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
                 </div>
               </div>
 
-              {/* Botões — duas linhas */}
-              <div className="flex flex-col items-end gap-2">
-                {/* Linha 1: botões de ponto (somente admin/owner) */}
-                {isAdmin && (
-                  <div className="flex items-center gap-2 flex-wrap justify-end">
-                    <Button size="sm" variant="outline" onClick={() => setLimitOpen(true)}>
-                      <ShieldCheck className="h-3.5 w-3.5 mr-1" /> Autorizar entrada/saída
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => setOvertimeOpen(true)}>
-                      <Timer className="h-3.5 w-3.5 mr-1" /> Hora extra
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => setManualPunchOpen(true)}>
-                      <Clock className="h-3.5 w-3.5 mr-1" /> Registrar ponto
-                    </Button>
-                  </div>
-                )}
-                {/* Linha 2: gestão do colaborador */}
-                <div className="flex items-center gap-2 flex-wrap justify-end">
-                  <Button size="sm" variant="outline" onClick={() => setPasswordOpen(true)} disabled={!canResetPassword}>
-                    Alterar senha
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => { setEditing(viewing); setEditDialogOpen(true); }} disabled={!employeesPermission.canEdit}>
-                    Editar
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={() => { setProfileToDelete(viewing); setDeleteConfirmOpen(true); }}
-                    disabled={!employeesPermission.canDelete}
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" /> Excluir
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => navigate("/team")}>
-                    Fechar
-                  </Button>
-                </div>
+              {/* Botões — gestão do colaborador */}
+              <div className="flex items-center gap-2 flex-wrap justify-end">
+                <Button size="sm" variant="outline" onClick={() => setPasswordOpen(true)} disabled={!canResetPassword}>
+                  Alterar senha
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => { setEditing(viewing); setEditDialogOpen(true); }} disabled={!employeesPermission.canEdit}>
+                  Editar
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => { setProfileToDelete(viewing); setDeleteConfirmOpen(true); }}
+                  disabled={!employeesPermission.canDelete}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" /> Excluir
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => navigate("/team")}>
+                  Fechar
+                </Button>
               </div>
             </CardHeader>
 
@@ -703,7 +708,7 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
                 <TabsList className="mb-4">
                   <TabsTrigger value="dados">Dados cadastrais</TabsTrigger>
                   <TabsTrigger value="pagamentos">Pagamentos</TabsTrigger>
-                  <TabsTrigger value="ponto">Folha de Ponto</TabsTrigger>
+                  <TabsTrigger value="ponto">Controle de Ponto</TabsTrigger>
                   <TabsTrigger value="documentos">Documentos</TabsTrigger>
                 </TabsList>
 
@@ -856,7 +861,10 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
                 </TabsContent>
 
                 <TabsContent value="ponto">
-                  <CollaboratorTimeclockTab profileId={viewing.id} />
+                  <CollaboratorTimeclockTab
+                    profileId={viewing.id}
+                    isExempt={viewing.role === "owner" || viewing.role === "admin"}
+                  />
                 </TabsContent>
               </Tabs>            </CardContent>
           </Card>

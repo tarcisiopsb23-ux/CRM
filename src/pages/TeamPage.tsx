@@ -9,7 +9,7 @@ import { useProfiles } from "@/hooks/useProfiles";
 import { useTeams, useTeamMembers } from "@/hooks/useTeams";
 import { useAuth } from "@/contexts/AuthContext";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Clock, Users, UsersRound, UserPlus, ChevronDown, Calculator } from "lucide-react";
+import { Clock, Users, UsersRound, UserPlus, ChevronDown, Calculator, ShieldCheck, Timer } from "lucide-react";
 import { PayrollManager } from "@/components/team/PayrollManager";
 import { Button } from "@/components/ui/button";
 import { usePermissionForScope } from "@/hooks/usePermissions";
@@ -32,12 +32,18 @@ export default function TeamPage() {
   const [addDirectOpen, setAddDirectOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteMode, setInviteMode] = useState<"email" | "link">("email");
-  const isAdmin = profile?.role === "admin" || profile?.role === "owner";
   const [tab, setTab] = useState<"employees" | "teams" | "payroll" | "timeclock">("employees");
+
+  // Estados dos dialogs de ponto — elevados para renderizar botões no header
+  const [limitOpen, setLimitOpen] = useState(false);
+  const [overtimeOpen, setOvertimeOpen] = useState(false);
+  const [manualPunchOpen, setManualPunchOpen] = useState(false);
+
   const employeesPermission = usePermissionForScope("team", "employees");
   const teamsPermission = usePermissionForScope("team", "teams");
   const payrollPermission = usePermissionForScope("team", "payroll");
   const timeclockPermission = usePermissionForScope("team", "timeclock");
+  const { isAdminOrOwner: canEditTimeclock } = usePermissionForScope("team", "timeclock_edit");
 
   const scopePermission =
     tab === "employees"
@@ -78,6 +84,7 @@ export default function TeamPage() {
 
   if (profileId) {
     const selected = profiles.find((p) => String(p.id) === String(profileId));
+    const selectedIsExempt = selected?.role === "owner" || selected?.role === "admin";
     return (
       <div className="space-y-6">
         <div className="flex items-start justify-between gap-4">
@@ -87,9 +94,24 @@ export default function TeamPage() {
             </h1>
             <p className="text-sm text-muted-foreground mt-1">Detalhes do colaborador</p>
           </div>
-          <Button variant="outline" onClick={() => navigate("/team")}>
-            Voltar
-          </Button>
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            {canEditTimeclock && !selectedIsExempt && (
+              <>
+                <Button size="sm" variant="outline" onClick={() => setLimitOpen(true)}>
+                  <ShieldCheck className="h-3.5 w-3.5 mr-1" /> Autorizar entrada/saída
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setOvertimeOpen(true)}>
+                  <Timer className="h-3.5 w-3.5 mr-1" /> Hora extra
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setManualPunchOpen(true)}>
+                  <Clock className="h-3.5 w-3.5 mr-1" /> Registrar ponto
+                </Button>
+              </>
+            )}
+            <Button variant="outline" onClick={() => navigate("/team")}>
+              Voltar
+            </Button>
+          </div>
         </div>
 
         {!employeesPermission.canView ? (
@@ -104,6 +126,12 @@ export default function TeamPage() {
             members={members}
             loading={profilesLoading}
             selectedProfileId={profileId}
+            externalLimitOpen={limitOpen}
+            onExternalLimitOpenChange={setLimitOpen}
+            externalOvertimeOpen={overtimeOpen}
+            onExternalOvertimeOpenChange={setOvertimeOpen}
+            externalManualPunchOpen={manualPunchOpen}
+            onExternalManualPunchOpenChange={setManualPunchOpen}
           />
         )}
       </div>
@@ -140,8 +168,8 @@ export default function TeamPage() {
             >
               Gerar link manualmente
             </DropdownMenuItem>
-            {isAdmin && (
-              <DropdownMenuItem onClick={() => setAddDirectOpen(true)} disabled={!employeesPermission.canCreate}>
+            {employeesPermission.canCreate && (
+              <DropdownMenuItem onClick={() => setAddDirectOpen(true)}>
                 Cadastrar diretamente (sem token)
               </DropdownMenuItem>
             )}
@@ -167,7 +195,7 @@ export default function TeamPage() {
           <TabsTrigger value="teams" className="gap-1.5">
             <UsersRound className="h-4 w-4" /> Equipes
           </TabsTrigger>
-          {payrollPermission.canView && (isAdmin || profile?.role === "manager") && (
+          {payrollPermission.canView && (
             <TabsTrigger value="payroll" className="gap-1.5">
               <Calculator className="h-4 w-4" /> Folha de Pagamento
             </TabsTrigger>
@@ -206,7 +234,7 @@ export default function TeamPage() {
               />
             </TabsContent>
 
-            {(isAdmin || profile?.role === "manager") && payrollPermission.canView && (
+            {payrollPermission.canView && (
               <TabsContent value="payroll">
                 <PayrollManager />
               </TabsContent>

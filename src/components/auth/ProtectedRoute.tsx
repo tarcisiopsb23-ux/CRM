@@ -16,10 +16,10 @@ export function ProtectedRoute({
   requireRole,
   redirectTo = '/login',
 }: ProtectedRouteProps) {
-  const { user, profile, loading, error, refetchProfile, signOut } = useAuth();
+  const { user, profile, loading, profileLoading, error, refetchProfile, signOut } = useAuth();
   const location = useLocation();
 
-  if (loading) {
+  if (loading || profileLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <p className="text-gray-500">Carregando...</p>

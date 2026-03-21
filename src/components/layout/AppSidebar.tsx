@@ -23,7 +23,6 @@ import { useLocation } from "react-router-dom";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useModulePermission } from "@/hooks/usePermissions";
-import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization, useOrganizationData } from "@/hooks/useOrganization";
 
 const navItems: {
@@ -42,7 +41,6 @@ const navItems: {
   { title: "Metas", url: "/goals", icon: Target, module: "goals" },
   { title: "WhatsApp", url: "/whatsapp", icon: MessageCircle, module: "whatsapp" },
   { title: "Reuniões IA", url: "/meetings", icon: Sparkles, module: "meetings" },
-  { title: "Meu cadastro", url: "/team/me", icon: UsersRound, module: null },
   { title: "Equipe", url: "/team", icon: UsersRound, module: "team" },
   { title: "Campanhas", url: "/campaign-reports", icon: Megaphone, module: "campaigns" },
   { title: "Relatórios", url: "/reports", icon: FileBarChart, module: "reports" },
@@ -53,10 +51,8 @@ const navItems: {
 export function AppSidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
-  const { profile } = useAuth();
   const orgId = useOrganization();
   const { data: orgData } = useOrganizationData(orgId);
-  const isAdmin = profile?.role === "admin" || profile?.role === "owner";
 
   const { canView: canViewDashboard } = useModulePermission("dashboard");
   const { canView: canViewKanban } = useModulePermission("kanban");
@@ -95,8 +91,8 @@ export function AppSidebar() {
   };
 
   const visibleItems = navItems.filter((item) => {
-    if (item.module === "settings") return isAdmin;
-    if (item.url === "/team") return isAdmin;
+    if (item.module === "settings") return canViewSettings;
+    if (item.url === "/team") return canViewTeam;
     return !item.module || canViewByModule[item.module];
   });
 

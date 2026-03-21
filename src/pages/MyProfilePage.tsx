@@ -1,9 +1,10 @@
-import { useState, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useMemo, useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { usePayrollsByProfile } from "@/hooks/usePayrolls";
 import { useRepPPunches, useTimeClockState, useRegisterPunch } from "@/hooks/useTimeClock";
+import { usePermissionForScope } from "@/hooks/usePermissions";
 import { useTeams, useTeamMembers } from "@/hooks/useTeams";
 import { useProfiles } from "@/hooks/useProfiles";
 import { supabase } from "@/lib/supabase";
@@ -19,7 +20,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   ArrowLeft, Loader2, User, DollarSign, Clock,
-  CheckCircle2, AlertCircle, Calendar, LogIn, LogOut, Users,
+  CheckCircle2, AlertCircle, Calendar, LogIn, LogOut, Users, Camera,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
@@ -41,7 +42,7 @@ const PUNCH_COLORS: Record<string, string> = {
   saida_final: "bg-slate-100 text-slate-700",
 };
 
-type Tab = "dados" | "pagamentos" | "ponto" | "equipe";
+type Tab = "perfil" | "dados" | "pagamentos" | "ponto" | "equipe";
 
 function Field({ label, value }: { label: string; value?: string | null }) {
   return (
@@ -54,10 +55,10 @@ function Field({ label, value }: { label: string; value?: string | null }) {
 
 export default function MyProfilePage() {
   const navigate = useNavigate();
-  const { user, profile, loading, signOut } = useAuth();
+  const [searchParams] = useSearchParams();
+  const { user, profile, loading, signOut, refetchProfile } = useAuth();
   const organizationId = useOrganization();
 
-  // Dados de equipe do usuário
   const { data: teams = [] } = useTeams(organizationId);
   const { data: teamMembers = [] } = useTeamMembers(organizationId);
   const { data: profiles = [] } = useProfiles(organizationId);
@@ -81,16 +82,26 @@ export default function MyProfilePage() {
     return profiles.find((p) => p.id === myTeam.lead_id) ?? null;
   }, [myTeam, profiles]);
 
-  const [activeTab, setActiveTab] = useState<Tab>("dados");
-  const [open, setOpen] = useState(false);
+  const initialTab: Tab = searchParams.get("tab") === "senha" ? "perfil" : "perfil";
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab);
+
+  // Password dialog
+  const [open, setOpen] = useState(searchParams.get("tab") === "senha");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [changing, setChanging] = useState(false);
 
-  // Admin/owner são isentos — não mostram botão de ponto
-  const isExempt = profile?.role === "owner" || profile?.role === "admin";
+  // Profile edit state
+  const [displayName, setDisplayName] = useState("");
+  const [uploading, setUploading] = useState(false);
 
-  // Timeclock state — sabe qual batida é permitida agora
+  useEffect(() => {
+    if (profile) {
+      setDisplayName((profile.metadata?.display_name as string) || "");
+    }
+  }, [profile]);
+
+  const { canView: isExempt } = usePermissionForScope("team", "timeclock");
   const { data: clockState, isLoading: clockLoading } = useTimeClockState();
   const registerPunch = useRegisterPunch();
 
@@ -101,14 +112,12 @@ export default function MyProfilePage() {
   const canReturn = nextAllowed.includes("retorno_intervalo");
 
   const handlePunch = async () => {
-    // Prioridade: entrada → saida_intervalo → retorno_intervalo → saida_final
     let type: "entrada" | "saida_intervalo" | "retorno_intervalo" | "saida_final";
     if (canEnter)       type = "entrada";
     else if (canBreak)  type = "saida_intervalo";
     else if (canReturn) type = "retorno_intervalo";
     else if (canExit)   type = "saida_final";
     else { toast.error("Nenhuma batida permitida no momento."); return; }
-
     try {
       await registerPunch.mutateAsync({ type });
       toast.success(`${PUNCH_LABELS[type]} registrada com sucesso!`);
@@ -128,12 +137,8 @@ export default function MyProfilePage() {
   const punchButtonVariant = canEnter ? "default" : canExit ? "destructive" : "secondary";
   const PunchIcon = canEnter ? LogIn : LogOut;
 
-  // Payroll data for this profile
-  const { data: payrolls = [], isLoading: payrollLoading } = usePayrollsByProfile(
-    organizationId, profile?.id
-  );
+  const { data: payrolls = [], isLoading: payrollLoading } = usePayrollsByProfile(organizationId, profile?.id);
 
-  // Timeclock — last 3 months
   const fromIso = startOfMonth(subMonths(new Date(), 2)).toISOString();
   const toIso   = endOfMonth(new Date()).toISOString();
   const { data: punches = [], isLoading: punchLoading } = useRepPPunches({
@@ -166,13 +171,71 @@ export default function MyProfilePage() {
     }
   };
 
+  const handleUpdateDisplayName = async () => {
+    if (!profile) return;
+    try {
+      setUploading(true);
+      const { error } = await supabase
+        .from("profiles")
+        .update({ metadata: { ...profile.metadata, display_name: displayName } })
+        .eq("id", profile.id);
+      if (error) throw error;
+      await refetchProfile();
+      toast.success("Nome de exibição atualizado");
+    } catch (err) {
+      toast.error((err as Error).message || "Erro ao atualizar");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !profile) return;
+    try {
+      setUploading(true);
+      const fileExt = file.name.split(".").pop();
+      const filePath = `${profile.id}/${Date.now()}.${fileExt}`;
+      const { error: uploadError } = await supabase.storage.from("avatars").upload(filePath, file, { upsert: true });
+      if (uploadError) throw uploadError;
+      const { data: { publicUrl } } = supabase.storage.from("avatars").getPublicUrl(filePath);
+      const { error: updateError } = await supabase.from("profiles").update({ avatar_url: publicUrl }).eq("id", profile.id);
+      if (updateError) throw updateError;
+      await refetchProfile();
+      toast.success("Foto atualizada com sucesso");
+    } catch (err) {
+      const error = err as Error;
+      if (error.message === "Bucket not found") {
+        toast.error("Bucket 'avatars' não encontrado no Supabase.");
+      } else {
+        toast.error(error.message || "Erro ao fazer upload da foto");
+      }
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removeAvatar = async () => {
+    if (!profile) return;
+    try {
+      setUploading(true);
+      const { error } = await supabase.from("profiles").update({ avatar_url: null }).eq("id", profile.id);
+      if (error) throw error;
+      await refetchProfile();
+      toast.success("Foto removida");
+    } catch (err) {
+      toast.error((err as Error).message || "Erro ao remover foto");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   if (loading) return (
     <div className="flex items-center justify-center min-h-[400px]">
       <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
     </div>
   );
 
-  // Perfil ainda carregando (auth resolveu mas profile ainda não chegou)
   if (!user || !profile) return (
     <div className="flex items-center justify-center min-h-[400px]">
       <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -182,7 +245,10 @@ export default function MyProfilePage() {
   const meta = (profile.metadata ?? {}) as Record<string, unknown>;
   const str  = (k: string) => String((meta[k] ?? "") as string).trim() || null;
 
-  // Group punches by date
+  const avatarUrl = profile.avatar_url || null;
+  const initials = profile.full_name
+    ?.split(" ").filter(Boolean).map((n) => n[0]).slice(0, 2).join("").toUpperCase() ?? "?";
+
   const punchByDate = punches.reduce<Record<string, typeof punches>>((acc, p) => {
     const day = p.occurred_at.slice(0, 10);
     if (!acc[day]) acc[day] = [];
@@ -192,10 +258,11 @@ export default function MyProfilePage() {
   const punchDays = Object.keys(punchByDate).sort((a, b) => b.localeCompare(a));
 
   const tabs: { key: Tab; label: string; icon: React.ElementType }[] = [
-    { key: "dados",      label: "Dados Cadastrais", icon: User },
-    { key: "pagamentos", label: "Pagamentos",        icon: DollarSign },
-    { key: "ponto",      label: "Folha de Ponto",    icon: Clock },
-    { key: "equipe",     label: "Equipe",             icon: Users },
+    { key: "perfil",     label: "Perfil",           icon: User },
+    { key: "dados",      label: "Dados Cadastrais",  icon: User },
+    { key: "pagamentos", label: "Pagamentos",         icon: DollarSign },
+    { key: "ponto",      label: "Controle de Ponto",  icon: Clock },
+    { key: "equipe",     label: "Equipe",              icon: Users },
   ];
 
   return (
@@ -206,16 +273,23 @@ export default function MyProfilePage() {
           <Button variant="ghost" size="icon" onClick={() => navigate("/")}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <div>
-            <h1 className="text-2xl font-bold">{profile.full_name}</h1>
-            <p className="text-sm text-muted-foreground">{str("job_title") ?? "Colaborador"}</p>
+          <div className="flex items-center gap-4">
+            <Avatar className="h-14 w-14 shrink-0">
+              <AvatarImage src={avatarUrl || ""} alt={profile.full_name} />
+              <AvatarFallback className="text-lg gradient-primary text-primary-foreground font-medium">
+                {initials}
+              </AvatarFallback>
+            </Avatar>
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Meu Perfil</p>
+              <h1 className="text-2xl font-bold">{profile.full_name}</h1>
+              <p className="text-sm text-muted-foreground">{str("job_title") ?? "Colaborador"}</p>
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
           {isExempt ? (
-            <span className="text-xs text-muted-foreground italic px-2">
-              Isento de registro de ponto
-            </span>
+            <span className="text-xs text-muted-foreground italic px-2">Isento de registro de ponto</span>
           ) : (
             <Button
               size="sm"
@@ -224,9 +298,7 @@ export default function MyProfilePage() {
               disabled={clockLoading || registerPunch.isPending || (!canEnter && !canExit && !canBreak && !canReturn)}
               className="gap-2"
             >
-              {registerPunch.isPending
-                ? <Loader2 className="h-4 w-4 animate-spin" />
-                : <PunchIcon className="h-4 w-4" />}
+              {registerPunch.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <PunchIcon className="h-4 w-4" />}
               {punchButtonLabel()}
             </Button>
           )}
@@ -237,7 +309,7 @@ export default function MyProfilePage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-muted p-1 rounded-xl border border-border w-fit">
+      <div className="flex flex-wrap gap-1 bg-muted p-1 rounded-xl border border-border w-full">
         {tabs.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
@@ -254,45 +326,89 @@ export default function MyProfilePage() {
         ))}
       </div>
 
+      {/* ── Perfil ── */}
+      {activeTab === "perfil" && (
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-base">Foto e Nome de Exibição</CardTitle></CardHeader>
+          <CardContent className="space-y-6">
+            {/* Avatar */}
+            <div className="flex flex-col items-center gap-4">
+              <div className="relative group">
+                <Avatar className="h-24 w-24">
+                  <AvatarImage src={avatarUrl || ""} alt={profile.full_name} />
+                  <AvatarFallback className="text-2xl gradient-primary text-primary-foreground">
+                    {initials}
+                  </AvatarFallback>
+                </Avatar>
+                <label className="absolute inset-0 flex items-center justify-center bg-black/40 text-white rounded-full opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity">
+                  <Camera className="h-6 w-6" />
+                  <input type="file" className="hidden" accept="image/*" onChange={handleAvatarUpload} disabled={uploading} />
+                </label>
+              </div>
+              <p className="text-sm font-medium">{profile.full_name}</p>
+              {avatarUrl && (
+                <Button variant="ghost" size="sm" onClick={removeAvatar} disabled={uploading} className="text-destructive h-7">
+                  Remover foto
+                </Button>
+              )}
+            </div>
+            {/* Display name */}
+            <div className="space-y-2">
+              <Label htmlFor="display_name">Nome de exibição</Label>
+              <Input
+                id="display_name"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="Como seu nome aparece para outros usuários"
+              />
+              <p className="text-[10px] text-muted-foreground">Deixe em branco para usar o nome completo.</p>
+            </div>
+            <Button onClick={handleUpdateDisplayName} disabled={uploading} className="w-full">
+              {uploading ? "Salvando..." : "Salvar Alterações"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* ── Dados Cadastrais ── */}
       {activeTab === "dados" && (
         <div className="space-y-4">
           <Card>
             <CardHeader className="pb-2"><CardTitle className="text-base">Informações Pessoais</CardTitle></CardHeader>
             <CardContent className="space-y-2">
-              <Field label="Nome completo"  value={profile.full_name} />
-              <Field label="E-mail"         value={profile.email} />
-              <Field label="Telefone"       value={profile.phone} />
-              <Field label="CPF"            value={str("cpf")} />
-              <Field label="RG"             value={str("rg")} />
+              <Field label="Nome completo" value={profile.full_name} />
+              <Field label="E-mail"        value={profile.email} />
+              <Field label="Telefone"      value={profile.phone} />
+              <Field label="CPF"           value={str("cpf")} />
+              <Field label="RG"            value={str("rg")} />
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="pb-2"><CardTitle className="text-base">Dados Profissionais</CardTitle></CardHeader>
             <CardContent className="space-y-2">
-              <Field label="Cargo"          value={str("job_title")} />
-              <Field label="Departamento"   value={str("department")} />
+              <Field label="Cargo"         value={str("job_title")} />
+              <Field label="Departamento"  value={str("department")} />
               <Field label="Data de admissão" value={str("hired_at") ? format(new Date(str("hired_at")!), "dd/MM/yyyy") : null} />
               <Field label="Nível de escolaridade" value={str("education_level")} />
-              <Field label="Formação"       value={str("graduation")} />
+              <Field label="Formação"      value={str("graduation")} />
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="pb-2"><CardTitle className="text-base">Endereço</CardTitle></CardHeader>
             <CardContent className="space-y-2">
-              <Field label="Logradouro"     value={str("address_street")} />
-              <Field label="Cidade"         value={str("address_city")} />
-              <Field label="Estado"         value={str("address_state")} />
-              <Field label="CEP"            value={str("address_zip")} />
+              <Field label="Logradouro"    value={str("address_street")} />
+              <Field label="Cidade"        value={str("address_city")} />
+              <Field label="Estado"        value={str("address_state")} />
+              <Field label="CEP"           value={str("address_zip")} />
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="pb-2"><CardTitle className="text-base">Dados Bancários</CardTitle></CardHeader>
             <CardContent className="space-y-2">
-              <Field label="Chave PIX"      value={str("pix_key")} />
-              <Field label="Banco"          value={str("bank_name")} />
-              <Field label="Agência"        value={str("bank_agency")} />
-              <Field label="Conta"          value={str("bank_account")} />
+              <Field label="Chave PIX"     value={str("pix_key")} />
+              <Field label="Banco"         value={str("bank_name")} />
+              <Field label="Agência"       value={str("bank_agency")} />
+              <Field label="Conta"         value={str("bank_account")} />
             </CardContent>
           </Card>
         </div>
@@ -301,9 +417,7 @@ export default function MyProfilePage() {
       {/* ── Pagamentos ── */}
       {activeTab === "pagamentos" && (
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Histórico de Pagamentos</CardTitle>
-          </CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-base">Histórico de Pagamentos</CardTitle></CardHeader>
           <CardContent>
             {payrollLoading ? (
               <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
@@ -330,8 +444,7 @@ export default function MyProfilePage() {
                     {payrolls.map((p) => (
                       <tr key={p.id} className="hover:bg-muted/30 transition-colors">
                         <td className="py-3 px-3 font-medium">
-                          {format(new Date(p.reference_date + "-01"), "MMMM yyyy", { locale: ptBR })
-                            .replace(/^\w/, c => c.toUpperCase())}
+                          {format(new Date(p.reference_date + "-01"), "MMMM yyyy", { locale: ptBR }).replace(/^\w/, c => c.toUpperCase())}
                         </td>
                         <td className="py-3 px-3 text-right">{fmt(p.base_salary)}</td>
                         <td className="py-3 px-3 text-right text-emerald-600">{fmt(p.commission)}</td>
@@ -359,12 +472,10 @@ export default function MyProfilePage() {
         </Card>
       )}
 
-      {/* ── Folha de Ponto ── */}
+      {/* ── Controle de Ponto ── */}
       {activeTab === "ponto" && (
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Folha de Ponto — Últimos 3 meses</CardTitle>
-          </CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-base">Controle de Ponto — Últimos 3 meses</CardTitle></CardHeader>
           <CardContent>
             {punchLoading ? (
               <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
@@ -376,16 +487,13 @@ export default function MyProfilePage() {
             ) : (
               <div className="space-y-3">
                 {punchDays.map((day) => {
-                  const dayPunches = punchByDate[day].sort((a, b) =>
-                    a.occurred_at.localeCompare(b.occurred_at)
-                  );
+                  const dayPunches = punchByDate[day].sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
                   return (
                     <div key={day} className="rounded-lg border border-border p-3">
                       <div className="flex items-center gap-2 mb-2">
                         <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
                         <span className="text-sm font-semibold text-foreground">
-                          {format(new Date(day + "T12:00:00"), "EEEE, dd 'de' MMMM", { locale: ptBR })
-                            .replace(/^\w/, c => c.toUpperCase())}
+                          {format(new Date(day + "T12:00:00"), "EEEE, dd 'de' MMMM", { locale: ptBR }).replace(/^\w/, c => c.toUpperCase())}
                         </span>
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -412,9 +520,7 @@ export default function MyProfilePage() {
       {/* ── Equipe ── */}
       {activeTab === "equipe" && (
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Minha Equipe</CardTitle>
-          </CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-base">Minha Equipe</CardTitle></CardHeader>
           <CardContent>
             {!myTeam ? (
               <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2">
@@ -423,7 +529,6 @@ export default function MyProfilePage() {
               </div>
             ) : (
               <div className="space-y-5">
-                {/* Info da equipe */}
                 <div className="rounded-lg border border-border p-4 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Nome da equipe</span>
@@ -431,9 +536,7 @@ export default function MyProfilePage() {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Tipo</span>
-                    <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-muted capitalize">
-                      {myTeam.type}
-                    </span>
+                    <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-muted capitalize">{myTeam.type}</span>
                   </div>
                   {myTeam.is_portfolio && (
                     <div className="flex items-center justify-between">
@@ -442,8 +545,6 @@ export default function MyProfilePage() {
                     </div>
                   )}
                 </div>
-
-                {/* Responsável */}
                 <div>
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Responsável</p>
                   {teamLead ? (
@@ -463,8 +564,6 @@ export default function MyProfilePage() {
                     <p className="text-sm text-muted-foreground">Sem responsável definido.</p>
                   )}
                 </div>
-
-                {/* Integrantes */}
                 <div>
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
                     Integrantes ({myTeamMembers.length})
@@ -474,8 +573,8 @@ export default function MyProfilePage() {
                       if (!member) return null;
                       const isMe = member.id === profile?.id;
                       const isLead = member.id === myTeam.lead_id;
-                      const meta = (member.metadata ?? {}) as Record<string, unknown>;
-                      const cargo = String(meta.job_title ?? meta.cargo ?? "").trim();
+                      const memberMeta = (member.metadata ?? {}) as Record<string, unknown>;
+                      const cargo = String(memberMeta.job_title ?? memberMeta.cargo ?? "").trim();
                       return (
                         <div key={member.id} className="flex items-center gap-3 rounded-lg border border-border p-3">
                           <Avatar className="h-8 w-8">

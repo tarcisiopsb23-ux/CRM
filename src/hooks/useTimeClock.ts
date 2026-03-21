@@ -15,6 +15,23 @@ export interface RepPTodayState {
   has_final_exit: boolean;
   last_punch_type: RepPPunchType | null;
   last_punch_at: string | null;
+  entry_at: string | null;
+  break_out_at: string | null;
+  // Flags calculadas no banco (sem risco de fuso)
+  can_entry: boolean;
+  can_break: boolean;
+  can_return: boolean;
+  can_final: boolean;
+  // Horários formatados (fuso SP)
+  entry_allowed_at: string | null;   // entrada liberada após 12h da última saída
+  last_final_display: string | null; // horário da última saída final anterior
+  break_allowed_at: string | null;   // mín saida_intervalo: entrada + 4h
+  break_max_at: string | null;       // máx saida_intervalo: entrada + 6h30
+  return_allowed_at: string | null;  // mín retorno_intervalo: saída + 1h
+  return_max_at: string | null;      // máx retorno_intervalo: saída + 2h
+  final_allowed_at: string | null;   // saida_final: entrada + 8h (exibição)
+  entry_time_display: string | null;
+  break_time_display: string | null;
   alerts: string[];
   next_allowed: RepPPunchType[];
 }
@@ -135,7 +152,13 @@ export function useRegisterPunch() {
         p_geo: geo,
         p_ack_late_break: input.ackLateBreak ?? false,
       });
-      if (error) throw error;
+      if (error) {
+        // Supabase RPC errors are plain objects, not Error instances.
+        // Normalise to a proper Error so callers can rely on .message.
+        const raw = error as { message?: string; details?: string; hint?: string; code?: string };
+        const msg = raw.message ?? raw.details ?? raw.hint ?? "Erro ao registrar ponto";
+        throw new Error(msg);
+      }
       return data as unknown as { id: string; type: string; occurred_at: string };
     },
     onSuccess: () => {

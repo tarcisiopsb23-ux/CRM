@@ -23,6 +23,7 @@ import { Download, FileDown, Users, DollarSign, Target, Kanban, FolderKanban, Tr
 import { startOfDay, subDays, startOfYear, endOfDay, isWithinInterval, format, addDays, subMonths, parseISO } from "date-fns";
 import { ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, Legend, BarChart, Bar } from "recharts";
 import { useTimeClockState, useRegisterPunch, useRepPRequestOvertime } from "@/hooks/useTimeClock";
+import { usePermissionForScope } from "@/hooks/usePermissions";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 
@@ -129,13 +130,14 @@ type RepPCLTComplianceRow = {
 export default function ReportsPage() {
   const orgId = useOrganization();
   const { profile: me } = useAuth();
-  const isAdmin = me?.role === "owner" || me?.role === "admin";
+  const { canView: canViewReports, isAdminOrOwner } = usePermissionForScope("financial", "reports");
+  const { canView: canEditTimeclock } = usePermissionForScope("team", "timeclock_edit");
   const { data: teams = [] } = useTeams(orgId);
   const { data: profiles = [] } = useProfiles(orgId);
   const { data: members = [] } = useTeamMembers(orgId);
   const { data: clients = [] } = useClients(orgId);
-  const { data: payments = [] } = usePayments(orgId);
-  const { data: expenses = [] } = useSupplierExpenses(orgId);
+  const { data: payments = [] } = usePayments(orgId, { enabled: !!orgId && !!me?.id && canViewReports });
+  const { data: expenses = [] } = useSupplierExpenses(orgId, { enabled: !!orgId && !!me?.id && canViewReports });
   const { data: projects = [] } = useProjects(orgId);
   const { data: goals = [] } = useGoals(orgId);
   const { leads } = useLeadsKanban(orgId, { includeConverted: true });
@@ -199,7 +201,7 @@ export default function ReportsPage() {
   const repPTo = interval.end.toISOString().split("T")[0];
 
   const repPDaily = useQuery({
-    queryKey: ["rep_p", "reports", "daily", orgId, me?.id, reportTemplate, repPFrom, repPTo, isAdmin, profileFilter],
+    queryKey: ["rep_p", "reports", "daily", orgId, me?.id, reportTemplate, repPFrom, repPTo, isAdminOrOwner, profileFilter],
     queryFn: async () => {
       if (!orgId) return [] as RepPDailyRow[];
       let q = supabase
@@ -210,7 +212,7 @@ export default function ReportsPage() {
         .lte("work_date", repPTo)
         .order("work_date", { ascending: false });
       
-      if (!isAdmin && me?.id) {
+      if (!isAdminOrOwner && me?.id) {
         q = q.eq("user_id", me.id);
       } else if (profileFilter !== "all") {
         q = q.eq("user_id", profileFilter);
@@ -220,11 +222,11 @@ export default function ReportsPage() {
       if (error) throw error;
       return (data ?? []) as unknown as RepPDailyRow[];
     },
-    enabled: !!orgId && !!me?.id && reportTemplate === "ponto_eletronico",
+    enabled: !!orgId && !!me?.id && canEditTimeclock && reportTemplate === "ponto_eletronico",
   });
 
   const repPWeekly = useQuery({
-    queryKey: ["rep_p", "reports", "weekly", orgId, me?.id, reportTemplate, repPFrom, repPTo, isAdmin, profileFilter],
+    queryKey: ["rep_p", "reports", "weekly", orgId, me?.id, reportTemplate, repPFrom, repPTo, isAdminOrOwner, profileFilter],
     queryFn: async () => {
       if (!orgId) return [] as RepPWeeklyRow[];
       let q = supabase
@@ -233,7 +235,7 @@ export default function ReportsPage() {
         .eq("organization_id", orgId)
         .order("week_start", { ascending: false });
       
-      if (!isAdmin && me?.id) {
+      if (!isAdminOrOwner && me?.id) {
         q = q.eq("user_id", me.id);
       } else if (profileFilter !== "all") {
         q = q.eq("user_id", profileFilter);
@@ -243,11 +245,11 @@ export default function ReportsPage() {
       if (error) throw error;
       return (data ?? []) as unknown as RepPWeeklyRow[];
     },
-    enabled: !!orgId && !!me?.id && reportTemplate === "ponto_eletronico",
+    enabled: !!orgId && !!me?.id && canEditTimeclock && reportTemplate === "ponto_eletronico",
   });
 
   const repPCLTCompliance = useQuery({
-    queryKey: ["rep_p", "reports", "clt_compliance", orgId, me?.id, reportTemplate, repPFrom, repPTo, isAdmin, profileFilter],
+    queryKey: ["rep_p", "reports", "clt_compliance", orgId, me?.id, reportTemplate, repPFrom, repPTo, isAdminOrOwner, profileFilter],
     queryFn: async () => {
       if (!orgId) return [] as RepPCLTComplianceRow[];
       let q = supabase
@@ -258,7 +260,7 @@ export default function ReportsPage() {
         .lte("work_date", repPTo)
         .order("work_date", { ascending: false });
       
-      if (!isAdmin && me?.id) {
+      if (!isAdminOrOwner && me?.id) {
         q = q.eq("user_id", me.id);
       } else if (profileFilter !== "all") {
         q = q.eq("user_id", profileFilter);
@@ -268,11 +270,11 @@ export default function ReportsPage() {
       if (error) throw error;
       return (data ?? []) as unknown as RepPCLTComplianceRow[];
     },
-    enabled: !!orgId && !!me?.id && reportTemplate === "ponto_eletronico",
+    enabled: !!orgId && !!me?.id && canEditTimeclock && reportTemplate === "ponto_eletronico",
   });
 
   const repPMonthly = useQuery({
-    queryKey: ["rep_p", "reports", "monthly", orgId, me?.id, reportTemplate, repPFrom, repPTo, isAdmin, profileFilter],
+    queryKey: ["rep_p", "reports", "monthly", orgId, me?.id, reportTemplate, repPFrom, repPTo, isAdminOrOwner, profileFilter],
     queryFn: async () => {
       if (!orgId) return [] as RepPMonthlyRow[];
       let q = supabase
@@ -281,7 +283,7 @@ export default function ReportsPage() {
         .eq("organization_id", orgId)
         .order("month_ref", { ascending: false });
       
-      if (!isAdmin && me?.id) {
+      if (!isAdminOrOwner && me?.id) {
         q = q.eq("user_id", me.id);
       } else if (profileFilter !== "all") {
         q = q.eq("user_id", profileFilter);
@@ -291,11 +293,11 @@ export default function ReportsPage() {
       if (error) throw error;
       return (data ?? []) as unknown as RepPMonthlyRow[];
     },
-    enabled: !!orgId && !!me?.id && reportTemplate === "ponto_eletronico",
+    enabled: !!orgId && !!me?.id && canEditTimeclock && reportTemplate === "ponto_eletronico",
   });
 
   const repPInconsistencies = useQuery({
-    queryKey: ["rep_p", "reports", "inconsistencies", orgId, me?.id, reportTemplate, interval.start.toISOString(), interval.end.toISOString(), isAdmin],
+    queryKey: ["rep_p", "reports", "inconsistencies", orgId, me?.id, reportTemplate, interval.start.toISOString(), interval.end.toISOString(), isAdminOrOwner],
     queryFn: async () => {
       if (!orgId) return [] as RepPInconsistencyRow[];
       let q = supabase
@@ -305,16 +307,16 @@ export default function ReportsPage() {
         .gte("created_at", interval.start.toISOString())
         .lte("created_at", interval.end.toISOString())
         .order("created_at", { ascending: false });
-      if (!isAdmin && me?.id) q = q.eq("user_id", me.id);
+      if (!isAdminOrOwner && me?.id) q = q.eq("user_id", me.id);
       const { data, error } = await q;
       if (error) throw error;
       return (data ?? []) as unknown as RepPInconsistencyRow[];
     },
-    enabled: !!orgId && !!me?.id && reportTemplate === "ponto_eletronico",
+    enabled: !!orgId && !!me?.id && canEditTimeclock && reportTemplate === "ponto_eletronico",
   });
 
   const repPAdminChanges = useQuery({
-    queryKey: ["rep_p", "reports", "admin_changes", orgId, me?.id, reportTemplate, interval.start.toISOString(), interval.end.toISOString(), isAdmin],
+    queryKey: ["rep_p", "reports", "admin_changes", orgId, me?.id, reportTemplate, interval.start.toISOString(), interval.end.toISOString(), isAdminOrOwner],
     queryFn: async () => {
       if (!orgId) return [] as RepPAdminChangeRow[];
       let q = supabase
@@ -324,16 +326,16 @@ export default function ReportsPage() {
         .gte("action_at", interval.start.toISOString())
         .lte("action_at", interval.end.toISOString())
         .order("action_at", { ascending: false });
-      if (!isAdmin && me?.id) q = q.eq("target_user_id", me.id);
+      if (!isAdminOrOwner && me?.id) q = q.eq("target_user_id", me.id);
       const { data, error } = await q;
       if (error) throw error;
       return (data ?? []) as unknown as RepPAdminChangeRow[];
     },
-    enabled: !!orgId && !!me?.id && reportTemplate === "ponto_eletronico",
+    enabled: !!orgId && !!me?.id && canEditTimeclock && reportTemplate === "ponto_eletronico",
   });
 
   const repPOvertimeRequests = useQuery({
-    queryKey: ["rep_p", "reports", "overtime_requests", orgId, me?.id, reportTemplate, isAdmin],
+    queryKey: ["rep_p", "reports", "overtime_requests", orgId, me?.id, reportTemplate, isAdminOrOwner],
     queryFn: async () => {
       if (!orgId) return [] as RepPOvertimeRequest[];
       let q = supabase
@@ -343,7 +345,7 @@ export default function ReportsPage() {
         .eq("status", "pendente")
         .order("created_at", { ascending: false });
       
-      if (!isAdmin && me?.id) q = q.eq("user_id", me.id);
+      if (!isAdminOrOwner && me?.id) q = q.eq("user_id", me.id);
       
       const { data, error } = await q;
       if (error) throw error;
@@ -352,7 +354,7 @@ export default function ReportsPage() {
         user_name: r.profiles?.full_name ?? null
       })) as RepPOvertimeRequest[];
     },
-    enabled: !!orgId && !!me?.id && reportTemplate === "ponto_eletronico",
+    enabled: !!orgId && !!me?.id && canEditTimeclock && reportTemplate === "ponto_eletronico",
   });
 
   const authorizeOvertime = async (id: string, status: "aprovado" | "rejeitado") => {
@@ -923,7 +925,7 @@ export default function ReportsPage() {
       </div>
 
       <Section title="Ponto Eletrônico" id="ponto_eletronico" currentTemplate={reportTemplate}>
-        {isAdmin && repPOvertimeRequests.data && repPOvertimeRequests.data.length > 0 && (
+        {isAdminOrOwner && repPOvertimeRequests.data && repPOvertimeRequests.data.length > 0 && (
           <Card className="mb-6 border-amber-200 bg-amber-50/30">
             <CardContent className="p-4">
               <div className="flex items-center gap-2 mb-4 text-amber-700">
@@ -962,7 +964,7 @@ export default function ReportsPage() {
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-4">
-          {(profileFilter !== "all" || !isAdmin) && (
+          {(profileFilter !== "all" || !isAdminOrOwner) && (
             <>
               <Stat 
                 label="Total Horas Trabalhadas" 
@@ -1036,7 +1038,7 @@ export default function ReportsPage() {
                               <Badge variant={r.overtime_status === 'aprovado' ? 'default' : r.overtime_status === 'rejeitado' ? 'destructive' : 'outline'}>
                                 {r.overtime_status === 'aprovado' ? 'Aprovada' : r.overtime_status === 'rejeitado' ? 'Rejeitada' : 'Pendente'}
                               </Badge>
-                              {!isAdmin && r.user_id === me?.id && r.overtime_status === 'pendente' && !r.overtime_justification && (
+                              {!isAdminOrOwner && r.user_id === me?.id && r.overtime_status === 'pendente' && !r.overtime_justification && (
                                 <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={() => setSelectedOvertime({ workDate: r.work_date, minutes: r.overtime_minutes })}>
                                   Solicitar
                                 </Button>

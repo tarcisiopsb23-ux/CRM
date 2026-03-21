@@ -93,8 +93,14 @@ function App() {
                     </ProtectedRoute>
                   }
                 >
+                  {/* Rotas pessoais/operacionais — sem verificação de módulo */}
+                  <Route path="/timeclock/punch" element={<TimeClockPunchPage />} />
+                  <Route
+                    path="/team/me"
+                    element={<MyProfilePage />}
+                  />
+
                   <Route element={<ModuleGuard />}>
-                    <Route path="/timeclock/punch" element={<TimeClockPunchPage />} />
                     <Route path="/" element={<DashboardPage />} />
                     <Route path="/performance" element={<Navigate to="/?tab=performance" replace />} />
                     <Route path="/kanban" element={<LeadsKanbanPage />} />
@@ -110,51 +116,15 @@ function App() {
                     <Route path="/goals" element={<GoalsPage />} />
                     <Route path="/whatsapp" element={<WhatsApp />} />
                     <Route path="/meetings" element={<Meetings />} />
-                    <Route
-                      path="/team/me"
-                      element={
-                        <ProtectedRoute>
-                          <MyProfilePage />
-                        </ProtectedRoute>
-                      }
-                    />
-                    <Route
-                  path="/team"
-                  element={
-                    <ProtectedRoute requireRole="admin">
-                      <TeamPage />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/team/edit/:id"
-                  element={
-                    <ProtectedRoute requireRole="admin">
-                      <EditCollaboratorPage />
-                    </ProtectedRoute>
-                  }
-                />
+                    <Route path="/team" element={<TeamPage />} />
+                    <Route path="/team/edit/:id" element={<EditCollaboratorPage />} />
                     <Route path="/team/employees/:profileId" element={<TeamPage />} />
                     <Route path="/campaign-reports" element={<CampaignReports />} />
                     <Route path="/general-reports" element={<GeneralReports />} />
                     <Route path="/reports" element={<ReportsPage />} />
                     <Route path="/sales-analytics" element={<SalesDashboardPage />} />
-                    <Route
-                      path="/audit"
-                      element={ 
-                        <ProtectedRoute requireRole="manager">
-                          <AuditPage />
-                        </ProtectedRoute>
-                      }
-                    />
-                    <Route
-                      path="/settings"
-                      element={ 
-                        <ProtectedRoute requireRole="admin">
-                          <SettingsPage />
-                        </ProtectedRoute>
-                      }
-                    />
+                    <Route path="/audit" element={<AuditPage />} />
+                    <Route path="/settings" element={<SettingsPage />} />
                   </Route>
                 </Route>
                 <Route path="*" element={<NotFound />} />

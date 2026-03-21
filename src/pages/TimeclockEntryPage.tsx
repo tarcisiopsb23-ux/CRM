@@ -1,7 +1,9 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { usePermissionForScope } from "@/hooks/usePermissions";
 import { useTimeClockState, useRegisterPunch } from "@/hooks/useTimeClock";
+import { usePostPunchRedirect } from "@/hooks/usePostPunchRedirect";
 import { Button } from "@/components/ui/button";
 import { Loader2, LogIn, LogOut, Clock } from "lucide-react";
 import { toast } from "sonner";
@@ -24,14 +26,15 @@ export function TimeclockEntryPage() {
   const { data: clockState, isLoading: clockLoading } = useTimeClockState();
   const registerPunch = useRegisterPunch();
 
-  const isExempt = profile?.role === "owner" || profile?.role === "admin";
+  const { canView: isExempt } = usePermissionForScope("team", "timeclock");
+  const postPunchRedirect = usePostPunchRedirect();
 
-  // Se isento ou já tem entrada, vai direto para o sistema
+  // Se isento ou já tem entrada, vai direto para o destino correto
   useEffect(() => {
     if (authLoading || clockLoading) return;
-    if (isExempt) { navigate("/", { replace: true }); return; }
-    if (clockState?.has_entry) { navigate("/", { replace: true }); return; }
-  }, [authLoading, clockLoading, isExempt, clockState, navigate]);
+    if (isExempt) { navigate(postPunchRedirect, { replace: true }); return; }
+    if (clockState?.has_entry) { navigate(postPunchRedirect, { replace: true }); return; }
+  }, [authLoading, clockLoading, isExempt, clockState, navigate, postPunchRedirect]);
 
   const nextAllowed = clockState?.next_allowed ?? [];
   const nextType = nextAllowed[0] ?? null;
@@ -41,7 +44,7 @@ export function TimeclockEntryPage() {
     try {
       await registerPunch.mutateAsync({ type: nextType });
       toast.success("Entrada registrada! Bem-vindo.");
-      navigate("/", { replace: true });
+      navigate(postPunchRedirect, { replace: true });
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Erro ao registrar ponto");
     }
@@ -102,7 +105,7 @@ export function TimeclockEntryPage() {
         </div>
 
         {/* Alertas do sistema de ponto */}
-        {(clockState?.alerts ?? []).length > 0 && (
+        {!isExempt && (clockState?.alerts ?? []).length > 0 && (
           <div className="space-y-2">
             {clockState!.alerts.map((alert, i) => (
               <div key={i} className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">

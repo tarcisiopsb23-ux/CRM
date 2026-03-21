@@ -10,7 +10,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
   DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
-import { Loader2, Pencil, Trash2, Calendar, Clock } from "lucide-react";
+import { Loader2, Pencil, Trash2, Calendar, Clock, ChevronDown, ChevronRight, LogIn, Coffee, RotateCcw, LogOut } from "lucide-react";
 import {
   useRepPPunches,
   useRepPAdminVoidPunch,
@@ -20,7 +20,7 @@ import {
 } from "@/hooks/useTimeClock";
 import { useOrganization } from "@/hooks/useOrganization";
 import { usePermissionForScope } from "@/hooks/usePermissions";
-import { format, startOfMonth, endOfMonth, subMonths, startOfWeek, endOfWeek, subWeeks } from "date-fns";
+import { format, startOfMonth, endOfMonth, subMonths, startOfWeek, endOfWeek } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -28,24 +28,34 @@ import { toast } from "sonner";
 const PUNCH_LABELS: Record<string, string> = {
   entrada: "Entrada",
   saida_intervalo: "Saída Intervalo",
-  retorno_intervalo: "Retorno Intervalo",
+  retorno_intervalo: "Retorno",
   saida_final: "Saída Final",
 };
 
 const PUNCH_COLORS: Record<string, string> = {
-  entrada: "bg-emerald-100 text-emerald-700",
-  saida_intervalo: "bg-amber-100 text-amber-700",
-  retorno_intervalo: "bg-blue-100 text-blue-700",
-  saida_final: "bg-slate-100 text-slate-700",
+  entrada: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+  saida_intervalo: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+  retorno_intervalo: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  saida_final: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400",
+};
+
+const PUNCH_ICONS: Record<string, React.ElementType> = {
+  entrada: LogIn,
+  saida_intervalo: Coffee,
+  retorno_intervalo: RotateCcw,
+  saida_final: LogOut,
 };
 
 const STATUS_COLORS: Record<string, string> = {
   ativo: "bg-emerald-100 text-emerald-700",
-  anulado: "bg-red-100 text-red-600 line-through",
+  anulado: "bg-red-100 text-red-600",
   corrigido: "bg-purple-100 text-purple-700",
 };
 
 type Period = "today" | "week" | "month" | "last_month" | "last_3_months" | "custom";
+
+// Ordem canônica dos tipos de ponto no dia
+const PUNCH_ORDER: RepPPunchType[] = ["entrada", "saida_intervalo", "retorno_intervalo", "saida_final"];
 
 function getPeriodRange(period: Period, customFrom: string, customTo: string): { from: string; to: string } {
   const now = new Date();
@@ -85,12 +95,12 @@ function getPeriodRange(period: Period, customFrom: string, customTo: string): {
 
 interface Props {
   profileId: string;
+  isExempt?: boolean;
 }
 
-export function CollaboratorTimeclockTab({ profileId }: Props) {
+export function CollaboratorTimeclockTab({ profileId, isExempt }: Props) {
   const organizationId = useOrganization();
   const timeclockPerm = usePermissionForScope("team", "timeclock");
-  // Permissão específica para editar/excluir registros de ponto anteriores
   const timeclockEditPerm = usePermissionForScope("team", "timeclock_edit");
 
   const canEditPunch = timeclockEditPerm.canEdit || timeclockPerm.canEdit;
@@ -99,6 +109,7 @@ export function CollaboratorTimeclockTab({ profileId }: Props) {
   const [period, setPeriod] = useState<Period>("month");
   const [customFrom, setCustomFrom] = useState(format(startOfMonth(new Date()), "yyyy-MM-dd"));
   const [customTo, setCustomTo] = useState(format(endOfMonth(new Date()), "yyyy-MM-dd"));
+  const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
 
   const { from, to } = getPeriodRange(period, customFrom, customTo);
 
@@ -110,7 +121,7 @@ export function CollaboratorTimeclockTab({ profileId }: Props) {
     status: "all",
   });
 
-  // Agrupar por dia
+  // Agrupar por dia (data local SP via slice dos primeiros 10 chars do ISO)
   const punchByDate = useMemo(() => {
     const map: Record<string, RepPPunchRow[]> = {};
     for (const p of punches) {
@@ -125,6 +136,15 @@ export function CollaboratorTimeclockTab({ profileId }: Props) {
     () => Object.keys(punchByDate).sort((a, b) => b.localeCompare(a)),
     [punchByDate]
   );
+
+  const toggleDay = (day: string) => {
+    setExpandedDays((prev) => {
+      const next = new Set(prev);
+      if (next.has(day)) next.delete(day);
+      else next.add(day);
+      return next;
+    });
+  };
 
   // Dialogs
   const [editOpen, setEditOpen] = useState(false);
@@ -186,6 +206,15 @@ export function CollaboratorTimeclockTab({ profileId }: Props) {
     }
   };
 
+  if (isExempt) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2">
+        <Clock className="h-8 w-8 opacity-30" />
+        <p className="text-sm">Este colaborador é isento de controle de ponto.</p>
+      </div>
+    );
+  }
+
   if (!timeclockPerm.canView) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2">
@@ -220,27 +249,17 @@ export function CollaboratorTimeclockTab({ profileId }: Props) {
           <>
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">De</Label>
-              <Input
-                type="date"
-                value={customFrom}
-                onChange={(e) => setCustomFrom(e.target.value)}
-                className="w-36"
-              />
+              <Input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="w-36" />
             </div>
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">Até</Label>
-              <Input
-                type="date"
-                value={customTo}
-                onChange={(e) => setCustomTo(e.target.value)}
-                className="w-36"
-              />
+              <Input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="w-36" />
             </div>
           </>
         )}
 
         <div className="text-xs text-muted-foreground self-end pb-2">
-          {punches.length} registro{punches.length !== 1 ? "s" : ""}
+          {days.length} dia{days.length !== 1 ? "s" : ""} • {punches.length} registro{punches.length !== 1 ? "s" : ""}
         </div>
       </div>
 
@@ -255,77 +274,117 @@ export function CollaboratorTimeclockTab({ profileId }: Props) {
           <p className="text-sm">Nenhum registro no período selecionado.</p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {days.map((day) => {
-            const dayPunches = punchByDate[day].sort((a, b) =>
-              a.occurred_at.localeCompare(b.occurred_at)
-            );
+            const dayPunches = punchByDate[day].sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
+            const isOpen = expandedDays.has(day);
+
+            // Resumo: pegar o registro ativo mais recente de cada tipo
+            const summaryByType: Partial<Record<RepPPunchType, RepPPunchRow>> = {};
+            for (const p of dayPunches) {
+              if (p.status === "ativo") summaryByType[p.punch_type] = p;
+            }
+
+            const hasAnulados = dayPunches.some((p) => p.status === "anulado");
+            const hasCorrigidos = dayPunches.some((p) => p.status === "corrigido");
+
             return (
-              <div key={day} className="rounded-lg border border-border p-3">
-                <div className="flex items-center gap-2 mb-3">
-                  <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="text-sm font-semibold text-foreground">
-                    {format(new Date(day + "T12:00:00"), "EEEE, dd 'de' MMMM 'de' yyyy", { locale: ptBR })
+              <div key={day} className="rounded-lg border border-border overflow-hidden">
+                {/* Cabeçalho clicável */}
+                <button
+                  className="w-full flex items-center gap-3 px-4 py-3 bg-muted/30 hover:bg-muted/50 transition-colors text-left"
+                  onClick={() => toggleDay(day)}
+                >
+                  <span className="text-muted-foreground shrink-0">
+                    {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                  </span>
+                  <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <span className="text-sm font-semibold text-foreground flex-1">
+                    {format(new Date(day + "T12:00:00"), "EEEE, dd 'de' MMMM", { locale: ptBR })
                       .replace(/^\w/, (c) => c.toUpperCase())}
                   </span>
-                </div>
-                <div className="space-y-2">
-                  {dayPunches.map((punch) => (
-                    <div
-                      key={punch.id}
-                      className={cn(
-                        "flex items-center justify-between rounded-md border px-3 py-2 text-sm",
-                        punch.status === "anulado" ? "opacity-50 bg-muted/30" : "bg-background"
-                      )}
-                    >
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <span className={cn("text-[10px] font-bold px-2 py-1 rounded-full", PUNCH_COLORS[punch.punch_type])}>
-                          {PUNCH_LABELS[punch.punch_type] ?? punch.punch_type}
-                        </span>
-                        <span className="font-mono text-sm font-medium">
-                          {format(new Date(punch.occurred_at), "HH:mm")}
-                        </span>
-                        <Badge
-                          variant="outline"
-                          className={cn("text-[10px] px-1.5 py-0.5", STATUS_COLORS[punch.status])}
-                        >
-                          {punch.status}
-                        </Badge>
-                        {punch.justificativa && (
-                          <span className="text-xs text-muted-foreground italic truncate max-w-[200px]">
-                            {punch.justificativa}
-                          </span>
-                        )}
-                      </div>
-                      {punch.status === "ativo" && (
-                        <div className="flex items-center gap-1 shrink-0">
-                          {canEditPunch && (
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-7 w-7"
-                              onClick={() => openEdit(punch)}
-                              title="Corrigir registro"
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
+
+                  {/* Pílulas de resumo dos 4 tipos */}
+                  <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                    {PUNCH_ORDER.map((type) => {
+                      const punch = summaryByType[type];
+                      const Icon = PUNCH_ICONS[type];
+                      return (
+                        <span
+                          key={type}
+                          className={cn(
+                            "inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full",
+                            punch
+                              ? PUNCH_COLORS[type]
+                              : "bg-muted text-muted-foreground opacity-40"
                           )}
-                          {canDeletePunch && (
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-7 w-7 text-destructive hover:text-destructive"
-                              onClick={() => openDelete(punch)}
-                              title="Anular registro"
+                          title={PUNCH_LABELS[type]}
+                        >
+                          <Icon className="h-2.5 w-2.5" />
+                          {punch ? format(new Date(punch.occurred_at), "HH:mm") : "--:--"}
+                        </span>
+                      );
+                    })}
+                    {(hasAnulados || hasCorrigidos) && (
+                      <span className="text-[10px] text-muted-foreground ml-1">
+                        {hasAnulados && hasCorrigidos ? "anulações/correções" : hasAnulados ? "anulações" : "correções"}
+                      </span>
+                    )}
+                  </div>
+                </button>
+
+                {/* Detalhe expandido */}
+                {isOpen && (
+                  <div className="divide-y divide-border">
+                    {dayPunches.map((punch) => {
+                      const Icon = PUNCH_ICONS[punch.punch_type] ?? Clock;
+                      return (
+                        <div
+                          key={punch.id}
+                          className={cn(
+                            "flex items-center justify-between px-4 py-2.5 text-sm",
+                            punch.status === "anulado" && "opacity-50 bg-muted/20"
+                          )}
+                        >
+                          <div className="flex items-center gap-3 flex-wrap min-w-0">
+                            <span className={cn("inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full shrink-0", PUNCH_COLORS[punch.punch_type])}>
+                              <Icon className="h-3 w-3" />
+                              {PUNCH_LABELS[punch.punch_type] ?? punch.punch_type}
+                            </span>
+                            <span className={cn("font-mono text-sm font-medium tabular-nums", punch.status === "anulado" && "line-through")}>
+                              {format(new Date(punch.occurred_at), "HH:mm")}
+                            </span>
+                            <Badge
+                              variant="outline"
+                              className={cn("text-[10px] px-1.5 py-0.5 shrink-0", STATUS_COLORS[punch.status])}
                             >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
+                              {punch.status}
+                            </Badge>
+                            {punch.justificativa && (
+                              <span className="text-xs text-muted-foreground italic truncate max-w-[180px]">
+                                {punch.justificativa}
+                              </span>
+                            )}
+                          </div>
+                          {punch.status === "ativo" && (
+                            <div className="flex items-center gap-1 shrink-0 ml-2">
+                              {canEditPunch && (
+                                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(punch)} title="Corrigir registro">
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
+                              {canDeletePunch && (
+                                <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => openDelete(punch)} title="Anular registro">
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
+                            </div>
                           )}
                         </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -345,27 +404,16 @@ export function CollaboratorTimeclockTab({ profileId }: Props) {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>Data</Label>
-                <Input
-                  type="date"
-                  value={editForm.date}
-                  onChange={(e) => setEditForm((f) => ({ ...f, date: e.target.value }))}
-                />
+                <Input type="date" value={editForm.date} onChange={(e) => setEditForm((f) => ({ ...f, date: e.target.value }))} />
               </div>
               <div className="space-y-2">
                 <Label>Hora</Label>
-                <Input
-                  type="time"
-                  value={editForm.time}
-                  onChange={(e) => setEditForm((f) => ({ ...f, time: e.target.value }))}
-                />
+                <Input type="time" value={editForm.time} onChange={(e) => setEditForm((f) => ({ ...f, time: e.target.value }))} />
               </div>
             </div>
             <div className="space-y-2">
               <Label>Tipo de registro</Label>
-              <Select
-                value={editForm.type}
-                onValueChange={(v) => setEditForm((f) => ({ ...f, type: v as RepPPunchType }))}
-              >
+              <Select value={editForm.type} onValueChange={(v) => setEditForm((f) => ({ ...f, type: v as RepPPunchType }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="entrada">Entrada</SelectItem>
@@ -377,11 +425,7 @@ export function CollaboratorTimeclockTab({ profileId }: Props) {
             </div>
             <div className="space-y-2">
               <Label>Justificativa</Label>
-              <Input
-                value={editForm.justification}
-                onChange={(e) => setEditForm((f) => ({ ...f, justification: e.target.value }))}
-                placeholder="Motivo da correção..."
-              />
+              <Input value={editForm.justification} onChange={(e) => setEditForm((f) => ({ ...f, justification: e.target.value }))} placeholder="Motivo da correção..." />
             </div>
           </div>
           <DialogFooter>
@@ -418,11 +462,7 @@ export function CollaboratorTimeclockTab({ profileId }: Props) {
           )}
           <div className="space-y-2">
             <Label>Justificativa</Label>
-            <Input
-              value={deleteJustification}
-              onChange={(e) => setDeleteJustification(e.target.value)}
-              placeholder="Motivo da anulação..."
-            />
+            <Input value={deleteJustification} onChange={(e) => setDeleteJustification(e.target.value)} placeholder="Motivo da anulação..." />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteOpen(false)}>Cancelar</Button>

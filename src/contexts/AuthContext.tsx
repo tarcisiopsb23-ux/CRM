@@ -16,6 +16,7 @@ interface AuthContextValue {
   user: User | null;
   profile: Profile | null;
   loading: boolean;
+  profileLoading: boolean;
   error: Error | null;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, fullName: string, invitationToken: string, metadata?: Record<string, any>) => Promise<void>;
@@ -30,6 +31,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [profileLoading, setProfileLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const fetchingProfileRef = useRef<string | null>(null);
 
@@ -38,6 +40,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (fetchingProfileRef.current === uid) return;
     fetchingProfileRef.current = uid;
+
+    setProfileLoading(true);
 
     try {
       // 1. SELECT direto (mais rápido e menos bloqueado)
@@ -122,6 +126,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return null;
     } finally {
       fetchingProfileRef.current = null;
+      setProfileLoading(false);
       setLoading(false);
     }
   }, []);
@@ -328,6 +333,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       profile,
       loading,
+      profileLoading,
       error,
       signIn,
       signUp,
@@ -335,7 +341,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signOut,
       refetchProfile,
     }),
-    [user, profile, loading, error, signIn, signUp, signUpWithCode, signOut, refetchProfile]
+    [user, profile, loading, profileLoading, error, signIn, signUp, signUpWithCode, signOut, refetchProfile]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

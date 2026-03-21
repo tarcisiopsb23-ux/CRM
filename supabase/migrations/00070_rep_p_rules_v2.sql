@@ -336,8 +336,9 @@ BEGIN
 
     -- Mínimo 4h (sem tolerância — é um mínimo, não um máximo)
     IF elapsed_entry < interval '4 hours' THEN
-      RAISE EXCEPTION 'Intervalo só é permitido após 4 horas da entrada (atual: % horas)',
-        ROUND(EXTRACT(EPOCH FROM elapsed_entry)/3600.0, 1);
+      RAISE EXCEPTION 'Intervalo só é permitido a partir das % (entrada às %)',
+        TO_CHAR((entry_at + interval '4 hours') AT TIME ZONE 'America/Sao_Paulo', 'HH24h"'"'MI'),
+        TO_CHAR(entry_at AT TIME ZONE 'America/Sao_Paulo', 'HH24h"'"'MI');
     END IF;
 
     -- Máximo 6h30 + tolerância 5min = 6h35
@@ -385,8 +386,9 @@ BEGIN
 
     -- Mínimo 1h
     IF elapsed_break < interval '1 hour' THEN
-      RAISE EXCEPTION 'Tempo mínimo de intervalo é 1 hora (atual: % min)',
-        ROUND(EXTRACT(EPOCH FROM elapsed_break)/60.0, 0);
+      RAISE EXCEPTION 'Retorno só é permitido a partir das % (saída às %)',
+        TO_CHAR((break_out_at + interval '1 hour') AT TIME ZONE 'America/Sao_Paulo', 'HH24h"'"'MI'),
+        TO_CHAR(break_out_at AT TIME ZONE 'America/Sao_Paulo', 'HH24h"'"'MI');
     END IF;
 
     -- Máximo 2h + tolerância 5min = 2h05

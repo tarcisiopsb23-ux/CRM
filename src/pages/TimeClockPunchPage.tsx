@@ -3,6 +3,8 @@ import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRegisterPunch, useTimeClockState, type RepPPunchType } from "@/hooks/useTimeClock";
+import { usePermissionForScope } from "@/hooks/usePermissions";
+import { usePostPunchRedirect } from "@/hooks/usePostPunchRedirect";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -27,6 +29,8 @@ export function TimeClockPunchPage() {
   const register = useRegisterPunch();
   const navigate = useNavigate();
   const location = useLocation();
+  const { canView: isTimeclockExempt } = usePermissionForScope("team", "timeclock");
+  const postPunchRedirect = usePostPunchRedirect();
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [password, setPassword] = useState("");
@@ -45,6 +49,41 @@ export function TimeClockPunchPage() {
   })();
 
   const openPunch = (type: RepPPunchType) => {
+    const nextAllowed = data?.next_allowed ?? [];
+    if (!nextAllowed.includes(type)) {
+      toast.error(`Marcação "${LABEL_BY_TYPE[type]}" não permitida no momento.`);
+      return;
+    }
+
+    // Valida restrições de tempo usando flags calculadas no banco (sem problema de fuso)
+    if (type === "entrada" && data?.can_entry === false) {
+      const at = data.entry_allowed_at ?? "?";
+      const from = data.last_final_display ?? "?";
+      toast.error(`Entrada autorizada a partir das ${at} — intervalo mínimo de 12h desde a última saída (saída às ${from})`);
+      return;
+    }
+
+    if (type === "saida_intervalo" && data?.can_break === false) {
+      const at = data.break_allowed_at ?? "?";
+      const from = data.entry_time_display ?? "?";
+      toast.error(`Saída para intervalo autorizada a partir das ${at} (entrada às ${from})`);
+      return;
+    }
+
+    if (type === "retorno_intervalo" && data?.can_return === false) {
+      const at = data.return_allowed_at ?? "?";
+      const from = data.break_time_display ?? "?";
+      toast.error(`Retorno autorizado a partir das ${at} (saída às ${from})`);
+      return;
+    }
+
+    if (type === "saida_final" && data?.can_final === false) {
+      const at = data.final_allowed_at ?? "?";
+      const from = data.entry_time_display ?? "?";
+      toast.error(`Saída final autorizada a partir das ${at} — prazo de 8 horas (entrada às ${from})`);
+      return;
+    }
+
     setSelectedType(type);
     setLateBreakAck(false);
     setPassword("");
@@ -80,7 +119,7 @@ export function TimeClockPunchPage() {
         return;
       }
 
-      navigate("/", { replace: true });
+      navigate(postPunchRedirect, { replace: true });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Erro ao registrar ponto";
       if (message.toLowerCase().includes("6h30") || message.toLowerCase().includes("confirma")) {
@@ -123,7 +162,7 @@ export function TimeClockPunchPage() {
         )}
       </div>
 
-      {(state.data?.alerts ?? []).map((a) => (
+      {!isTimeclockExempt && (state.data?.alerts ?? []).map((a) => (
         <Alert key={a} className="w-full">
           <AlertTitle>Aviso</AlertTitle>
           <AlertDescription>{a}</AlertDescription>
@@ -140,8 +179,8 @@ export function TimeClockPunchPage() {
               </p>
             </div>
             {!shouldForceEntry && (
-              <Button variant="outline" onClick={() => navigate("/", { replace: true })}>
-                Ir para o dashboard
+              <Button variant="outline" onClick={() => navigate(postPunchRedirect, { replace: true })}>
+                Ir para o sistema
               </Button>
             )}
           </div>
