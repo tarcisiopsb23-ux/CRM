@@ -42,6 +42,13 @@ import { usePermissionForScope } from "@/hooks/usePermissions";
 import { getDriveFoldersFromOrganizationSettings, useOrganizationSettings } from "@/hooks/useSettings";
 import { DocumentsCard } from "@/components/documents/DocumentsCard";
 import { CollaboratorTimeclockTab } from "./CollaboratorTimeclockTab";
+import { CommissionConfigTab } from "./CommissionConfigTab";
+import { EmployeeAbsencesTab } from "./EmployeeAbsencesTab";
+import { EmployeeEvaluationsTab } from "./EmployeeEvaluationsTab";
+import { EmployeeGoalsTab } from "./EmployeeGoalsTab";
+import { EmployeeTrainingsTab } from "./EmployeeTrainingsTab";
+import { EmployeeDocumentsTab } from "./EmployeeDocumentsTab";
+import { EmployeeScoreTab } from "./EmployeeScoreTab";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 
@@ -68,7 +75,7 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
   const organizationId = useOrganization();
   const orgSettings = useOrganizationSettings(organizationId);
   const driveFolders = getDriveFoldersFromOrganizationSettings(orgSettings.data);
-  const { update, remove } = useProfiles(organizationId);
+  const { update, remove, deactivate, activate } = useProfiles(organizationId);
   const { profile: me } = useAuth();
   const { canView: canEditTimeclock, isAdminOrOwner: isAdmin } = usePermissionForScope("team", "timeclock_edit");
   const expenses = useSupplierExpenses(organizationId);
@@ -81,6 +88,7 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
   const [viewing, setViewing] = useState<ProfileRow | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [profileToDelete, setProfileToDelete] = useState<ProfileRow | null>(null);
+  const [showInactive, setShowInactive] = useState(false);
 
   // Dialogs de ponto — suportam controle externo (via props) ou interno
   const [limitOpenInternal, setLimitOpenInternal] = useState(false);
@@ -462,13 +470,13 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
         </DialogContent>
       </Dialog>
 
-      {/* Dialog: confirmar exclusão */}
+      {/* Dialog: confirmar desativação */}
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Confirmar exclusão</DialogTitle>
+            <DialogTitle>Desativar colaborador</DialogTitle>
             <DialogDescription>
-              Tem certeza que deseja excluir <strong>{profileToDelete?.full_name}</strong>? Esta ação não pode ser desfeita.
+              <strong>{profileToDelete?.full_name}</strong> será desativado e não poderá mais acessar o sistema. Nenhum dado será apagado. Você pode reativar a qualquer momento.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -478,18 +486,18 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
               onClick={async () => {
                 if (!profileToDelete) return;
                 try {
-                  await remove.mutateAsync(profileToDelete.id);
-                  toast.success("Colaborador excluído");
+                  await deactivate.mutateAsync(profileToDelete.id);
+                  toast.success("Colaborador desativado");
                   setDeleteConfirmOpen(false);
                   setProfileToDelete(null);
                   setViewing(null);
                   navigate("/team");
                 } catch (err) {
-                  toast.error(err instanceof Error ? err.message : "Erro ao excluir");
+                  toast.error(err instanceof Error ? err.message : "Erro ao desativar");
                 }
               }}
             >
-              Excluir
+              Desativar
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -608,9 +616,22 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
         />
       )}
 
+      {/* Filtro ativos/inativos */}
+      {!selectedProfileId && (
+        <div className="flex justify-end">
+          <Button
+            variant={showInactive ? "default" : "outline"}
+            size="sm"
+            onClick={() => setShowInactive((v) => !v)}
+          >
+            {showInactive ? "Ver ativos" : `Ver inativos (${profiles.filter((p) => !p.is_active).length})`}
+          </Button>
+        </div>
+      )}
+
       {/* Lista de colaboradores */}
       {!selectedProfileId
-        ? profiles.map((p) => (
+        ? profiles.filter((p) => showInactive ? !p.is_active : p.is_active).map((p) => (
             <Card key={p.id}>
               <button type="button" className="w-full text-left" onClick={() => navigate(`/team/employees/${p.id}`)}>
                 <CardContent className="flex items-center gap-4 p-4">
@@ -671,14 +692,28 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
                 <Button size="sm" variant="outline" onClick={() => { setEditing(viewing); setEditDialogOpen(true); }} disabled={!employeesPermission.canEdit}>
                   Editar
                 </Button>
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={() => { setProfileToDelete(viewing); setDeleteConfirmOpen(true); }}
-                  disabled={!employeesPermission.canDelete}
-                >
-                  <Trash2 className="h-4 w-4 mr-2" /> Excluir
-                </Button>
+                {/* Toggle ativo/inativo */}
+                {employeesPermission.canDelete && (
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={!!viewing.is_active}
+                      onCheckedChange={async (checked) => {
+                        try {
+                          if (checked) {
+                            await activate.mutateAsync(viewing.id);
+                            toast.success("Colaborador reativado");
+                          } else {
+                            setProfileToDelete(viewing);
+                            setDeleteConfirmOpen(true);
+                          }
+                        } catch (err) {
+                          toast.error(err instanceof Error ? err.message : "Erro ao alterar status");
+                        }
+                      }}
+                    />
+                    <span className="text-sm text-muted-foreground">{viewing.is_active ? "Ativo" : "Inativo"}</span>
+                  </div>
+                )}
                 <Button size="sm" variant="outline" onClick={() => navigate("/team")}>
                   Fechar
                 </Button>
@@ -705,10 +740,15 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
               </div>
 
               <Tabs defaultValue="dados" className="w-full">
-                <TabsList className="mb-4">
+                <TabsList className="mb-4 flex-wrap h-auto gap-1">
                   <TabsTrigger value="dados">Dados cadastrais</TabsTrigger>
+                  <TabsTrigger value="comissao">Remuneração Variável</TabsTrigger>
                   <TabsTrigger value="pagamentos">Pagamentos</TabsTrigger>
                   <TabsTrigger value="ponto">Controle de Ponto</TabsTrigger>
+                  <TabsTrigger value="ausencias">Férias e Ausências</TabsTrigger>
+                  <TabsTrigger value="avaliacoes">Avaliação</TabsTrigger>
+                  <TabsTrigger value="metas">Metas</TabsTrigger>
+                  <TabsTrigger value="treinamentos">Treinamentos</TabsTrigger>
                   <TabsTrigger value="documentos">Documentos</TabsTrigger>
                 </TabsList>
 
@@ -727,8 +767,6 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
                     const addressZip = (meta.address_zip as string | undefined) ?? "";
                     const educationLevel = (meta.education_level as string | undefined) ?? "";
                     const graduation = (meta.graduation as string | undefined) ?? "";
-                    const commissionPercent = Number((meta.commission_percent as number | string | undefined) ?? 0);
-                    const overtimeFactor = Number((meta.overtime_factor as number | string | undefined) ?? 0);
                     const notes = (meta.notes as string | undefined) ?? "";
                     return (
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
@@ -783,14 +821,6 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
                         <div className="flex items-center justify-between rounded border p-3">
                           <span className="text-muted-foreground">Salário base</span>
                           <span className="font-medium">{baseSalary ? formatBRL(baseSalary) : "—"}</span>
-                        </div>
-                        <div className="flex items-center justify-between rounded border p-3">
-                          <span className="text-muted-foreground">Comissão (%)</span>
-                          <span className="font-medium">{commissionPercent ? `${commissionPercent}%` : "—"}</span>
-                        </div>
-                        <div className="flex items-center justify-between rounded border p-3">
-                          <span className="text-muted-foreground">Fator hora extra</span>
-                          <span className="font-medium">{overtimeFactor ? `${overtimeFactor}x` : "—"}</span>
                         </div>
                         {notes && (
                           <div className="col-span-full flex items-start justify-between rounded border p-3 gap-4">
@@ -865,6 +895,41 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
                     profileId={viewing.id}
                     isExempt={viewing.role === "owner" || viewing.role === "admin"}
                   />
+                </TabsContent>
+
+                <TabsContent value="ausencias">
+                  <EmployeeAbsencesTab profile={viewing} />
+                </TabsContent>
+
+                <TabsContent value="avaliacoes">
+                  <Tabs defaultValue="avaliacoes-360" className="w-full">
+                    <TabsList className="mb-4">
+                      <TabsTrigger value="avaliacoes-360">Avaliações</TabsTrigger>
+                      <TabsTrigger value="score">Score</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="avaliacoes-360">
+                      <EmployeeEvaluationsTab profile={viewing} />
+                    </TabsContent>
+                    <TabsContent value="score">
+                      <EmployeeScoreTab profile={viewing} />
+                    </TabsContent>
+                  </Tabs>
+                </TabsContent>
+
+                <TabsContent value="metas">
+                  <EmployeeGoalsTab profile={viewing} />
+                </TabsContent>
+
+                <TabsContent value="comissao">
+                  <CommissionConfigTab profile={viewing} />
+                </TabsContent>
+
+                <TabsContent value="treinamentos">
+                  <EmployeeTrainingsTab profile={viewing} />
+                </TabsContent>
+
+                <TabsContent value="score">
+                  <EmployeeScoreTab profile={viewing} />
                 </TabsContent>
               </Tabs>            </CardContent>
           </Card>

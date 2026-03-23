@@ -43,6 +43,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Eye, Pencil, Plus, UserCheck, Loader2, Trash2, PauseCircle, RotateCw, Search } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { fetchAddressByCep } from "@/lib/viacep";
 import { toast } from "sonner";
 import type { Client } from "@/types/crm";
@@ -73,7 +74,7 @@ export default function ClientsPage() {
   const { profile } = useAuth();
   const { canCreate, canEdit, canDelete } = useModulePermission("clients");
   const { canEdit: canManageContracts } = useModulePermission("financial");
-  const { data: clients = [], isLoading, error: fetchError, create, update, remove } = useClients(organizationId);
+  const { data: clients = [], isLoading, error: fetchError, create, update, remove, deactivate, activate } = useClients(organizationId);
   const { data: teams = [] } = useTeams(organizationId);
   const { data: allProfiles = [] } = useProfiles(organizationId);
   const portfolios = useMemo(() => teams.filter(t => t.is_portfolio && t.type === 'comercial'), [teams]);
@@ -127,11 +128,15 @@ export default function ClientsPage() {
   });
 
   const [filterPortfolioId, setFilterPortfolioId] = useState<string>("all");
+  const [showInactiveClients, setShowInactiveClients] = useState(false);
 
   const filteredClients = useMemo(() => {
-    if (filterPortfolioId === "all") return clients;
-    return clients.filter(c => c.portfolio_team_id === filterPortfolioId);
-  }, [clients, filterPortfolioId]);
+    let list = showInactiveClients
+      ? clients.filter((c) => (c as any).is_active === false)
+      : clients.filter((c) => (c as any).is_active !== false);
+    if (filterPortfolioId !== "all") list = list.filter(c => c.portfolio_team_id === filterPortfolioId);
+    return list;
+  }, [clients, filterPortfolioId, showInactiveClients]);
 
   const handleCepSearch = async (cep: string) => {
     const cleanCep = cep.replace(/\D/g, "");
@@ -826,6 +831,14 @@ export default function ClientsPage() {
             <CardTitle className="text-base">Lista de clientes</CardTitle>
             <div className="flex items-center gap-2">
               <Search className="h-4 w-4 text-muted-foreground" />
+              <Button
+                variant={showInactiveClients ? "default" : "outline"}
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => setShowInactiveClients((v) => !v)}
+              >
+                {showInactiveClients ? "Ver ativos" : `Inativos (${clients.filter((c) => (c as any).is_active === false).length})`}
+              </Button>
               <Select value={filterPortfolioId} onValueChange={setFilterPortfolioId}>
                 <SelectTrigger className="w-[200px] h-8 text-xs">
                   <SelectValue placeholder="Filtrar por carteira" />
@@ -1141,19 +1154,31 @@ export default function ClientsPage() {
             <Button type="button" size="sm" onClick={() => openEdit(viewing)} disabled={!canEdit}>
               Alterar
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="destructive"
-              onClick={() => {
-                if (!window.confirm("Excluir este cliente?")) return;
-                remove.mutate(viewing.id);
-                navigate(listHref);
-              }}
-              disabled={!canDelete}
-            >
-              Excluir
-            </Button>
+            {/* Toggle ativo/inativo */}
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={(viewing as any)?.is_active !== false}
+                onCheckedChange={(checked) => {
+                  if (!canDelete) {
+                    toast.error("Sem permissão para alterar status do cliente");
+                    return;
+                  }
+                  if (checked) {
+                    activate.mutate(viewing!.id, {
+                      onError: (err) => toast.error(err instanceof Error ? err.message : "Erro ao reativar"),
+                    });
+                  } else {
+                    if (!window.confirm(`Desativar "${viewing!.company || viewing!.name}"? Lançamentos pendentes serão cancelados.`)) return;
+                    deactivate.mutateAsync(viewing!.id)
+                      .then(() => { toast.success("Cliente desativado"); navigate(listHref); })
+                      .catch((err) => toast.error(err instanceof Error ? err.message : "Erro ao desativar"));
+                  }
+                }}
+              />
+              <span className="text-sm text-muted-foreground">
+                {(viewing as any)?.is_active !== false ? "Ativo" : "Inativo"}
+              </span>
+            </div>
           </div>
         </div>
         <Tabs defaultValue="dados" className="w-full">

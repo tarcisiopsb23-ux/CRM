@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Plus, Loader2, Pencil, Trash2, Search, Eye } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { fetchAddressByCep } from "@/lib/viacep";
 import { toast } from "sonner";
 import { DocumentsCard } from "@/components/documents/DocumentsCard";
@@ -48,7 +49,7 @@ const SUPPLIER_CATEGORIES = [
 
 export default function SuppliersPage() {
   const organizationId = useOrganization();
-  const { data: suppliers = [], isLoading, create, update, remove } = useSuppliers(organizationId);
+  const { data: suppliers = [], isLoading, create, update, remove, deactivate, activate } = useSuppliers(organizationId);
   const orgSettings = useOrganizationSettings(organizationId);
   const driveFolders = useMemo(() => getDriveFoldersFromOrganizationSettings(orgSettings.data), [orgSettings.data]);
   const { data: n8nIntegration } = useIntegration(organizationId, "n8n");
@@ -73,22 +74,19 @@ export default function SuppliersPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const [showInactive, setShowInactive] = useState(false);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return suppliers;
-    return suppliers.filter((s) => {
-      const hay = [
-        s.name,
-        s.document ?? "",
-        s.email ?? "",
-        s.phone ?? "",
-        s.service_category ?? "",
-      ]
-        .join(" ")
-        .toLowerCase();
+    const list = showInactive
+      ? suppliers.filter((s) => (s as any).is_active === false)
+      : suppliers.filter((s) => (s as any).is_active !== false);
+    if (!q) return list;
+    return list.filter((s) => {
+      const hay = [s.name, s.document ?? "", s.email ?? "", s.phone ?? "", s.service_category ?? ""].join(" ").toLowerCase();
       return hay.includes(q);
     });
-  }, [suppliers, search]);
+  }, [suppliers, search, showInactive]);
 
   const supplierExpenses = useQuery({
     queryKey: ["supplier-expenses", organizationId, viewing?.id],
@@ -240,17 +238,25 @@ export default function SuppliersPage() {
               <Button size="sm" variant="outline" onClick={() => openEdit(viewing)}>
                 <Pencil className="h-4 w-4 mr-1" /> Alterar
               </Button>
-              <Button
-                size="sm"
-                variant="destructive"
-                onClick={() => {
-                  if (!window.confirm("Excluir este fornecedor?")) return;
-                  remove.mutate(viewing.id);
-                  setViewing(null);
-                }}
-              >
-                <Trash2 className="h-4 w-4 mr-1" /> Excluir
-              </Button>
+              {/* Toggle ativo/inativo */}
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={(viewing as any)?.is_active !== false}
+                  onCheckedChange={(checked) => {
+                    if (checked) {
+                      activate.mutate(viewing!.id);
+                      setViewing(null);
+                    } else {
+                      if (!window.confirm(`Desativar "${viewing!.name}"? Nenhum dado será apagado.`)) return;
+                      deactivate.mutate(viewing!.id);
+                      setViewing(null);
+                    }
+                  }}
+                />
+                <span className="text-sm text-muted-foreground">
+                  {(viewing as any)?.is_active !== false ? "Ativo" : "Inativo"}
+                </span>
+              </div>
               <Button size="sm" variant="outline" onClick={() => setViewing(null)}>
                 Fechar
               </Button>
@@ -376,14 +382,23 @@ export default function SuppliersPage() {
         <Card>
           <CardHeader className="space-y-3">
             <CardTitle className="text-base">Lista de fornecedores</CardTitle>
-            <div className="relative">
-              <Search className="h-4 w-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
-              <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar fornecedor..."
-                className="pl-9"
-              />
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="h-4 w-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+                <Input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Buscar fornecedor..."
+                  className="pl-9"
+                />
+              </div>
+              <Button
+                variant={showInactive ? "default" : "outline"}
+                size="sm"
+                onClick={() => setShowInactive((v) => !v)}
+              >
+                {showInactive ? "Ver ativos" : `Ver inativos (${suppliers.filter((s) => (s as any).is_active === false).length})`}
+              </Button>
             </div>
           </CardHeader>
           <CardContent>
@@ -438,11 +453,9 @@ export default function SuppliersPage() {
                         className="text-destructive"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (window.confirm("Excluir este fornecedor?")) {
-                            remove.mutate(s.id);
-                          }
+                          if (window.confirm(`Desativar "${s.name}"?`)) deactivate.mutate(s.id);
                         }}
-                        aria-label="Excluir"
+                        aria-label="Desativar"
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>

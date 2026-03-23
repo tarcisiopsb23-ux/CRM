@@ -20,6 +20,11 @@ export interface ProfileRow {
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+  commission_rate: number;
+  bonus_rate_120: number;
+  bonus_rate_135: number;
+  bonus_rate_150: number;
+  is_board_member: boolean;
 }
 
 export function useProfiles(organizationId: string | undefined) {
@@ -61,13 +66,47 @@ export function useProfiles(organizationId: string | undefined) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["profiles", organizationId] }),
   });
 
-  const remove = useMutation({
+  const deactivate = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("profiles").delete().eq("id", id);
+      // Força refresh da sessão para garantir token válido
+      await supabase.auth.refreshSession();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Sessão expirada. Faça login novamente.");
+
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+
+      const res = await fetch(`${supabaseUrl}/functions/v1/delete-user`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+          "apikey": anonKey,
+        },
+        body: JSON.stringify({ user_id: id }),
+      });
+
+      let body: { error?: string; success?: boolean } = {};
+      try { body = await res.json(); } catch { /* sem body */ }
+
+      if (!res.ok) throw new Error(body.error ?? `Erro ${res.status} ao desativar colaborador`);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["profiles", organizationId] }),
+  });
+
+  const activate = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("profiles")
+        .update({ is_active: true })
+        .eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["profiles", organizationId] }),
   });
 
-  return { ...query, update, remove };
+  // Mantido por compatibilidade — chama deactivate internamente
+  const remove = deactivate;
+
+  return { ...query, update, remove, deactivate, activate };
 }

@@ -29,11 +29,14 @@ export interface RepPTodayState {
   break_max_at: string | null;       // máx saida_intervalo: entrada + 6h30
   return_allowed_at: string | null;  // mín retorno_intervalo: saída + 1h
   return_max_at: string | null;      // máx retorno_intervalo: saída + 2h
-  final_allowed_at: string | null;   // saida_final: entrada + 8h (exibição)
+  final_allowed_at: string | null;   // saida_final: entrada + 8h48 (exibição)
   entry_time_display: string | null;
   break_time_display: string | null;
   alerts: string[];
   next_allowed: RepPPunchType[];
+  // Dia especial (sábado/domingo/feriado)
+  special_day: "sabado" | "domingo" | "feriado" | null;
+  has_special_day_auth: boolean;
 }
 
 export interface RepPPunchRow {

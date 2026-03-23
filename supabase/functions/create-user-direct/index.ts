@@ -155,48 +155,87 @@ serve(async (req) => {
     }
 
     // Criar usuário diretamente via admin API
-    const { data: newUser, error: createError } = await adminClient.auth.admin.createUser({
-      email: emailTrim,
-      password,
-      email_confirm: true,
-      user_metadata: {
-        full_name: typeof full_name === "string" ? full_name.trim() || emailTrim.split("@")[0] : emailTrim.split("@")[0],
-        phone: typeof phone === "string" ? phone.trim() : "",
-        display_name: typeof display_name === "string" ? display_name.trim() : "",
-        cpf: typeof cpf === "string" ? cpf.trim() : "",
-        rg: typeof rg === "string" ? rg.trim() : "",
-        pix_key: typeof pix_key === "string" ? pix_key.trim() : "",
-        address_street: typeof address_street === "string" ? address_street.trim() : "",
-        address_city: typeof address_city === "string" ? address_city.trim() : "",
-        address_state: typeof address_state === "string" ? address_state.trim() : "",
-        address_zip: typeof address_zip === "string" ? address_zip.trim() : "",
-        education_level: typeof education_level === "string" ? education_level : "fundamental",
-        graduation: typeof graduation === "string" ? graduation.trim() : "",
-        job_title: typeof job_title === "string" ? job_title.trim() : "",
-        base_salary: typeof base_salary === "number" ? base_salary : 0,
-        commission_percent: typeof commission_percent === "number" ? commission_percent : 0,
-        overtime_factor: typeof overtime_factor === "number" ? overtime_factor : 1,
-        notes: typeof notes === "string" ? notes.trim() : "",
-        profile_completed: true,
-        direct_organization_id: orgId,
-      },
-    });
+    // Primeiro verifica se já existe um auth.users com esse e-mail sem profile ativo
+    const { data: existingUsers } = await adminClient.auth.admin.listUsers();
+    const existingAuthUser = existingUsers?.users?.find(
+      (u) => u.email?.toLowerCase() === emailTrim
+    );
 
-    if (createError) {
-      const msg = createError.message.toLowerCase();
-      if (msg.includes("already registered") || msg.includes("already exists")) {
+    let newUserId: string | undefined;
+
+    if (existingAuthUser) {
+      // Verifica se já tem profile ativo na organização
+      const { data: activeProfile } = await adminClient
+        .from("profiles")
+        .select("id, is_active")
+        .eq("id", existingAuthUser.id)
+        .eq("organization_id", orgId)
+        .single();
+
+      if (activeProfile) {
         return new Response(
-          JSON.stringify({ error: "Este e-mail já está cadastrado" }),
+          JSON.stringify({ error: "Este e-mail já está cadastrado como colaborador ativo" }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      return new Response(
-        JSON.stringify({ error: `Falha ao cadastrar colaborador: ${createError.message}` }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
 
-    const newUserId = newUser?.user?.id;
+      // Reutiliza o auth.users existente — atualiza senha e metadados
+      const { error: updateError } = await adminClient.auth.admin.updateUserById(
+        existingAuthUser.id,
+        {
+          password,
+          email_confirm: true,
+          user_metadata: {
+            full_name: typeof full_name === "string" ? full_name.trim() || emailTrim.split("@")[0] : emailTrim.split("@")[0],
+            profile_completed: true,
+            direct_organization_id: orgId,
+          },
+        }
+      );
+      if (updateError) {
+        return new Response(
+          JSON.stringify({ error: `Falha ao reativar colaborador: ${updateError.message}` }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      newUserId = existingAuthUser.id;
+    } else {
+      // Cria novo usuário
+      const { data: newUser, error: createError } = await adminClient.auth.admin.createUser({
+        email: emailTrim,
+        password,
+        email_confirm: true,
+        user_metadata: {
+          full_name: typeof full_name === "string" ? full_name.trim() || emailTrim.split("@")[0] : emailTrim.split("@")[0],
+          phone: typeof phone === "string" ? phone.trim() : "",
+          display_name: typeof display_name === "string" ? display_name.trim() : "",
+          cpf: typeof cpf === "string" ? cpf.trim() : "",
+          rg: typeof rg === "string" ? rg.trim() : "",
+          pix_key: typeof pix_key === "string" ? pix_key.trim() : "",
+          address_street: typeof address_street === "string" ? address_street.trim() : "",
+          address_city: typeof address_city === "string" ? address_city.trim() : "",
+          address_state: typeof address_state === "string" ? address_state.trim() : "",
+          address_zip: typeof address_zip === "string" ? address_zip.trim() : "",
+          education_level: typeof education_level === "string" ? education_level : "fundamental",
+          graduation: typeof graduation === "string" ? graduation.trim() : "",
+          job_title: typeof job_title === "string" ? job_title.trim() : "",
+          base_salary: typeof base_salary === "number" ? base_salary : 0,
+          commission_percent: typeof commission_percent === "number" ? commission_percent : 0,
+          overtime_factor: typeof overtime_factor === "number" ? overtime_factor : 1,
+          notes: typeof notes === "string" ? notes.trim() : "",
+          profile_completed: true,
+          direct_organization_id: orgId,
+        },
+      });
+
+      if (createError) {
+        return new Response(
+          JSON.stringify({ error: `Falha ao cadastrar colaborador: ${createError.message}` }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      newUserId = newUser?.user?.id;
+    }
     if (newUserId) {
       const baseFullName =
         typeof full_name === "string" ? full_name.trim() || emailTrim.split("@")[0] : emailTrim.split("@")[0];

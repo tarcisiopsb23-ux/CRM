@@ -76,6 +76,19 @@ export function TimeclockEntryPage() {
 
         {/* Card de ação */}
         <div className="rounded-2xl border border-border bg-card p-6 shadow-sm space-y-4">
+          {/* Aviso de dia especial */}
+          {clockState?.special_day && !clockState?.has_special_day_auth && (
+            <div className="rounded-lg border border-red-200 bg-red-50 dark:bg-red-900/20 dark:border-red-800 px-4 py-3 text-sm text-red-700 dark:text-red-400">
+              <p className="font-medium">
+                {clockState.special_day === "sabado" && "Hoje é sábado"}
+                {clockState.special_day === "domingo" && "Hoje é domingo"}
+                {clockState.special_day === "feriado" && "Hoje é feriado"}
+              </p>
+              <p className="mt-1 text-xs">
+                Registro de ponto requer autorização de admin/owner.
+              </p>
+            </div>
+          )}
           {nextType ? (
             <>
               <p className="text-sm text-center text-muted-foreground">

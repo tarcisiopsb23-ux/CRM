@@ -1,9 +1,9 @@
 ﻿import { useMemo, useState, useCallback } from "react";
-import { format, startOfWeek, endOfWeek, parseISO } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useProfiles } from "@/hooks/useProfiles";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useRepPAdminActions,
   useRepPAdminAuthorizeReentry,
@@ -965,7 +965,7 @@ export function TimeClockControl() {
             <DialogTitle>Autorizar hora extra</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Permite que o colaborador registre saída após 8 horas. Informe quantos minutos extras estão autorizados.
+            Permite que o colaborador registre saída após 8h48. Informe quantos minutos extras estão autorizados.
           </p>
           <div className="space-y-3">
             <div className="space-y-1">

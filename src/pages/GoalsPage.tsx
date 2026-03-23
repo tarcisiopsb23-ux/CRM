@@ -35,7 +35,7 @@ import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isWithi
 import { ptBR } from "date-fns/locale";
 import { Calendar } from "@/components/ui/calendar";
 
-type GoalCategory = "crm" | "clientes" | "financeiro" | "projetos" | "campanhas";
+type GoalCategory = "crm" | "clientes" | "financeiro" | "projetos" | "campanhas" | "rh";
 type IndicatorOption = {
   label: string;
   indicator: GoalIndicator;
@@ -61,6 +61,11 @@ const INDICATORS_BY_CATEGORY: Record<GoalCategory, IndicatorOption[]> = {
   ],
   campanhas: [
     { label: "Investimento em campanhas (gasto)", indicator: "outro", unit: "R$", metadata: { indicator_key: "marketing_gasto" } },
+  ],
+  rh: [
+    { label: "Treinamentos concluídos", indicator: "outro", unit: "Qtd", metadata: { indicator_key: "treinamentos_concluidos" } },
+    { label: "Presença (%)", indicator: "outro", unit: "Qtd", metadata: { indicator_key: "presenca_pct" } },
+    { label: "Meta atingida (%)", indicator: "outro", unit: "Qtd", metadata: { indicator_key: "meta_atingida_pct" } },
   ],
 };
 
@@ -199,6 +204,12 @@ export default function GoalsPage() {
           break;
         case "marketing_gasto":
           dynValue = Number(campaignTotals.spend ?? 0);
+          break;
+        case "treinamentos_concluidos":
+        case "presenca_pct":
+        case "meta_atingida_pct":
+          // Esses indicadores são atualizados manualmente via current_value
+          dynValue = Number(g.current_value ?? 0);
           break;
       }
     } catch {
@@ -418,8 +429,10 @@ export default function GoalsPage() {
                 <SelectItem value="all">Todas</SelectItem>
                 <SelectItem value="financeiro">Financeiro</SelectItem>
                 <SelectItem value="crm">CRM</SelectItem>
+                <SelectItem value="clientes">Clientes</SelectItem>
                 <SelectItem value="projetos">Projetos</SelectItem>
                 <SelectItem value="campanhas">Campanhas</SelectItem>
+                <SelectItem value="rh">Gestão de Pessoas</SelectItem>
               </SelectContent>
             </Select>
           </div>

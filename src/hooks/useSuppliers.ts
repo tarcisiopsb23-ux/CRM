@@ -47,13 +47,24 @@ export function useSuppliers(organizationId: string | undefined) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["suppliers", organizationId] }),
   });
 
-  const remove = useMutation({
+  const deactivate = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("suppliers").delete().eq("id", id);
+      const { error } = await supabase.from("suppliers").update({ is_active: false }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["suppliers", organizationId] }),
   });
 
-  return { ...query, create, update, remove };
+  const activate = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("suppliers").update({ is_active: true }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["suppliers", organizationId] }),
+  });
+
+  // Mantido por compatibilidade
+  const remove = deactivate;
+
+  return { ...query, create, update, remove, deactivate, activate };
 }

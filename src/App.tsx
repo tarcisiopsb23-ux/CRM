@@ -11,6 +11,7 @@ import { TimeclockGuard } from "@/components/auth/TimeclockGuard";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { LoginPage } from "@/pages/LoginPage";
 import { CompleteRegistrationPage } from "@/pages/CompleteRegistrationPage";
+import { SetPasswordPage } from "@/pages/SetPasswordPage";
 import { ProfileSetupPage } from "@/pages/ProfileSetupPage";
 import { EditCollaboratorPage } from "@/pages/EditCollaboratorPage";
 import MyProfilePage from "@/pages/MyProfilePage";
@@ -27,6 +28,7 @@ import GoalsPage from "./pages/GoalsPage";
 import WhatsApp from "./pages/WhatsApp";
 import Meetings from "./pages/Meetings";
 import TeamPage from "./pages/TeamPage";
+import Avaliacao360Page from "./pages/Avaliacao360Page";
 import CampaignReports from "./pages/CampaignReports";
 import GeneralReports from "./pages/GeneralReports";
 import { SalesDashboardPage } from "./pages/SalesDashboardPage";
@@ -67,6 +69,7 @@ function App() {
                 <Route path="/public/dashboard/:slug/login" element={<PublicDashboardLoginPage />} />
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/complete-registration" element={<CompleteRegistrationPage />} />
+                <Route path="/set-password" element={<SetPasswordPage />} />
                 <Route path="/profile-setup" element={
                   <ProtectedRoute>
                     <ProfileSetupPage />
@@ -117,6 +120,7 @@ function App() {
                     <Route path="/whatsapp" element={<WhatsApp />} />
                     <Route path="/meetings" element={<Meetings />} />
                     <Route path="/team" element={<TeamPage />} />
+                    <Route path="/team/360" element={<Avaliacao360Page />} />
                     <Route path="/team/edit/:id" element={<EditCollaboratorPage />} />
                     <Route path="/team/employees/:profileId" element={<TeamPage />} />
                     <Route path="/campaign-reports" element={<CampaignReports />} />

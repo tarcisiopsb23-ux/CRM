@@ -65,13 +65,48 @@ export function useClients(organizationId: string | undefined) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["clients", organizationId] }),
   });
 
-  const remove = useMutation({
+  const deactivate = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("clients").delete().eq("id", id);
+      // Cancela todos os lançamentos pendentes do cliente
+      const { error: paymentsError } = await supabase
+        .from("payments")
+        .update({ status: "cancelado" })
+        .eq("client_id", id)
+        .in("status", ["pendente", "processando", "atrasado"]);
+      if (paymentsError) throw new Error(`Erro ao cancelar lançamentos: ${paymentsError.message}`);
+
+      // Desativa o cliente (soft delete)
+      const { data, error } = await supabase
+        .from("clients")
+        .update({ is_active: false })
+        .eq("id", id)
+        .select("id");
+      if (error) throw new Error(`Erro ao desativar cliente: ${error.message}`);
+      if (!data || data.length === 0) throw new Error("Cliente não encontrado ou sem permissão para desativar");
+    },
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["clients", organizationId] });
+      qc.invalidateQueries({ queryKey: ["payments", organizationId] });
+    },
+    onError: (err) => console.error("[useClients] deactivate error:", err),
+  });
+
+  const activate = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("clients")
+        .update({ is_active: true })
+        .eq("id", id)
+        .select("id")
+        .single();
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["clients", organizationId] }),
+    onError: (err) => console.error("[useClients] activate error:", err),
   });
 
-  return { ...query, create, update, remove };
+  // Mantido por compatibilidade
+  const remove = deactivate;
+
+  return { ...query, create, update, remove, deactivate, activate };
 }

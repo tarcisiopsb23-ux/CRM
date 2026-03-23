@@ -88,6 +88,9 @@ export interface Lead {
   cadence?: string | number | null;
   temperature?: number | null;
   campaign_id?: string | null;
+  sdr_id: string | null;
+  closer_id: string | null;
+  team_id: string | null;
   metadata: Record<string, unknown>;
   position: number;
   created_at: string;

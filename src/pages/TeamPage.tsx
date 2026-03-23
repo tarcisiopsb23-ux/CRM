@@ -4,16 +4,23 @@ import { TeamProfilesList } from "@/components/team/TeamProfilesList";
 import { TeamListSupabase } from "@/components/team/TeamListSupabase";
 import { AddCollaboratorModal } from "@/components/team/AddCollaboratorModal";
 import { TimeClockControl } from "@/components/team/TimeClockControl";
+import { HRDashboard } from "@/components/team/HRDashboard";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useTeams, useTeamMembers } from "@/hooks/useTeams";
 import { useAuth } from "@/contexts/AuthContext";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Clock, Users, UsersRound, UserPlus, ChevronDown, Calculator, ShieldCheck, Timer } from "lucide-react";
+import { Clock, Users, UsersRound, UserPlus, ChevronDown, Calculator, ShieldCheck, Timer, Star } from "lucide-react";
 import { PayrollManager } from "@/components/team/PayrollManager";
 import { Button } from "@/components/ui/button";
 import { usePermissionForScope } from "@/hooks/usePermissions";
 import { InviteMemberDialog } from "@/components/team/InviteMemberDialog";
+import { useCiclos, useCloseCiclo } from "@/hooks/useAvaliacao360";
+import { CiclosList } from "@/components/avaliacao360/CiclosList";
+import { CicloForm } from "@/components/avaliacao360/CicloForm";
+import { CicloDetail } from "@/components/avaliacao360/CicloDetail";
+import type { CicloAvaliacao } from "@/types/avaliacao360";
+import { toast } from "sonner";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,12 +39,33 @@ export default function TeamPage() {
   const [addDirectOpen, setAddDirectOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteMode, setInviteMode] = useState<"email" | "link">("email");
-  const [tab, setTab] = useState<"employees" | "teams" | "payroll" | "timeclock">("employees");
+  const [tab, setTab] = useState<"dashboard" | "employees" | "teams" | "payroll" | "timeclock" | "avaliacao360">(
+    (profile?.role === "admin" || profile?.role === "owner") ? "dashboard" : "employees"
+  );
+
+  const isAdminOrOwner = profile?.role === "admin" || profile?.role === "owner";
 
   // Estados dos dialogs de ponto — elevados para renderizar botões no header
   const [limitOpen, setLimitOpen] = useState(false);
   const [overtimeOpen, setOvertimeOpen] = useState(false);
   const [manualPunchOpen, setManualPunchOpen] = useState(false);
+
+  // Avaliação 360
+  const { data: ciclos = [], isLoading: ciclosLoading } = useCiclos(isAdminOrOwner ? orgId : undefined);
+  const closeCiclo = useCloseCiclo();
+  const [cicloFormOpen, setCicloFormOpen] = useState(false);
+  const [selectedCiclo, setSelectedCiclo] = useState<CicloAvaliacao | null>(null);
+
+  const handleCloseCiclo = async (ciclo: CicloAvaliacao) => {
+    if (!confirm(`Encerrar o ciclo "${ciclo.nome}"? Esta ação não pode ser desfeita.`)) return;
+    try {
+      await closeCiclo.mutateAsync({ cicloId: ciclo.id, organizationId: orgId });
+      toast.success("Ciclo encerrado e resultados consolidados");
+      if (selectedCiclo?.id === ciclo.id) setSelectedCiclo(null);
+    } catch (err: any) {
+      toast.error(err.message ?? "Erro ao encerrar ciclo");
+    }
+  };
 
   const employeesPermission = usePermissionForScope("team", "employees");
   const teamsPermission = usePermissionForScope("team", "teams");
@@ -189,6 +217,11 @@ export default function TeamPage() {
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="w-full">
         <TabsList>
+          {isAdminOrOwner && (
+            <TabsTrigger value="dashboard" className="gap-1.5">
+              Dashboard Gestão de Pessoas
+            </TabsTrigger>
+          )}
           <TabsTrigger value="employees" className="gap-1.5">
             <Users className="h-4 w-4" /> Colaboradores
           </TabsTrigger>
@@ -203,6 +236,11 @@ export default function TeamPage() {
           <TabsTrigger value="timeclock" className="gap-1.5">
             <Clock className="h-4 w-4" /> Controle de Ponto
           </TabsTrigger>
+          {isAdminOrOwner && (
+            <TabsTrigger value="avaliacao360" className="gap-1.5">
+              <Star className="h-4 w-4" /> Avaliação 360°
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {!scopePermission.canView ? (
@@ -212,6 +250,11 @@ export default function TeamPage() {
           </div>
         ) : (
           <>
+            {isAdminOrOwner && (
+              <TabsContent value="dashboard">
+                <HRDashboard organizationId={orgId} />
+              </TabsContent>
+            )}
             <TabsContent value="employees">
               <TeamProfilesList profiles={profiles} teams={teams} members={members} loading={profilesLoading} />
             </TabsContent>
@@ -243,6 +286,44 @@ export default function TeamPage() {
             <TabsContent value="timeclock">
               <TimeClockControl />
             </TabsContent>
+
+            {isAdminOrOwner && (
+              <TabsContent value="avaliacao360">
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-muted-foreground">
+                      Gerencie ciclos de avaliação e acompanhe os resultados do time.
+                    </p>
+                    {!selectedCiclo && (
+                      <Button size="sm" onClick={() => setCicloFormOpen(true)}>
+                        <Star className="h-4 w-4 mr-2" /> Novo Ciclo
+                      </Button>
+                    )}
+                  </div>
+                  {selectedCiclo ? (
+                    <CicloDetail
+                      ciclo={selectedCiclo}
+                      onBack={() => setSelectedCiclo(null)}
+                      currentProfileId={profile!.id}
+                      canManage={isAdminOrOwner}
+                    />
+                  ) : (
+                    <CiclosList
+                      ciclos={ciclos}
+                      isLoading={ciclosLoading}
+                      onSelect={setSelectedCiclo}
+                      onClose={handleCloseCiclo}
+                      canManage={isAdminOrOwner}
+                    />
+                  )}
+                  <CicloForm
+                    open={cicloFormOpen}
+                    onOpenChange={setCicloFormOpen}
+                    organizationId={orgId}
+                  />
+                </div>
+              </TabsContent>
+            )}
           </>
         )}
       </Tabs>

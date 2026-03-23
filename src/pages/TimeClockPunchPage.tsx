@@ -80,7 +80,14 @@ export function TimeClockPunchPage() {
     if (type === "saida_final" && data?.can_final === false) {
       const at = data.final_allowed_at ?? "?";
       const from = data.entry_time_display ?? "?";
-      toast.error(`Saída final autorizada a partir das ${at} — prazo de 8 horas (entrada às ${from})`);
+      toast.error(`Saída final autorizada a partir das ${at} — prazo de 8h48 (entrada às ${from})`);
+      return;
+    }
+
+    // Bloqueia entrada em dia especial sem autorização
+    if (type === "entrada" && data?.special_day && !data?.has_special_day_auth) {
+      const labels: Record<string, string> = { sabado: "sábado", domingo: "domingo", feriado: "feriado" };
+      toast.error(`Hoje é ${labels[data.special_day] ?? data.special_day}. Solicite autorização de admin/owner para registrar ponto.`);
       return;
     }
 
@@ -157,6 +164,18 @@ export function TimeClockPunchPage() {
             <p className="text-sm font-medium">Atenção</p>
             <p className="text-xs mt-1">
               Você ainda não registrou sua entrada hoje. O acesso ao sistema está bloqueado até que o ponto seja registrado.
+            </p>
+          </div>
+        )}
+        {data?.special_day && !data?.has_special_day_auth && (
+          <div className="mt-4 p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-600 dark:text-red-400">
+            <p className="text-sm font-medium">
+              {data.special_day === "sabado" && "Hoje é sábado"}
+              {data.special_day === "domingo" && "Hoje é domingo"}
+              {data.special_day === "feriado" && "Hoje é feriado"}
+            </p>
+            <p className="text-xs mt-1">
+              Registro de ponto em dias especiais requer autorização de admin/owner.
             </p>
           </div>
         )}

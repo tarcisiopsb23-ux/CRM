@@ -7,3 +7,4 @@ export { WhatsAppSection } from "./WhatsAppSection";
 export { GoogleCalendarSection } from "./GoogleCalendarSection";
 export { ResendSection } from "./ResendSection";
 export { PermissionsSection } from "./PermissionsSection";
+export { HolidaysSection } from "./HolidaysSection";

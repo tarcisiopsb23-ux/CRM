@@ -4,6 +4,7 @@ import { toJson } from "@/lib/supabase-utils";
 
 export type GoalIndicator = "inadimplencia" | "efetivacoes" | "faturamento" | "numero_contatos" | "outro";
 export type GoalPeriod = "diario" | "semanal" | "mensal" | "trimestral" | "anual";
+export type GoalSource = 'manual' | 'team_sales' | 'board_revenue';
 
 export interface Goal {
   id: string;
@@ -21,6 +22,7 @@ export interface Goal {
   period_start: string;
   period_end: string;
   indicator: GoalIndicator | null;
+  source: GoalSource;
   metadata: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;

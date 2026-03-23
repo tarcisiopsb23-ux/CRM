@@ -8,6 +8,7 @@ import {
   GoogleCalendarSection,
   ResendSection,
   PermissionsSection,
+  HolidaysSection,
 } from "@/components/settings";
 import { InviteMemberDialog } from "@/components/team/InviteMemberDialog";
 import { Button } from "@/components/ui/button";
@@ -506,6 +507,8 @@ export function SettingsPage() {
               </Button>
             </div>
           </SettingsSection>
+          <HolidaysSection />
+
           <SettingsSection
             title="Google Drive"
             description="Defina as pastas de destino por módulo para listar e enviar documentos."

@@ -17,6 +17,7 @@ import {
   BarChart3,
   History,
   Share2,
+  CircleUserRound,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -24,6 +25,7 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useModulePermission } from "@/hooks/usePermissions";
 import { useOrganization, useOrganizationData } from "@/hooks/useOrganization";
+import { useAuth } from "@/contexts/AuthContext";
 
 const navItems: {
   title: string;
@@ -41,10 +43,11 @@ const navItems: {
   { title: "Metas", url: "/goals", icon: Target, module: "goals" },
   { title: "WhatsApp", url: "/whatsapp", icon: MessageCircle, module: "whatsapp" },
   { title: "Reuniões IA", url: "/meetings", icon: Sparkles, module: "meetings" },
-  { title: "Equipe", url: "/team", icon: UsersRound, module: "team" },
+  { title: "Gestão de Pessoas", url: "/team", icon: UsersRound, module: "team" },
   { title: "Campanhas", url: "/campaign-reports", icon: Megaphone, module: "campaigns" },
   { title: "Relatórios", url: "/reports", icon: FileBarChart, module: "reports" },
   { title: "Auditoria", url: "/audit", icon: History, module: "audit" },
+  { title: "Meu Perfil", url: "/team/me", icon: CircleUserRound, module: null },
   { title: "Configurações", url: "/settings", icon: Settings, module: "settings" },
 ];
 
@@ -53,6 +56,8 @@ export function AppSidebar() {
   const location = useLocation();
   const orgId = useOrganization();
   const { data: orgData } = useOrganizationData(orgId);
+  const { profile } = useAuth();
+  const isAdminOrOwner = profile?.role === "admin" || profile?.role === "owner";
 
   const { canView: canViewDashboard } = useModulePermission("dashboard");
   const { canView: canViewKanban } = useModulePermission("kanban");
@@ -91,6 +96,7 @@ export function AppSidebar() {
   };
 
   const visibleItems = navItems.filter((item) => {
+    if (item.url === "/team/360") return isAdminOrOwner && canViewTeam;
     if (item.module === "settings") return canViewSettings;
     if (item.url === "/team") return canViewTeam;
     return !item.module || canViewByModule[item.module];

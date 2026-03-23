@@ -9,7 +9,7 @@ export type UserRole = Database["public"]["Enums"]["user_role"];
 
 // Módulos que existem apenas no frontend — não fazem parte do enum permission_module
 // no banco. Queries com esses valores causam erro 22P02 (invalid enum input).
-const CLIENT_ONLY_MODULES = new Set<PermissionModule>(["performance", "integrations"]);
+export const CLIENT_ONLY_MODULES = new Set<PermissionModule>(["performance", "integrations"]);
 
 export interface UserPermissionRow {
   id: string;
@@ -838,3 +838,118 @@ export function usePermissionForScope(module: PermissionModule | null, scope: st
 
   return { ...applyHardOverrides(role, module, scope, scoped), isAdminOrOwner: false, isLoading };
 }
+
+export type PermFlags = {
+  can_view: boolean;
+  can_create: boolean;
+  can_edit: boolean;
+  can_delete: boolean;
+};
+
+export const MODULE_VIEWS: Record<PermissionModule, Array<{ id: string; label: string }>> = {
+  dashboard: [
+    { id: "overview", label: "Visão Geral" },
+    { id: "widgets", label: "Widgets" },
+    { id: "public_link", label: "Link Público" },
+  ],
+  kanban: [
+    { id: "pipeline", label: "Pipeline" },
+    { id: "lead_details", label: "Detalhes do Lead" },
+    { id: "lead_create", label: "Criar Lead" },
+  ],
+  crm: [
+    { id: "leads", label: "Leads" },
+    { id: "contacts", label: "Contatos" },
+    { id: "pipeline_stages", label: "Etapas do Pipeline" },
+  ],
+  sales_analytics: [
+    { id: "sales_dashboard", label: "Dashboard de Vendas" },
+    { id: "funnel", label: "Funil" },
+    { id: "conversion", label: "Conversão" },
+  ],
+  clients: [
+    { id: "client_list", label: "Lista de Clientes" },
+    { id: "client_details", label: "Detalhes do Cliente" },
+    { id: "contracts", label: "Contratos" },
+  ],
+  financial: [
+    { id: "dashboard", label: "Dashboard" },
+    { id: "cashflow", label: "Fluxo de Caixa" },
+    { id: "suppliers", label: "Fornecedores" },
+    { id: "expenses", label: "Despesas" },
+    { id: "receivables", label: "Contas a Receber" },
+    { id: "payables", label: "Contas a Pagar" },
+    { id: "payroll", label: "Folha de Pagamento" },
+    { id: "contracts", label: "Contratos" },
+    { id: "dre", label: "DRE" },
+    { id: "reports", label: "Relatórios" },
+  ],
+  projects: [
+    { id: "project_list", label: "Lista de Projetos" },
+    { id: "project_details", label: "Detalhes do Projeto" },
+    { id: "tasks", label: "Tarefas" },
+  ],
+  agenda: [
+    { id: "events", label: "Eventos" },
+    { id: "calendar_view", label: "Visualização de Calendário" },
+  ],
+  goals: [
+    { id: "goals_list", label: "Lista de Metas" },
+    { id: "assignments", label: "Atribuições" },
+    { id: "tracking", label: "Acompanhamento" },
+  ],
+  whatsapp: [
+    { id: "conversations", label: "Conversas" },
+    { id: "contacts", label: "Contatos" },
+    { id: "broadcasts", label: "Transmissões" },
+  ],
+  meetings: [
+    { id: "meeting_list", label: "Lista de Reuniões" },
+    { id: "ai_summaries", label: "Resumos por IA" },
+    { id: "recordings", label: "Gravações" },
+  ],
+  team: [
+    { id: "employees", label: "Colaboradores" },
+    { id: "teams", label: "Equipes" },
+    { id: "payroll", label: "Folha de Pagamento" },
+    { id: "timeclock", label: "Controle de Ponto" },
+    { id: "timeclock_edit", label: "Editar/Excluir Registros de Ponto" },
+    { id: "evaluations_360", label: "Avaliações 360°" },
+    { id: "technical_evaluations", label: "Avaliações Técnicas" },
+    { id: "absences", label: "Ausências" },
+    { id: "trainings", label: "Treinamentos" },
+    { id: "documents", label: "Documentos" },
+    { id: "commissions", label: "Comissões" },
+    { id: "score", label: "Score" },
+  ],
+  settings: [
+    { id: "permissions", label: "Cargos e Permissões" },
+    { id: "integrations", label: "Integrações" },
+    { id: "general", label: "Configurações Gerais" },
+  ],
+  reports: [
+    { id: "general_reports", label: "Relatórios Gerais" },
+    { id: "campaign_reports", label: "Relatórios de Campanhas" },
+  ],
+  campaigns: [
+    { id: "campaign_list", label: "Lista de Campanhas" },
+    { id: "campaign_reports", label: "Relatórios de Campanhas" },
+  ],
+  audit: [
+    { id: "audit_logs", label: "Logs de Auditoria" },
+  ],
+  timeclock: [
+    { id: "punch", label: "Registro de Ponto" },
+    { id: "history", label: "Histórico" },
+    { id: "timeclock_edit", label: "Editar Registros" },
+  ],
+  performance: [
+    { id: "hub_dashboard", label: "Dashboard de Performance" },
+    { id: "individual_metrics", label: "Métricas Individuais" },
+  ],
+  integrations: [
+    { id: "api_keys", label: "Chaves de API" },
+    { id: "webhooks", label: "Webhooks" },
+    { id: "third_party", label: "Integrações de Terceiros" },
+  ],
+};

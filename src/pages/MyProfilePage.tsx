@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import {
   Dialog, DialogContent, DialogDescription,
   DialogFooter, DialogHeader, DialogTitle,
@@ -20,11 +21,17 @@ import {
 import { cn } from "@/lib/utils";
 import {
   ArrowLeft, Loader2, User, DollarSign, Clock,
-  CheckCircle2, AlertCircle, Calendar, LogIn, LogOut, Users, Camera,
+  CheckCircle2, AlertCircle, Calendar, LogIn, LogOut, Users, Camera, Star, ClipboardCheck,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { useResultadoDoColaborador, useAvaliacoesPendentes } from "@/hooks/useAvaliacao360";
+import { useAvaliacoesTecnicas } from "@/hooks/useAvaliacoesTecnicas";
+import { AvaliacaoForm } from "@/components/avaliacao360/AvaliacaoForm";
+import { useEmployeeEvaluations } from "@/hooks/useEmployeeEvaluations";
+import { useCommissionEntries } from "@/hooks/useCommissionEntries";
+import { useGoals } from "@/hooks/useGoalsCRUD";
 
 const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -42,7 +49,7 @@ const PUNCH_COLORS: Record<string, string> = {
   saida_final: "bg-slate-100 text-slate-700",
 };
 
-type Tab = "perfil" | "dados" | "pagamentos" | "ponto" | "equipe";
+type Tab = "perfil" | "pagamentos" | "ponto" | "equipe" | "avaliacoes";
 
 function Field({ label, value }: { label: string; value?: string | null }) {
   return (
@@ -139,6 +146,27 @@ export default function MyProfilePage() {
 
   const { data: payrolls = [], isLoading: payrollLoading } = usePayrollsByProfile(organizationId, profile?.id);
 
+  // Avaliações
+  const { data: resultados360 = [], isLoading: loadingResultados } = useResultadoDoColaborador(profile?.id);
+  const { data: pendentes360 = [], isLoading: loadingPendentes } = useAvaliacoesPendentes(profile?.id);
+  const { data: avaliacoesTecnicas = [], isLoading: loadingTecnicas } = useAvaliacoesTecnicas(profile?.id);
+  const { data: evaluations = [] } = useEmployeeEvaluations(profile?.id);
+  const { data: goals = [] } = useGoals(organizationId);
+  const { data: commissionEntries = [] } = useCommissionEntries(profile?.id);
+
+  const [avaliacaoFormOpen, setAvaliacaoFormOpen] = useState(false);
+  const [selectedAvaliacao, setSelectedAvaliacao] = useState<(typeof pendentes360)[number] | null>(null);
+
+  const score = useMemo(() => {
+    if (evaluations.length === 0) return null;
+    const avgNota = evaluations.reduce((s, e) => s + e.nota_final, 0) / evaluations.length;
+    const avgComportamento = evaluations.reduce((s, e) => s + e.comportamento, 0) / evaluations.length;
+    const profileGoals = goals.filter((g) => g.assigned_to === profile?.id && g.target_value > 0);
+    const avgGoalPct = profileGoals.length > 0
+      ? profileGoals.reduce((s, g) => s + Math.min((g.current_value / g.target_value) * 100, 150), 0) / profileGoals.length
+      : 0;
+    return Math.round((avgNota * 0.5 + avgGoalPct / 10 * 0.3 + avgComportamento * 0.2) * 10) / 10;
+  }, [evaluations, goals, profile?.id]);
   const fromIso = startOfMonth(subMonths(new Date(), 2)).toISOString();
   const toIso   = endOfMonth(new Date()).toISOString();
   const { data: punches = [], isLoading: punchLoading } = useRepPPunches({
@@ -258,11 +286,11 @@ export default function MyProfilePage() {
   const punchDays = Object.keys(punchByDate).sort((a, b) => b.localeCompare(a));
 
   const tabs: { key: Tab; label: string; icon: React.ElementType }[] = [
-    { key: "perfil",     label: "Perfil",           icon: User },
-    { key: "dados",      label: "Dados Cadastrais",  icon: User },
-    { key: "pagamentos", label: "Pagamentos",         icon: DollarSign },
-    { key: "ponto",      label: "Controle de Ponto",  icon: Clock },
-    { key: "equipe",     label: "Equipe",              icon: Users },
+    { key: "perfil",      label: "Perfil",            icon: User },
+    { key: "pagamentos",  label: "Pagamentos",          icon: DollarSign },
+    { key: "ponto",       label: "Controle de Ponto",   icon: Clock },
+    { key: "equipe",      label: "Equipe",               icon: Users },
+    { key: "avaliacoes",  label: "Avaliações",           icon: ClipboardCheck },
   ];
 
   return (
@@ -328,46 +356,87 @@ export default function MyProfilePage() {
 
       {/* ── Perfil ── */}
       {activeTab === "perfil" && (
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-base">Foto e Nome de Exibição</CardTitle></CardHeader>
-          <CardContent className="space-y-6">
-            {/* Avatar */}
-            <div className="flex flex-col items-center gap-4">
-              <div className="relative group">
-                <Avatar className="h-24 w-24">
-                  <AvatarImage src={avatarUrl || ""} alt={profile.full_name} />
-                  <AvatarFallback className="text-2xl gradient-primary text-primary-foreground">
-                    {initials}
-                  </AvatarFallback>
-                </Avatar>
-                <label className="absolute inset-0 flex items-center justify-center bg-black/40 text-white rounded-full opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity">
-                  <Camera className="h-6 w-6" />
-                  <input type="file" className="hidden" accept="image/*" onChange={handleAvatarUpload} disabled={uploading} />
-                </label>
+        <div className="space-y-4">
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-base">Foto e Nome de Exibição</CardTitle></CardHeader>
+            <CardContent className="space-y-6">
+              {/* Avatar */}
+              <div className="flex flex-col items-center gap-4">
+                <div className="relative group">
+                  <Avatar className="h-24 w-24">
+                    <AvatarImage src={avatarUrl || ""} alt={profile.full_name} />
+                    <AvatarFallback className="text-2xl gradient-primary text-primary-foreground">
+                      {initials}
+                    </AvatarFallback>
+                  </Avatar>
+                  <label className="absolute inset-0 flex items-center justify-center bg-black/40 text-white rounded-full opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity">
+                    <Camera className="h-6 w-6" />
+                    <input type="file" className="hidden" accept="image/*" onChange={handleAvatarUpload} disabled={uploading} />
+                  </label>
+                </div>
+                <p className="text-sm font-medium">{profile.full_name}</p>
+                {avatarUrl && (
+                  <Button variant="ghost" size="sm" onClick={removeAvatar} disabled={uploading} className="text-destructive h-7">
+                    Remover foto
+                  </Button>
+                )}
               </div>
-              <p className="text-sm font-medium">{profile.full_name}</p>
-              {avatarUrl && (
-                <Button variant="ghost" size="sm" onClick={removeAvatar} disabled={uploading} className="text-destructive h-7">
-                  Remover foto
-                </Button>
-              )}
-            </div>
-            {/* Display name */}
-            <div className="space-y-2">
-              <Label htmlFor="display_name">Nome de exibição</Label>
-              <Input
-                id="display_name"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="Como seu nome aparece para outros usuários"
-              />
-              <p className="text-[10px] text-muted-foreground">Deixe em branco para usar o nome completo.</p>
-            </div>
-            <Button onClick={handleUpdateDisplayName} disabled={uploading} className="w-full">
-              {uploading ? "Salvando..." : "Salvar Alterações"}
-            </Button>
-          </CardContent>
-        </Card>
+              {/* Display name */}
+              <div className="space-y-2">
+                <Label htmlFor="display_name">Nome de exibição</Label>
+                <Input
+                  id="display_name"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="Como seu nome aparece para outros usuários"
+                />
+                <p className="text-[10px] text-muted-foreground">Deixe em branco para usar o nome completo.</p>
+              </div>
+              <Button onClick={handleUpdateDisplayName} disabled={uploading} className="w-full">
+                {uploading ? "Salvando..." : "Salvar Alterações"}
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-base">Informações Pessoais</CardTitle></CardHeader>
+            <CardContent className="space-y-2">
+              <Field label="Nome completo" value={profile.full_name} />
+              <Field label="E-mail"        value={profile.email} />
+              <Field label="Telefone"      value={profile.phone} />
+              <Field label="CPF"           value={str("cpf")} />
+              <Field label="RG"            value={str("rg")} />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-base">Dados Profissionais</CardTitle></CardHeader>
+            <CardContent className="space-y-2">
+              <Field label="Cargo"         value={str("job_title")} />
+              <Field label="Departamento"  value={str("department")} />
+              <Field label="Data de admissão" value={str("hired_at") ? format(new Date(str("hired_at")!), "dd/MM/yyyy") : null} />
+              <Field label="Nível de escolaridade" value={str("education_level")} />
+              <Field label="Formação"      value={str("graduation")} />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-base">Endereço</CardTitle></CardHeader>
+            <CardContent className="space-y-2">
+              <Field label="Logradouro"    value={str("address_street")} />
+              <Field label="Cidade"        value={str("address_city")} />
+              <Field label="Estado"        value={str("address_state")} />
+              <Field label="CEP"           value={str("address_zip")} />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-base">Dados Bancários</CardTitle></CardHeader>
+            <CardContent className="space-y-2">
+              <Field label="Chave PIX"     value={str("pix_key")} />
+              <Field label="Banco"         value={str("bank_name")} />
+              <Field label="Agência"       value={str("bank_agency")} />
+              <Field label="Conta"         value={str("bank_account")} />
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* ── Dados Cadastrais ── */}
@@ -600,6 +669,187 @@ export default function MyProfilePage() {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {/* ── Avaliações ── */}
+      {activeTab === "avaliacoes" && (
+        <div className="space-y-6">
+          {/* Score */}
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-base">Meu Score</CardTitle></CardHeader>
+            <CardContent>
+              <div className="flex flex-col items-center py-4 gap-2">
+                {loadingResultados ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                ) : score !== null ? (
+                  <>
+                    <span className="text-5xl font-bold text-foreground">{score.toFixed(1)}</span>
+                    <p className="text-xs text-muted-foreground text-center">
+                      Composição: 50% desempenho · 30% metas · 20% comportamento
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Sem avaliações suficientes para calcular o score.</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Avaliações pendentes */}
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">Avaliações Pendentes</CardTitle>
+                {pendentes360.length > 0 && (
+                  <Badge variant="secondary" className="bg-amber-100 text-amber-800">
+                    {pendentes360.length} pendente{pendentes360.length > 1 ? "s" : ""}
+                  </Badge>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent>
+              {loadingPendentes ? (
+                <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+              ) : pendentes360.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-6 gap-1 text-center">
+                  <ClipboardCheck className="h-8 w-8 opacity-20 text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">Nenhuma avaliação pendente no momento.</p>
+                  <p className="text-xs text-muted-foreground">As avaliações aparecem aqui quando um ciclo ativo for iniciado pelo gestor.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {pendentes360.map((a) => {
+                    const TIPO_LABEL: Record<string, string> = {
+                      autoavaliacao: "Autoavaliação",
+                      gestor: "Avaliação de Gestor",
+                      pares: "Avaliação de Par",
+                      liderado: "Avaliação de Liderado",
+                    };
+                    return (
+                      <div key={a.id} className="flex items-center justify-between rounded-lg border border-border p-3">
+                        <div>
+                          <p className="text-sm font-medium">{TIPO_LABEL[a.tipo] ?? a.tipo}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {(a as any).ciclo?.nome ?? "Ciclo"}{" "}
+                            {(a as any).ciclo?.data_fim
+                              ? `· Prazo: ${new Date((a as any).ciclo.data_fim).toLocaleDateString("pt-BR")}`
+                              : ""}
+                          </p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => { setSelectedAvaliacao(a); setAvaliacaoFormOpen(true); }}
+                        >
+                          Responder
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Avaliações 360 concluídas */}
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-base">Avaliações 360° Concluídas</CardTitle></CardHeader>
+            <CardContent>
+              {loadingResultados ? (
+                <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+              ) : resultados360.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">Nenhum resultado registrado.</p>
+              ) : (
+                <div className="space-y-3">
+                  {resultados360.map((r) => (
+                    <div key={r.id} className="rounded-lg border border-border p-4 space-y-2">
+                      <div className="flex items-start justify-between gap-2 flex-wrap">
+                        <div>
+                          <p className="font-medium text-sm">{(r as any).ciclo?.nome ?? "Ciclo"}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {(r as any).ciclo?.data_inicio
+                              ? new Date((r as any).ciclo.data_inicio).toLocaleDateString("pt-BR")
+                              : ""}{" "}
+                            –{" "}
+                            {(r as any).ciclo?.data_fim
+                              ? new Date((r as any).ciclo.data_fim).toLocaleDateString("pt-BR")
+                              : ""}
+                          </p>
+                        </div>
+                        {r.score_final !== null && (
+                          <Badge variant="secondary" className="text-xs">
+                            Score: {r.score_final.toFixed(2)}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-muted-foreground">
+                        <div>Geral: <strong className="text-foreground">{r.media_geral?.toFixed(2) ?? "—"}</strong></div>
+                        <div>Auto: <strong className="text-foreground">{r.media_autoavaliacao?.toFixed(2) ?? "—"}</strong></div>
+                        <div>Pares: <strong className="text-foreground">{r.media_pares?.toFixed(2) ?? "—"}</strong></div>
+                        <div>Gestor: <strong className="text-foreground">{r.media_gestor?.toFixed(2) ?? "—"}</strong></div>
+                      </div>
+                      {r.feedback_final && (
+                        <div className="p-2 bg-muted/50 rounded text-xs">
+                          <p className="font-medium mb-0.5">Feedback do Gestor</p>
+                          <p className="text-muted-foreground">{r.feedback_final}</p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Avaliações Técnicas */}
+          {avaliacoesTecnicas.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-base">Avaliações Técnicas</CardTitle></CardHeader>
+              <CardContent>
+                {loadingTecnicas ? (
+                  <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+                ) : (
+                  <div className="space-y-3">
+                    {avaliacoesTecnicas.map((a) => (
+                      <div key={a.id} className="rounded-lg border border-border p-4 space-y-2">
+                        <div className="flex items-start justify-between gap-2 flex-wrap">
+                          <div>
+                            <p className="font-medium text-sm">{a.titulo}</p>
+                            <p className="text-xs text-muted-foreground">{new Date(a.data).toLocaleDateString("pt-BR")}</p>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {[1,2,3,4,5].map((n) => (
+                              <Star key={n} className={`h-3.5 w-3.5 ${n <= a.nota_geral ? "fill-amber-400 text-amber-400" : "text-muted-foreground/30"}`} />
+                            ))}
+                            <span className="text-xs text-muted-foreground ml-1">{a.nota_geral}/5</span>
+                          </div>
+                        </div>
+                        {a.observacoes && (
+                          <p className="text-xs text-muted-foreground bg-muted/50 rounded p-2">{a.observacoes}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* Dialog responder avaliação pendente */}
+      {selectedAvaliacao && (
+        <AvaliacaoForm
+          avaliacao={selectedAvaliacao}
+          cicloTipo={(selectedAvaliacao as any).ciclo?.tipo ?? '360'}
+          open={avaliacaoFormOpen}
+          onOpenChange={(o) => { setAvaliacaoFormOpen(o); if (!o) setSelectedAvaliacao(null); }}
+          avaliadoNome={
+            selectedAvaliacao.avaliado_id === profile?.id
+              ? profile?.full_name ?? "Você"
+              : profiles.find((p) => p.id === selectedAvaliacao.avaliado_id)?.full_name
+          }
+        />
       )}
 
       {/* Dialog alterar senha */}

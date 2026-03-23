@@ -13,6 +13,11 @@ export interface Profile {
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+  commission_rate: number;
+  bonus_rate_120: number;
+  bonus_rate_135: number;
+  bonus_rate_150: number;
+  is_board_member: boolean;
 }
 
 export interface User {

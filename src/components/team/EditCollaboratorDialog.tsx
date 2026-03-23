@@ -51,7 +51,7 @@ export function EditCollaboratorDialog({ open, onClose, profile }: Props) {
     display_name: "", cpf: "", rg: "", pix_key: "",
     address_street: "", address_city: "", address_state: "", address_zip: "",
     education_level: "fundamental", graduation: "", job_title: "",
-    base_salary: "", commission_percent: "", overtime_factor: "1", notes: "",
+    base_salary: "", overtime_factor: "1", notes: "", hire_date: "",
   });
 
   useEffect(() => {
@@ -78,9 +78,9 @@ export function EditCollaboratorDialog({ open, onClose, profile }: Props) {
       graduation: String(meta.graduation ?? ""),
       job_title: String(meta.job_title ?? ""),
       base_salary: String(meta.base_salary ?? ""),
-      commission_percent: String(meta.commission_percent ?? ""),
       overtime_factor: String(meta.overtime_factor ?? "1"),
       notes: String(meta.notes ?? ""),
+      hire_date: String(meta.hire_date ?? ""),
     });
   }, [open, profile]);
 
@@ -167,8 +167,9 @@ export function EditCollaboratorDialog({ open, onClose, profile }: Props) {
         ...(profile.metadata as Record<string, unknown> ?? {}),
         ...extraForm,
         base_salary: Number(extraForm.base_salary) || 0,
-        commission_percent: Number(extraForm.commission_percent) || 0,
         overtime_factor: Number(extraForm.overtime_factor) || 1,
+        hire_date: extraForm.hire_date || null,
+        // commission_percent é legado — não gravar
       };
       await update.mutateAsync({ id: profile.id, ...form, role: newRole, metadata });
       toast.success("Colaborador atualizado");
@@ -276,8 +277,7 @@ export function EditCollaboratorDialog({ open, onClose, profile }: Props) {
                 </Select>
               </div>
               <F label="Salário Base (R$)" value={extraForm.base_salary} onChange={(v) => setExtraForm((f) => ({ ...f, base_salary: v }))} type="number" />
-              <F label="Comissão (%)" value={extraForm.commission_percent} onChange={(v) => setExtraForm((f) => ({ ...f, commission_percent: v }))} type="number" />
-              <F label="Fator Hora Extra" value={extraForm.overtime_factor} onChange={(v) => setExtraForm((f) => ({ ...f, overtime_factor: v }))} type="number" />
+              <F label="Data de Admissão" value={extraForm.hire_date} onChange={(v) => setExtraForm((f) => ({ ...f, hire_date: v }))} type="date" />
               <div className="flex items-center gap-2 pt-6">
                 <Switch checked={form.is_active} onCheckedChange={(v) => setForm((f) => ({ ...f, is_active: v }))} id="active-dialog" />
                 <Label htmlFor="active-dialog">Colaborador Ativo</Label>

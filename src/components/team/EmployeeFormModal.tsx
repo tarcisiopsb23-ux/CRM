@@ -58,7 +58,7 @@ export function EmployeeFormModal({ open, onClose, onSave, employee, teams = [] 
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-[80vw] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="font-display">{isEdit ? "Editar Colaborador" : "Novo Colaborador"}</DialogTitle>
           <DialogDescription>
@@ -121,7 +121,6 @@ export function EmployeeFormModal({ open, onClose, onSave, employee, teams = [] 
           </div>
 
           <Field label="Salário base (R$)" value={String(form.baseSalary)} onChange={(v) => set("baseSalary", Number(v))} type="number" />
-          <Field label="Comissão (%)" value={String(form.commissionPercent)} onChange={(v) => set("commissionPercent", Number(v))} type="number" />
           <Field label="Fator hora extra" value={String(form.overtimeFactor)} onChange={(v) => set("overtimeFactor", Number(v))} type="number" />
 
           <div className="md:col-span-2">

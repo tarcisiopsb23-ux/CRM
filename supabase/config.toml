@@ -7,3 +7,6 @@ verify_jwt = false
 
 [functions.invite-by-email]
 verify_jwt = false
+
+[functions.delete-user]
+verify_jwt = false
