@@ -439,50 +439,6 @@ export default function MyProfilePage() {
         </div>
       )}
 
-      {/* ── Dados Cadastrais ── */}
-      {activeTab === "dados" && (
-        <div className="space-y-4">
-          <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-base">Informações Pessoais</CardTitle></CardHeader>
-            <CardContent className="space-y-2">
-              <Field label="Nome completo" value={profile.full_name} />
-              <Field label="E-mail"        value={profile.email} />
-              <Field label="Telefone"      value={profile.phone} />
-              <Field label="CPF"           value={str("cpf")} />
-              <Field label="RG"            value={str("rg")} />
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-base">Dados Profissionais</CardTitle></CardHeader>
-            <CardContent className="space-y-2">
-              <Field label="Cargo"         value={str("job_title")} />
-              <Field label="Departamento"  value={str("department")} />
-              <Field label="Data de admissão" value={str("hired_at") ? format(new Date(str("hired_at")!), "dd/MM/yyyy") : null} />
-              <Field label="Nível de escolaridade" value={str("education_level")} />
-              <Field label="Formação"      value={str("graduation")} />
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-base">Endereço</CardTitle></CardHeader>
-            <CardContent className="space-y-2">
-              <Field label="Logradouro"    value={str("address_street")} />
-              <Field label="Cidade"        value={str("address_city")} />
-              <Field label="Estado"        value={str("address_state")} />
-              <Field label="CEP"           value={str("address_zip")} />
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-base">Dados Bancários</CardTitle></CardHeader>
-            <CardContent className="space-y-2">
-              <Field label="Chave PIX"     value={str("pix_key")} />
-              <Field label="Banco"         value={str("bank_name")} />
-              <Field label="Agência"       value={str("bank_agency")} />
-              <Field label="Conta"         value={str("bank_account")} />
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
       {/* ── Pagamentos ── */}
       {activeTab === "pagamentos" && (
         <Card>

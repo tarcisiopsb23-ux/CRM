@@ -3,11 +3,11 @@
  * Task 13.1: Renderização com os 6 critérios
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { AvaliacaoForm } from "../AvaliacaoForm";
 import { CRITERIOS } from "@/types/avaliacao360";
-import type { Avaliacao360 } from "@/types/avaliacao360";
+import type { Avaliacao360, CicloTipo } from "@/types/avaliacao360";
 
 // Mock do hook de submissão
 vi.mock("@/hooks/useAvaliacao360", () => ({
@@ -29,15 +29,19 @@ const mockAvaliacao: Avaliacao360 = {
   tipo: "pares",
   anonimo: true,
   status: "pendente",
+  decisao_probatorio: null,
   data_resposta: null,
   created_at: "2025-01-01T00:00:00Z",
 };
+
+const cicloTipo: CicloTipo = "360";
 
 describe("AvaliacaoForm", () => {
   it("renderiza os 6 critérios de avaliação", () => {
     render(
       <AvaliacaoForm
         avaliacao={mockAvaliacao}
+        cicloTipo={cicloTipo}
         open={true}
         onOpenChange={vi.fn()}
       />
@@ -52,6 +56,7 @@ describe("AvaliacaoForm", () => {
     render(
       <AvaliacaoForm
         avaliacao={mockAvaliacao}
+        cicloTipo={cicloTipo}
         open={true}
         onOpenChange={vi.fn()}
       />
@@ -66,6 +71,7 @@ describe("AvaliacaoForm", () => {
     render(
       <AvaliacaoForm
         avaliacao={mockAvaliacao}
+        cicloTipo={cicloTipo}
         open={true}
         onOpenChange={vi.fn()}
       />
@@ -78,6 +84,7 @@ describe("AvaliacaoForm", () => {
     render(
       <AvaliacaoForm
         avaliacao={mockAvaliacao}
+        cicloTipo={cicloTipo}
         open={true}
         onOpenChange={vi.fn()}
       />
@@ -90,6 +97,7 @@ describe("AvaliacaoForm", () => {
     render(
       <AvaliacaoForm
         avaliacao={{ ...mockAvaliacao, tipo: "autoavaliacao" }}
+        cicloTipo={cicloTipo}
         open={true}
         onOpenChange={vi.fn()}
       />
@@ -102,6 +110,7 @@ describe("AvaliacaoForm", () => {
     render(
       <AvaliacaoForm
         avaliacao={mockAvaliacao}
+        cicloTipo={cicloTipo}
         open={true}
         onOpenChange={vi.fn()}
       />
@@ -119,6 +128,7 @@ describe("AvaliacaoForm", () => {
     const { queryByText } = render(
       <AvaliacaoForm
         avaliacao={mockAvaliacao}
+        cicloTipo={cicloTipo}
         open={false}
         onOpenChange={vi.fn()}
       />

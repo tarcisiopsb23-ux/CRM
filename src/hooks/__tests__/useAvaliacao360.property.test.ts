@@ -55,7 +55,7 @@ const arbTipoAvaliacao = fc.constantFrom<AvaliacaoTipo>(
 );
 const arbCriterio = fc.constantFrom<Criterio>(
   "comunicacao", "trabalho_em_equipe", "proatividade",
-  "responsabilidade", "qualidade_entrega", "alinhamento_cultural"
+  "responsabilidade", "qualidade_de_entrega", "alinhamento_cultural"
 );
 
 // ─── Propriedade 1: Round-trip de criação de ciclo ───────────────────────────
