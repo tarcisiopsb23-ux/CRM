@@ -1,11 +1,12 @@
 // Edge Function: cria usuário diretamente (sem token/convite)
-// Admin preenche email, nome e senha na aba Colaboradores.
-// Usa service role para auth.admin.createUser com email_confirm: true.
+// Admin preenche email, nome e opcionalmente senha na aba Colaboradores.
+// Sem senha: gera token de set-password e retorna link para o admin enviar.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// CORS: restringe origem quando APP_URL configurado (produção); "*" em dev
+const APP_URL = (Deno.env.get("APP_URL") ?? "https://ia-maestr-ia.whlwlh.easypanel.host").replace(/\/$/, "");
+
 function getCorsHeaders(req: Request) {
   const origin = req.headers.get("Origin") || "*";
   return {
@@ -17,7 +18,7 @@ function getCorsHeaders(req: Request) {
 
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
-  
+
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -61,6 +62,7 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
     const {
       email,
       password,
@@ -83,6 +85,7 @@ serve(async (req) => {
       overtime_factor,
       notes,
     } = body;
+
     const emailTrim = typeof email === "string" ? email.trim().toLowerCase() : "";
     if (!emailTrim || !emailTrim.includes("@")) {
       return new Response(
@@ -90,7 +93,11 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-    if (typeof password !== "string" || password.length < 6) {
+
+    const hasPassword = typeof password === "string" && password.trim().length >= 6;
+    const noPassword = !password || (typeof password === "string" && password.trim().length === 0);
+
+    if (!noPassword && !hasPassword) {
       return new Response(
         JSON.stringify({ error: "Senha deve ter no mínimo 6 caracteres" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -99,12 +106,11 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    
-    // Cliente com token do admin para validar sessão
+
     const authClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: authHeader } },
     });
-    
+
     const { data: { user: adminUser } } = await authClient.auth.getUser();
     if (!adminUser) {
       return new Response(
@@ -113,19 +119,19 @@ serve(async (req) => {
       );
     }
 
-    // Cliente administrativo para realizar as operações no banco e auth
     const adminClient = createClient(supabaseUrl, supabaseServiceKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    const { data: profile } = await adminClient
+    const { data: adminProfile } = await adminClient
       .from("profiles")
       .select("organization_id, role")
       .eq("id", adminUser.id)
       .single();
 
-    const orgId = profile?.organization_id;
-    const role = profile?.role ?? "";
+    const orgId = adminProfile?.organization_id;
+    const role = adminProfile?.role ?? "";
+
     if (!orgId) {
       return new Response(
         JSON.stringify({ error: "Organização não encontrada" }),
@@ -140,7 +146,7 @@ serve(async (req) => {
     }
 
     // Buscar permissão vinculada ao cargo no catálogo
-    let finalRole = (bodyRole as any) || "member";
+    let finalRole = (bodyRole as string) || "member";
     if (job_title) {
       const { data: catalogItem } = await adminClient
         .from("job_title_catalog")
@@ -148,26 +154,48 @@ serve(async (req) => {
         .eq("organization_id", orgId)
         .eq("job_title", job_title.trim())
         .single();
-      
       if (catalogItem?.role) {
-        finalRole = catalogItem.role;
+        finalRole = catalogItem.role as string;
       }
     }
 
-    // Criar usuário diretamente via admin API
-    // Primeiro verifica se já existe um auth.users com esse e-mail sem profile ativo
+    const baseFullName =
+      typeof full_name === "string" ? full_name.trim() || emailTrim.split("@")[0] : emailTrim.split("@")[0];
+
+    const userMeta = {
+      full_name: baseFullName,
+      phone: typeof phone === "string" ? phone.trim() : "",
+      display_name: typeof display_name === "string" ? display_name.trim() : "",
+      cpf: typeof cpf === "string" ? cpf.trim() : "",
+      rg: typeof rg === "string" ? rg.trim() : "",
+      pix_key: typeof pix_key === "string" ? pix_key.trim() : "",
+      address_street: typeof address_street === "string" ? address_street.trim() : "",
+      address_city: typeof address_city === "string" ? address_city.trim() : "",
+      address_state: typeof address_state === "string" ? address_state.trim() : "",
+      address_zip: typeof address_zip === "string" ? address_zip.trim() : "",
+      education_level: typeof education_level === "string" ? education_level : "fundamental",
+      graduation: typeof graduation === "string" ? graduation.trim() : "",
+      job_title: typeof job_title === "string" ? job_title.trim() : "",
+      base_salary: typeof base_salary === "number" ? base_salary : 0,
+      commission_percent: typeof commission_percent === "number" ? commission_percent : 0,
+      overtime_factor: typeof overtime_factor === "number" ? overtime_factor : 1,
+      notes: typeof notes === "string" ? notes.trim() : "",
+      profile_completed: true,
+      direct_organization_id: orgId,
+    };
+
+    // Verifica se já existe auth.users com esse e-mail
     const { data: existingUsers } = await adminClient.auth.admin.listUsers();
     const existingAuthUser = existingUsers?.users?.find(
-      (u) => u.email?.toLowerCase() === emailTrim
+      (u: { email?: string }) => u.email?.toLowerCase() === emailTrim
     );
 
     let newUserId: string | undefined;
 
     if (existingAuthUser) {
-      // Verifica se já tem profile ativo na organização
       const { data: activeProfile } = await adminClient
         .from("profiles")
-        .select("id, is_active")
+        .select("id")
         .eq("id", existingAuthUser.id)
         .eq("organization_id", orgId)
         .single();
@@ -179,18 +207,15 @@ serve(async (req) => {
         );
       }
 
-      // Reutiliza o auth.users existente — atualiza senha e metadados
+      const updatePayload: Record<string, unknown> = {
+        email_confirm: true,
+        user_metadata: userMeta,
+      };
+      if (hasPassword) updatePayload.password = password;
+
       const { error: updateError } = await adminClient.auth.admin.updateUserById(
         existingAuthUser.id,
-        {
-          password,
-          email_confirm: true,
-          user_metadata: {
-            full_name: typeof full_name === "string" ? full_name.trim() || emailTrim.split("@")[0] : emailTrim.split("@")[0],
-            profile_completed: true,
-            direct_organization_id: orgId,
-          },
-        }
+        updatePayload
       );
       if (updateError) {
         return new Response(
@@ -200,33 +225,16 @@ serve(async (req) => {
       }
       newUserId = existingAuthUser.id;
     } else {
-      // Cria novo usuário
-      const { data: newUser, error: createError } = await adminClient.auth.admin.createUser({
+      const createPayload: Record<string, unknown> = {
         email: emailTrim,
-        password,
         email_confirm: true,
-        user_metadata: {
-          full_name: typeof full_name === "string" ? full_name.trim() || emailTrim.split("@")[0] : emailTrim.split("@")[0],
-          phone: typeof phone === "string" ? phone.trim() : "",
-          display_name: typeof display_name === "string" ? display_name.trim() : "",
-          cpf: typeof cpf === "string" ? cpf.trim() : "",
-          rg: typeof rg === "string" ? rg.trim() : "",
-          pix_key: typeof pix_key === "string" ? pix_key.trim() : "",
-          address_street: typeof address_street === "string" ? address_street.trim() : "",
-          address_city: typeof address_city === "string" ? address_city.trim() : "",
-          address_state: typeof address_state === "string" ? address_state.trim() : "",
-          address_zip: typeof address_zip === "string" ? address_zip.trim() : "",
-          education_level: typeof education_level === "string" ? education_level : "fundamental",
-          graduation: typeof graduation === "string" ? graduation.trim() : "",
-          job_title: typeof job_title === "string" ? job_title.trim() : "",
-          base_salary: typeof base_salary === "number" ? base_salary : 0,
-          commission_percent: typeof commission_percent === "number" ? commission_percent : 0,
-          overtime_factor: typeof overtime_factor === "number" ? overtime_factor : 1,
-          notes: typeof notes === "string" ? notes.trim() : "",
-          profile_completed: true,
-          direct_organization_id: orgId,
-        },
-      });
+        user_metadata: userMeta,
+      };
+      if (hasPassword) createPayload.password = password;
+
+      const { data: newUser, error: createError } = await adminClient.auth.admin.createUser(
+        createPayload as Parameters<typeof adminClient.auth.admin.createUser>[0]
+      );
 
       if (createError) {
         return new Response(
@@ -236,10 +244,8 @@ serve(async (req) => {
       }
       newUserId = newUser?.user?.id;
     }
+
     if (newUserId) {
-      const baseFullName =
-        typeof full_name === "string" ? full_name.trim() || emailTrim.split("@")[0] : emailTrim.split("@")[0];
-      
       const { error: profileError } = await adminClient
         .from("profiles")
         .upsert(
@@ -271,17 +277,52 @@ serve(async (req) => {
           },
           { onConflict: "id" }
         );
-        
+
       if (profileError) {
         console.error("[CreateUserDirect] Profile Upsert Error:", profileError);
       }
+    }
+
+    // Se não tem senha, gera token de set-password e retorna link
+    if (noPassword && newUserId) {
+      const { data: token, error: tokenErr } = await adminClient.rpc(
+        "create_set_password_token",
+        { p_user_id: newUserId, p_org_id: orgId }
+      );
+
+      if (tokenErr || !token) {
+        console.error("[CreateUserDirect] Token Error:", tokenErr);
+        return new Response(
+          JSON.stringify({
+            success: true,
+            no_password: true,
+            invite_link: null,
+            message: "Colaborador cadastrado, mas falha ao gerar link de senha. Aplique a migration 00111.",
+            user_id: newUserId,
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const inviteLink = `${APP_URL}/set-password?token=${token}`;
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          no_password: true,
+          invite_link: inviteLink,
+          message: "Colaborador cadastrado sem senha. Envie o link para ele definir o acesso.",
+          user_id: newUserId,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     return new Response(
       JSON.stringify({
         success: true,
         message: "Colaborador cadastrado com sucesso. Ele já pode fazer login.",
-        user_id: newUser?.user?.id,
+        user_id: newUserId,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

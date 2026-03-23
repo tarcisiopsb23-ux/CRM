@@ -1,11 +1,12 @@
 -- =============================================================================
 -- Migration 00082: Corrige view clients_with_contracts
--- Problema: LEFT JOIN sem DISTINCT retorna múltiplas linhas por cliente,
--- causando duplicatas e inconsistências no filtro is_active.
--- Solução: DISTINCT ON (c.id) garante uma linha por cliente.
+-- DROP + CREATE para evitar conflito de colunas com a definição antiga.
+-- DISTINCT ON (c.id) garante uma linha por cliente.
 -- =============================================================================
 
-CREATE OR REPLACE VIEW clients_with_contracts AS
+DROP VIEW IF EXISTS clients_with_contracts;
+
+CREATE VIEW clients_with_contracts AS
 SELECT DISTINCT ON (c.id)
   c.*,
   co.id        AS contract_id,
