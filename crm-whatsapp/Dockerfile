@@ -41,4 +41,4 @@ RUN mkdir -p ./database
 
 EXPOSE 3001
 
-CMD ["node", "backend/index.js"]
+CMD ["node", "--experimental-sqlite", "backend/index.js"]
