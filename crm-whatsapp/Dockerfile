@@ -1,6 +1,6 @@
 # Backend Node.js com whatsapp-web.js
 # Requer Chromium para o Puppeteer funcionar
-FROM node:20-slim
+FROM node:22-slim
 
 # Instala Chromium e dependências do Puppeteer
 RUN apt-get update && apt-get install -y \
@@ -36,6 +36,8 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 COPY backend/ ./backend/
+
+RUN mkdir -p ./database
 
 EXPOSE 3001
 
