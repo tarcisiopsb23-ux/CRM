@@ -8,9 +8,9 @@ RUN npm ci
 
 COPY . .
 
-# Variáveis de build injetadas pelo EasyPanel
-ARG VITE_SUPABASE_URL
-ARG VITE_SUPABASE_ANON_KEY
+# Variáveis de build — com valores padrão para quando não forem passadas como ARG
+ARG VITE_SUPABASE_URL=https://xcymhcqbyyuozkzhpxgi.supabase.co
+ARG VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhjeW1oY3FieXl1b3premhweGdpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQzOTQ2NzcsImV4cCI6MjA4OTk3MDY3N30.j3bFHfPGmGXzfQkGo1WMlRDQYjjDnJONg115xwZSjsQ
 ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
 ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
 
