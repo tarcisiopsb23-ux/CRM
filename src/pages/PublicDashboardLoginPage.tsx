@@ -43,13 +43,15 @@ export function PublicDashboardLoginPage() {
       }
       const client = clients[0] as ClientRow;
 
-      // 2. Valida e-mail + senha
-      const { data: isValid, error: authError } = await supabase.rpc(
-        "validate_client_dashboard_password",
+      // 2. Valida e-mail + senha (tenta dashboard_users, fallback em clients.metadata)
+      const { data: userRows, error: authError } = await supabase.rpc(
+        "validate_dashboard_user",
         { p_email: loginEmail.trim(), p_password: password }
       );
       if (authError) { toast.error("Erro ao validar acesso."); return; }
-      if (!isValid) { toast.error("E-mail ou senha incorretos."); return; }
+      if (!userRows || userRows.length === 0) { toast.error("E-mail ou senha incorretos."); return; }
+
+      const userRow = userRows[0];
 
       // 3. Senha temporária → obriga troca
       if (client.has_temp_password) {
@@ -58,12 +60,7 @@ export function PublicDashboardLoginPage() {
         return;
       }
 
-      // 4. Verifica sessão de suporte
-      const { data: isSupport } = await supabase.rpc("validate_support_password", {
-        p_password: password,
-      });
-
-      completeLogin(client, loginEmail.trim(), !!isSupport);
+      completeLogin(client, loginEmail.trim(), !!userRow.is_support);
     } catch {
       toast.error("Erro ao validar acesso.");
     } finally {
