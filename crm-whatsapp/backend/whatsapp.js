@@ -102,7 +102,13 @@ async function syncChats(client, db) {
 }
 
 function initWhatsApp(db) {
-  const client = new Client({ authStrategy: new LocalAuth() })
+  const client = new Client({
+    authStrategy: new LocalAuth(),
+    puppeteer: {
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    },
+  })
 
   client.on('qr', qr => {
     waStatus = 'aguardando_qr'
