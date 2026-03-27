@@ -1,0 +1,15 @@
+2026/03/25-10:28:30.449 6bd8 Reusing MANIFEST C:\automacoes\client-dashboard\.wwebjs_auth\session\Default\Local Storage\leveldb/MANIFEST-000001
+2026/03/25-10:28:30.459 6bd8 Recovering log #3
+2026/03/25-10:28:30.467 6bd8 Reusing old log C:\automacoes\client-dashboard\.wwebjs_auth\session\Default\Local Storage\leveldb/000003.log 
+2026/03/25-10:38:45.910 6bd8 Level-0 table #5: started
+2026/03/25-10:38:45.923 6bd8 Level-0 table #5: 20103 bytes OK
+2026/03/25-10:38:45.928 6bd8 Delete type=0 #3
+2026/03/25-13:34:37.570 6bd8 Level-0 table #7: started
+2026/03/25-13:34:37.587 6bd8 Level-0 table #7: 13946 bytes OK
+2026/03/25-13:34:37.591 6bd8 Delete type=0 #4
+2026/03/25-16:44:57.807 6bd8 Level-0 table #9: started
+2026/03/25-16:44:57.872 6bd8 Level-0 table #9: 14108 bytes OK
+2026/03/25-16:44:57.883 6bd8 Delete type=0 #6
+2026/03/25-18:59:14.704 674c Level-0 table #11: started
+2026/03/25-18:59:14.743 674c Level-0 table #11: 13906 bytes OK
+2026/03/25-18:59:14.752 674c Delete type=0 #8
