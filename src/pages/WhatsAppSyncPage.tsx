@@ -52,10 +52,8 @@ export function WhatsAppSyncPage() {
     setWebhookUrl(url);
     if (!url) return;
 
-    // fetch status then auto-load contacts regardless of status
-    fetchStatus(url).then(() => {
-      fetchContactsFromUrl(url);
-    });
+    fetchStatus(url);
+    fetchContactsFromUrl(url);
   }, []);
 
   const fetchStatus = async (url: string) => {
