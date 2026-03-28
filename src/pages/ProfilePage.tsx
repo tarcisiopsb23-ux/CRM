@@ -50,6 +50,12 @@ export function ProfilePage() {
   const [whatsappWebhookUrl, setWhatsappWebhookUrl] = useState("");
   const [integrationsLoading, setIntegrationsLoading] = useState(false);
   const [integrationsError, setIntegrationsError] = useState<string | null>(null);
+  const [trackingLoading, setTrackingLoading] = useState(false);
+  const [trackingError, setTrackingError] = useState<string | null>(null);
+  const [waUrlLoading, setWaUrlLoading] = useState(false);
+  const [waUrlError, setWaUrlError] = useState<string | null>(null);
+  const [n8nLoading, setN8nLoading] = useState(false);
+  const [n8nError, setN8nError] = useState<string | null>(null);
   const [whatsappStatus, setWhatsappStatus] = useState<IntegrationStatus>("inativo");
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [qrLoading, setQrLoading] = useState(false);
@@ -232,6 +238,54 @@ export function ProfilePage() {
       setIntegrationsLoading(false);
     }
   };
+
+  const saveIntegrationFields = async (fields: Record<string, string>, setLoading: (v: boolean) => void, setError: (v: string | null) => void, successMsg: string) => {
+    setError(null);
+    setLoading(true);
+    try {
+      const { error } = await supabase.rpc("update_client_integrations", {
+        p_client_id: session?.client_id,
+        p_gtm_id: fields.gtm_id ?? gtmId.trim(),
+        p_meta_pixel_id: fields.meta_pixel_id ?? metaPixelId.trim(),
+        p_n8n_api_key: fields.n8n_api_key ?? n8nApiKey.trim(),
+        p_whatsapp_webhook_url: fields.whatsapp_webhook_url ?? whatsappWebhookUrl.trim(),
+      });
+      if (error) {
+        const msg = error.message ?? "";
+        if (msg.includes("GTM")) setError("Formato de GTM ID inválido. Use o formato GTM-XXXXXXX.");
+        else if (msg.includes("Pixel")) setError("Formato de Meta Pixel ID inválido. Deve ser numérico com 15 ou 16 dígitos.");
+        else setError("Erro ao salvar. Verifique os valores e tente novamente.");
+        return;
+      }
+      const raw = localStorage.getItem("client_auth");
+      if (raw) {
+        const parsed: AuthSession = JSON.parse(raw);
+        parsed.metadata = { ...(parsed.metadata ?? {}), ...fields };
+        localStorage.setItem("client_auth", JSON.stringify(parsed));
+        setSession(parsed);
+      }
+      toast.success(successMsg);
+    } catch {
+      setError("Erro inesperado. Tente novamente.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveTracking = () => saveIntegrationFields(
+    { gtm_id: gtmId.trim(), meta_pixel_id: metaPixelId.trim() },
+    setTrackingLoading, setTrackingError, "GTM e Meta Pixel salvos!"
+  );
+
+  const handleSaveWaUrl = () => saveIntegrationFields(
+    { whatsapp_webhook_url: whatsappWebhookUrl.trim() },
+    setWaUrlLoading, setWaUrlError, "URL do WhatsApp salva!"
+  );
+
+  const handleSaveN8n = () => saveIntegrationFields(
+    { n8n_api_key: n8nApiKey.trim() },
+    setN8nLoading, setN8nError, "Chave n8n salva!"
+  );
 
   const integrationStatus = (value: string): IntegrationStatus =>
     value.trim() !== "" ? "conectado" : "inativo";
@@ -436,6 +490,12 @@ export function ProfilePage() {
                       value={metaPixelId} onChange={(e) => setMetaPixelId(e.target.value)} />
                     <p className="text-xs text-slate-500">Numérico, 15 ou 16 dígitos</p>
                   </div>
+                  {trackingError && <p className="text-sm text-red-400">{trackingError}</p>}
+                  <Button type="button" onClick={handleSaveTracking} disabled={trackingLoading}
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 h-10 font-bold">
+                    {trackingLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                    Salvar GTM e Meta Pixel
+                  </Button>
                   {/* Separador WhatsApp */}
                   <div className="border-t border-slate-700 pt-4">
                     <p className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">Integração WhatsApp</p>
@@ -490,6 +550,12 @@ export function ProfilePage() {
                           )}
                         </div>
                       )}
+                      {waUrlError && <p className="text-xs text-red-400">{waUrlError}</p>}
+                      <Button type="button" onClick={handleSaveWaUrl} disabled={waUrlLoading}
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 h-9 font-bold text-sm">
+                        {waUrlLoading ? <Loader2 className="h-3 w-3 animate-spin mr-2" /> : null}
+                        Salvar URL do WhatsApp
+                      </Button>
                     </div>
 
                     {/* Método 2: n8n */}
@@ -515,13 +581,15 @@ export function ProfilePage() {
                         <p className="font-mono text-[11px] text-violet-300 break-all">POST {whatsappWebhookUrl.trim() || "http://seu-vps.com:3001"}/api/webhook/n8n</p>
                         <p>Campos obrigatórios: <span className="font-mono text-slate-300">name</span>, <span className="font-mono text-slate-300">phone</span></p>
                       </div>
+                      {n8nError && <p className="text-xs text-red-400">{n8nError}</p>}
+                      <Button type="button" onClick={handleSaveN8n} disabled={n8nLoading}
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 h-9 font-bold text-sm">
+                        {n8nLoading ? <Loader2 className="h-3 w-3 animate-spin mr-2" /> : null}
+                        Salvar Chave n8n
+                      </Button>
                     </div>
                   </div>
                   {integrationsError && <p className="text-sm text-red-400 font-medium">{integrationsError}</p>}
-                  <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 h-11 font-bold" disabled={integrationsLoading}>
-                    {integrationsLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                    Salvar Integrações
-                  </Button>
 
                   {/* Gerador de Link de Anúncio */}
                   <div className="border-t border-slate-700 pt-5 space-y-4">
