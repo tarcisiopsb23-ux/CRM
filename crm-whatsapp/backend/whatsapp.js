@@ -1,5 +1,7 @@
 'use strict'
 
+const fs = require('fs')
+const path = require('path')
 const { Client, LocalAuth } = require('whatsapp-web.js')
 const qrcode = require('qrcode-terminal')
 const { hasBusinessKeyword } = require('./keywords')
@@ -13,6 +15,24 @@ let currentQr = null
 
 function getWaStatus() { return waStatus }
 function getCurrentQr() { return currentQr }
+
+/**
+ * Removes Chromium's SingletonLock file left behind from a previous crashed session.
+ * Without this, Chromium refuses to start after a container restart.
+ */
+function clearChromiumLocks() {
+  const profileDir = '/app/.wwebjs_auth/session/Default'
+  const locks = ['SingletonLock', 'SingletonCookie', 'SingletonSocket']
+  for (const lock of locks) {
+    const lockPath = path.join(profileDir, lock)
+    try {
+      if (fs.existsSync(lockPath)) {
+        fs.unlinkSync(lockPath)
+        console.log(`[WA] Removed stale lock: ${lock}`)
+      }
+    } catch (_) {}
+  }
+}
 
 /**
  * Detecta o tipo da mensagem com base no tipo do whatsapp-web.js.
@@ -102,6 +122,8 @@ async function syncChats(client, db) {
 }
 
 function initWhatsApp(db) {
+  clearChromiumLocks()
+
   const client = new Client({
     authStrategy: new LocalAuth({ dataPath: '/app/.wwebjs_auth' }),
     puppeteer: {
