@@ -174,11 +174,11 @@ export function WhatsAppSyncPage() {
           </div>
           <div className="flex items-center gap-3">
             <IntegrationStatusBadge status={waStatus} />
-            <Button onClick={fetchContacts} disabled={loading}
-              className="bg-[#7C3AED] hover:bg-[#7C3AED]/90 text-white font-bold gap-2">
+            <button onClick={fetchContacts} disabled={loading}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-sm font-bold transition-colors disabled:opacity-50 disabled:pointer-events-none">
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
               Sincronizar
-            </Button>
+            </button>
           </div>
         </div>
 
