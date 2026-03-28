@@ -43,14 +43,19 @@ export function WhatsAppSyncPage() {
   const [filter, setFilter] = useState<"todos" | WaContact["status"]>("pendente");
   const [importing, setImporting] = useState<number | null>(null);
 
-  // Load webhook URL from session
+  // Load webhook URL from session and auto-fetch contacts
   useEffect(() => {
     const raw = localStorage.getItem("client_auth");
     if (!raw) return;
     const session = JSON.parse(raw);
     const url = session?.metadata?.whatsapp_webhook_url ?? "";
     setWebhookUrl(url);
-    if (url) fetchStatus(url);
+    if (!url) return;
+
+    // fetch status then auto-load contacts regardless of status
+    fetchStatus(url).then(() => {
+      fetchContactsFromUrl(url);
+    });
   }, []);
 
   const fetchStatus = async (url: string) => {
@@ -61,6 +66,21 @@ export function WhatsAppSyncPage() {
       setWaStatus(valid.includes(data?.status) ? data.status : "desconectado");
     } catch {
       setWaStatus("desconectado");
+    }
+  };
+
+  const fetchContactsFromUrl = async (url: string) => {
+    if (!url) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`${url.replace(/\/$/, "")}/api/contatos`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data: WaContact[] = await res.json();
+      setContacts(data);
+    } catch {
+      // silently fail on auto-load
+    } finally {
+      setLoading(false);
     }
   };
 
