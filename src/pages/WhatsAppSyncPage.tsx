@@ -157,7 +157,7 @@ export function WhatsAppSyncPage() {
           <div className="flex items-center gap-3">
             <IntegrationStatusBadge status={waStatus} />
             <Button onClick={fetchContacts} disabled={loading} variant="outline"
-              className="border-slate-700 text-slate-300 hover:bg-slate-800 gap-2">
+              className="border-slate-700 bg-slate-800/50 text-slate-300 hover:bg-slate-700 hover:text-white gap-2">
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
               Sincronizar
             </Button>
