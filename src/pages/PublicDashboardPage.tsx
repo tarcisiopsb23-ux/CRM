@@ -103,6 +103,7 @@ export function PublicDashboardPage() {
             favicon_url: fresh.favicon_url ?? parsedData.favicon_url,
             metadata: {
               ...(parsedData.metadata ?? {}),
+              ...(fresh.metadata ?? {}),
               dashboard_performance: fresh.dashboard_performance ?? true,
               dashboard_atendimento: fresh.dashboard_atendimento ?? false,
               dashboard_crm: fresh.dashboard_crm ?? false,
