@@ -30,12 +30,14 @@ function clearChromiumLocks() {
       for (const entry of fs.readdirSync(dir)) {
         const full = path.join(dir, entry)
         try {
-          const stat = fs.statSync(full)
-          if (stat.isDirectory()) {
-            scanDir(full)
-          } else if (locks.includes(entry)) {
+          if (locks.includes(entry)) {
+            // Use lstat so broken symlinks don't throw
+            fs.lstatSync(full)
             fs.unlinkSync(full)
             console.log(`[WA] Removed stale lock: ${full}`)
+          } else {
+            const stat = fs.lstatSync(full)
+            if (stat.isDirectory()) scanDir(full)
           }
         } catch (_) {}
       }
