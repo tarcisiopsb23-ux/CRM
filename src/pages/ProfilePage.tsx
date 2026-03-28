@@ -101,10 +101,21 @@ export function ProfilePage() {
   }, [navigate]);
 
   const fetchQr = useCallback(async () => {
-    if (!whatsappWebhookUrl.trim()) return;
+    const url = whatsappWebhookUrl.trim();
+    if (!url) return;
+
+    // Block mixed content: HTTP URL called from HTTPS page
+    if (window.location.protocol === 'https:' && url.startsWith('http://')) {
+      setQrCode(null);
+      setWhatsappStatus('desconectado');
+      console.warn('[WA] URL do backend deve ser HTTPS quando o dashboard roda em HTTPS. Configure a URL pública (ex: https://wa.seudominio.com).');
+      return;
+    }
+
     setQrLoading(true);
     try {
-      const res = await fetch(`${whatsappWebhookUrl.replace(/\/$/, "")}/api/qr`);
+      const base = url.replace(/\/+$/, '');
+      const res = await fetch(`${base}/api/qr`);
       const data = await res.json();
       setQrCode(data.qr ?? null);
       const valid: IntegrationStatus[] = ["conectado", "aguardando_qr", "desconectado", "inativo"];
@@ -431,9 +442,12 @@ export function ProfilePage() {
                       </div>
                       <div className="space-y-2">
                         <Label className="text-slate-300 text-xs">URL do Backend (Node.js / VPS)</Label>
-                        <Input type="url" placeholder="http://seu-vps.com:3001"
+                        <Input type="url" placeholder="https://wa.seudominio.com"
                           className="bg-slate-900/50 border-slate-700 text-white h-10 font-mono text-sm"
                           value={whatsappWebhookUrl} onChange={(e) => setWhatsappWebhookUrl(e.target.value)} />
+                        {whatsappWebhookUrl.trim().startsWith('http://') && window.location.protocol === 'https:' && (
+                          <p className="text-xs text-amber-400 mt-1">⚠️ Use HTTPS — o dashboard roda em HTTPS e não pode chamar URLs HTTP. Configure a URL pública com HTTPS.</p>
+                        )}
                       </div>
                       {whatsappWebhookUrl.trim() && (
                         <div className="space-y-3">
