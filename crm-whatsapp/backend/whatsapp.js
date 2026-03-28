@@ -17,21 +17,32 @@ function getWaStatus() { return waStatus }
 function getCurrentQr() { return currentQr }
 
 /**
- * Removes Chromium's SingletonLock file left behind from a previous crashed session.
+ * Removes Chromium's SingletonLock files left behind from a previous crashed session.
  * Without this, Chromium refuses to start after a container restart.
  */
 function clearChromiumLocks() {
-  const profileDir = '/app/.wwebjs_auth/session/Default'
+  const dataPath = '/app/.wwebjs_auth'
   const locks = ['SingletonLock', 'SingletonCookie', 'SingletonSocket']
-  for (const lock of locks) {
-    const lockPath = path.join(profileDir, lock)
+
+  function scanDir(dir) {
     try {
-      if (fs.existsSync(lockPath)) {
-        fs.unlinkSync(lockPath)
-        console.log(`[WA] Removed stale lock: ${lock}`)
+      if (!fs.existsSync(dir)) return
+      for (const entry of fs.readdirSync(dir)) {
+        const full = path.join(dir, entry)
+        try {
+          const stat = fs.statSync(full)
+          if (stat.isDirectory()) {
+            scanDir(full)
+          } else if (locks.includes(entry)) {
+            fs.unlinkSync(full)
+            console.log(`[WA] Removed stale lock: ${full}`)
+          }
+        } catch (_) {}
       }
     } catch (_) {}
   }
+
+  scanDir(dataPath)
 }
 
 /**
@@ -128,7 +139,7 @@ function initWhatsApp(db) {
     authStrategy: new LocalAuth({ dataPath: '/app/.wwebjs_auth' }),
     puppeteer: {
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-single-instance'],
     },
   })
 
