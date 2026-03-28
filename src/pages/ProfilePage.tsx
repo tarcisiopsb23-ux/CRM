@@ -127,6 +127,19 @@ export function ProfilePage() {
     }
   }, [whatsappWebhookUrl]);
 
+  // Auto-poll QR/status every 3s while waiting for connection
+  useEffect(() => {
+    if (!whatsappWebhookUrl.trim()) return;
+    if (whatsappStatus === 'conectado') return;
+    const interval = setInterval(() => { fetchQr(); }, 3000);
+    return () => clearInterval(interval);
+  }, [whatsappWebhookUrl, whatsappStatus, fetchQr]);
+
+  // Initial QR fetch when URL is available
+  useEffect(() => {
+    if (whatsappWebhookUrl.trim()) fetchQr();
+  }, [whatsappWebhookUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSaveDisplayName = async () => {
     setDisplayNameLoading(true);
     try {
