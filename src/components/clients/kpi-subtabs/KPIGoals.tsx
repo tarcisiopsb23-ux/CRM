@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useClientKPIs, useClientKPIHistory } from "@/hooks/useClientKPIs";
+import { useContractsByClient } from "@/hooks/useContracts";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -8,6 +9,7 @@ import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
+import { parseISO, startOfMonth, isBefore } from "date-fns";
 
 interface KPIGoalsProps {
   organizationId: string;
@@ -18,22 +20,47 @@ export function KPIGoals({ organizationId, clientId }: KPIGoalsProps) {
   const qc = useQueryClient();
   const { data: kpis = [], isLoading: loadingKPIs } = useClientKPIs(organizationId, clientId);
   const { data: history = [], isLoading: loadingHistory } = useClientKPIHistory(organizationId, clientId);
+  const { data: contracts = [] } = useContractsByClient(organizationId, clientId);
 
   // growthInput: kpi.id -> string (percentual digitado pelo usuário)
   const [growthInput, setGrowthInput] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<Record<string, boolean>>({});
 
-  // Calcula a média histórica de cada KPI (todos os registros)
+  // Data de início do contrato de referência (divisor pré/pós)
+  const contractStartDate = useMemo(() => {
+    const ref = contracts.find(c => (c as any).is_dashboard_reference) ?? contracts[0] ?? null;
+    if (!ref) return null;
+    const raw = String(ref.contract_date ?? ref.start_date).substring(0, 10);
+    return startOfMonth(parseISO(raw));
+  }, [contracts]);
+
+  // Média de referência para meta: apenas histórico anterior (pré-contrato)
+  // Máximo 12 meses; se não houver histórico anterior, usa todos os registros disponíveis
   const avgByKpi = useMemo(() => {
-    const map = new Map<string, number>();
+    const map = new Map<string, { avg: number; count: number; source: string }>();
     kpis.forEach(kpi => {
-      const entries = history.filter(h => h.kpi_id === kpi.id);
-      if (entries.length === 0) return;
-      const avg = entries.reduce((acc, h) => acc + h.value, 0) / entries.length;
-      map.set(kpi.id, avg);
+      const allEntries = history
+        .filter(h => h.kpi_id === kpi.id)
+        .sort((a, b) => String(b.month_year).localeCompare(String(a.month_year)));
+
+      if (allEntries.length === 0) return;
+
+      // Filtra apenas histórico anterior ao contrato
+      const preEntries = contractStartDate
+        ? allEntries.filter(h => isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), contractStartDate))
+        : [];
+
+      // Usa pré-contrato se disponível, senão usa todos
+      const source = preEntries.length > 0 ? "pré-contrato" : "todos";
+      const entries = preEntries.length > 0 ? preEntries : allEntries;
+
+      // Máximo 12 meses
+      const last12 = entries.slice(0, 12);
+      const avg = last12.reduce((acc, h) => acc + Number(h.value), 0) / last12.length;
+      map.set(kpi.id, { avg, count: last12.length, source });
     });
     return map;
-  }, [kpis, history]);
+  }, [kpis, history, contractStartDate]);
 
   const fmt = (v: number, unit: string) =>
     unit === "currency"
@@ -44,10 +71,10 @@ export function KPIGoals({ organizationId, clientId }: KPIGoalsProps) {
 
   const handleSave = async (kpiId: string) => {
     const pct = parseFloat(growthInput[kpiId] ?? "");
-    const avg = avgByKpi.get(kpiId);
-    if (isNaN(pct) || avg === undefined) return;
+    const entry = avgByKpi.get(kpiId);
+    if (isNaN(pct) || entry === undefined) return;
 
-    const target = avg * (1 + pct / 100);
+    const target = entry.avg * (1 + pct / 100);
     setSaving(s => ({ ...s, [kpiId]: true }));
     try {
       const { error } = await supabase
@@ -108,8 +135,10 @@ export function KPIGoals({ organizationId, clientId }: KPIGoalsProps) {
               </thead>
               <tbody className="divide-y">
                 {kpis.map(kpi => {
-                  const avg = avgByKpi.get(kpi.id);
-                  const count = history.filter(h => h.kpi_id === kpi.id).length;
+                  const entry = avgByKpi.get(kpi.id);
+                  const avg = entry?.avg;
+                  const count = entry?.count ?? 0;
+                  const source = entry?.source;
                   const pct = parseFloat(growthInput[kpi.id] ?? "");
                   const target = avg !== undefined && !isNaN(pct) ? avg * (1 + pct / 100) : null;
                   const savedTarget = (kpi as any).target_value ?? null;
@@ -124,7 +153,12 @@ export function KPIGoals({ organizationId, clientId }: KPIGoalsProps) {
 
                       {/* Qtd registros */}
                       <td className="px-5 py-4 text-sm text-muted-foreground font-semibold">
-                        {count > 0 ? `${count} mês${count > 1 ? "es" : ""}` : <span className="text-muted-foreground/40 italic text-xs">Sem dados</span>}
+                        {count > 0
+                          ? <div>
+                              <span>{count} mês{count > 1 ? "es" : ""}</span>
+                              {source && <p className="text-[9px] uppercase font-bold text-muted-foreground/60 mt-0.5">{source}</p>}
+                            </div>
+                          : <span className="text-muted-foreground/40 italic text-xs">Sem dados</span>}
                       </td>
 
                       {/* Média histórica */}
@@ -143,8 +177,7 @@ export function KPIGoals({ organizationId, clientId }: KPIGoalsProps) {
                             value={growthInput[kpi.id] ?? ""}
                             onChange={e => setGrowthInput(s => ({ ...s, [kpi.id]: e.target.value }))}
                             className="h-8 text-sm bg-muted/20 w-24"
-                            disabled={avg === undefined}
-                          />
+                            disabled={avg === undefined}                          />
                           <span className="text-sm text-muted-foreground font-bold">%</span>
                         </div>
                       </td>
