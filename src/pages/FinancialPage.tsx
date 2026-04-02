@@ -874,7 +874,10 @@ export default function FinancialPage() {
     const rows: Row[] = [];
 
     for (const p of payments.data ?? []) {
-      const d = String(p.due_date ?? "");
+      // Para pagamentos recebidos, usa paid_at como data de referência (mês do recebimento)
+      // Para pendentes, usa due_date (mês do vencimento)
+      const rawDate = p.status === "pago" && p.paid_at ? String(p.paid_at) : String(p.due_date ?? "");
+      const d = rawDate.substring(0, 10);
       if (!d) continue;
       const dt = safeParseDate(d);
       if (!isValidDate(dt)) continue;
@@ -2735,6 +2738,7 @@ export default function FinancialPage() {
                   id: receivePaymentId,
                   value: received,
                   status: "pago",
+                  due_date: receiveDate,
                   paid_at: new Date(receiveDate + "T12:00:00").toISOString(),
                 });
                 // Se parcial, cria novo pagamento com o saldo restante

@@ -2171,6 +2171,7 @@ export default function ClientsPage() {
                   id: receivePaymentOpen.id,
                   value: received,
                   status: "pago" as any,
+                  due_date: receiveDate,
                   paid_at: new Date(receiveDate + "T12:00:00").toISOString(),
                 });
                 if (isPartial) {
