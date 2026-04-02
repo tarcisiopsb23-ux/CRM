@@ -197,29 +197,49 @@ export function PublicDashboardPage() {
     clicks: acc.clicks + (curr.total_clicks || curr.clicks || 0),
   }), { spend: 0, leads: 0, sales: 0, revenue: 0, impressions: 0, clicks: 0 }), [realDailyMetrics]);
 
-  // KPI cards — mês atual vs anterior (usa último valor disponível se não houver dado no mês atual)
+  // KPI cards — mês atual vs anterior com regras de comparação:
+  // 1. Se houver dado no mês atual E no mês anterior → comparação normal
+  // 2. Se for o primeiro mês pós-contrato (sem dado no mês anterior pós-contrato) → compara com último mês do histórico pré-contrato
+  // 3. Se não houver nenhum resultado pós-contrato → growth = null (Sem dados)
   const kpiCards = useMemo(() => {
-    const currentKey = format(new Date(), "yyyy-MM");
-    const prevKey = format(subMonths(new Date(), 1), "yyyy-MM");
+    const contractStart = contractStartDate ? startOfMonth(contractStartDate) : null;
+
     return kpis.map((kpi, idx) => {
       const history = kpiHistory
         .filter(h => h.kpi_id === kpi.id)
         .sort((a, b) => String(b.month_year).localeCompare(String(a.month_year)));
 
-      // Tenta mês atual, senão usa o mais recente disponível
-      const currentEntry = history.find(h => String(h.month_year).startsWith(currentKey))
-        ?? history[0] ?? null;
-      const prevEntry = history.find(h => String(h.month_year).startsWith(prevKey))
-        ?? history[1] ?? null;
+      // Separa histórico pós-contrato e pré-contrato
+      const postHistory = contractStart
+        ? history.filter(h => !isBefore(startOfMonth(parseISO(String(h.month_year))), contractStart))
+        : history;
+      const preHistory = contractStart
+        ? history.filter(h => isBefore(startOfMonth(parseISO(String(h.month_year))), contractStart))
+        : [];
 
+      // Se não há nenhum dado pós-contrato → sem dados
+      if (postHistory.length === 0) {
+        return { ...kpi, current: null, prev: null, growth: null, color: KPI_COLORS[idx % KPI_COLORS.length] };
+      }
+
+      // Valor atual = mais recente pós-contrato
+      const currentEntry = postHistory[0];
       const current = currentEntry?.value ?? null;
+
+      // Valor anterior: tenta o segundo mais recente pós-contrato
+      // Se for o primeiro mês pós-contrato, usa o último mês do histórico pré-contrato
+      let prevEntry = postHistory[1] ?? null;
+      if (!prevEntry && preHistory.length > 0) {
+        prevEntry = preHistory[0]; // último mês pré-contrato
+      }
+
       const prev = prevEntry?.value ?? null;
       const growth = current !== null && prev !== null && prev !== 0
         ? ((current - prev) / prev) * 100
         : null;
       return { ...kpi, current, prev, growth, color: KPI_COLORS[idx % KPI_COLORS.length] };
     });
-  }, [kpis, kpiHistory]);
+  }, [kpis, kpiHistory, contractStartDate]);
 
   // Sparkline (6 meses) por KPI
   const kpiSparkline = useMemo(() => {
@@ -636,7 +656,7 @@ export function PublicDashboardPage() {
                 </h2>
                 <p className="text-sm text-slate-400 mt-1">Últimos 12 meses — selecione o indicador</p>
               </div>
-              {kpis.length > 0 && (
+              {kpis.length > 0 && contractStartDate && (
                 <div className="flex items-center gap-4 text-[10px] font-bold text-slate-400">
                   <div className="flex items-center gap-1.5"><div className="h-2.5 w-2.5 rounded-sm bg-slate-600" /> HISTÓRICO ANTERIOR</div>
                   <div className="flex items-center gap-1.5"><div className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: selectedColor }} /> PARCERIA ATIVA</div>
@@ -666,6 +686,19 @@ export function PublicDashboardPage() {
                         );
                       })}
                     </div>
+                    {/* Legenda pré-contrato vs vigência */}
+                    {contractStartDate && (
+                      <div className="flex items-center gap-4 mb-4">
+                        <div className="flex items-center gap-1.5">
+                          <div className="h-3 w-3 rounded-sm bg-[#334155]" />
+                          <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Histórico Anterior</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <div className="h-3 w-3 rounded-sm" style={{ backgroundColor: selectedColor }} />
+                          <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Vigência do Contrato</span>
+                        </div>
+                      </div>
+                    )}
                     <ResponsiveContainer width="100%" height={320}>
                       <BarChart data={longTermData} barSize={24}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
