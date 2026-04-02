@@ -99,29 +99,18 @@ export function PublicDashboardPage() {
         }
       }
       if (parsedData.id) {
-        // Busca contratos mensais dos serviços elegíveis para alimentar o dashboard
-        const ELIGIBLE_SERVICES = ["assessoria", "consultoria", "automação ia", "automacao ia", "parceria/collab", "parceria collab", "parceria"];
+        // Busca o primeiro contrato do cliente para determinar o início da vigência
         const { data: contracts } = await supabase
           .from("contracts")
-          .select("start_date, service_contracted, contract_date")
+          .select("start_date, contract_date")
           .eq("client_id", parsedData.id)
-          .order("start_date", { ascending: true });
+          .order("start_date", { ascending: true })
+          .limit(1);
 
-        // Filtra apenas contratos elegíveis (serviços que alimentam o dashboard)
-        const eligibleContracts = (contracts ?? []).filter((c: any) => {
-          const svc = (c.service_contracted ?? "").toLowerCase().trim();
-          return ELIGIBLE_SERVICES.some(e => svc.includes(e));
-        });
-
-        if (eligibleContracts.length > 0) {
-          const firstContract = eligibleContracts[0];
+        if (contracts && contracts.length > 0) {
+          const firstContract = contracts[0];
           const contractDate = parseISO(firstContract.contract_date ?? firstContract.start_date);
-          const dayOfMonth = contractDate.getDate();
-          // Regra: dia > 10 → próximo mês como início; dia ≤ 10 → mês atual
-          const effectiveStart = dayOfMonth > 10
-            ? startOfMonth(new Date(contractDate.getFullYear(), contractDate.getMonth() + 1, 1))
-            : startOfMonth(contractDate);
-          setContractStartDate(effectiveStart);
+          setContractStartDate(startOfMonth(contractDate));
         }
       }
       setLoading(false);
