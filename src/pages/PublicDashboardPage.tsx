@@ -282,11 +282,10 @@ export function PublicDashboardPage() {
       const monthStr = format(month, "yyyy-MM");
       const point: any = {
         name: format(month, "MMM/yy", { locale: ptBR }),
-        // cinza = pré-contrato, colorido = vigência
         isVigencia: contractStart ? !isBefore(month, contractStart) : false,
       };
       kpis.forEach(kpi => {
-        const h = kpiHistory.find(h => h.kpi_id === kpi.id && String(h.month_year).startsWith(monthStr));
+        const h = kpiHistory.find(h => h.kpi_id === kpi.id && String(h.month_year).substring(0, 7) === monthStr);
         point[kpi.name] = h ? h.value : null;
       });
       return point;
@@ -303,10 +302,16 @@ export function PublicDashboardPage() {
 
     return kpis.map(kpi => {
       const allPre = kpiHistory
-        .filter(h => h.kpi_id === kpi.id && isBefore(startOfMonth(parseISO(String(h.month_year))), splitDate))
+        .filter(h => {
+          const d = startOfMonth(parseISO(String(h.month_year).substring(0, 10)));
+          return h.kpi_id === kpi.id && isBefore(d, splitDate);
+        })
         .sort((a, b) => String(b.month_year).localeCompare(String(a.month_year)));
       const post = kpiHistory
-        .filter(h => h.kpi_id === kpi.id && !isBefore(startOfMonth(parseISO(String(h.month_year))), splitDate));
+        .filter(h => {
+          const d = startOfMonth(parseISO(String(h.month_year).substring(0, 10)));
+          return h.kpi_id === kpi.id && !isBefore(d, splitDate);
+        });
 
       if (post.length === 0) return null;
 
@@ -619,16 +624,30 @@ export function PublicDashboardPage() {
                 <InfoTooltip text="Análise automática dos principais números do período: eficiência de custo por aquisição (CPA), retorno sobre investimento em anúncios (ROAS) e volume de leads gerados. Use como ponto de partida para decisões estratégicas." />
               </CardHeader>
               <CardContent className="space-y-3">
-                <InsightItem icon={<CheckCircle2 className="h-4 w-4 text-emerald-400" />}
-                  text={<>Eficiência: CPA calculado em <span className="text-emerald-400 font-bold">R$ {cpa}</span> no período.</>} />
-                <InsightItem icon={<TrendingUp className="h-4 w-4 text-[#2D8CC7]" />}
-                  text={<>ROAS de <span className="text-[#2D8CC7] font-bold">{roas}x</span> — cada R$ 1 investido gerou R$ {roas} em faturamento estimado.</>} />
-                <InsightItem icon={<Users className="h-4 w-4 text-blue-400" />}
-                  text={<><span className="text-blue-400 font-bold">{totals.leads}</span> leads gerados com taxa de conversão de <span className="text-blue-400 font-bold">{conversionRate}%</span>.</>} />
+                {/* CPA: lower is better — só mostra se > 0 */}
+                {Number(cpa) > 0 && (
+                  <InsightItem icon={<CheckCircle2 className="h-4 w-4 text-emerald-400" />}
+                    text={<>Eficiência: CPA calculado em <span className="text-emerald-400 font-bold">R$ {cpa}</span> no período.</>} />
+                )}
+                {/* ROAS: só mostra se > 0 */}
+                {Number(roas) > 0 && (
+                  <InsightItem icon={<TrendingUp className="h-4 w-4 text-[#2D8CC7]" />}
+                    text={<>ROAS de <span className="text-[#2D8CC7] font-bold">{roas}x</span> — cada R$ 1 investido gerou R$ {roas} em faturamento estimado.</>} />
+                )}
+                {/* Leads: só mostra se > 0 */}
+                {totals.leads > 0 && (
+                  <InsightItem icon={<Users className="h-4 w-4 text-blue-400" />}
+                    text={<><span className="text-blue-400 font-bold">{totals.leads}</span> leads gerados com taxa de conversão de <span className="text-blue-400 font-bold">{conversionRate}%</span>.</>} />
+                )}
+                {/* KPI insights: só mostra se growth relevante */}
                 {kpiCards.filter(k => k.growth !== null && (isLowerBetter(k.name) ? k.growth <= -5 : k.growth >= 5)).slice(0, 2).map(k => (
                   <InsightItem key={k.id} icon={<Zap className="h-4 w-4 text-yellow-400" />}
                     text={<><span className="text-yellow-400 font-bold">{k.name}</span>: variação de {k.growth! >= 0 ? "+" : ""}{k.growth!.toFixed(1)}% vs mês anterior.</>} />
                 ))}
+                {/* Fallback se não há nenhuma observação */}
+                {Number(cpa) === 0 && Number(roas) === 0 && totals.leads === 0 && kpiCards.filter(k => k.growth !== null && (isLowerBetter(k.name) ? k.growth <= -5 : k.growth >= 5)).length === 0 && (
+                  <p className="text-sm text-slate-500 text-center py-4">Nenhuma observação disponível para o período selecionado.</p>
+                )}
               </CardContent>
             </Card>
           </div>

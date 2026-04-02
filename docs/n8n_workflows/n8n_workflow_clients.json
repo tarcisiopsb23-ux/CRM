@@ -1,0 +1,72 @@
+{
+  "name": "Maestr.IA — Novos Clientes",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clients",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-clients",
+      "name": "Webhook Clients",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "clients-webhook"
+    },
+    {
+      "parameters": {
+        "operation": "createFolder",
+        "name": "={{$json.body.company || $json.body.name}}",
+        "driveId": { "mode": "id", "value": "CLIENTS_FOLDER_ID" },
+        "folderId": { "mode": "id", "value": "CLIENTS_FOLDER_ID" }
+      },
+      "id": "create-client-folder",
+      "name": "Criar Pasta no Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [460, 200],
+      "credentials": { "googleDriveOAuth2Api": { "id": "GOOGLE_CRED_ID", "name": "Google Drive OAuth2" } }
+    },
+    {
+      "parameters": {
+        "fromEmail": "crm@suaagencia.com",
+        "toEmail": "={{$('Webhook Clients').first().json.body.email}}",
+        "subject": "=Bem-vindo(a), {{$('Webhook Clients').first().json.body.name}}!",
+        "emailType": "html",
+        "message": "=<h2>Seja bem-vindo(a)!</h2><p>Olá {{$('Webhook Clients').first().json.body.name}}, é um prazer tê-lo(a) como cliente.</p><p>Em breve nossa equipe entrará em contato.</p>"
+      },
+      "id": "send-welcome-email",
+      "name": "E-mail Boas-vindas",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [460, 400],
+      "credentials": { "smtp": { "id": "SMTP_CRED_ID", "name": "SMTP" } }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"received\": true}"
+      },
+      "id": "respond-clients",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [700, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Clients": {
+      "main": [[
+        { "node": "Criar Pasta no Drive", "type": "main", "index": 0 },
+        { "node": "E-mail Boas-vindas", "type": "main", "index": 0 }
+      ]]
+    },
+    "Criar Pasta no Drive": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] },
+    "E-mail Boas-vindas": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "versionId": "1.0.0"
+}

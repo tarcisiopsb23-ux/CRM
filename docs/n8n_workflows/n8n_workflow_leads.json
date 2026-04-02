@@ -1,0 +1,52 @@
+{
+  "name": "Maestr.IA — Novos Leads",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "leads",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-leads",
+      "name": "Webhook Leads",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "leads-webhook"
+    },
+    {
+      "parameters": {
+        "fromEmail": "crm@suaagencia.com",
+        "toEmail": "equipe@suaagencia.com",
+        "subject": "=Novo Lead: {{$json.body.name}} — {{$json.body.company}}",
+        "emailType": "html",
+        "message": "=<h2>Novo Lead Recebido</h2><p><strong>Nome:</strong> {{$json.body.name}}</p><p><strong>Empresa:</strong> {{$json.body.company}}</p><p><strong>E-mail:</strong> {{$json.body.email}}</p><p><strong>Telefone:</strong> {{$json.body.phone}}</p><p><strong>Etapa:</strong> {{$json.body.stage}}</p>"
+      },
+      "id": "send-email-lead",
+      "name": "Notificar Equipe",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "credentials": { "smtp": { "id": "SMTP_CRED_ID", "name": "SMTP" } }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"received\": true}"
+      },
+      "id": "respond-leads",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [700, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Leads": { "main": [[{ "node": "Notificar Equipe", "type": "main", "index": 0 }]] },
+    "Notificar Equipe": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "versionId": "1.0.0"
+}

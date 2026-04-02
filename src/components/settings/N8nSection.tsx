@@ -24,6 +24,7 @@ export function N8nSection() {
   const [financialWebhookUrl, setFinancialWebhookUrl] = useState(config.financialWebhookUrl ?? "");
   const [marketingWebhookUrl, setMarketingWebhookUrl] = useState(config.marketingWebhookUrl ?? "");
   const [notificationsWebhookUrl, setNotificationsWebhookUrl] = useState(config.notificationsWebhookUrl ?? "");
+  const [calendarWebhookUrl, setCalendarWebhookUrl] = useState(config.calendarWebhookUrl ?? "");
 
   const [isInitialized, setIsInitialized] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -38,6 +39,7 @@ export function N8nSection() {
       setFinancialWebhookUrl(config.financialWebhookUrl ?? "");
       setMarketingWebhookUrl(config.marketingWebhookUrl ?? "");
       setNotificationsWebhookUrl(config.notificationsWebhookUrl ?? "");
+      setCalendarWebhookUrl(config.calendarWebhookUrl ?? "");
       setIsInitialized(true);
     }
   }, [config, raw, isInitialized]);
@@ -52,6 +54,7 @@ export function N8nSection() {
       financialWebhookUrl: financialWebhookUrl.trim() || undefined,
       marketingWebhookUrl: marketingWebhookUrl.trim() || undefined,
       notificationsWebhookUrl: notificationsWebhookUrl.trim() || undefined,
+      calendarWebhookUrl: calendarWebhookUrl.trim() || undefined,
     };
     await upsert.mutateAsync(updated);
     toast.success("Configurações do n8n atualizadas!");
@@ -125,6 +128,12 @@ export function N8nSection() {
             value={notificationsWebhookUrl}
             onChange={setNotificationsWebhookUrl}
             placeholder="https://n8n.dominio.com/webhook/notifications"
+          />
+          <SettingsInput
+            label="Webhook URL: Google Calendar (Eventos)"
+            value={calendarWebhookUrl}
+            onChange={setCalendarWebhookUrl}
+            placeholder="https://n8n.dominio.com/webhook/calendar"
           />
         </div>
 

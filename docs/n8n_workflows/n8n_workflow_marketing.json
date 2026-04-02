@@ -1,0 +1,74 @@
+{
+  "name": "Maestr.IA — Ingestão de Métricas de Marketing",
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{ "field": "hours", "hoursInterval": 24 }] } },
+      "id": "schedule-trigger",
+      "name": "Schedule (Diário)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://graph.facebook.com/v19.0/act_SEU_ACCOUNT_ID/insights",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "fields", "value": "campaign_name,spend,impressions,clicks,actions,action_values" },
+            { "name": "date_preset", "value": "yesterday" },
+            { "name": "level", "value": "campaign" }
+          ]
+        }
+      },
+      "id": "meta-ads",
+      "name": "Meta Ads API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [460, 200],
+      "credentials": { "httpQueryAuth": { "id": "META_CRED_ID", "name": "Meta Ads Token" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const metaData = $('Meta Ads API').all();\nconst orgId = 'SEU_ORGANIZATION_ID';\nconst today = new Date().toISOString().split('T')[0];\n\nconst rows = metaData.flatMap(item => {\n  const d = item.json.data || [];\n  return d.map(c => ({\n    organization_id: orgId,\n    campaign_name: c.campaign_name,\n    platform: 'meta',\n    date: today,\n    spend: parseFloat(c.spend || 0),\n    impressions: parseInt(c.impressions || 0),\n    clicks: parseInt(c.clicks || 0),\n    leads: (c.actions || []).find(a => a.action_type === 'lead')?.value || 0,\n    sales: (c.actions || []).find(a => a.action_type === 'purchase')?.value || 0,\n    revenue: parseFloat((c.action_values || []).find(a => a.action_type === 'purchase')?.value || 0)\n  }));\n});\n\nreturn rows.map(r => ({ json: r }));"
+      },
+      "id": "normalize-meta",
+      "name": "Normalizar Meta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [700, 200]
+    },
+    {
+      "parameters": {
+        "url": "=https://SEU_SUPABASE_URL/rest/v1/campaign_data",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "SEU_SUPABASE_ANON_KEY" },
+            { "name": "Authorization", "value": "Bearer SEU_SUPABASE_SERVICE_KEY" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "resolution=merge-duplicates" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": { "parameters": [] },
+        "options": { "batching": { "batch": { "batchSize": 50 } } }
+      },
+      "id": "supabase-insert",
+      "name": "Inserir no Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [940, 300]
+    }
+  ],
+  "connections": {
+    "Schedule (Diário)": { "main": [[{ "node": "Meta Ads API", "type": "main", "index": 0 }]] },
+    "Meta Ads API": { "main": [[{ "node": "Normalizar Meta", "type": "main", "index": 0 }]] },
+    "Normalizar Meta": { "main": [[{ "node": "Inserir no Supabase", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "versionId": "1.0.0"
+}

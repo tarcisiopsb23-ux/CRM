@@ -2,6 +2,33 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { toJson } from "@/lib/supabase-utils";
 import type { Database } from "@/types/supabase";
+import type { N8nConfig } from "@/types/settings";
+
+type EventType = Database["public"]["Enums"]["event_type"];
+const VALID_EVENT_TYPES: EventType[] = ["reuniao", "ligacao", "entrega", "lembrete", "outro"];
+const asEventType = (s: string): EventType => (VALID_EVENT_TYPES.includes(s as EventType) ? (s as EventType) : "outro");
+
+/** Dispara webhook do Google Calendar no n8n (fire-and-forget) */
+async function fireCalendarWebhook(
+  config: N8nConfig | undefined,
+  action: "create" | "update" | "delete",
+  event: Partial<EventRow> & { id?: string }
+) {
+  const url = config?.calendarWebhookUrl?.trim();
+  if (!url) return;
+  try {
+    await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(config?.apiKey ? { "x-api-key": config.apiKey, Authorization: `Bearer ${config.apiKey}` } : {}),
+      },
+      body: JSON.stringify({ action, event }),
+    });
+  } catch {
+    // fire-and-forget — não bloqueia o fluxo principal
+  }
+}
 
 type EventType = Database["public"]["Enums"]["event_type"];
 const VALID_EVENT_TYPES: EventType[] = ["reuniao", "ligacao", "entrega", "lembrete", "outro"];
@@ -28,6 +55,23 @@ export interface EventRow {
 
 export function useEvents(organizationId: string | undefined, start?: Date, end?: Date) {
   const qc = useQueryClient();
+
+  // Busca config do n8n para disparar webhook do Google Calendar
+  const n8nQuery = useQuery({
+    queryKey: ["settings", organizationId, "n8n"],
+    queryFn: async () => {
+      if (!organizationId) return null;
+      const { data } = await supabase
+        .from("organization_integrations")
+        .select("config")
+        .eq("organization_id", organizationId)
+        .eq("integration_type", "n8n")
+        .maybeSingle();
+      return (data?.config ?? null) as N8nConfig | null;
+    },
+    enabled: !!organizationId,
+    staleTime: 60_000,
+  });
 
   const query = useQuery({
     queryKey: ["events", organizationId, start?.toISOString(), end?.toISOString()],
@@ -59,7 +103,9 @@ export function useEvents(organizationId: string | undefined, start?: Date, end?
       };
       const { data, error } = await supabase.from("events").insert(payload).select().single();
       if (error) throw error;
-      return { ...data, type: (data as { event_type?: string }).event_type ?? (data as { type?: string }).type } as EventRow;
+      const result = { ...data, type: (data as { event_type?: string }).event_type ?? (data as { type?: string }).type } as EventRow;
+      void fireCalendarWebhook(n8nQuery.data ?? undefined, "create", result);
+      return result;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["events", organizationId] }),
   });
@@ -74,7 +120,9 @@ export function useEvents(organizationId: string | undefined, start?: Date, end?
       };
       const { data, error } = await supabase.from("events").update(payload).eq("id", id).select().single();
       if (error) throw error;
-      return { ...data, type: (data as { event_type?: string }).event_type ?? (data as { type?: string }).type } as EventRow;
+      const result = { ...data, type: (data as { event_type?: string }).event_type ?? (data as { type?: string }).type } as EventRow;
+      void fireCalendarWebhook(n8nQuery.data ?? undefined, "update", result);
+      return result;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["events", organizationId] }),
   });
@@ -83,6 +131,7 @@ export function useEvents(organizationId: string | undefined, start?: Date, end?
     mutationFn: async (id: string) => {
       const { error } = await supabase.from("events").delete().eq("id", id);
       if (error) throw error;
+      void fireCalendarWebhook(n8nQuery.data ?? undefined, "delete", { id });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["events", organizationId] }),
   });

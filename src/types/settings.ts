@@ -38,6 +38,7 @@ export interface N8nConfig {
   financialWebhookUrl?: string;
   marketingWebhookUrl?: string;
   notificationsWebhookUrl?: string;
+  calendarWebhookUrl?: string;
 }
 
 export interface WhatsAppConfig {

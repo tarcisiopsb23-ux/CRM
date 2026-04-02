@@ -1,0 +1,107 @@
+{
+  "name": "Maestr.IA — Notificações de Sistema",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "notifications",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-notifications",
+      "name": "Webhook Notifications",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "notifications-webhook"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            { "conditions": { "conditions": [{ "leftValue": "={{$json.body.type}}", "rightValue": "invite", "operator": { "type": "string", "operation": "equals" } }] }, "renameOutput": true, "outputKey": "invite" },
+            { "conditions": { "conditions": [{ "leftValue": "={{$json.body.type}}", "rightValue": "password_reset", "operator": { "type": "string", "operation": "equals" } }] }, "renameOutput": true, "outputKey": "password_reset" },
+            { "conditions": { "conditions": [{ "leftValue": "={{$json.body.type}}", "rightValue": "alert", "operator": { "type": "string", "operation": "equals" } }] }, "renameOutput": true, "outputKey": "alert" }
+          ]
+        }
+      },
+      "id": "switch-notification",
+      "name": "Switch Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "noreply@suaagencia.com",
+        "toEmail": "={{$json.body.to}}",
+        "subject": "=Convite para o Maestr.IA — {{$json.body.subject}}",
+        "emailType": "html",
+        "message": "={{$json.body.body}}"
+      },
+      "id": "email-invite",
+      "name": "Email Convite",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [700, 160],
+      "credentials": { "smtp": { "id": "SMTP_CRED_ID", "name": "SMTP" } }
+    },
+    {
+      "parameters": {
+        "fromEmail": "noreply@suaagencia.com",
+        "toEmail": "={{$json.body.to}}",
+        "subject": "=Redefinição de Senha — Maestr.IA",
+        "emailType": "html",
+        "message": "={{$json.body.body}}"
+      },
+      "id": "email-reset",
+      "name": "Email Reset Senha",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [700, 300],
+      "credentials": { "smtp": { "id": "SMTP_CRED_ID", "name": "SMTP" } }
+    },
+    {
+      "parameters": {
+        "fromEmail": "noreply@suaagencia.com",
+        "toEmail": "={{$json.body.to}}",
+        "subject": "={{$json.body.subject}}",
+        "emailType": "html",
+        "message": "={{$json.body.body}}"
+      },
+      "id": "email-alert",
+      "name": "Email Alerta",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [700, 440],
+      "credentials": { "smtp": { "id": "SMTP_CRED_ID", "name": "SMTP" } }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"sent\": true}"
+      },
+      "id": "respond-notifications",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [940, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Notifications": { "main": [[{ "node": "Switch Type", "type": "main", "index": 0 }]] },
+    "Switch Type": {
+      "main": [
+        [{ "node": "Email Convite", "type": "main", "index": 0 }],
+        [{ "node": "Email Reset Senha", "type": "main", "index": 0 }],
+        [{ "node": "Email Alerta", "type": "main", "index": 0 }]
+      ]
+    },
+    "Email Convite": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] },
+    "Email Reset Senha": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] },
+    "Email Alerta": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "versionId": "1.0.0"
+}

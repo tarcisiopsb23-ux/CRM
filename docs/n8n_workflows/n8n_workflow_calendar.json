@@ -1,0 +1,114 @@
+{
+  "name": "Maestr.IA — Google Calendar",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "calendar",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-calendar",
+      "name": "Webhook Calendar",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "calendar-webhook"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            { "conditions": { "conditions": [{ "leftValue": "={{$json.body.action}}", "rightValue": "create", "operator": { "type": "string", "operation": "equals" } }] }, "renameOutput": true, "outputKey": "create" },
+            { "conditions": { "conditions": [{ "leftValue": "={{$json.body.action}}", "rightValue": "update", "operator": { "type": "string", "operation": "equals" } }] }, "renameOutput": true, "outputKey": "update" },
+            { "conditions": { "conditions": [{ "leftValue": "={{$json.body.action}}", "rightValue": "delete", "operator": { "type": "string", "operation": "equals" } }] }, "renameOutput": true, "outputKey": "delete" }
+          ]
+        }
+      },
+      "id": "switch-calendar",
+      "name": "Switch Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "calendar": { "mode": "id", "value": "primary" },
+        "start": "={{$json.body.event.start_at}}",
+        "end": "={{$json.body.event.end_at}}",
+        "additionalFields": {
+          "summary": "={{$json.body.event.title}}",
+          "description": "={{$json.body.event.description || ''}}",
+          "location": "={{$json.body.event.location || ''}}",
+          "id": "={{$json.body.event.id}}"
+        }
+      },
+      "id": "calendar-create",
+      "name": "Create Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1,
+      "position": [700, 160],
+      "credentials": { "googleCalendarOAuth2Api": { "id": "GOOGLE_CRED_ID", "name": "Google Calendar OAuth2" } }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "calendar": { "mode": "id", "value": "primary" },
+        "eventId": "={{$json.body.event.id}}",
+        "updateFields": {
+          "summary": "={{$json.body.event.title}}",
+          "description": "={{$json.body.event.description || ''}}",
+          "location": "={{$json.body.event.location || ''}}",
+          "start": "={{$json.body.event.start_at}}",
+          "end": "={{$json.body.event.end_at}}"
+        }
+      },
+      "id": "calendar-update",
+      "name": "Update Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1,
+      "position": [700, 300],
+      "credentials": { "googleCalendarOAuth2Api": { "id": "GOOGLE_CRED_ID", "name": "Google Calendar OAuth2" } }
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "calendar": { "mode": "id", "value": "primary" },
+        "eventId": "={{$json.body.event.id}}"
+      },
+      "id": "calendar-delete",
+      "name": "Delete Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1,
+      "position": [700, 440],
+      "credentials": { "googleCalendarOAuth2Api": { "id": "GOOGLE_CRED_ID", "name": "Google Calendar OAuth2" } }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"success\": true, \"action\": \"{{$('Webhook Calendar').first().json.body.action}}\"}"
+      },
+      "id": "respond-calendar",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [940, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Calendar": { "main": [[{ "node": "Switch Action", "type": "main", "index": 0 }]] },
+    "Switch Action": {
+      "main": [
+        [{ "node": "Create Event", "type": "main", "index": 0 }],
+        [{ "node": "Update Event", "type": "main", "index": 0 }],
+        [{ "node": "Delete Event", "type": "main", "index": 0 }]
+      ]
+    },
+    "Create Event": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] },
+    "Update Event": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] },
+    "Delete Event": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "versionId": "1.0.0"
+}
