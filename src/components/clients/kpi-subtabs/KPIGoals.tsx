@@ -4,12 +4,13 @@ import { useContractsByClient } from "@/hooks/useContracts";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Target, TrendingUp, Save } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
-import { parseISO, startOfMonth, isBefore } from "date-fns";
+import { parseISO, startOfMonth } from "date-fns";
 
 interface KPIGoalsProps {
   organizationId: string;
@@ -25,19 +26,11 @@ export function KPIGoals({ organizationId, clientId }: KPIGoalsProps) {
   // growthInput: kpi.id -> string (percentual digitado pelo usuário)
   const [growthInput, setGrowthInput] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<Record<string, boolean>>({});
+  const [monthsRef, setMonthsRef] = useState<number>(12);
 
-  // Data de início do contrato de referência (divisor pré/pós)
-  const contractStartDate = useMemo(() => {
-    const ref = contracts.find(c => (c as any).is_dashboard_reference) ?? contracts[0] ?? null;
-    if (!ref) return null;
-    const raw = String(ref.contract_date ?? ref.start_date).substring(0, 10);
-    return startOfMonth(parseISO(raw));
-  }, [contracts]);
-
-  // Média de referência para meta: apenas histórico anterior (pré-contrato)
-  // Máximo 12 meses; se não houver histórico anterior, usa todos os registros disponíveis
+  // Média de referência: últimos N meses de todo o histórico (pré + pós)
   const avgByKpi = useMemo(() => {
-    const map = new Map<string, { avg: number; count: number; source: string }>();
+    const map = new Map<string, { avg: number; count: number }>();
     kpis.forEach(kpi => {
       const allEntries = history
         .filter(h => h.kpi_id === kpi.id)
@@ -45,22 +38,12 @@ export function KPIGoals({ organizationId, clientId }: KPIGoalsProps) {
 
       if (allEntries.length === 0) return;
 
-      // Filtra apenas histórico anterior ao contrato
-      const preEntries = contractStartDate
-        ? allEntries.filter(h => isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), contractStartDate))
-        : [];
-
-      // Usa pré-contrato se disponível, senão usa todos
-      const source = preEntries.length > 0 ? "pré-contrato" : "todos";
-      const entries = preEntries.length > 0 ? preEntries : allEntries;
-
-      // Máximo 12 meses
-      const last12 = entries.slice(0, 12);
-      const avg = last12.reduce((acc, h) => acc + Number(h.value), 0) / last12.length;
-      map.set(kpi.id, { avg, count: last12.length, source });
+      const sliced = allEntries.slice(0, monthsRef);
+      const avg = sliced.reduce((acc, h) => acc + Number(h.value), 0) / sliced.length;
+      map.set(kpi.id, { avg, count: sliced.length });
     });
     return map;
-  }, [kpis, history, contractStartDate]);
+  }, [kpis, history, monthsRef]);
 
   const fmt = (v: number, unit: string) =>
     unit === "currency"
@@ -112,12 +95,28 @@ export function KPIGoals({ organizationId, clientId }: KPIGoalsProps) {
     <div className="space-y-4 animate-in fade-in duration-500">
       <Card className="border-border shadow-sm">
         <CardHeader>
-          <div className="flex items-center gap-2">
-            <Target className="h-4 w-4 text-[#2D8CC7]" />
-            <CardTitle className="text-base">Definição de Metas</CardTitle>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <Target className="h-4 w-4 text-[#2D8CC7]" />
+              <CardTitle className="text-base">Definição de Metas</CardTitle>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground font-semibold whitespace-nowrap">Referência:</span>
+              <Select value={String(monthsRef)} onValueChange={(v) => setMonthsRef(Number(v))}>
+                <SelectTrigger className="h-8 w-36 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="3">Últimos 3 meses</SelectItem>
+                  <SelectItem value="6">Últimos 6 meses</SelectItem>
+                  <SelectItem value="12">Últimos 12 meses</SelectItem>
+                  <SelectItem value="24">Últimos 24 meses</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <CardDescription>
-            A média é calculada automaticamente com base em todos os registros históricos de cada indicador.
+            Média calculada com base nos últimos {monthsRef} meses do histórico completo do indicador.
             Informe o crescimento esperado (%) para definir a meta.
           </CardDescription>
         </CardHeader>
@@ -138,7 +137,6 @@ export function KPIGoals({ organizationId, clientId }: KPIGoalsProps) {
                   const entry = avgByKpi.get(kpi.id);
                   const avg = entry?.avg;
                   const count = entry?.count ?? 0;
-                  const source = entry?.source;
                   const pct = parseFloat(growthInput[kpi.id] ?? "");
                   const target = avg !== undefined && !isNaN(pct) ? avg * (1 + pct / 100) : null;
                   const savedTarget = (kpi as any).target_value ?? null;
@@ -154,10 +152,7 @@ export function KPIGoals({ organizationId, clientId }: KPIGoalsProps) {
                       {/* Qtd registros */}
                       <td className="px-5 py-4 text-sm text-muted-foreground font-semibold">
                         {count > 0
-                          ? <div>
-                              <span>{count} mês{count > 1 ? "es" : ""}</span>
-                              {source && <p className="text-[9px] uppercase font-bold text-muted-foreground/60 mt-0.5">{source}</p>}
-                            </div>
+                          ? `${count} mês${count > 1 ? "es" : ""}`
                           : <span className="text-muted-foreground/40 italic text-xs">Sem dados</span>}
                       </td>
 
