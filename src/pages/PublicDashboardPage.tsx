@@ -350,14 +350,20 @@ export function PublicDashboardPage() {
       unit === "currency" ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(v)
       : unit === "percentage" ? `${v.toFixed(2)}%` : String(v);
     return kpis.map(kpi => {
-      const allHistory = kpiHistory.filter(h => h.kpi_id === kpi.id);
-      // Filtra apenas pós-contrato para calcular média e valor atual
+      const allHistory = kpiHistory
+        .filter(h => h.kpi_id === kpi.id)
+        .sort((a, b) => String(b.month_year).localeCompare(String(a.month_year)));
+
+      // Valor atual = mais recente pós-contrato
       const postHistory = contractStart
         ? allHistory.filter(h => !isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), contractStart))
         : allHistory;
-      postHistory.sort((a, b) => String(b.month_year).localeCompare(String(a.month_year)));
       const current = postHistory[0]?.value ?? null;
-      const avg = postHistory.length > 0 ? postHistory.reduce((a, h) => a + h.value, 0) / postHistory.length : null;
+
+      // Média histórica = últimos 12 meses de todo o histórico (pré + pós)
+      const last12 = allHistory.slice(0, 12);
+      const avg = last12.length > 0 ? last12.reduce((a, h) => a + Number(h.value), 0) / last12.length : null;
+
       const target = kpi.target_value ?? null;
       const vsAvg = current !== null && avg !== null && avg !== 0 ? ((current - avg) / avg) * 100 : null;
       const pctMeta = current !== null && target !== null && target !== 0 ? (current / target) * 100 : null;
