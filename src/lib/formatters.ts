@@ -22,3 +22,26 @@ export function formatCpfCnpj(value: string | number | null | undefined): string
   return value == null ? "" : String(value);
 }
 
+
+/**
+ * Formata um valor de KPI com no máximo 2 casas decimais.
+ * - currency: R$ 1.250,00
+ * - percentage: 15,50%
+ * - number: 1.250,50 (ou inteiro se sem decimais)
+ */
+export function fmtKpiValue(v: number | null | undefined, unit: string): string {
+  if (v === null || v === undefined) return "—";
+  if (unit === "currency") {
+    return new Intl.NumberFormat("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(v);
+  }
+  if (unit === "percentage") {
+    return `${new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(v)}%`;
+  }
+  // number: sem casas decimais se inteiro, até 2 se tiver decimal
+  return new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(v);
+}

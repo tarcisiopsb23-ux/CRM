@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { parseISO, startOfMonth } from "date-fns";
+import { fmtKpiValue } from "@/lib/formatters";
 
 interface KPIGoalsProps {
   organizationId: string;
@@ -67,12 +68,7 @@ export function KPIGoals({ organizationId, clientId }: KPIGoalsProps) {
     return map;
   }, [kpis, history, monthsRef, contractStartDate]);
 
-  const fmt = (v: number, unit: string) =>
-    unit === "currency"
-      ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(v)
-      : unit === "percentage"
-        ? `${v.toFixed(2)}%`
-        : v % 1 === 0 ? String(v) : v.toFixed(2);
+  const fmt = (v: number, unit: string) => fmtKpiValue(v, unit);
 
   const handleSave = async (kpiId: string) => {
     const pct = parseFloat(growthInput[kpiId] ?? "");

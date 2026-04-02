@@ -12,6 +12,7 @@ import {
 } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Loader2, LayoutDashboard, History, TrendingUp } from "lucide-react";
+import { fmtKpiValue } from "@/lib/formatters";
 
 interface KPISummaryProps {
   organizationId: string;
@@ -107,12 +108,7 @@ export function KPISummary({ organizationId, clientId, contractStartDate, mode }
                       <TableCell key={monthKey} className="text-center text-xs">
                         {val !== undefined ? (
                           <span className={isCorrectPeriod ? "font-bold text-slate-900" : "text-muted-foreground/50 italic"}>
-                            {kpi.unit === 'currency' 
-                              ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(val)
-                              : kpi.unit === 'percentage'
-                                ? `${val}%`
-                                : val
-                            }
+                            {fmtKpiValue(val, kpi.unit)}
                           </span>
                         ) : (
                           <span className="text-muted-foreground/20">—</span>

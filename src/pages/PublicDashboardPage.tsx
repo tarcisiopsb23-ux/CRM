@@ -37,7 +37,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useClientReports } from "@/hooks/useHubPerformance";
 import { useClientConversationKpis } from "@/hooks/useClientConversationKpis";
 import { ConversationKpiDashboard } from "@/components/whatsapp/ConversationKpiDashboard";
-import { MessageCircle } from "lucide-react";
+import { fmtKpiValue } from "@/lib/formatters";
 
 const isLowerBetter = (name: string) => /cac|cpa|cpl|cpc|cpm|custo|inadimpl|churn|cancelamento|devolução|reclamação|tempo.*espera|prazo.*entrega/i.test(name);
 const KPI_COLORS = ["#10b981","#2D8CC7","#f59e0b","#a855f7","#f43f5e","#06b6d4","#e879f9","#34d399"];
@@ -56,6 +56,26 @@ export function PublicDashboardPage() {
   });
   const [activeKpiId, setActiveKpiId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"performance" | "atendimento">("performance");
+
+  // Auto-signout após 30 minutos de inatividade
+  useEffect(() => {
+    const TIMEOUT = 30 * 60 * 1000;
+    let timer: ReturnType<typeof setTimeout>;
+    const reset = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        localStorage.removeItem(`client_auth_${slug}`);
+        navigate(`/public/dashboard/${slug}/login`);
+      }, TIMEOUT);
+    };
+    const events = ["mousedown", "mousemove", "keypress", "scroll", "touchstart"];
+    events.forEach(e => window.addEventListener(e, reset));
+    reset();
+    return () => {
+      clearTimeout(timer);
+      events.forEach(e => window.removeEventListener(e, reset));
+    };
+  }, [slug, navigate]);
 
   // Dashboard flags from client metadata
   const dashPerformance: boolean = clientData?.metadata?.dashboard_performance ?? true;
@@ -349,9 +369,7 @@ export function PublicDashboardPage() {
   // - Resultado Atual: mais recente pós-contrato
   const perfRows = useMemo(() => {
     const contractStart = contractStartDate ? startOfMonth(contractStartDate) : null;
-    const fmt = (v: number, unit: string) =>
-      unit === "currency" ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(v)
-      : unit === "percentage" ? `${v.toFixed(2)}%` : String(v);
+    const fmt = (v: number, unit: string) => fmtKpiValue(v, unit);
     return kpis.map(kpi => {
       const allHistory = kpiHistory
         .filter(h => h.kpi_id === kpi.id)
@@ -425,9 +443,7 @@ export function PublicDashboardPage() {
   const selectedKpi = sortedKpis.find(k => k.id === (activeKpiId ?? defaultKpi?.id)) ?? defaultKpi;
   const selectedColor = selectedKpi ? KPI_COLORS[kpis.indexOf(selectedKpi) % KPI_COLORS.length] : "#2D8CC7";
 
-  const fmtVal = (v: number, unit: string) =>
-    unit === "currency" ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(v)
-    : unit === "percentage" ? `${v}%` : String(v);
+  const fmtVal = (v: number, unit: string) => fmtKpiValue(v, unit);
 
   return (
     <TooltipProvider>

@@ -26,7 +26,7 @@ import { ptBR } from "date-fns/locale";
 import { useClientKPIs, useClientKPIHistory } from "@/hooks/useClientKPIs";
 import { useClientConversationKpis } from "@/hooks/useClientConversationKpis";
 import { ConversationKpiDashboard } from "@/components/whatsapp/ConversationKpiDashboard";
-import { supabase } from "@/lib/supabase";
+import { fmtKpiValue } from "@/lib/formatters";
 
 const isLowerBetter = (name: string) => /cac|cpa|cpl|cpc|cpm|custo/i.test(name);
 const KPI_COLORS = ["#10b981","#2D8CC7","#f59e0b","#a855f7","#f43f5e","#06b6d4","#e879f9","#34d399"];
@@ -99,12 +99,7 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
   const ticketMedio = totals.sales > 0 ? (totals.revenue / totals.sales).toFixed(0) : "0";
   const conversionRate = totals.leads > 0 ? ((totals.sales / totals.leads) * 100).toFixed(1) : "0.0";
 
-  const fmtVal = (v: number | null | undefined, unit: string) => {
-    if (v === null || v === undefined) return "—";
-    if (unit === "currency") return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(v);
-    if (unit === "percentage") return `${v.toFixed(2)}%`;
-    return String(v);
-  };
+  const fmtVal = (v: number | null | undefined, unit: string) => fmtKpiValue(v, unit);
 
   // KPI cards — mesmo padrão do public/dashboard
   const kpiCards = useMemo(() => {
@@ -190,9 +185,7 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
   // Comparativo de performance — mesmo padrão do public/dashboard
   const perfRows = useMemo(() => {
     const contractStart = contractStartDate ? startOfMonth(contractStartDate) : null;
-    const fmtRow = (v: number, unit: string) =>
-      unit === "currency" ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(v)
-      : unit === "percentage" ? `${v.toFixed(2)}%` : String(v);
+    const fmtRow = (v: number, unit: string) => fmtKpiValue(v, unit);
     return kpisArr.map(kpi => {
       const all = historyArr
         .filter((h: any) => h.kpi_id === kpi.id)

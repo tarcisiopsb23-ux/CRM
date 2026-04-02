@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { PercentInput } from "@/components/ui/percent-input";
+import { fmtKpiValue } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
@@ -160,12 +161,7 @@ export function KPIActiveMonitoring({ organizationId, clientId, contractStartDat
 
   const activeKpi = useMemo(() => kpis.find(k => k.id === selectedKpiId), [kpis, selectedKpiId]);
 
-  const fmtValue = (value: number, unit: string) =>
-    unit === 'currency'
-      ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
-      : unit === 'percentage'
-        ? `${value.toLocaleString('pt-BR')}%`
-        : value.toLocaleString('pt-BR');
+  const fmtValue = (value: number, unit: string) => fmtKpiValue(value, unit);
 
   if (loadingKPIs || loadingHistory) {
     return (
