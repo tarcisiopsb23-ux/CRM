@@ -23,6 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,7 +43,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Eye, Pencil, Plus, UserCheck, Loader2, Trash2, PauseCircle, RotateCw, Search } from "lucide-react";
+import { Eye, Pencil, Plus, UserCheck, Loader2, Trash2, PauseCircle, RotateCw, Search, Check } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { fetchAddressByCep } from "@/lib/viacep";
 import { toast } from "sonner";
@@ -98,6 +99,15 @@ export default function ClientsPage() {
   const [contractSuspendOpen, setContractSuspendOpen] = useState(false);
   const [contractSuspendReason, setContractSuspendReason] = useState("");
   const [leadViewOpen, setLeadViewOpen] = useState(false);
+
+  // Estados para aba de pagamentos do cliente
+  const [viewPayment, setViewPayment] = useState<any | null>(null);
+  const [editPayment, setEditPayment] = useState<any | null>(null);
+  const [editPaymentForm, setEditPaymentForm] = useState({ description: "", value: "", due_date: "", status: "pendente" });
+  const [receivePaymentOpen, setReceivePaymentOpen] = useState<any | null>(null);
+  const [receiveValue, setReceiveValue] = useState("");
+  const [receiveDate, setReceiveDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [isReceiving, setIsReceiving] = useState(false);
   const [leadEditOpen, setLeadEditOpen] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [leadDraft, setLeadDraft] = useState<{ name: string; company: string; email: string; phone: string }>({
@@ -1188,6 +1198,7 @@ export default function ClientsPage() {
           <TabsList className="mb-4">
             <TabsTrigger value="dados">Dados cadastrais</TabsTrigger>
             <TabsTrigger value="contratos">Contratos</TabsTrigger>
+            <TabsTrigger value="pagamentos">Pagamentos</TabsTrigger>
             <TabsTrigger value="documentos">Documentos</TabsTrigger>
             <TabsTrigger value="integracoes">Integrações</TabsTrigger>
             <TabsTrigger value="kpis">Indicadores (KPIs)</TabsTrigger>
@@ -1518,6 +1529,83 @@ export default function ClientsPage() {
           <TabsContent value="performance">
             <ClientPerformanceTab organizationId={organizationId} clientId={viewing.id} />
           </TabsContent>
+
+          <TabsContent value="pagamentos" className="space-y-4">
+            {(() => {
+              const clientPayments = (paymentsQuery.data ?? [])
+                .filter(p => p.client_id === viewing.id)
+                .sort((a, b) => String(b.due_date).localeCompare(String(a.due_date)));
+              const paid = clientPayments.filter(p => p.status === "pago");
+              const pending = clientPayments.filter(p => p.status !== "pago" && p.status !== "cancelado");
+              const fmtCurrency = (v: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
+              const renderTable = (rows: typeof clientPayments, emptyMsg: string) => (
+                rows.length === 0
+                  ? <p className="text-sm text-muted-foreground py-4 text-center">{emptyMsg}</p>
+                  : <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Descrição</TableHead>
+                          <TableHead>Vencimento</TableHead>
+                          <TableHead className="text-right">Valor</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead className="text-right">Ações</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {rows.map(p => (
+                          <TableRow key={p.id}>
+                            <TableCell className="font-medium">{p.description}</TableCell>
+                            <TableCell>{p.due_date ? format(parseISO(p.due_date), "dd/MM/yyyy", { locale: ptBR }) : "—"}</TableCell>
+                            <TableCell className="text-right font-semibold">{fmtCurrency(p.value)}</TableCell>
+                            <TableCell>
+                              <span className={`text-xs font-semibold capitalize px-2 py-0.5 rounded-full ${
+                                p.status === "pago" ? "bg-emerald-100 text-emerald-700" :
+                                p.status === "pendente" ? "bg-yellow-100 text-yellow-700" :
+                                "bg-red-100 text-red-700"
+                              }`}>{p.status}</span>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-1">
+                                <Button size="icon" variant="ghost" aria-label="Visualizar" onClick={() => setViewPayment(p)}>
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                                <Button size="icon" variant="ghost" aria-label="Editar" onClick={() => {
+                                  setEditPayment(p);
+                                  setEditPaymentForm({ description: p.description, value: String(p.value), due_date: p.due_date ?? "", status: p.status ?? "pendente" });
+                                }}>
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                                {p.status !== "pago" && (
+                                  <Button size="sm" variant="outline" className="text-emerald-600 border-emerald-200 hover:bg-emerald-50" onClick={() => {
+                                    setReceivePaymentOpen(p);
+                                    setReceiveValue(String(p.value));
+                                    setReceiveDate(format(new Date(), "yyyy-MM-dd"));
+                                  }}>
+                                    <Check className="h-3.5 w-3.5 mr-1" />
+                                    Receber
+                                  </Button>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+              );
+              return (
+                <>
+                  <Card>
+                    <CardHeader><CardTitle className="text-base flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-yellow-400 inline-block" />Pendentes ({pending.length})</CardTitle></CardHeader>
+                    <CardContent className="p-0">{renderTable(pending, "Nenhum pagamento pendente.")}</CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader><CardTitle className="text-base flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-emerald-500 inline-block" />Realizados ({paid.length})</CardTitle></CardHeader>
+                    <CardContent className="p-0">{renderTable(paid, "Nenhum pagamento realizado.")}</CardContent>
+                  </Card>
+                </>
+              );
+            })()}
+          </TabsContent>
         </Tabs>
         </div>
       ) : null}
@@ -1675,8 +1763,8 @@ export default function ClientsPage() {
               )}
             </div>
 
-            {/* Linha 3: 1º pagamento */}
-            <div className="grid grid-cols-3 gap-4">
+            {/* Linha 3: 1º pagamento — 4 colunas */}
+            <div className="grid grid-cols-4 gap-4">
               <div>
                 <Label>Valor do 1º pagamento</Label>
                 <Input
@@ -1718,32 +1806,6 @@ export default function ClientsPage() {
                   </SelectContent>
                 </Select>
               </div>
-            </div>
-
-            {/* Linha 4: Taxas, Valor por parcela, Data 1º pagamento */}
-            <div className="grid grid-cols-3 gap-4">
-              {Number(contractForm.first_payment_installments || 1) > 1 ? (
-                <div>
-                  <Label>Taxas (acréscimo)</Label>
-                  <Input
-                    type="number" step="0.01"
-                    value={contractForm.first_payment_fees}
-                    onChange={(e) => setContractForm({ ...contractForm, first_payment_fees: e.target.value })}
-                    disabled={contractEditingId ? !canEdit : !canCreate}
-                  />
-                </div>
-              ) : <div />}
-              {Number(contractForm.first_payment_installments || 1) > 1 ? (
-                <div>
-                  <Label>Valor por parcela (com taxas)</Label>
-                  <Input readOnly value={(() => {
-                    const inst = Math.min(12, Math.max(1, Number(contractForm.first_payment_installments || 1)));
-                    const base = Number(contractForm.first_payment_value || 0);
-                    const fees = Math.max(0, Number(contractForm.first_payment_fees || 0));
-                    return `R$ ${((base + fees) / inst).toFixed(2).replace(".", ",")}`;
-                  })()} />
-                </div>
-              ) : <div />}
               <div>
                 <Label>Data do 1º pagamento</Label>
                 <Input
@@ -1754,6 +1816,31 @@ export default function ClientsPage() {
                 />
               </div>
             </div>
+
+            {/* Linha 4: Taxas e Valor por parcela (só se parcelado) */}
+            {Number(contractForm.first_payment_installments || 1) > 1 && (
+              <div className="grid grid-cols-4 gap-4">
+                <div>
+                  <Label>Taxas (acréscimo)</Label>
+                  <Input
+                    type="number" step="0.01"
+                    value={contractForm.first_payment_fees}
+                    onChange={(e) => setContractForm({ ...contractForm, first_payment_fees: e.target.value })}
+                    disabled={contractEditingId ? !canEdit : !canCreate}
+                  />
+                </div>
+                <div>
+                  <Label>Valor por parcela (com taxas)</Label>
+                  <Input readOnly value={(() => {
+                    const inst = Math.min(12, Math.max(1, Number(contractForm.first_payment_installments || 1)));
+                    const base = Number(contractForm.first_payment_value || 0);
+                    const fees = Math.max(0, Number(contractForm.first_payment_fees || 0));
+                    return `R$ ${((base + fees) / inst).toFixed(2).replace(".", ",")}`;
+                  })()} />
+                </div>
+                <div /><div />
+              </div>
+            )}
 
             {/* Linha 5: Campos mensais (ocultos se eventual) */}
             {contractForm.contract_type === "mensal" && (
@@ -1985,6 +2072,146 @@ export default function ClientsPage() {
               <Button type="submit">Salvar</Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog: Visualizar pagamento ── */}
+      <Dialog open={!!viewPayment} onOpenChange={(o) => { if (!o) setViewPayment(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader><DialogTitle>Detalhes do Pagamento</DialogTitle></DialogHeader>
+          {viewPayment && (
+            <div className="space-y-3 py-2 text-sm">
+              <div className="flex justify-between"><span className="text-muted-foreground">Descrição</span><span className="font-semibold">{viewPayment.description}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Vencimento</span><span className="font-semibold">{viewPayment.due_date ? format(parseISO(viewPayment.due_date), "dd/MM/yyyy", { locale: ptBR }) : "—"}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Valor</span><span className="font-bold text-emerald-600">{new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(viewPayment.value)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span className="font-semibold capitalize">{viewPayment.status}</span></div>
+              {viewPayment.paid_at && <div className="flex justify-between"><span className="text-muted-foreground">Recebido em</span><span className="font-semibold">{format(parseISO(viewPayment.paid_at), "dd/MM/yyyy", { locale: ptBR })}</span></div>}
+              {viewPayment.payment_method && <div className="flex justify-between"><span className="text-muted-foreground">Forma</span><span className="font-semibold capitalize">{viewPayment.payment_method}</span></div>}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewPayment(null)}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog: Editar pagamento ── */}
+      <Dialog open={!!editPayment} onOpenChange={(o) => { if (!o) setEditPayment(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader><DialogTitle>Editar Pagamento</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1">
+              <Label>Descrição</Label>
+              <Input value={editPaymentForm.description} onChange={(e) => setEditPaymentForm({ ...editPaymentForm, description: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <Label>Valor (R$)</Label>
+              <Input type="number" step="0.01" value={editPaymentForm.value} onChange={(e) => setEditPaymentForm({ ...editPaymentForm, value: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <Label>Vencimento</Label>
+              <Input type="date" value={editPaymentForm.due_date} onChange={(e) => setEditPaymentForm({ ...editPaymentForm, due_date: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <Label>Status</Label>
+              <Select value={editPaymentForm.status} onValueChange={(v) => setEditPaymentForm({ ...editPaymentForm, status: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pendente">Pendente</SelectItem>
+                  <SelectItem value="pago">Pago</SelectItem>
+                  <SelectItem value="cancelado">Cancelado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditPayment(null)}>Cancelar</Button>
+            <Button onClick={async () => {
+              if (!editPayment) return;
+              await paymentsQuery.updatePayment.mutateAsync({
+                id: editPayment.id,
+                description: editPaymentForm.description,
+                value: parseFloat(editPaymentForm.value),
+                due_date: editPaymentForm.due_date,
+                status: editPaymentForm.status as any,
+              });
+              toast.success("Pagamento atualizado!");
+              setEditPayment(null);
+            }} disabled={paymentsQuery.updatePayment?.isPending}>
+              {paymentsQuery.updatePayment?.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Salvar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog: Receber pagamento (parcial ou total) ── */}
+      <Dialog open={!!receivePaymentOpen} onOpenChange={(o) => { if (!o) setReceivePaymentOpen(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Registrar Recebimento</DialogTitle>
+            <DialogDescription>
+              Valor total: <strong>{receivePaymentOpen ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(receivePaymentOpen.value) : ""}</strong>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1">
+              <Label>Valor recebido (R$)</Label>
+              <Input
+                type="number" step="0.01" min="0.01"
+                value={receiveValue}
+                onChange={(e) => setReceiveValue(e.target.value)}
+              />
+              {receivePaymentOpen && parseFloat(receiveValue) > 0 && parseFloat(receiveValue) < receivePaymentOpen.value && (
+                <p className="text-xs text-amber-600 mt-1">
+                  Pagamento parcial — saldo de {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(receivePaymentOpen.value - parseFloat(receiveValue))} ficará em aberto.
+                </p>
+              )}
+            </div>
+            <div className="space-y-1">
+              <Label>Data do recebimento</Label>
+              <Input type="date" value={receiveDate} onChange={(e) => setReceiveDate(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReceivePaymentOpen(null)}>Cancelar</Button>
+            <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={async () => {
+              if (!receivePaymentOpen) return;
+              const received = parseFloat(receiveValue);
+              if (isNaN(received) || received <= 0) { toast.error("Informe um valor válido."); return; }
+              setIsReceiving(true);
+              try {
+                const isPartial = received < receivePaymentOpen.value;
+                await paymentsQuery.updatePayment.mutateAsync({
+                  id: receivePaymentOpen.id,
+                  value: received,
+                  status: "pago" as any,
+                  paid_at: new Date(receiveDate).toISOString(),
+                });
+                if (isPartial) {
+                  await paymentsQuery.create.mutateAsync({
+                    client_id: receivePaymentOpen.client_id,
+                    contract_id: receivePaymentOpen.contract_id ?? undefined,
+                    description: `${receivePaymentOpen.description} (saldo restante)`,
+                    value: receivePaymentOpen.value - received,
+                    due_date: receiveDate,
+                    status: "pendente",
+                  });
+                  toast.success(`Recebimento parcial registrado. Saldo em aberto criado.`);
+                } else {
+                  toast.success("Pagamento recebido!");
+                }
+                setReceivePaymentOpen(null);
+              } catch {
+                toast.error("Erro ao registrar recebimento.");
+              } finally {
+                setIsReceiving(false);
+              }
+            }} disabled={isReceiving}>
+              {isReceiving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Check className="h-4 w-4 mr-2" />}
+              Confirmar
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
