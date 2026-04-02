@@ -25,6 +25,19 @@ export function LoginPage() {
       if (!SUPABASE_URL) throw new Error("VITE_SUPABASE_URL não configurado");
       if (!SUPABASE_ANON_KEY) throw new Error("VITE_SUPABASE_ANON_KEY não configurado");
 
+      // Verifica se o e-mail existe no banco antes de tentar o login
+      const { data: profileCheck } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("email", email.trim().toLowerCase())
+        .maybeSingle();
+
+      if (!profileCheck) {
+        setErr("Este e-mail não está cadastrado no sistema. Verifique o endereço ou solicite um convite ao administrador.");
+        setLoading(false);
+        return;
+      }
+
       const res = await fetch(`${SUPABASE_URL}/functions/v1/sign-in-with-lockout`, {
         method: "POST",
         headers: {
