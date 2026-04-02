@@ -256,12 +256,14 @@ export function PublicDashboardPage() {
 
   // Evolução longo prazo (12 meses anteriores ao atual)
   const longTermData = useMemo(() => {
+    const contractStart = contractStartDate ? startOfMonth(contractStartDate) : null;
     return Array.from({ length: 12 }).map((_, i) => {
-      const month = subMonths(new Date(), 12 - i);
+      const month = startOfMonth(subMonths(new Date(), 12 - i));
       const monthStr = format(month, "yyyy-MM");
       const point: any = {
         name: format(month, "MMM/yy", { locale: ptBR }),
-        isVigencia: contractStartDate ? !isBefore(month, startOfMonth(contractStartDate)) : true,
+        // cinza = pré-contrato, colorido = vigência
+        isVigencia: contractStart ? !isBefore(month, contractStart) : false,
       };
       kpis.forEach(kpi => {
         const h = kpiHistory.find(h => h.kpi_id === kpi.id && String(h.month_year).startsWith(monthStr));
