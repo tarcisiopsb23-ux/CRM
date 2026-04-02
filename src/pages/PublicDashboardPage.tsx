@@ -294,8 +294,9 @@ export function PublicDashboardPage() {
     const points = Array.from({ length: 12 }).map((_, i) => {
       const month = startOfMonth(subMonths(new Date(), 12 - i));
       const monthStr = format(month, "yyyy-MM");
-      const isVigencia = contractStart ? !isBefore(month, contractStart) : i >= 6;
-      console.log(`[LongTerm] ${monthStr}: month=${month.toISOString()}, contractStart=${contractStart?.toISOString()}, isBefore=${contractStart ? isBefore(month, contractStart) : 'n/a'}, isVigencia=${isVigencia}`);
+      // Sem contractStart: todas as barras cinzas até o estado carregar
+      const isVigencia = contractStart ? !isBefore(month, contractStart) : false;
+      console.log(`[LongTerm] ${monthStr}: isVigencia=${isVigencia}`);
       const point: any = {
         name: format(month, "MMM/yy", { locale: ptBR }),
         isVigencia,
@@ -309,14 +310,12 @@ export function PublicDashboardPage() {
     return points;
   }, [kpis, kpiHistory, contractStartDate]);
 
-  // Impacto da parceria
-  // Pré: últimos 12 meses do histórico anterior ao contrato
-  // Pós: todos os meses pós-contrato
-  // Fallback sem contractStartDate: divide o histórico ao meio (como o demo)
+  // Impacto da parceria — só calcula quando contractStartDate estiver definido
   const partnershipImpact = useMemo(() => {
-    if (kpiHistory.length === 0) return [];
+    if (kpiHistory.length === 0 || !contractStartDate) return [];
 
-    const splitDate = contractStartDate ? startOfMonth(contractStartDate) : null;
+    const splitDate = startOfMonth(contractStartDate);
+    console.log('[Partnership] splitDate:', splitDate);
 
     return kpis.map(kpi => {
       const kpiEntries = kpiHistory
@@ -325,25 +324,18 @@ export function PublicDashboardPage() {
 
       if (kpiEntries.length < 2) return null;
 
-      let pre: typeof kpiEntries;
-      let post: typeof kpiEntries;
+      const pre = kpiEntries.filter(h => isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), splitDate));
+      const post = kpiEntries.filter(h => !isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), splitDate));
 
-      if (splitDate) {
-        pre = kpiEntries.filter(h => isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), splitDate));
-        post = kpiEntries.filter(h => !isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), splitDate));
-      } else {
-        // Sem data de contrato: divide ao meio
-        const mid = Math.floor(kpiEntries.length / 2);
-        pre = kpiEntries.slice(0, mid);
-        post = kpiEntries.slice(mid);
-      }
+      console.log(`[Partnership] ${kpi.name}: pre=${pre.length} meses, post=${post.length} meses`, post.map(h => String(h.month_year).substring(0, 7)));
 
       if (post.length === 0 || pre.length === 0) return null;
 
-      // Pré: últimos 12 meses do histórico anterior
       const preLast12 = pre.slice(-12);
       const preAvg = preLast12.reduce((a, h) => a + Number(h.value), 0) / preLast12.length;
       const postAvg = post.reduce((a, h) => a + Number(h.value), 0) / post.length;
+
+      console.log(`[Partnership] ${kpi.name}: preAvg=${preAvg.toFixed(0)}, postAvg=${postAvg.toFixed(0)}`);
 
       return {
         name: kpi.name,
