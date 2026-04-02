@@ -92,6 +92,7 @@ export function useContractsByClient(organizationId: string | undefined, clientI
         metadata: (r.metadata as Record<string, unknown> | null) ?? null,
         created_at: (r.created_at as string | null) ?? null,
         updated_at: (r.updated_at as string | null) ?? null,
+        is_dashboard_reference: (r.is_dashboard_reference as boolean | null) ?? false,
       })) as ContractRow[];
     },
     enabled: !!organizationId && !!clientId,
