@@ -222,10 +222,10 @@ export function PublicDashboardPage() {
 
       // Separa histórico pós-contrato e pré-contrato
       const postHistory = contractStart
-        ? history.filter(h => !isBefore(startOfMonth(parseISO(String(h.month_year))), contractStart))
+        ? history.filter(h => !isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), contractStart))
         : history;
       const preHistory = contractStart
-        ? history.filter(h => isBefore(startOfMonth(parseISO(String(h.month_year))), contractStart))
+        ? history.filter(h => isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), contractStart))
         : [];
 
       // Se não há nenhum dado pós-contrato → sem dados
@@ -335,7 +335,7 @@ export function PublicDashboardPage() {
       const allHistory = kpiHistory.filter(h => h.kpi_id === kpi.id);
       // Filtra apenas pós-contrato para calcular média e valor atual
       const postHistory = contractStart
-        ? allHistory.filter(h => !isBefore(startOfMonth(parseISO(String(h.month_year))), contractStart))
+        ? allHistory.filter(h => !isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), contractStart))
         : allHistory;
       postHistory.sort((a, b) => String(b.month_year).localeCompare(String(a.month_year)));
       const current = postHistory[0]?.value ?? null;
