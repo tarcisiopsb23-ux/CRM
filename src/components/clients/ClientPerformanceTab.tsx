@@ -80,9 +80,9 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
     spend: acc.spend + (curr.total_spend || 0),
     leads: acc.leads + (curr.total_leads || 0),
     sales: acc.sales + (curr.total_sales || 0),
-    revenue: acc.revenue + (curr.revenue || 0),
-    impressions: acc.impressions + (curr.impressions || 0),
-    clicks: acc.clicks + (curr.clicks || 0),
+    revenue: acc.revenue + (curr.total_revenue || curr.revenue || 0),
+    impressions: acc.impressions + (curr.total_impressions || curr.impressions || 0),
+    clicks: acc.clicks + (curr.total_clicks || curr.clicks || 0),
   }), { spend: 0, leads: 0, sales: 0, revenue: 0, impressions: 0, clicks: 0 }), [dailyMetrics]);
 
   const roas = totals.spend > 0 ? (totals.revenue / totals.spend).toFixed(1) : "0.0";
@@ -301,7 +301,7 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
                   <YAxis axisLine={false} tickLine={false} tick={{ fill: "#94a3b8", fontSize: 11 }} />
                   <Tooltip contentStyle={{ backgroundColor: "#fff", border: "1px solid #e2e8f0", borderRadius: "10px", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }} itemStyle={{ color: "#1e293b", fontSize: "12px", fontWeight: "bold" }} labelStyle={{ color: "#64748b", fontSize: "11px" }} />
                   <Legend verticalAlign="top" align="right" height={36} iconType="circle" />
-                  <Area type="monotone" dataKey="revenue" name="Faturamento Est. (R$)" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#gRev)" />
+                  <Area type="monotone" dataKey="total_revenue" name="Faturamento Est. (R$)" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#gRev)" />
                   <Area type="monotone" dataKey="total_spend" name="Investimento (R$)" stroke="#2D8CC7" strokeWidth={3} fillOpacity={1} fill="url(#gSpend)" />
                   <Line type="monotone" dataKey="total_leads" name="Leads" stroke="#6366f1" strokeWidth={2} dot={{ r: 3 }} />
                 </AreaChart>
@@ -365,11 +365,12 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
                   {campaigns.length === 0 ? (
                     <tr><td colSpan={6} className="py-10 text-center text-slate-400 text-sm italic">Sem dados de campanhas para este período.</td></tr>
                   ) : campaigns.map((c: any) => {
-                    const r = c.spend > 0 ? (c.revenue / c.spend).toFixed(1) : "0.0";
+                    const campRevenue = c.revenue ?? c.total_revenue ?? 0;
+                    const r = c.spend > 0 ? (campRevenue / c.spend).toFixed(1) : "0.0";
                     return (
-                      <tr key={c.id ?? c.name} className="hover:bg-slate-50 transition-colors">
+                      <tr key={c.id ?? c.campaign_name ?? c.name} className="hover:bg-slate-50 transition-colors">
                         <td className="px-6 py-4 text-slate-500 font-bold text-sm">{c.platform}</td>
-                        <td className="px-6 py-4 font-bold text-slate-800 text-sm">{c.name}</td>
+                        <td className="px-6 py-4 font-bold text-slate-800 text-sm">{c.campaign_name ?? c.name ?? "—"}</td>
                         <td className="px-6 py-4 text-slate-500 text-sm">R$ {(c.spend || 0).toLocaleString("pt-BR")}</td>
                         <td className="px-6 py-4 text-slate-600 font-bold text-center text-sm">{c.leads ?? 0}</td>
                         <td className="px-6 py-4 text-slate-600 font-bold text-center text-sm">{c.sales ?? 0}</td>

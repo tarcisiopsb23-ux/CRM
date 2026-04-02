@@ -1,10 +1,27 @@
 import { useState, useMemo, useEffect } from "react";
-import { useClientKPIs, useClientKPIHistory } from "@/hooks/useClientKPIs";
+import { useClientKPIs, useClientKPIHistory, ClientKPIHistory } from "@/hooks/useClientKPIs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { 
   format, 
   startOfMonth, 
@@ -14,7 +31,7 @@ import {
   isBefore
 } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Loader2, Save, History, AlertCircle, Calendar as CalendarIcon, CheckCircle2 } from "lucide-react";
+import { Loader2, Save, History, AlertCircle, Calendar as CalendarIcon, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -29,13 +46,23 @@ import { KPISummary } from "./KPISummary";
 
 export function KPIPreviousHistory({ organizationId, clientId, contractStartDate }: { organizationId: string, clientId: string, contractStartDate: Date | null }) {
   const { data: kpis = [], isLoading: loadingKPIs } = useClientKPIs(organizationId, clientId);
-  const { data: history = [], isLoading: loadingHistory, upsert } = useClientKPIHistory(organizationId, clientId);
+  const { data: history = [], isLoading: loadingHistory, upsert, update, remove } = useClientKPIHistory(organizationId, clientId);
   
   const [selectedKpiId, setSelectedKpiId] = useState<string>("resumo");
   const [selectedMonth, setSelectedMonth] = useState<string>(String(getMonth(new Date())));
   const [selectedYear, setSelectedYear] = useState<string>(String(getYear(new Date())));
   const [kpiValue, setKpiValue] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Estado para dialog de edição
+  const [editEntry, setEditEntry] = useState<ClientKPIHistory | null>(null);
+  const [editValue, setEditValue] = useState<string>("");
+  const [editMonthYear, setEditMonthYear] = useState<string>("");
+  const [isEditing, setIsEditing] = useState(false);
+
+  // Estado para dialog de exclusão
+  const [deleteEntryId, setDeleteEntryId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Definir KPI selecionado inicial se não for resumo e houver KPIs
   useEffect(() => {
@@ -93,8 +120,46 @@ export function KPIPreviousHistory({ organizationId, clientId, contractStartDate
     }
   };
 
-  const currentKpiHistory = useMemo(() => {
-    if (!selectedKpiId) return [];
+  const handleOpenEdit = (entry: ClientKPIHistory) => {
+    setEditEntry(entry);
+    setEditValue(String(entry.value));
+    setEditMonthYear(entry.month_year);
+  };
+
+  const handleConfirmEdit = async () => {
+    if (!editEntry) return;
+    const numValue = parseFloat(editValue.replace(",", "."));
+    if (isNaN(numValue)) {
+      toast.error("Por favor, insira um valor válido.");
+      return;
+    }
+    setIsEditing(true);
+    try {
+      await update.mutateAsync({ id: editEntry.id, value: numValue, month_year: editMonthYear });
+      toast.success("Indicador atualizado com sucesso!");
+      setEditEntry(null);
+    } catch {
+      toast.error("Erro ao atualizar indicador.");
+    } finally {
+      setIsEditing(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteEntryId) return;
+    setIsDeleting(true);
+    try {
+      await remove.mutateAsync(deleteEntryId);
+      toast.success("Indicador excluído com sucesso!");
+      setDeleteEntryId(null);
+    } catch {
+      toast.error("Erro ao excluir indicador.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const currentKpiHistory = useMemo(() => {    if (!selectedKpiId) return [];
     return history
       .filter(h => h.kpi_id === selectedKpiId)
       .sort((a, b) => parseISO(b.month_year).getTime() - parseISO(a.month_year).getTime());
@@ -126,6 +191,7 @@ export function KPIPreviousHistory({ organizationId, clientId, contractStartDate
   }
 
   return (
+    <>
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="bg-[#2D8CC7]/10 border border-[#2D8CC7]/20 p-4 rounded-lg flex items-start gap-3">
         <AlertCircle className="h-5 w-5 text-[#2D8CC7] mt-0.5" />
@@ -242,12 +308,13 @@ export function KPIPreviousHistory({ organizationId, clientId, contractStartDate
                       <TableHead className="font-black uppercase text-[10px] text-slate-500">Mês de Referência</TableHead>
                       <TableHead className="font-black uppercase text-[10px] text-slate-500 text-right">Resultado</TableHead>
                       <TableHead className="font-black uppercase text-[10px] text-slate-500 text-center">Status</TableHead>
+                      <TableHead className="font-black uppercase text-[10px] text-slate-500 text-center w-20">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {currentKpiHistory.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={3} className="h-24 text-center text-muted-foreground text-sm">
+                        <TableCell colSpan={4} className="h-24 text-center text-muted-foreground text-sm">
                           Nenhum registro encontrado para este KPI.
                         </TableCell>
                       </TableRow>
@@ -280,6 +347,26 @@ export function KPIPreviousHistory({ organizationId, clientId, contractStartDate
                                 </span>
                               )}
                             </TableCell>
+                            <TableCell className="text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7 text-slate-500 hover:text-[#2D8CC7]"
+                                  onClick={() => handleOpenEdit(entry)}
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7 text-slate-500 hover:text-red-600"
+                                  onClick={() => setDeleteEntryId(entry.id)}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            </TableCell>
                           </TableRow>
                         );
                       })
@@ -292,5 +379,67 @@ export function KPIPreviousHistory({ organizationId, clientId, contractStartDate
         ))}
       </Tabs>
     </div>
+
+    {/* Dialog de Edição */}
+    <Dialog open={!!editEntry} onOpenChange={(open) => { if (!open) setEditEntry(null); }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Editar Indicador</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-2">
+            <label className="text-[10px] font-black uppercase text-muted-foreground">Mês/Ano (AAAA-MM-DD)</label>
+            <Input
+              value={editMonthYear}
+              onChange={(e) => setEditMonthYear(e.target.value)}
+              placeholder="2024-01-01"
+              className="h-10"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black uppercase text-muted-foreground">Valor</label>
+            <Input
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              placeholder="0,00"
+              className="h-10 font-bold"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setEditEntry(null)} disabled={isEditing}>
+            Cancelar
+          </Button>
+          <Button onClick={handleConfirmEdit} disabled={isEditing} className="bg-[#2D8CC7] hover:bg-[#2D8CC7]/90">
+            {isEditing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            Salvar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* AlertDialog de Confirmação de Exclusão */}
+    <AlertDialog open={!!deleteEntryId} onOpenChange={(open) => { if (!open) setDeleteEntryId(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Excluir indicador?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Esta ação não pode ser desfeita. O registro será removido permanentemente e o faturamento dinâmico será recalculado.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={handleConfirmDelete}
+            disabled={isDeleting}
+            className="bg-red-600 hover:bg-red-700 text-white"
+          >
+            {isDeleting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            Excluir
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

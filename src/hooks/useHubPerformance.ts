@@ -87,36 +87,38 @@ export function useClientReports(organizationId?: string, clientId?: string, dat
   const campaignDataQuery = useQuery<CampaignData[]>({ 
     queryKey: ["campaign_data", organizationId, clientId, dateRange],
     queryFn: async () => {
-      if (!organizationId || !clientId || !dateRange) return [];
-      const { data, error } = await supabase
+      if (!clientId || !dateRange) return [];
+      let q = supabase
         .from("campaign_data")
         .select("*")
-        .eq("organization_id", organizationId)
         .eq("client_id", clientId)
         .gte("date", dateRange.from)
         .lte("date", dateRange.to);
-      if (error) throw error;
+      if (organizationId) q = q.eq("organization_id", organizationId);
+      const { data, error } = await q;
+      if (error) { console.error('[useClientReports] campaign_data error:', error); return []; }
       return data || [];
     },
-    enabled: !!organizationId && !!clientId && !!dateRange,
+    enabled: !!clientId && !!dateRange,
   });
 
   const dailyMetricsQuery = useQuery<DailyMetrics[]>({ 
     queryKey: ["daily_metrics", organizationId, clientId, dateRange],
     queryFn: async () => {
-      if (!organizationId || !clientId || !dateRange) return [];
-      const { data, error } = await supabase
+      if (!clientId || !dateRange) return [];
+      let q = supabase
         .from("daily_metrics")
         .select("*")
-        .eq("organization_id", organizationId)
         .eq("client_id", clientId)
         .gte("date", dateRange.from)
         .lte("date", dateRange.to)
         .order("date", { ascending: true });
-      if (error) throw error;
+      if (organizationId) q = q.eq("organization_id", organizationId);
+      const { data, error } = await q;
+      if (error) { console.error('[useClientReports] daily_metrics error:', error); return []; }
       return data || [];
     },
-    enabled: !!organizationId && !!clientId && !!dateRange,
+    enabled: !!clientId && !!dateRange,
   });
 
   return { campaignDataQuery, dailyMetricsQuery };

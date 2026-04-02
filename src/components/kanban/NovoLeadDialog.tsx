@@ -20,6 +20,8 @@ import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
 import type { CreateLeadInput } from "@/hooks/useLeadsKanban";
 import type { ProfileRow } from "@/hooks/useProfiles";
+import useFormPersistence from "@/hooks/useFormPersistence";
+import { ORIGEM_OPTIONS, NICHO_OPTIONS } from "@/constants/crmOptions";
 
 const PRIORIDADES = [
   { value: "baixa", label: "Baixa" },
@@ -54,7 +56,7 @@ export function NovoLeadDialog({
   onSubmit,
   profiles,
 }: NovoLeadDialogProps) {
-  const [form, setForm] = useState<CreateLeadInput>(INITIAL_FORM);
+  const [form, setForm, clearForm] = useFormPersistence<CreateLeadInput>("form_lead_new", INITIAL_FORM);
   const [creating, setCreating] = useState(false);
   const [createErr, setCreateErr] = useState<string | null>(null);
 
@@ -65,7 +67,7 @@ export function NovoLeadDialog({
     setCreateErr(null);
     try {
       await onSubmit(form);
-      setForm(INITIAL_FORM);
+      clearForm();
       onOpenChange(false);
     } catch (err) {
       setCreateErr(err instanceof Error ? err.message : "Erro ao criar lead");
@@ -75,7 +77,7 @@ export function NovoLeadDialog({
   };
 
   const handleOpenChange = (next: boolean) => {
-    if (!next) setForm(INITIAL_FORM);
+    if (!next) clearForm();
     setCreateErr(null);
     onOpenChange(next);
   };
@@ -99,11 +101,19 @@ export function NovoLeadDialog({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label>Nicho</Label>
-              <Input
+              <Select
                 value={form.nicho ?? ""}
-                onChange={(e) => setForm({ ...form, nicho: e.target.value || undefined })}
-                placeholder="Ex: Tecnologia, Saúde"
-              />
+                onValueChange={(v) => setForm({ ...form, nicho: v || undefined })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecionar nicho" />
+                </SelectTrigger>
+                <SelectContent>
+                  {NICHO_OPTIONS.map((n) => (
+                    <SelectItem key={n} value={n}>{n}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label>Cidade</Label>
@@ -136,11 +146,19 @@ export function NovoLeadDialog({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label>Origem</Label>
-              <Input
+              <Select
                 value={form.origem ?? ""}
-                onChange={(e) => setForm({ ...form, origem: e.target.value || undefined })}
-                placeholder="Ex: Site, Indicação"
-              />
+                onValueChange={(v) => setForm({ ...form, origem: v || undefined })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecionar origem" />
+                </SelectTrigger>
+                <SelectContent>
+                  {ORIGEM_OPTIONS.map((o) => (
+                    <SelectItem key={o} value={o}>{o}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label>Faturamento (R$)</Label>

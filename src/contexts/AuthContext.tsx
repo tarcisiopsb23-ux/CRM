@@ -145,8 +145,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       // Limpeza manual para garantir que nada sobrou
       // (Alguns problemas de cookies/cache persistem após signOut)
-      localStorage.clear();
-      sessionStorage.clear();
+      // Preserva chaves client_auth_* (sessões independentes do dashboard do cliente)
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && !k.startsWith('client_auth_')) keysToRemove.push(k);
+      }
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+
+      // Remover todas as chaves de formulário persistidas (prefixo form_)
+      try {
+        const formKeys: string[] = [];
+        for (let i = 0; i < sessionStorage.length; i++) {
+          const k = sessionStorage.key(i);
+          if (k && k.startsWith('form_')) formKeys.push(k);
+        }
+        formKeys.forEach((k) => sessionStorage.removeItem(k));
+      } catch {
+        // sessionStorage indisponível — ignorar
+      }
       
       // Limpar cookies do Supabase
       const cookies = document.cookie.split(";");

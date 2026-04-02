@@ -35,6 +35,7 @@ export function useClientKPIs(organizationId?: string, clientId?: string) {
       const { data, error } = await supabase
         .from("client_kpis")
         .select("*")
+        .eq("organization_id", organizationId)
         .eq("client_id", clientId)
         .order("name", { ascending: true });
       if (error) throw error;
@@ -85,6 +86,7 @@ export function useClientKPIHistory(organizationId?: string, clientId?: string) 
       const { data, error } = await supabase
         .from("client_kpi_history")
         .select("*")
+        .eq("organization_id", organizationId)
         .eq("client_id", clientId)
         .order("month_year", { ascending: false });
       if (error) throw error;
@@ -105,8 +107,40 @@ export function useClientKPIHistory(organizationId?: string, clientId?: string) 
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["client_kpi_history", organizationId, clientId] });
+      qc.invalidateQueries({ queryKey: ["dynamic_revenue", organizationId, clientId] });
     },
   });
 
-  return { ...query, upsert };
+  const update = useMutation({
+    mutationFn: async ({ id, value, month_year }: { id: string; value: number; month_year: string }) => {
+      const { data, error } = await supabase
+        .from("client_kpi_history")
+        .update({ value, month_year })
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["client_kpi_history", organizationId, clientId] });
+      qc.invalidateQueries({ queryKey: ["dynamic_revenue", organizationId, clientId] });
+    },
+  });
+
+  const remove = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("client_kpi_history")
+        .delete()
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["client_kpi_history", organizationId, clientId] });
+      qc.invalidateQueries({ queryKey: ["dynamic_revenue", organizationId, clientId] });
+    },
+  });
+
+  return { ...query, upsert, update, remove };
 }

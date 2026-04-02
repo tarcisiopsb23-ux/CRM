@@ -17,6 +17,8 @@ import { useOrganization } from "@/hooks/useOrganization";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
+import useFormPersistence from "@/hooks/useFormPersistence";
+import { ORIGEM_OPTIONS, NICHO_OPTIONS } from "@/constants/crmOptions";
 
 const PRIORIDADE_LABEL: Record<string, string> = {
   baixa: "Baixa",
@@ -33,6 +35,22 @@ interface LeadDetailsModalProps {
   onDelete?: (leadId: string) => void;
   onLeadUpdated?: () => void;
 }
+
+type LeadEditableFields = {
+  source: string;
+  nicho: string;
+  team_id: string;
+  sdr_id: string;
+  closer_id: string;
+};
+
+const EMPTY_FIELDS: LeadEditableFields = {
+  source: "",
+  nicho: "",
+  team_id: "",
+  sdr_id: "",
+  closer_id: "",
+};
 
 export function LeadDetailsModal({
   lead,
@@ -57,18 +75,22 @@ export function LeadDetailsModal({
 
   const isQualificados = lead?.etapa_kanban === "qualificados";
 
-  const [teamId, setTeamId] = useState<string>("");
-  const [sdrId, setSdrId] = useState<string>("");
-  const [closerId, setCloserId] = useState<string>("");
+  const persistKey = lead ? `form_lead_${lead.id}` : "form_lead_unknown";
+  const [fields, setFields, clearFields] = useFormPersistence<LeadEditableFields>(persistKey, EMPTY_FIELDS);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (lead) {
-      setTeamId(lead.team_id ?? "");
-      setSdrId(lead.sdr_id ?? "");
-      setCloserId(lead.closer_id ?? "");
+      setFields({
+        source: lead.source ?? "",
+        nicho: lead.nicho ?? "",
+        team_id: lead.team_id ?? "",
+        sdr_id: lead.sdr_id ?? "",
+        closer_id: lead.closer_id ?? "",
+      });
     }
-  }, [lead]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lead?.id]);
 
   if (!lead) return null;
 
@@ -84,13 +106,16 @@ export function LeadDetailsModal({
       const { error } = await supabase
         .from("leads")
         .update({
-          team_id: teamId || null,
-          sdr_id: sdrId || null,
-          closer_id: closerId || null,
+          source: fields.source || null,
+          nicho: fields.nicho || null,
+          team_id: fields.team_id || null,
+          sdr_id: fields.sdr_id || null,
+          closer_id: fields.closer_id || null,
         })
         .eq("id", lead.id);
       if (error) throw error;
       toast.success("Lead atualizado");
+      clearFields();
       onLeadUpdated?.();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Erro ao salvar");
@@ -99,10 +124,12 @@ export function LeadDetailsModal({
     }
   };
 
-  const hasAssignmentChanges =
-    (teamId || null) !== (lead.team_id ?? null) ||
-    (sdrId || null) !== (lead.sdr_id ?? null) ||
-    (closerId || null) !== (lead.closer_id ?? null);
+  const hasChanges =
+    (fields.source || null) !== (lead.source ?? null) ||
+    (fields.nicho || null) !== (lead.nicho ?? null) ||
+    (fields.team_id || null) !== (lead.team_id ?? null) ||
+    (fields.sdr_id || null) !== (lead.sdr_id ?? null) ||
+    (fields.closer_id || null) !== (lead.closer_id ?? null);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -129,7 +156,22 @@ export function LeadDetailsModal({
           </div>
           <div>
             <span className="font-medium text-gray-500">Nicho</span>
-            <p className="text-gray-dark">{lead.nicho ?? "—"}</p>
+            <div className="mt-1">
+              <Select
+                value={fields.nicho}
+                onValueChange={(v) => setFields({ ...fields, nicho: v })}
+              >
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Selecionar nicho" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">—</SelectItem>
+                  {NICHO_OPTIONS.map((n) => (
+                    <SelectItem key={n} value={n}>{n}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <div>
             <span className="font-medium text-gray-500">Prioridade</span>
@@ -143,7 +185,22 @@ export function LeadDetailsModal({
           </div>
           <div>
             <span className="font-medium text-gray-500">Origem</span>
-            <p className="text-gray-dark">{lead.source ?? "—"}</p>
+            <div className="mt-1">
+              <Select
+                value={fields.source}
+                onValueChange={(v) => setFields({ ...fields, source: v })}
+              >
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Selecionar origem" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">—</SelectItem>
+                  {ORIGEM_OPTIONS.map((o) => (
+                    <SelectItem key={o} value={o}>{o}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <div>
             <span className="font-medium text-gray-500">Valor estimado</span>
@@ -166,7 +223,7 @@ export function LeadDetailsModal({
               {canEditTeam && (
                 <div className="space-y-1">
                   <Label className="text-xs">Equipe</Label>
-                  <Select value={teamId} onValueChange={setTeamId}>
+                  <Select value={fields.team_id} onValueChange={(v) => setFields({ ...fields, team_id: v })}>
                     <SelectTrigger className="h-8 text-xs">
                       <SelectValue placeholder="Selecionar equipe" />
                     </SelectTrigger>
@@ -183,10 +240,10 @@ export function LeadDetailsModal({
               {canEditSdr && (
                 <div className="space-y-1">
                   <Label className="text-xs">SDR</Label>
-                  {!teamId ? (
+                  {!fields.team_id ? (
                     <p className="text-xs text-muted-foreground">Selecione uma equipe primeiro</p>
                   ) : (
-                    <Select value={sdrId} onValueChange={setSdrId}>
+                    <Select value={fields.sdr_id} onValueChange={(v) => setFields({ ...fields, sdr_id: v })}>
                       <SelectTrigger className="h-8 text-xs">
                         <SelectValue placeholder="Selecionar SDR" />
                       </SelectTrigger>
@@ -204,10 +261,10 @@ export function LeadDetailsModal({
               {canEditCloser && (
                 <div className="space-y-1">
                   <Label className="text-xs">Closer</Label>
-                  {!teamId ? (
+                  {!fields.team_id ? (
                     <p className="text-xs text-muted-foreground">Selecione uma equipe primeiro</p>
                   ) : (
-                    <Select value={closerId} onValueChange={setCloserId}>
+                    <Select value={fields.closer_id} onValueChange={(v) => setFields({ ...fields, closer_id: v })}>
                       <SelectTrigger className="h-8 text-xs">
                         <SelectValue placeholder="Selecionar Closer" />
                       </SelectTrigger>
@@ -222,9 +279,9 @@ export function LeadDetailsModal({
                 </div>
               )}
 
-              {hasAssignmentChanges && (
+              {hasChanges && (
                 <Button size="sm" onClick={handleSaveAssignments} disabled={saving} className="w-full">
-                  {saving ? "Salvando..." : "Salvar Atribuição"}
+                  {saving ? "Salvando..." : "Salvar Alterações"}
                 </Button>
               )}
             </div>
@@ -232,6 +289,11 @@ export function LeadDetailsModal({
         </div>
 
         <div className="flex justify-end gap-2 mt-4">
+          {hasChanges && !isQualificados && (
+            <Button size="sm" onClick={handleSaveAssignments} disabled={saving}>
+              {saving ? "Salvando..." : "Salvar Alterações"}
+            </Button>
+          )}
           {onEdit && (
             <Button variant="outline" onClick={() => onEdit(lead)}>
               Editar

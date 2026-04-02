@@ -56,6 +56,10 @@ import { DocumentsCard } from "@/components/documents/DocumentsCard";
 import { ClientIntegrationsTab } from "@/components/clients/ClientIntegrationsTab";
 import { ClientKPIsTab } from "@/components/clients/ClientKPIsTab";
 import { ClientPerformanceTab } from "@/components/clients/ClientPerformanceTab";
+import useFormPersistence from "@/hooks/useFormPersistence";
+import { migrateResponsibleToDecisionMaker } from "@/utils/clientMigration";
+import { useDynamicRevenue } from "@/hooks/useDynamicRevenue";
+import { NICHO_OPTIONS, ORIGEM_OPTIONS } from "@/constants/crmOptions";
 
 const DEFAULT_REGISTRATION_TYPE = "cliente" as const;
 const SERVICE_LABELS: Record<string, string> = {
@@ -109,7 +113,12 @@ export default function ClientsPage() {
   const navigate = useNavigate();
   const { clientId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [form, setForm] = useState<Partial<Client>>({
+  const [filterPortfolioId, setFilterPortfolioId] = useState<string>("all");
+  const [showInactiveClients, setShowInactiveClients] = useState(false);
+
+  // Chave de persistência dinâmica baseada no cliente sendo editado
+  const formPersistKey = editing ? `form_client_${editing.id}` : "form_client_new";
+  const INITIAL_FORM: Partial<Client> = {
     name: "",
     company: "",
     document: "",
@@ -122,13 +131,16 @@ export default function ClientsPage() {
     niche: "",
     origin: "",
     registration_type: DEFAULT_REGISTRATION_TYPE,
-    responsible_name: "",
-    responsible_phone: "",
+    decision_maker_name: "",
+    decision_maker_phone: "",
     portfolio_team_id: "",
-  });
+  };
+  const [form, setForm, clearForm] = useFormPersistence<Partial<Client>>(formPersistKey, INITIAL_FORM);
 
-  const [filterPortfolioId, setFilterPortfolioId] = useState<string>("all");
-  const [showInactiveClients, setShowInactiveClients] = useState(false);
+  const { dynamicRevenue, isLoading: isDynamicRevenueLoading } = useDynamicRevenue(
+    organizationId ?? undefined,
+    editing?.id ?? undefined
+  );
 
   const filteredClients = useMemo(() => {
     let list = showInactiveClients
@@ -405,24 +417,7 @@ export default function ClientsPage() {
   const openNew = () => {
     setEditing(null);
     setFromLeadId(null);
-    setForm({
-      name: "",
-      company: "",
-      document: "",
-      email: "",
-      phone: "",
-      address_street: "",
-      address_city: "",
-      address_state: "",
-      address_zip: "",
-      niche: "",
-      origin: "",
-      registration_type: DEFAULT_REGISTRATION_TYPE,
-      responsible_name: "",
-      responsible_phone: "",
-      decision_maker_name: "",
-      decision_maker_phone: "",
-    });
+    clearForm();
     setModalOpen(true);
   };
 
@@ -442,8 +437,6 @@ export default function ClientsPage() {
       niche: lead.nicho ?? undefined,
       origin: lead.source ?? undefined,
       revenue: lead.value ?? undefined,
-      responsible_name: undefined,
-      responsible_phone: undefined,
       registration_type: DEFAULT_REGISTRATION_TYPE,
     });
     setModalOpen(true);
@@ -452,6 +445,7 @@ export default function ClientsPage() {
   const openEdit = (c: Client) => {
     setEditing(c);
     setFromLeadId(null);
+    const migrated = migrateResponsibleToDecisionMaker(c);
     setForm({
       name: c.name,
       company: c.company ?? "",
@@ -465,10 +459,8 @@ export default function ClientsPage() {
       niche: c.niche ?? "",
       origin: c.origin ?? "",
       registration_type: DEFAULT_REGISTRATION_TYPE,
-      responsible_name: c.responsible_name ?? "",
-      responsible_phone: c.responsible_phone ?? "",
-      decision_maker_name: c.decision_maker_name ?? "",
-      decision_maker_phone: c.decision_maker_phone ?? "",
+      decision_maker_name: migrated.decision_maker_name ?? "",
+      decision_maker_phone: migrated.decision_maker_phone ?? "",
       portfolio_team_id: c.portfolio_team_id ?? "",
     });
     setModalOpen(true);
@@ -543,6 +535,7 @@ export default function ClientsPage() {
           setContractModalOpen(true);
         }
       }
+      clearForm();
       setModalOpen(false);
       setSubmitError(null);
     } catch (err) {
@@ -980,11 +973,19 @@ export default function ClientsPage() {
               </div>
               <div>
                 <Label>Nicho</Label>
-                <Input
+                <Select
                   value={form.niche ?? ""}
-                  onChange={(e) => setForm({ ...form, niche: e.target.value })}
-                  placeholder="Ex: SaaS, Marketing"
-                />
+                  onValueChange={(value) => setForm({ ...form, niche: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o nicho" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {NICHO_OPTIONS.map((opt) => (
+                      <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <Label>CEP</Label>
@@ -1032,22 +1033,6 @@ export default function ClientsPage() {
                 />
               </div>
               <div>
-                <Label>Responsável</Label>
-                <Input
-                  value={form.responsible_name ?? ""}
-                  onChange={(e) => setForm({ ...form, responsible_name: e.target.value })}
-                  placeholder="Nome do responsável"
-                />
-              </div>
-              <div>
-                <Label>Tel. responsável</Label>
-                <Input
-                  value={form.responsible_phone ?? ""}
-                  onChange={(e) => setForm({ ...form, responsible_phone: e.target.value })}
-                  placeholder="Telefone do responsável"
-                />
-              </div>
-              <div>
                 <Label>Decisor</Label>
                 <Input
                   value={(form.decision_maker_name as string | undefined) ?? ""}
@@ -1065,44 +1050,56 @@ export default function ClientsPage() {
               </div>
               <div>
                 <Label>Origem</Label>
-                <Input
+                <Select
                   value={form.origin ?? ""}
-                  onChange={(e) => setForm({ ...form, origin: e.target.value })}
-                  placeholder="Ex: Google Ads, Indicação"
-                />
+                  onValueChange={(value) => setForm({ ...form, origin: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione a origem" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ORIGEM_OPTIONS.map((opt) => (
+                      <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-              <div>
-                <Label>Faturamento (R$)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={form.revenue ?? ""}
-                  onChange={(e) => setForm({ ...form, revenue: e.target.value ? Number(e.target.value) : undefined })}
-                  placeholder="0,00"
-                />
-              </div>
+              {dynamicRevenue !== null ? (
+                <div>
+                  <Label>Faturamento médio (calculado)</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={dynamicRevenue}
+                    readOnly
+                    disabled
+                    className="bg-muted cursor-not-allowed"
+                  />
+                  {isDynamicRevenueLoading && (
+                    <p className="text-xs text-muted-foreground mt-1">Calculando...</p>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <Label>Faturamento (R$)</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={form.revenue ?? ""}
+                    onChange={(e) => setForm({ ...form, revenue: e.target.value ? Number(e.target.value) : undefined })}
+                    placeholder="0,00"
+                  />
+                </div>
+              )}
               <div>
                 <Label>Carteira Responsável</Label>
                 <Select
                   value={form.portfolio_team_id || "none"}
                   onValueChange={(v) => {
                     const portfolioId = v === "none" ? null : v;
-                    let nextResponsibleName = form.responsible_name;
-                    
-                    if (portfolioId) {
-                      const selectedTeam = teams.find(t => t.id === portfolioId);
-                      if (selectedTeam?.lead_id) {
-                        const leader = allProfiles.find(p => p.id === selectedTeam.lead_id);
-                        if (leader) {
-                          nextResponsibleName = leader.full_name;
-                        }
-                      }
-                    }
-                    
                     setForm({ 
                       ...form, 
                       portfolio_team_id: portfolioId,
-                      responsible_name: nextResponsibleName
                     });
                   }}
                 >
@@ -1247,14 +1244,6 @@ export default function ClientsPage() {
               <div>
                 <p className="text-sm text-muted-foreground">Tel. decisor</p>
                 <p className="font-medium">{viewing.decision_maker_phone ? formatPhoneBR(String(viewing.decision_maker_phone)) : (viewing.responsible_phone ? formatPhoneBR(String(viewing.responsible_phone)) : "—")}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Responsável</p>
-                <p className="font-medium">{viewing.responsible_name || "—"}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Tel. responsável</p>
-                <p className="font-medium">{viewing.responsible_phone ? formatPhoneBR(String(viewing.responsible_phone)) : "—"}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Nicho</p>

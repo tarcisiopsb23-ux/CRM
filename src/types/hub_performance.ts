@@ -46,6 +46,9 @@ export interface DailyMetrics {
   total_spend?: number;
   total_leads?: number;
   total_sales?: number;
+  total_revenue?: number;
+  total_impressions?: number;
+  total_clicks?: number;
   cpl?: number;
   cpa?: number;
   roas?: number;
