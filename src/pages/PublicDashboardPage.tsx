@@ -894,7 +894,7 @@ export function PublicDashboardPage() {
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="border-b border-slate-800 bg-slate-900/40">
-                          {["KPI", "Média Histórica (Pré)", "Média Pós-Contrato", "Meta", "Resultado Atual", "vs Pós", "% Meta", "Status"].map(h => (
+                          {["KPI", "Média Histórica (Pré)", "Meta", "Resultado Atual (Pós)", "vs Histórico", "% Meta", "Status"].map(h => (
                             <th key={h} className="px-5 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 whitespace-nowrap">{h}</th>
                           ))}
                         </tr>
@@ -910,6 +910,8 @@ export function PublicDashboardPage() {
                             status === "Abaixo da média" ? "text-red-400 bg-red-500/10" :
                             status === "Sem dados" ? "text-slate-600 bg-slate-800/50" :
                             "text-slate-400 bg-slate-700/30";
+                          // Resultado atual = média pós-contrato (ou valor mais recente se só 1 mês)
+                          const displayCurrent = postAvg ?? current;
                           return (
                             <tr key={kpi.id} className="hover:bg-slate-800/30 transition-colors">
                               <td className="px-5 py-4">
@@ -919,14 +921,11 @@ export function PublicDashboardPage() {
                               <td className="px-5 py-4 text-sm text-slate-400 font-semibold whitespace-nowrap">
                                 {preAvg !== null ? fmt(preAvg, kpi.unit) : <span className="text-slate-600">—</span>}
                               </td>
-                              <td className="px-5 py-4 text-sm text-[#2D8CC7] font-semibold whitespace-nowrap">
-                                {postAvg !== null ? fmt(postAvg, kpi.unit) : <span className="text-slate-600">—</span>}
-                              </td>
                               <td className="px-5 py-4 text-sm text-slate-400 font-semibold whitespace-nowrap">
                                 {target !== null ? fmt(target, kpi.unit) : <span className="text-slate-600 text-xs italic">Não definida</span>}
                               </td>
                               <td className="px-5 py-4 text-sm font-black text-white whitespace-nowrap">
-                                {current !== null ? fmt(current, kpi.unit) : <span className="text-slate-600">—</span>}
+                                {displayCurrent !== null ? fmt(displayCurrent, kpi.unit) : <span className="text-slate-600">—</span>}
                               </td>
                               <td className="px-5 py-4 whitespace-nowrap">
                                 {vsAvg !== null ? (
