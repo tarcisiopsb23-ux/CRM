@@ -8,7 +8,7 @@ import { useTeams } from "@/hooks/useTeams";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useLeadsKanban } from "@/hooks/useLeadsKanban";
 import { usePayments } from "@/hooks/useFinancial";
-import { useContractsByClient, useCreateContract, useDeleteContract, useEndContract, useReactivateContract, useSuspendContract, useUpdateContract } from "@/hooks/useContracts";
+import { useContractsByClient, useCreateContract, useDeleteContract, useEndContract, useReactivateContract, useSuspendContract, useUpdateContract, useSetDashboardReference } from "@/hooks/useContracts";
 import { useContractMetrics } from "@/hooks/useContractMetrics";
 import { useModulePermission } from "@/hooks/usePermissions";
 import { getDriveFoldersFromOrganizationSettings, useOrganizationSettings } from "@/hooks/useSettings";
@@ -358,6 +358,7 @@ export default function ClientsPage() {
   const deleteContract = useDeleteContract(organizationId);
   const suspendContract = useSuspendContract(organizationId);
   const reactivateContract = useReactivateContract(organizationId);
+  const setDashboardReference = useSetDashboardReference(organizationId);
 
   const viewingContractIds = useMemo(() => {
     const ids = (clientContractsQuery.data ?? []).map((c) => String(c.id));
@@ -1404,6 +1405,7 @@ export default function ClientsPage() {
                       <TableHead className="bg-background border-b">Serviço</TableHead>
                       <TableHead className="bg-background border-b">Contratação</TableHead>
                       <TableHead className="bg-background border-b">Status</TableHead>
+                      <TableHead className="bg-background border-b text-center">Ref. Dashboard</TableHead>
                       <TableHead className="text-right bg-background border-b">Total</TableHead>
                       <TableHead className="text-right bg-background border-b">Ações</TableHead>
                     </TableRow>
@@ -1419,6 +1421,18 @@ export default function ClientsPage() {
                             ct.status === "suspenso" ? "bg-yellow-100 text-yellow-700" :
                             "bg-slate-100 text-slate-600"
                           }`}>{ct.status ?? "—"}</span>
+                        </TableCell>
+                        <TableCell className="bg-background group-hover:bg-transparent text-center" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex flex-col items-center gap-1">
+                            <Switch
+                              checked={!!ct.is_dashboard_reference}
+                              onCheckedChange={(val) => setDashboardReference.mutate({ contractId: ct.id, clientId: viewing.id, value: val })}
+                              disabled={setDashboardReference.isPending}
+                            />
+                            {ct.is_dashboard_reference && (
+                              <span className="text-[9px] font-bold text-[#2D8CC7] uppercase">Ativo</span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="text-right bg-background group-hover:bg-transparent">{new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(contractTotalById.get(String(ct.id)) ?? 0)}</TableCell>
                         <TableCell className="text-right bg-background group-hover:bg-transparent" onClick={(e) => e.stopPropagation()}>

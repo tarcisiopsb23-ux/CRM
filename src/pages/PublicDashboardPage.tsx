@@ -99,17 +99,19 @@ export function PublicDashboardPage() {
         }
       }
       if (parsedData.id) {
-        // Busca o primeiro contrato do cliente para determinar o início da vigência
-        const { data: contracts } = await supabase
+        // Busca o contrato marcado como referência de dashboard pelo usuário
+        // Fallback: primeiro contrato do cliente (ordenado por start_date)
+        const { data: refContracts } = await supabase
           .from("contracts")
-          .select("start_date, contract_date")
+          .select("start_date, contract_date, is_dashboard_reference")
           .eq("client_id", parsedData.id)
-          .order("start_date", { ascending: true })
-          .limit(1);
+          .order("start_date", { ascending: true });
 
-        if (contracts && contracts.length > 0) {
-          const firstContract = contracts[0];
-          const contractDate = parseISO(firstContract.contract_date ?? firstContract.start_date);
+        const contracts = refContracts ?? [];
+        const refContract = contracts.find((c: any) => c.is_dashboard_reference) ?? contracts[0] ?? null;
+
+        if (refContract) {
+          const contractDate = parseISO(refContract.contract_date ?? refContract.start_date);
           setContractStartDate(startOfMonth(contractDate));
         }
       }

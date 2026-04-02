@@ -5,15 +5,17 @@ import { ArrowLeft, Pencil, PauseCircle, RotateCw, UserCheck, Check, Loader2 } f
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import type { ContractRow } from "@/hooks/useContracts";
 import { usePayments } from "@/hooks/useFinancial";
+import { useSetDashboardReference } from "@/hooks/useContracts";
 
 const fmtCurrency = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
@@ -45,6 +47,7 @@ export function ContractDetailPage({
   onBack, onEdit, onSuspend, onReactivate, onEnd,
 }: Props) {
   const paymentsQuery = usePayments(organizationId);
+  const setDashboardRef = useSetDashboardReference(organizationId);
 
   const contractPayments = useMemo(() =>
     (paymentsQuery.data ?? [])
@@ -116,6 +119,18 @@ export function ContractDetailPage({
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Toggle referência dashboard */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-muted/30">
+            <Switch
+              checked={!!contract.is_dashboard_reference}
+              onCheckedChange={(val) => setDashboardRef.mutate({ contractId: contract.id, clientId, value: val })}
+              disabled={setDashboardRef.isPending}
+              id="dashboard-ref-toggle"
+            />
+            <Label htmlFor="dashboard-ref-toggle" className="text-xs font-bold cursor-pointer select-none">
+              Ref. Dashboard
+            </Label>
+          </div>
           {String(contract.status ?? "") === "ativo" && (
             <Button size="sm" variant="outline" onClick={onSuspend} disabled={!canManageContracts}>
               <PauseCircle className="h-4 w-4 mr-1" /> Suspender

@@ -38,6 +38,7 @@ export type ContractRow = {
   metadata: Record<string, unknown> | null;
   created_at: string | null;
   updated_at: string | null;
+  is_dashboard_reference: boolean | null;
 };
 
 const toIsoDate = (d: Date) => format(d, "yyyy-MM-dd");
@@ -337,5 +338,32 @@ export function useDeleteContract(organizationId: string | undefined) {
       qc.invalidateQueries({ queryKey: ["contracts", organizationId, vars.client_id] });
       qc.invalidateQueries({ queryKey: ["payments", organizationId] });
     },
+  });
+}
+
+/** Define qual contrato é a referência de data para o dashboard público.
+ *  Garante que apenas 1 contrato por cliente tenha is_dashboard_reference = true.
+ *  Se outro contrato já estiver marcado, desmarca antes de marcar o novo.
+ */
+export function useSetDashboardReference(organizationId: string | undefined) {
+  const qc = useQueryClient();
+  const supabaseUntyped = supabase as unknown as SupabaseClient;
+  return useMutation({
+    mutationFn: async ({ contractId, clientId, value }: { contractId: string; clientId: string; value: boolean }) => {
+      // Se ativando, desmarca qualquer outro contrato do mesmo cliente primeiro
+      if (value) {
+        await supabaseUntyped
+          .from("contracts")
+          .update({ is_dashboard_reference: false })
+          .eq("client_id", clientId)
+          .neq("id", contractId);
+      }
+      const { error } = await supabaseUntyped
+        .from("contracts")
+        .update({ is_dashboard_reference: value })
+        .eq("id", contractId);
+      if (error) throw error;
+    },
+    onSuccess: (_c, vars) => qc.invalidateQueries({ queryKey: ["contracts", organizationId, vars.clientId] }),
   });
 }
