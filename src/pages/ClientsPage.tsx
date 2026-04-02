@@ -57,6 +57,7 @@ import { DocumentsCard } from "@/components/documents/DocumentsCard";
 import { ClientIntegrationsTab } from "@/components/clients/ClientIntegrationsTab";
 import { ClientKPIsTab } from "@/components/clients/ClientKPIsTab";
 import { ClientPerformanceTab } from "@/components/clients/ClientPerformanceTab";
+import { ContractDetailPage } from "@/components/clients/ContractDetailPage";
 import useFormPersistence from "@/hooks/useFormPersistence";
 import { migrateResponsibleToDecisionMaker } from "@/utils/clientMigration";
 import { useDynamicRevenue } from "@/hooks/useDynamicRevenue";
@@ -101,6 +102,7 @@ export default function ClientsPage() {
   const [leadViewOpen, setLeadViewOpen] = useState(false);
 
   // Estados para aba de pagamentos do cliente
+  const [viewingContractId, setViewingContractId] = useState<string | null>(null);
   const [viewPayment, setViewPayment] = useState<any | null>(null);
   const [editPayment, setEditPayment] = useState<any | null>(null);
   const [editPaymentForm, setEditPaymentForm] = useState({ description: "", value: "", due_date: "", status: "pendente" });
@@ -1296,6 +1298,59 @@ export default function ClientsPage() {
           </TabsContent>
 
           <TabsContent value="contratos" className="space-y-6">
+            {viewingContractId ? (
+              (() => {
+                const ct = (clientContractsQuery.data ?? []).find(c => c.id === viewingContractId);
+                if (!ct) return null;
+                return (
+                  <ContractDetailPage
+                    contract={ct}
+                    organizationId={organizationId!}
+                    clientId={viewing.id}
+                    canEdit={canEdit}
+                    canManageContracts={canManageContracts}
+                    onBack={() => setViewingContractId(null)}
+                    onEdit={() => {
+                      setContractEditingId(ct.id);
+                      setContractForm({
+                        client_id: viewing.id,
+                        title: ct.title,
+                        service_contracted: ct.service_contracted ?? "",
+                        contract_type: (ct.metadata as any)?.contract_type ?? "mensal",
+                        contract_date: ct.contract_date ?? ct.start_date,
+                        duration_months: ct.duration_months ? String(ct.duration_months) : "12",
+                        first_payment_value: ct.first_payment_value ? String(ct.first_payment_value) : "",
+                        first_payment_installments: ct.first_payment_installments ? String(ct.first_payment_installments) : "1",
+                        first_payment_fees: ct.first_payment_fees ? String(ct.first_payment_fees) : "",
+                        first_payment_method: ct.first_payment_method ?? "pix",
+                        first_payment_due_date: ct.first_payment_due_date ?? "",
+                        recurring_due_date: ct.recurring_due_date ?? "",
+                        recurring_value: String(ct.value ?? 0),
+                        recurring_payment_method: (ct.metadata as any)?.recurring_payment_method ?? "pix",
+                        notes: (ct.metadata as any)?.notes ?? "",
+                      });
+                      setContractModalOpen(true);
+                    }}
+                    onSuspend={() => {
+                      setContractTargetId(ct.id);
+                      setContractTargetClientId(viewing.id);
+                      setContractSuspendReason("");
+                      setContractSuspendOpen(true);
+                    }}
+                    onReactivate={async () => {
+                      if (!window.confirm("Reativar este contrato?")) return;
+                      await reactivateContract.mutateAsync({ id: ct.id, client_id: viewing.id });
+                    }}
+                    onEnd={() => {
+                      setContractTargetId(ct.id);
+                      setContractTargetClientId(viewing.id);
+                      setContractEndReason("");
+                      setContractEndOpen(true);
+                    }}
+                  />
+                );
+              })()
+            ) : (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-3">
             <CardTitle className="text-base">Contratos</CardTitle>
@@ -1331,7 +1386,7 @@ export default function ClientsPage() {
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Total contratos ativos</span>
-              <span className="font-semibold">R$ {activeContractsTotal.toFixed(2).replace(".", ",")}</span>
+              <span className="font-semibold">{new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(activeContractsTotal)}</span>
             </div>
 
             {clientContractsQuery.isLoading ? (
@@ -1348,84 +1403,31 @@ export default function ClientsPage() {
                     <TableRow className="bg-background hover:bg-background">
                       <TableHead className="bg-background border-b">Serviço</TableHead>
                       <TableHead className="bg-background border-b">Contratação</TableHead>
-                      <TableHead className="bg-background border-b">Vencimento</TableHead>
+                      <TableHead className="bg-background border-b">Status</TableHead>
                       <TableHead className="text-right bg-background border-b">Total</TableHead>
                       <TableHead className="text-right bg-background border-b">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody className="bg-background">
                     {(clientContractsQuery.data ?? []).map((ct) => (
-                      <TableRow key={ct.id} className="bg-background hover:bg-muted/30 transition-colors group">
+                      <TableRow key={ct.id} className="bg-background hover:bg-muted/30 transition-colors group cursor-pointer" onClick={() => setViewingContractId(ct.id)}>
                         <TableCell className="font-medium bg-background group-hover:bg-transparent">{ct.service_contracted || ct.title}</TableCell>
                         <TableCell className="bg-background group-hover:bg-transparent">{ct.contract_date ? format(parseISO(ct.contract_date), "dd/MM/yyyy", { locale: ptBR }) : "—"}</TableCell>
-                        <TableCell className="bg-background group-hover:bg-transparent">{ct.first_payment_due_date ? format(parseISO(ct.first_payment_due_date), "dd/MM/yyyy", { locale: ptBR }) : "—"}</TableCell>
-                        <TableCell className="text-right bg-background group-hover:bg-transparent">R$ {(contractTotalById.get(String(ct.id)) ?? 0).toFixed(2).replace(".", ",")}</TableCell>
-                        <TableCell className="text-right bg-background group-hover:bg-transparent">
+                        <TableCell className="bg-background group-hover:bg-transparent">
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full capitalize ${
+                            ct.status === "ativo" ? "bg-emerald-100 text-emerald-700" :
+                            ct.status === "suspenso" ? "bg-yellow-100 text-yellow-700" :
+                            "bg-slate-100 text-slate-600"
+                          }`}>{ct.status ?? "—"}</span>
+                        </TableCell>
+                        <TableCell className="text-right bg-background group-hover:bg-transparent">{new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(contractTotalById.get(String(ct.id)) ?? 0)}</TableCell>
+                        <TableCell className="text-right bg-background group-hover:bg-transparent" onClick={(e) => e.stopPropagation()}>
                           <div className="flex justify-end gap-1">
-                            {String(ct.status ?? "") === "ativo" ? (
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                onClick={() => {
-                                  setContractTargetId(ct.id);
-                                  setContractTargetClientId(viewing.id);
-                                  setContractSuspendReason("");
-                                  setContractSuspendOpen(true);
-                                }}
-                                disabled={!canManageContracts || suspendContract.isPending}
-                                aria-label="Suspender"
-                                className="bg-background hover:bg-muted"
-                              >
-                                <PauseCircle className="h-4 w-4" />
-                              </Button>
-                            ) : null}
-                            {String(ct.status ?? "") === "suspenso" ? (
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                onClick={async () => {
-                                  if (!window.confirm("Reativar este contrato?")) return;
-                                  await reactivateContract.mutateAsync({ id: ct.id, client_id: viewing.id });
-                                }}
-                                disabled={!canManageContracts || reactivateContract.isPending}
-                                aria-label="Reativar"
-                                className="bg-background hover:bg-muted"
-                              >
-                                <RotateCw className="h-4 w-4" />
-                              </Button>
-                            ) : null}
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              onClick={() => {
-                                setContractEditingId(ct.id);
-                                setContractForm({
-                                  client_id: viewing.id,
-                                  title: ct.title,
-                                  service_contracted: ct.service_contracted ?? "",
-                                  contract_type: (ct.metadata as any)?.contract_type ?? "mensal",
-                                  contract_date: ct.contract_date ?? ct.start_date,
-                                  duration_months: ct.duration_months ? String(ct.duration_months) : "12",
-                                  first_payment_value: ct.first_payment_value ? String(ct.first_payment_value) : "",
-                                  first_payment_installments: ct.first_payment_installments ? String(ct.first_payment_installments) : "1",
-                                  first_payment_fees: ct.first_payment_fees ? String(ct.first_payment_fees) : "",
-                                  first_payment_method: ct.first_payment_method ?? "pix",
-                                  first_payment_due_date: ct.first_payment_due_date ?? "",
-                                  recurring_due_date: ct.recurring_due_date ?? "",
-                                  recurring_value: String(ct.value ?? 0),
-                                  recurring_payment_method: (ct.metadata as any)?.recurring_payment_method ?? "pix",
-                                  notes: (ct.metadata as any)?.notes ?? "",
-                                });
-                                setContractModalOpen(true);
-                              }}
-                              aria-label="Visualizar"
-                              className="bg-background hover:bg-muted"
-                            >
+                            <Button size="icon" variant="ghost" onClick={() => setViewingContractId(ct.id)} aria-label="Ver detalhes" className="bg-background hover:bg-muted">
                               <Eye className="h-4 w-4" />
                             </Button>
                             <Button
-                              size="icon"
-                              variant="ghost"
+                              size="icon" variant="ghost"
                               onClick={() => {
                                 setContractEditingId(ct.id);
                                 setContractForm({
@@ -1447,30 +1449,12 @@ export default function ClientsPage() {
                                 });
                                 setContractModalOpen(true);
                               }}
-                              disabled={!canManageContracts}
-                              aria-label="Alterar"
-                              className="bg-background hover:bg-muted"
+                              disabled={!canManageContracts} aria-label="Alterar" className="bg-background hover:bg-muted"
                             >
                               <Pencil className="h-4 w-4" />
                             </Button>
                             <Button
-                              size="icon"
-                              variant="ghost"
-                              onClick={() => {
-                                setContractTargetId(ct.id);
-                                setContractTargetClientId(viewing.id);
-                                setContractEndReason("");
-                                setContractEndOpen(true);
-                              }}
-                              disabled={!canManageContracts}
-                              aria-label="Encerrar"
-                              className="bg-background hover:bg-muted"
-                            >
-                              <UserCheck className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
+                              size="icon" variant="ghost"
                               className="text-destructive bg-background hover:bg-muted"
                               onClick={async () => {
                                 if (!window.confirm("Excluir este contrato?")) return;
@@ -1491,6 +1475,7 @@ export default function ClientsPage() {
             )}
           </CardContent>
         </Card>
+            )}
           </TabsContent>
 
           <TabsContent value="documentos" className="space-y-6">
@@ -1534,7 +1519,7 @@ export default function ClientsPage() {
             {(() => {
               const clientPayments = (paymentsQuery.data ?? [])
                 .filter(p => p.client_id === viewing.id)
-                .sort((a, b) => String(b.due_date).localeCompare(String(a.due_date)));
+                .sort((a, b) => String(a.due_date).localeCompare(String(b.due_date)));
               const paid = clientPayments.filter(p => p.status === "pago");
               const pending = clientPayments.filter(p => p.status !== "pago" && p.status !== "cancelado");
               const fmtCurrency = (v: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
