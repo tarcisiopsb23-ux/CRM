@@ -172,7 +172,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error("Erro no signOut:", err);
     } finally {
       setLoading(false);
-      window.location.href = '/login'; // Forçar refresh total
+      // Não redirecionar se estiver em rota pública do dashboard do cliente
+      if (!window.location.pathname.startsWith('/public/')) {
+        window.location.href = '/login';
+      }
     }
   }, []);
 
@@ -254,7 +257,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const resetTimer = () => {
       if (timeoutId) clearTimeout(timeoutId);
-      if (user) {
+      // Não disparar em rotas públicas do dashboard do cliente
+      if (user && !window.location.pathname.startsWith('/public/')) {
         timeoutId = setTimeout(() => {
           console.log("[Auth] Logout por inatividade (5 minutos)");
           signOut();
