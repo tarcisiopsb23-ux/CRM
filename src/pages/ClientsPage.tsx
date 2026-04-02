@@ -1564,7 +1564,7 @@ export default function ClientsPage() {
                                   <Button size="sm" variant="outline" className="text-emerald-600 border-emerald-200 hover:bg-emerald-50" onClick={() => {
                                     setReceivePaymentOpen(p);
                                     setReceiveValue(String(p.value));
-                                    setReceiveDate(format(new Date(), "yyyy-MM-dd"));
+                                    setReceiveDate(p.due_date ? p.due_date.substring(0, 10) : format(new Date(), "yyyy-MM-dd"));
                                   }}>
                                     <Check className="h-3.5 w-3.5 mr-1" />
                                     Receber
@@ -2171,7 +2171,7 @@ export default function ClientsPage() {
                   id: receivePaymentOpen.id,
                   value: received,
                   status: "pago" as any,
-                  paid_at: new Date(receiveDate).toISOString(),
+                  paid_at: new Date(receiveDate + "T12:00:00").toISOString(),
                 });
                 if (isPartial) {
                   await paymentsQuery.create.mutateAsync({

@@ -1657,7 +1657,7 @@ export default function FinancialPage() {
                               setReceivePaymentClientId(p.client_id);
                               setReceivePaymentContractId(p.contract_id ?? null);
                               setReceiveValue(String(p.value));
-                              setReceiveDate(format(new Date(), "yyyy-MM-dd"));
+                              setReceiveDate(p.due_date ? p.due_date.substring(0, 10) : format(new Date(), "yyyy-MM-dd"));
                             }} disabled={payments.registerPayment.isPending}>
                               <Check className="h-4 w-4 mr-1" />
                               Receber
@@ -2735,7 +2735,7 @@ export default function FinancialPage() {
                   id: receivePaymentId,
                   value: received,
                   status: "pago",
-                  paid_at: new Date(receiveDate).toISOString(),
+                  paid_at: new Date(receiveDate + "T12:00:00").toISOString(),
                 });
                 // Se parcial, cria novo pagamento com o saldo restante
                 if (isPartial) {

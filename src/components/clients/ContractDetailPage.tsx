@@ -211,7 +211,7 @@ export function ContractDetailPage({
                         <Button size="sm" variant="outline" className="text-emerald-600 border-emerald-200 hover:bg-emerald-50" onClick={() => {
                           setReceiveOpen(p);
                           setReceiveValue(String(p.value));
-                          setReceiveDate(format(new Date(), "yyyy-MM-dd"));
+                          setReceiveDate(p.due_date ? String(p.due_date).substring(0, 10) : format(new Date(), "yyyy-MM-dd"));
                         }}>
                           <Check className="h-3.5 w-3.5 mr-1" /> Receber
                         </Button>
