@@ -581,7 +581,7 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
                     <div className="flex items-end justify-between gap-4">
                       <div>
                         <p className="text-[10px] font-bold text-slate-400 uppercase">Antes</p>
-                        <p className="text-lg font-black text-slate-400 line-through">{fmtVal(item.pre, item.unit)}</p>
+                        <p className="text-lg font-black text-slate-400">{fmtVal(item.pre, item.unit)}</p>
                       </div>
                       <div className="text-right">
                         <p className="text-[10px] font-bold text-slate-500 uppercase">Atual</p>

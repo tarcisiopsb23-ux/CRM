@@ -849,7 +849,7 @@ export function PublicDashboardPage() {
                         <div className="flex items-end gap-6">
                           <div className="space-y-1">
                             <p className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">Média Antes</p>
-                            <p className="text-base font-black text-slate-400 line-through decoration-slate-600/50">
+                            <p className="text-base font-black text-slate-400">
                               {fmtVal(item.pre, item.unit)}
                             </p>
                           </div>
