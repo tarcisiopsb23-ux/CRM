@@ -28,9 +28,18 @@ export function KPIGoals({ organizationId, clientId }: KPIGoalsProps) {
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [monthsRef, setMonthsRef] = useState<number>(12);
 
-  // Média de referência: últimos N meses de todo o histórico (pré + pós)
+  // Data de início do contrato de referência
+  const contractStartDate = useMemo(() => {
+    const ref = contracts.find(c => (c as any).is_dashboard_reference) ?? contracts[0] ?? null;
+    if (!ref) return null;
+    const raw = String(ref.contract_date ?? ref.start_date).substring(0, 10);
+    return startOfMonth(parseISO(raw));
+  }, [contracts]);
+
+  // Média de referência: últimos N meses apenas do histórico ANTERIOR ao contrato
+  // Se não houver histórico anterior, usa todos os registros disponíveis como fallback
   const avgByKpi = useMemo(() => {
-    const map = new Map<string, { avg: number; count: number }>();
+    const map = new Map<string, { avg: number; count: number; isPreContract: boolean }>();
     kpis.forEach(kpi => {
       const allEntries = history
         .filter(h => h.kpi_id === kpi.id)
@@ -38,12 +47,24 @@ export function KPIGoals({ organizationId, clientId }: KPIGoalsProps) {
 
       if (allEntries.length === 0) return;
 
-      const sliced = allEntries.slice(0, monthsRef);
+      // Filtra apenas histórico anterior ao contrato
+      const preEntries = contractStartDate
+        ? allEntries.filter(h => {
+            const d = startOfMonth(parseISO(String(h.month_year).substring(0, 10)));
+            return d < contractStartDate;
+          })
+        : [];
+
+      // Usa pré-contrato se disponível, senão usa todos
+      const source = preEntries.length > 0 ? preEntries : allEntries;
+      const isPreContract = preEntries.length > 0;
+
+      const sliced = source.slice(0, monthsRef);
       const avg = sliced.reduce((acc, h) => acc + Number(h.value), 0) / sliced.length;
-      map.set(kpi.id, { avg, count: sliced.length });
+      map.set(kpi.id, { avg, count: sliced.length, isPreContract });
     });
     return map;
-  }, [kpis, history, monthsRef]);
+  }, [kpis, history, monthsRef, contractStartDate]);
 
   const fmt = (v: number, unit: string) =>
     unit === "currency"
@@ -138,6 +159,7 @@ export function KPIGoals({ organizationId, clientId }: KPIGoalsProps) {
                   const entry = avgByKpi.get(kpi.id);
                   const avg = entry?.avg;
                   const count = entry?.count ?? 0;
+                  const isPreContract = entry?.isPreContract;
                   const pct = parseFloat(growthInput[kpi.id] ?? "");
                   const target = avg !== undefined && !isNaN(pct) ? avg * (1 + pct / 100) : null;
                   const savedTarget = (kpi as any).target_value ?? null;
@@ -153,7 +175,10 @@ export function KPIGoals({ organizationId, clientId }: KPIGoalsProps) {
                       {/* Qtd registros */}
                       <td className="px-5 py-4 text-sm text-muted-foreground font-semibold">
                         {count > 0
-                          ? `${count} mês${count > 1 ? "es" : ""}`
+                          ? <div>
+                              <span>{count} mês{count > 1 ? "es" : ""}</span>
+                              {contractStartDate && <p className="text-[9px] uppercase font-bold mt-0.5 text-muted-foreground/60">{isPreContract ? "pré-contrato" : "todos"}</p>}
+                            </div>
                           : <span className="text-muted-foreground/40 italic text-xs">Sem dados</span>}
                       </td>
 

@@ -343,7 +343,10 @@ export function PublicDashboardPage() {
     }).filter(Boolean);
   }, [kpis, kpiHistory, contractStartDate]);
 
-  // Tabela comparativa de performance — média calculada apenas sobre dados pós-contrato
+  // Tabela comparativa de performance
+  // - Média Histórica: últimos 12 meses do histórico ANTERIOR ao contrato (base para meta)
+  // - Média Pós-Contrato: últimos 12 meses pós-contrato (progresso)
+  // - Resultado Atual: mais recente pós-contrato
   const perfRows = useMemo(() => {
     const contractStart = contractStartDate ? startOfMonth(contractStartDate) : null;
     const fmt = (v: number, unit: string) =>
@@ -354,29 +357,47 @@ export function PublicDashboardPage() {
         .filter(h => h.kpi_id === kpi.id)
         .sort((a, b) => String(b.month_year).localeCompare(String(a.month_year)));
 
-      // Valor atual = mais recente pós-contrato
+      // Pós-contrato
       const postHistory = contractStart
         ? allHistory.filter(h => !isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), contractStart))
         : allHistory;
+
+      // Pré-contrato
+      const preHistory = contractStart
+        ? allHistory.filter(h => isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), contractStart))
+        : [];
+
+      // Resultado atual = mais recente pós-contrato
       const current = postHistory[0]?.value ?? null;
 
-      // Média histórica = últimos 12 meses de todo o histórico (pré + pós)
-      const last12 = allHistory.slice(0, 12);
-      const avg = last12.length > 0 ? last12.reduce((a, h) => a + Number(h.value), 0) / last12.length : null;
+      // Média histórica = últimos 12 meses pré-contrato (base da meta)
+      const preLast12 = preHistory.slice(0, 12);
+      const preAvg = preLast12.length > 0
+        ? preLast12.reduce((a, h) => a + Number(h.value), 0) / preLast12.length
+        : null;
+
+      // Média pós-contrato = últimos 12 meses pós-contrato (progresso)
+      const postLast12 = postHistory.slice(0, 12);
+      const postAvg = postLast12.length > 0
+        ? postLast12.reduce((a, h) => a + Number(h.value), 0) / postLast12.length
+        : null;
 
       const target = kpi.target_value ?? null;
-      const vsAvg = current !== null && avg !== null && avg !== 0 ? ((current - avg) / avg) * 100 : null;
+      // vs Média compara resultado atual com média pós-contrato
+      const vsAvg = current !== null && postAvg !== null && postAvg !== 0
+        ? ((current - postAvg) / postAvg) * 100
+        : null;
       const pctMeta = current !== null && target !== null && target !== 0 ? (current / target) * 100 : null;
       const lower = isLowerBetter(kpi.name);
       let status = "Sem dados";
-      if (vsAvg !== null) {
+      if (current !== null) {
         if (pctMeta !== null && (lower ? pctMeta <= 100 : pctMeta >= 100)) status = "Meta atingida";
         else if (pctMeta !== null && (lower ? pctMeta <= 105 : pctMeta >= 90)) status = "Próximo da meta";
-        else if (lower ? vsAvg <= -5 : vsAvg >= 5) status = "Acima da média";
-        else if (lower ? vsAvg >= 5 : vsAvg <= -5) status = "Abaixo da média";
-        else status = "Na média";
+        else if (vsAvg !== null && (lower ? vsAvg <= -5 : vsAvg >= 5)) status = "Acima da média";
+        else if (vsAvg !== null && (lower ? vsAvg >= 5 : vsAvg <= -5)) status = "Abaixo da média";
+        else if (vsAvg !== null) status = "Na média";
       }
-      return { kpi, current, avg, target, vsAvg, pctMeta, status, fmt };
+      return { kpi, current, preAvg, postAvg, target, vsAvg, pctMeta, status, fmt };
     });
   }, [kpis, kpiHistory, contractStartDate]);
 
@@ -873,13 +894,13 @@ export function PublicDashboardPage() {
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="border-b border-slate-800 bg-slate-900/40">
-                          {["KPI", "Média Histórica", "Meta", "Resultado Atual", "vs Média", "% Meta", "Status"].map(h => (
+                          {["KPI", "Média Histórica (Pré)", "Média Pós-Contrato", "Meta", "Resultado Atual", "vs Pós", "% Meta", "Status"].map(h => (
                             <th key={h} className="px-5 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 whitespace-nowrap">{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/50">
-                        {perfRows.map(({ kpi, current, avg, target, vsAvg, pctMeta, status, fmt }) => {
+                        {perfRows.map(({ kpi, current, preAvg, postAvg, target, vsAvg, pctMeta, status, fmt }) => {
                           const lower = isLowerBetter(kpi.name);
                           const vsPositive = vsAvg !== null && (lower ? vsAvg <= 0 : vsAvg >= 0);
                           const statusColor =
@@ -896,7 +917,10 @@ export function PublicDashboardPage() {
                                 <p className="text-[10px] text-slate-500 uppercase font-bold">{kpi.category}</p>
                               </td>
                               <td className="px-5 py-4 text-sm text-slate-400 font-semibold whitespace-nowrap">
-                                {avg !== null ? fmt(avg, kpi.unit) : <span className="text-slate-600">—</span>}
+                                {preAvg !== null ? fmt(preAvg, kpi.unit) : <span className="text-slate-600">—</span>}
+                              </td>
+                              <td className="px-5 py-4 text-sm text-[#2D8CC7] font-semibold whitespace-nowrap">
+                                {postAvg !== null ? fmt(postAvg, kpi.unit) : <span className="text-slate-600">—</span>}
                               </td>
                               <td className="px-5 py-4 text-sm text-slate-400 font-semibold whitespace-nowrap">
                                 {target !== null ? fmt(target, kpi.unit) : <span className="text-slate-600 text-xs italic">Não definida</span>}
