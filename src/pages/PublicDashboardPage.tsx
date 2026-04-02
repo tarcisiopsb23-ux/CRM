@@ -7,7 +7,7 @@ import {
 } from "recharts";
 import {
   Activity, ArrowDown, ArrowUp, BarChart3, Briefcase, Calendar,
-  CheckCircle2, DollarSign, Info, ListFilter, Lock, LogOut,
+  CheckCircle2, DollarSign, Info, ListFilter, Lock, LogOut, MessageCircle,
   PieChart, Target, TrendingUp, User, Users, Zap,
 } from "lucide-react";import {
   Tooltip as ShadcnTooltip, TooltipContent, TooltipProvider, TooltipTrigger,

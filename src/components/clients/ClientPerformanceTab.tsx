@@ -27,6 +27,7 @@ import { useClientKPIs, useClientKPIHistory } from "@/hooks/useClientKPIs";
 import { useClientConversationKpis } from "@/hooks/useClientConversationKpis";
 import { ConversationKpiDashboard } from "@/components/whatsapp/ConversationKpiDashboard";
 import { fmtKpiValue } from "@/lib/formatters";
+import { supabase } from "@/lib/supabase";
 
 const isLowerBetter = (name: string) => /cac|cpa|cpl|cpc|cpm|custo/i.test(name);
 const KPI_COLORS = ["#10b981","#2D8CC7","#f59e0b","#a855f7","#f43f5e","#06b6d4","#e879f9","#34d399"];
