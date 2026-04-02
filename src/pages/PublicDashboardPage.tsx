@@ -106,6 +106,8 @@ export function PublicDashboardPage() {
           .eq("client_id", parsedData.id)
           .order("start_date", { ascending: true });
 
+        console.log('[Dashboard] allContracts:', allContracts);
+
         // Tenta buscar o marcado como referência de dashboard
         let refContract: any = null;
         try {
@@ -115,19 +117,24 @@ export function PublicDashboardPage() {
             .eq("client_id", parsedData.id)
             .eq("is_dashboard_reference", true)
             .limit(1);
+          console.log('[Dashboard] refContracts (is_dashboard_reference=true):', refContracts);
           refContract = refContracts?.[0] ?? null;
-        } catch {
-          // Coluna ainda não existe (migration pendente) — ignora
+        } catch (e) {
+          console.warn('[Dashboard] is_dashboard_reference column not found:', e);
         }
 
         // Fallback: primeiro contrato
         const contract = refContract ?? (allContracts ?? [])[0] ?? null;
+        console.log('[Dashboard] contract chosen:', contract);
 
         if (contract) {
-          const contractDate = parseISO(
-            String(contract.contract_date ?? contract.start_date).substring(0, 10)
-          );
-          setContractStartDate(startOfMonth(contractDate));
+          const rawDate = String(contract.contract_date ?? contract.start_date).substring(0, 10);
+          const contractDate = parseISO(rawDate);
+          const effectiveStart = startOfMonth(contractDate);
+          console.log('[Dashboard] rawDate:', rawDate, '→ contractDate:', contractDate, '→ effectiveStart:', effectiveStart);
+          setContractStartDate(effectiveStart);
+        } else {
+          console.warn('[Dashboard] No contract found for client', parsedData.id);
         }
       }
       setLoading(false);
@@ -283,13 +290,15 @@ export function PublicDashboardPage() {
   // Evolução longo prazo (12 meses anteriores ao atual)
   const longTermData = useMemo(() => {
     const contractStart = contractStartDate ? startOfMonth(contractStartDate) : null;
+    console.log('[LongTerm] contractStartDate:', contractStartDate, '→ contractStart:', contractStart);
     const points = Array.from({ length: 12 }).map((_, i) => {
       const month = startOfMonth(subMonths(new Date(), 12 - i));
       const monthStr = format(month, "yyyy-MM");
+      const isVigencia = contractStart ? !isBefore(month, contractStart) : i >= 6;
+      console.log(`[LongTerm] ${monthStr}: month=${month.toISOString()}, contractStart=${contractStart?.toISOString()}, isBefore=${contractStart ? isBefore(month, contractStart) : 'n/a'}, isVigencia=${isVigencia}`);
       const point: any = {
         name: format(month, "MMM/yy", { locale: ptBR }),
-        // Se não há contractStart, divide ao meio (primeiros 6 = histórico, últimos 6 = vigência)
-        isVigencia: contractStart ? !isBefore(month, contractStart) : i >= 6,
+        isVigencia,
       };
       kpis.forEach(kpi => {
         const h = kpiHistory.find(h => h.kpi_id === kpi.id && String(h.month_year).substring(0, 7) === monthStr);
