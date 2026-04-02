@@ -671,13 +671,13 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
               <InfoTooltip text="Tabela com os valores registrados de cada KPI nos últimos 12 meses. Permite acompanhar a evolução histórica de todos os indicadores em uma visão consolidada." />
             </CardHeader>
             <CardContent className="p-0">
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-slate-50">
-                      <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-500 min-w-[180px]">Indicador</TableHead>
+                      <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-500 min-w-[200px] sticky left-0 bg-slate-50 z-10">Indicador</TableHead>
                       {consolidadoMonths.map(m => (
-                        <TableHead key={m.toISOString()} className="text-center font-black text-[10px] uppercase tracking-widest text-slate-500 min-w-[80px]">
+                        <TableHead key={m.toISOString()} className="text-center font-black text-[10px] uppercase tracking-widest text-slate-500 min-w-[110px] px-4">
                           {format(m, "MMM/yy", { locale: ptBR })}
                         </TableHead>
                       ))}
@@ -686,12 +686,12 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
                   <TableBody>
                     {kpisArr.map(kpi => (
                       <TableRow key={kpi.id} className="hover:bg-slate-50">
-                        <TableCell className="font-bold text-slate-800">{kpi.name}</TableCell>
+                        <TableCell className="font-bold text-slate-800 sticky left-0 bg-white z-10 border-r border-slate-100">{kpi.name}</TableCell>
                         {consolidadoMonths.map(m => {
                           const mk = format(m, "yyyy-MM");
                           const v = historyArr.find(h => h.kpi_id === kpi.id && String(h.month_year).startsWith(mk))?.value;
                           return (
-                            <TableCell key={mk} className="text-center text-slate-600 text-sm">
+                            <TableCell key={mk} className="text-center text-slate-600 text-sm px-4 whitespace-nowrap">
                               {v !== undefined ? fmtVal(v, kpi.unit) : <span className="text-slate-300">—</span>}
                             </TableCell>
                           );
