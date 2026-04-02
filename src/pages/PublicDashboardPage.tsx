@@ -99,10 +99,30 @@ export function PublicDashboardPage() {
         }
       }
       if (parsedData.id) {
+        // Busca contratos mensais dos serviços elegíveis para alimentar o dashboard
+        const ELIGIBLE_SERVICES = ["assessoria", "consultoria", "automação ia", "automacao ia", "parceria/collab", "parceria collab", "parceria"];
         const { data: contracts } = await supabase
-          .from("contracts").select("start_date")
-          .eq("client_id", parsedData.id).order("start_date", { ascending: true }).limit(1);
-        if (contracts && contracts.length > 0) setContractStartDate(parseISO(contracts[0].start_date));
+          .from("contracts")
+          .select("start_date, service_contracted, contract_date")
+          .eq("client_id", parsedData.id)
+          .order("start_date", { ascending: true });
+
+        // Filtra apenas contratos elegíveis (serviços que alimentam o dashboard)
+        const eligibleContracts = (contracts ?? []).filter((c: any) => {
+          const svc = (c.service_contracted ?? "").toLowerCase().trim();
+          return ELIGIBLE_SERVICES.some(e => svc.includes(e));
+        });
+
+        if (eligibleContracts.length > 0) {
+          const firstContract = eligibleContracts[0];
+          const contractDate = parseISO(firstContract.contract_date ?? firstContract.start_date);
+          const dayOfMonth = contractDate.getDate();
+          // Regra: dia > 10 → próximo mês como início; dia ≤ 10 → mês atual
+          const effectiveStart = dayOfMonth > 10
+            ? startOfMonth(new Date(contractDate.getFullYear(), contractDate.getMonth() + 1, 1))
+            : startOfMonth(contractDate);
+          setContractStartDate(effectiveStart);
+        }
       }
       setLoading(false);
     };
@@ -274,42 +294,56 @@ export function PublicDashboardPage() {
   }, [kpis, kpiHistory, contractStartDate]);
 
   // Impacto da parceria
+  // Pré: últimos 12 meses do histórico anterior ao contrato
+  // Pós: todos os meses pós-contrato (se 1 mês, mostra o valor real sem média)
   const partnershipImpact = useMemo(() => {
-    if (kpiHistory.length === 0) return [];
+    if (kpiHistory.length === 0 || !contractStartDate) return [];
 
-    // Usa contractStartDate se disponível, senão infere pelo ponto de inflexão do histórico
-    const splitDate = contractStartDate
-      ? startOfMonth(contractStartDate)
-      : (() => {
-          // Ordena todas as datas e usa a mediana como divisor
-          const dates = [...new Set(kpiHistory.map(h => String(h.month_year)))].sort();
-          if (dates.length < 2) return null;
-          const mid = dates[Math.floor(dates.length / 2)];
-          return parseISO(mid);
-        })();
-
-    if (!splitDate) return [];
+    const splitDate = startOfMonth(contractStartDate);
 
     return kpis.map(kpi => {
-      const pre = kpiHistory.filter(h => h.kpi_id === kpi.id && isBefore(parseISO(String(h.month_year)), splitDate));
-      const post = kpiHistory.filter(h => h.kpi_id === kpi.id && !isBefore(parseISO(String(h.month_year)), splitDate));
-      if (pre.length === 0 || post.length === 0) return null;
+      const allPre = kpiHistory
+        .filter(h => h.kpi_id === kpi.id && isBefore(startOfMonth(parseISO(String(h.month_year))), splitDate))
+        .sort((a, b) => String(b.month_year).localeCompare(String(a.month_year)));
+      const post = kpiHistory
+        .filter(h => h.kpi_id === kpi.id && !isBefore(startOfMonth(parseISO(String(h.month_year))), splitDate));
+
+      if (post.length === 0) return null;
+
+      // Pré: últimos 12 meses do histórico anterior
+      const pre = allPre.slice(0, 12);
+      if (pre.length === 0) return null;
+
       const preAvg = pre.reduce((a, h) => a + Number(h.value), 0) / pre.length;
+      // Pós: média se múltiplos meses, valor real se 1 mês
       const postAvg = post.reduce((a, h) => a + Number(h.value), 0) / post.length;
-      return { name: kpi.name, unit: kpi.unit, pre: preAvg, post: postAvg, growth: preAvg !== 0 ? ((postAvg - preAvg) / preAvg) * 100 : null };
+
+      return {
+        name: kpi.name,
+        unit: kpi.unit,
+        pre: preAvg,
+        post: postAvg,
+        postMonths: post.length,
+        growth: preAvg !== 0 ? ((postAvg - preAvg) / preAvg) * 100 : null,
+      };
     }).filter(Boolean);
   }, [kpis, kpiHistory, contractStartDate]);
 
-  // Tabela comparativa de performance
+  // Tabela comparativa de performance — média calculada apenas sobre dados pós-contrato
   const perfRows = useMemo(() => {
-    const currentKey = format(new Date(), "yyyy-MM");
+    const contractStart = contractStartDate ? startOfMonth(contractStartDate) : null;
     const fmt = (v: number, unit: string) =>
       unit === "currency" ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(v)
       : unit === "percentage" ? `${v.toFixed(2)}%` : String(v);
     return kpis.map(kpi => {
-      const history = kpiHistory.filter(h => h.kpi_id === kpi.id);
-      const current = history.find(h => String(h.month_year).startsWith(currentKey))?.value ?? null;
-      const avg = history.length > 0 ? history.reduce((a, h) => a + h.value, 0) / history.length : null;
+      const allHistory = kpiHistory.filter(h => h.kpi_id === kpi.id);
+      // Filtra apenas pós-contrato para calcular média e valor atual
+      const postHistory = contractStart
+        ? allHistory.filter(h => !isBefore(startOfMonth(parseISO(String(h.month_year))), contractStart))
+        : allHistory;
+      postHistory.sort((a, b) => String(b.month_year).localeCompare(String(a.month_year)));
+      const current = postHistory[0]?.value ?? null;
+      const avg = postHistory.length > 0 ? postHistory.reduce((a, h) => a + h.value, 0) / postHistory.length : null;
       const target = kpi.target_value ?? null;
       const vsAvg = current !== null && avg !== null && avg !== 0 ? ((current - avg) / avg) * 100 : null;
       const pctMeta = current !== null && target !== null && target !== 0 ? (current / target) * 100 : null;
@@ -324,7 +358,7 @@ export function PublicDashboardPage() {
       }
       return { kpi, current, avg, target, vsAvg, pctMeta, status, fmt };
     });
-  }, [kpis, kpiHistory]);
+  }, [kpis, kpiHistory, contractStartDate]);
 
   if (loading) return (
     <div className="flex items-center justify-center min-h-screen bg-[#111827]">
@@ -639,7 +673,13 @@ export function PublicDashboardPage() {
                       <p className="text-2xl font-black text-white mt-1">
                         {kpi.current !== null ? fmtVal(kpi.current, kpi.unit) : <span className="text-slate-600 text-base font-bold">Sem dados</span>}
                       </p>
-                      <p className="text-[9px] text-slate-500 mt-2">Mês atual vs anterior</p>
+                      {kpi.prev !== null ? (
+                        <p className="text-[10px] text-slate-500 mt-2">
+                          Anterior: <span className="text-slate-400 font-bold">{fmtVal(kpi.prev, kpi.unit)}</span>
+                        </p>
+                      ) : (
+                        <p className="text-[9px] text-slate-600 mt-2">Mês atual vs anterior</p>
+                      )}
                     </Card>
                   ))}
                 </div>

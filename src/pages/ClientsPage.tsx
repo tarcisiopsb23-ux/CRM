@@ -395,6 +395,7 @@ export default function ClientsPage() {
     client_id: "",
     title: "",
     service_contracted: "",
+    contract_type: "mensal" as "mensal" | "eventual",
     contract_date: "",
     duration_months: "12",
     first_payment_value: "",
@@ -404,6 +405,8 @@ export default function ClientsPage() {
     first_payment_due_date: "",
     recurring_due_date: "",
     recurring_value: "",
+    recurring_payment_method: "pix",
+    notes: "",
   });
 
   const [suspendedMonthOpen, setSuspendedMonthOpen] = useState(false);
@@ -522,6 +525,7 @@ export default function ClientsPage() {
             client_id: created.id,
             title: (created.company || created.name || "Contrato") as string,
             service_contracted: (l?.product_service ?? "") as string,
+            contract_type: "mensal",
             contract_date: format(new Date(), "yyyy-MM-dd"),
             duration_months: "12",
             first_payment_value: l?.value ? String(l.value) : "",
@@ -531,6 +535,8 @@ export default function ClientsPage() {
             first_payment_due_date: format(new Date(), "yyyy-MM-dd"),
             recurring_due_date: format(new Date(), "yyyy-MM-dd"),
             recurring_value: l?.value ? String(l.value) : "",
+            recurring_payment_method: "pix",
+            notes: "",
           });
           setContractModalOpen(true);
         }
@@ -1290,6 +1296,7 @@ export default function ClientsPage() {
                   client_id: viewing.id,
                   title: viewing.company || viewing.name || "Contrato",
                   service_contracted: "",
+                  contract_type: "mensal",
                   contract_date: format(new Date(), "yyyy-MM-dd"),
                   duration_months: "12",
                   first_payment_value: "",
@@ -1299,6 +1306,8 @@ export default function ClientsPage() {
                   first_payment_due_date: format(new Date(), "yyyy-MM-dd"),
                   recurring_due_date: format(new Date(), "yyyy-MM-dd"),
                   recurring_value: "",
+                  recurring_payment_method: "pix",
+                  notes: "",
                 });
                 setContractModalOpen(true);
               }}
@@ -1383,6 +1392,7 @@ export default function ClientsPage() {
                                   client_id: viewing.id,
                                   title: ct.title,
                                   service_contracted: ct.service_contracted ?? "",
+                                  contract_type: (ct.metadata as any)?.contract_type ?? "mensal",
                                   contract_date: ct.contract_date ?? ct.start_date,
                                   duration_months: ct.duration_months ? String(ct.duration_months) : "12",
                                   first_payment_value: ct.first_payment_value ? String(ct.first_payment_value) : "",
@@ -1392,6 +1402,8 @@ export default function ClientsPage() {
                                   first_payment_due_date: ct.first_payment_due_date ?? "",
                                   recurring_due_date: ct.recurring_due_date ?? "",
                                   recurring_value: String(ct.value ?? 0),
+                                  recurring_payment_method: (ct.metadata as any)?.recurring_payment_method ?? "pix",
+                                  notes: (ct.metadata as any)?.notes ?? "",
                                 });
                                 setContractModalOpen(true);
                               }}
@@ -1409,6 +1421,7 @@ export default function ClientsPage() {
                                   client_id: viewing.id,
                                   title: ct.title,
                                   service_contracted: ct.service_contracted ?? "",
+                                  contract_type: (ct.metadata as any)?.contract_type ?? "mensal",
                                   contract_date: ct.contract_date ?? ct.start_date,
                                   duration_months: ct.duration_months ? String(ct.duration_months) : "12",
                                   first_payment_value: ct.first_payment_value ? String(ct.first_payment_value) : "",
@@ -1418,6 +1431,8 @@ export default function ClientsPage() {
                                   first_payment_due_date: ct.first_payment_due_date ?? "",
                                   recurring_due_date: ct.recurring_due_date ?? "",
                                   recurring_value: String(ct.value ?? 0),
+                                  recurring_payment_method: (ct.metadata as any)?.recurring_payment_method ?? "pix",
+                                  notes: (ct.metadata as any)?.notes ?? "",
                                 });
                                 setContractModalOpen(true);
                               }}
@@ -1508,7 +1523,7 @@ export default function ClientsPage() {
       ) : null}
 
       <Dialog open={contractModalOpen} onOpenChange={(o) => { setContractModalOpen(o); if (!o) setContractEditingId(null); }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-[85vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{contractEditingId ? "Contrato" : "Novo contrato"}</DialogTitle>
           </DialogHeader>
@@ -1517,13 +1532,20 @@ export default function ClientsPage() {
             onSubmit={async (e) => {
               e.preventDefault();
               if (!organizationId) return;
-              const duration = Number(contractForm.duration_months || 0);
+              const isEventual = contractForm.contract_type === "eventual";
+              const duration = isEventual ? 1 : Number(contractForm.duration_months || 0);
               const contractDate = contractForm.contract_date;
-              if (!contractForm.client_id || !contractDate || duration <= 0) return;
+              if (!contractForm.client_id || !contractDate) return;
+              if (!isEventual && duration <= 0) return;
               const end = addMonths(new Date(contractDate), duration);
               const endDisplay = format(end, "yyyy-MM-dd");
               const installments = Math.min(12, Math.max(1, Number(contractForm.first_payment_installments || 1)));
               const fees = installments > 1 ? Math.max(0, Number(contractForm.first_payment_fees || 0)) : 0;
+              const extraMeta = {
+                contract_type: contractForm.contract_type,
+                recurring_payment_method: contractForm.recurring_payment_method,
+                notes: contractForm.notes,
+              };
               if (contractEditingId) {
                 await updateContract.mutateAsync({
                   id: contractEditingId,
@@ -1541,8 +1563,9 @@ export default function ClientsPage() {
                   first_payment_fees: fees,
                   first_payment_split: false,
                   first_payment_second_due_date: null,
-                  recurring_due_date: contractForm.recurring_due_date || null,
-                  value: contractForm.recurring_value ? Number(contractForm.recurring_value) : 0,
+                  recurring_due_date: isEventual ? null : (contractForm.recurring_due_date || null),
+                  value: isEventual ? 0 : (contractForm.recurring_value ? Number(contractForm.recurring_value) : 0),
+                  metadata: extraMeta,
                 });
               } else {
                 await createContract.mutateAsync({
@@ -1556,54 +1579,50 @@ export default function ClientsPage() {
                   first_payment_due_date: contractForm.first_payment_due_date || contractDate,
                   first_payment_installments: installments,
                   first_payment_fees: fees,
-                  recurring_value: Number(contractForm.recurring_value || 0),
-                  recurring_due_date: contractForm.recurring_due_date || contractDate,
+                  recurring_value: isEventual ? 0 : Number(contractForm.recurring_value || 0),
+                  recurring_due_date: isEventual ? contractDate : (contractForm.recurring_due_date || contractDate),
+                  metadata: extraMeta,
                 });
               }
               setContractModalOpen(false);
             }}
           >
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="sm:col-span-2">
+            {/* Linha 1: Serviço, Tipo, Data, Duração, Encerramento */}
+            <div className="grid grid-cols-3 gap-4">
+              <div>
                 <Label>Produto/Serviço</Label>
-                <Input
+                <Select
                   value={contractForm.service_contracted}
-                  onChange={(e) => setContractForm({ ...contractForm, service_contracted: e.target.value })}
-                  placeholder="Ex: Assessoria, Site, Tráfego..."
+                  onValueChange={(v) => setContractForm({ ...contractForm, service_contracted: v })}
                   disabled={contractEditingId ? !canEdit : !canCreate}
-                />
+                >
+                  <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Assessoria">Assessoria</SelectItem>
+                    <SelectItem value="Consultoria">Consultoria</SelectItem>
+                    <SelectItem value="Google Meu Negócio">Google Meu Negócio</SelectItem>
+                    <SelectItem value="Site/Landing Page">Site/Landing Page</SelectItem>
+                    <SelectItem value="Automação IA">Automação IA</SelectItem>
+                    <SelectItem value="Captação Profissional">Captação Profissional</SelectItem>
+                    <SelectItem value="Desenvolvimento e Programação">Desenvolvimento e Programação</SelectItem>
+                    <SelectItem value="Lançamento">Lançamento</SelectItem>
+                    <SelectItem value="Parceria/Collab">Parceria/Collab</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div>
-                <Label>Data da contratação</Label>
-                <Input
-                  type="date"
-                  value={contractForm.contract_date}
-                  onChange={(e) => setContractForm({ ...contractForm, contract_date: e.target.value })}
+                <Label>Tipo de Contrato</Label>
+                <Select
+                  value={contractForm.contract_type}
+                  onValueChange={(v: "mensal" | "eventual") => setContractForm({ ...contractForm, contract_type: v })}
                   disabled={contractEditingId ? !canEdit : !canCreate}
-                  required
-                />
-              </div>
-              <div>
-                <Label>Duração (meses)</Label>
-                <Input
-                  type="number"
-                  value={contractForm.duration_months}
-                  onChange={(e) => setContractForm({ ...contractForm, duration_months: e.target.value })}
-                  min={1}
-                  disabled={contractEditingId ? !canEdit : !canCreate}
-                  required
-                />
-              </div>
-              <div>
-                <Label>Encerramento (calculado)</Label>
-                <Input
-                  value={
-                    contractForm.contract_date && Number(contractForm.duration_months || 0) > 0
-                      ? format(addMonths(new Date(contractForm.contract_date), Number(contractForm.duration_months)), "dd/MM/yyyy", { locale: ptBR })
-                      : "—"
-                  }
-                  readOnly
-                />
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="mensal">Mensal</SelectItem>
+                    <SelectItem value="eventual">Eventual</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <Label>Título</Label>
@@ -1614,12 +1633,54 @@ export default function ClientsPage() {
                   required
                 />
               </div>
+            </div>
 
+            {/* Linha 2: Data contratação, Duração, Encerramento */}
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <Label>Data da contratação</Label>
+                <Input
+                  type="date"
+                  value={contractForm.contract_date}
+                  onChange={(e) => setContractForm({ ...contractForm, contract_date: e.target.value })}
+                  disabled={contractEditingId ? !canEdit : !canCreate}
+                  required
+                />
+              </div>
+              {contractForm.contract_type === "mensal" && (
+                <div>
+                  <Label>Duração (meses)</Label>
+                  <Input
+                    type="number"
+                    value={contractForm.duration_months}
+                    onChange={(e) => setContractForm({ ...contractForm, duration_months: e.target.value })}
+                    min={1}
+                    disabled={contractEditingId ? !canEdit : !canCreate}
+                    required
+                  />
+                </div>
+              )}
+              {contractForm.contract_type === "mensal" && (
+                <div>
+                  <Label>Encerramento (calculado)</Label>
+                  <Input
+                    value={
+                      contractForm.contract_date && Number(contractForm.duration_months || 0) > 0
+                        ? format(addMonths(new Date(contractForm.contract_date), Number(contractForm.duration_months)), "dd/MM/yyyy", { locale: ptBR })
+                        : "—"
+                    }
+                    readOnly
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Linha 3: 1º pagamento */}
+            <div className="grid grid-cols-3 gap-4">
               <div>
                 <Label>Valor do 1º pagamento</Label>
                 <Input
-                  type="number"
-                  step="0.01"
+                  type="number" step="0.01"
                   value={contractForm.first_payment_value}
                   onChange={(e) => setContractForm({ ...contractForm, first_payment_value: e.target.value })}
                   disabled={contractEditingId ? !canEdit : !canCreate}
@@ -1632,60 +1693,13 @@ export default function ClientsPage() {
                   onValueChange={(v) => setContractForm({ ...contractForm, first_payment_installments: v })}
                   disabled={contractEditingId ? !canEdit : !canCreate}
                 >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {Array.from({ length: 12 }).map((_, i) => {
-                      const v = String(i + 1);
-                      return (
-                        <SelectItem key={v} value={v}>
-                          {v}x
-                        </SelectItem>
-                      );
-                    })}
+                    {Array.from({ length: 12 }).map((_, i) => (
+                      <SelectItem key={i + 1} value={String(i + 1)}>{i + 1}x</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
-              </div>
-              {Number(contractForm.first_payment_installments || 1) > 1 ? (
-                <div>
-                  <Label>Taxas (acréscimo)</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={contractForm.first_payment_fees}
-                    onChange={(e) => setContractForm({ ...contractForm, first_payment_fees: e.target.value })}
-                    disabled={contractEditingId ? !canEdit : !canCreate}
-                  />
-                </div>
-              ) : (
-                <div />
-              )}
-              {Number(contractForm.first_payment_installments || 1) > 1 ? (
-                <div>
-                  <Label>Valor por parcela (com taxas)</Label>
-                  <Input
-                    readOnly
-                    value={(() => {
-                      const installments = Math.min(12, Math.max(1, Number(contractForm.first_payment_installments || 1)));
-                      const base = Number(contractForm.first_payment_value || 0);
-                      const fees = Math.max(0, Number(contractForm.first_payment_fees || 0));
-                      const perInstallment = (base + fees) / installments;
-                      return `R$ ${perInstallment.toFixed(2).replace(".", ",")}`;
-                    })()}
-                  />
-                </div>
-              ) : (
-                <div />
-              )}
-              <div>
-                <Label>Data do 1º pagamento</Label>
-                <Input
-                  type="date"
-                  value={contractForm.first_payment_due_date}
-                  onChange={(e) => setContractForm({ ...contractForm, first_payment_due_date: e.target.value })}
-                  disabled={contractEditingId ? !canEdit : !canCreate}
-                />
               </div>
               <div>
                 <Label>Forma do 1º pagamento</Label>
@@ -1694,9 +1708,7 @@ export default function ClientsPage() {
                   onValueChange={(v) => setContractForm({ ...contractForm, first_payment_method: v })}
                   disabled={contractEditingId ? !canEdit : !canCreate}
                 >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="pix">PIX</SelectItem>
                     <SelectItem value="boleto">Boleto</SelectItem>
@@ -1706,26 +1718,96 @@ export default function ClientsPage() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            {/* Linha 4: Taxas, Valor por parcela, Data 1º pagamento */}
+            <div className="grid grid-cols-3 gap-4">
+              {Number(contractForm.first_payment_installments || 1) > 1 ? (
+                <div>
+                  <Label>Taxas (acréscimo)</Label>
+                  <Input
+                    type="number" step="0.01"
+                    value={contractForm.first_payment_fees}
+                    onChange={(e) => setContractForm({ ...contractForm, first_payment_fees: e.target.value })}
+                    disabled={contractEditingId ? !canEdit : !canCreate}
+                  />
+                </div>
+              ) : <div />}
+              {Number(contractForm.first_payment_installments || 1) > 1 ? (
+                <div>
+                  <Label>Valor por parcela (com taxas)</Label>
+                  <Input readOnly value={(() => {
+                    const inst = Math.min(12, Math.max(1, Number(contractForm.first_payment_installments || 1)));
+                    const base = Number(contractForm.first_payment_value || 0);
+                    const fees = Math.max(0, Number(contractForm.first_payment_fees || 0));
+                    return `R$ ${((base + fees) / inst).toFixed(2).replace(".", ",")}`;
+                  })()} />
+                </div>
+              ) : <div />}
               <div>
-                <Label>Valor do restante do contrato (mensal)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={contractForm.recurring_value}
-                  onChange={(e) => setContractForm({ ...contractForm, recurring_value: e.target.value })}
-                  disabled={contractEditingId ? !canEdit : !canCreate}
-                />
-              </div>
-              <div>
-                <Label>Vencimento dos demais pagamentos</Label>
+                <Label>Data do 1º pagamento</Label>
                 <Input
                   type="date"
-                  value={contractForm.recurring_due_date}
-                  onChange={(e) => setContractForm({ ...contractForm, recurring_due_date: e.target.value })}
+                  value={contractForm.first_payment_due_date}
+                  onChange={(e) => setContractForm({ ...contractForm, first_payment_due_date: e.target.value })}
                   disabled={contractEditingId ? !canEdit : !canCreate}
                 />
               </div>
             </div>
+
+            {/* Linha 5: Campos mensais (ocultos se eventual) */}
+            {contractForm.contract_type === "mensal" && (
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <Label>Valor mensal (demais pagamentos)</Label>
+                  <Input
+                    type="number" step="0.01"
+                    value={contractForm.recurring_value}
+                    onChange={(e) => setContractForm({ ...contractForm, recurring_value: e.target.value })}
+                    disabled={contractEditingId ? !canEdit : !canCreate}
+                  />
+                </div>
+                <div>
+                  <Label>Vencimento dos demais pagamentos</Label>
+                  <Input
+                    type="date"
+                    value={contractForm.recurring_due_date}
+                    onChange={(e) => setContractForm({ ...contractForm, recurring_due_date: e.target.value })}
+                    disabled={contractEditingId ? !canEdit : !canCreate}
+                  />
+                </div>
+                <div>
+                  <Label>Forma de pagamento mensal</Label>
+                  <Select
+                    value={contractForm.recurring_payment_method}
+                    onValueChange={(v) => setContractForm({ ...contractForm, recurring_payment_method: v })}
+                    disabled={contractEditingId ? !canEdit : !canCreate}
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pix">PIX</SelectItem>
+                      <SelectItem value="boleto">Boleto</SelectItem>
+                      <SelectItem value="cartao">Cartão</SelectItem>
+                      <SelectItem value="transferencia">Transferência</SelectItem>
+                      <SelectItem value="outro">Outro</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+
+            {/* Observação — linha inteira */}
+            <div>
+              <Label>Observação</Label>
+              <Textarea
+                value={contractForm.notes}
+                onChange={(e) => setContractForm({ ...contractForm, notes: e.target.value })}
+                placeholder="Observações sobre o contrato..."
+                disabled={contractEditingId ? !canEdit : !canCreate}
+                rows={3}
+              />
+            </div>
+
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setContractModalOpen(false)}>
                 Cancelar
