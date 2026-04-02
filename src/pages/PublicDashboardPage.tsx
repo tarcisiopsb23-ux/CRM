@@ -99,42 +99,29 @@ export function PublicDashboardPage() {
         }
       }
       if (parsedData.id) {
-        // Busca todos os contratos do cliente
-        const { data: allContracts } = await supabase
+        // Busca contratos do cliente incluindo is_dashboard_reference
+        const { data: allContracts, error: contractsError } = await supabase
           .from("contracts")
-          .select("start_date, contract_date")
+          .select("id, start_date, contract_date, is_dashboard_reference")
           .eq("client_id", parsedData.id)
           .order("start_date", { ascending: true });
 
-        console.log('[Dashboard] allContracts:', allContracts);
+        console.log('[Dashboard] allContracts:', allContracts, 'error:', contractsError);
 
-        // Tenta buscar o marcado como referência de dashboard
-        let refContract: any = null;
-        try {
-          const { data: refContracts } = await supabase
-            .from("contracts")
-            .select("start_date, contract_date, is_dashboard_reference")
-            .eq("client_id", parsedData.id)
-            .eq("is_dashboard_reference", true)
-            .limit(1);
-          console.log('[Dashboard] refContracts (is_dashboard_reference=true):', refContracts);
-          refContract = refContracts?.[0] ?? null;
-        } catch (e) {
-          console.warn('[Dashboard] is_dashboard_reference column not found:', e);
-        }
+        if (allContracts && allContracts.length > 0) {
+          // Prioridade: contrato marcado como referência de dashboard
+          const refContract = allContracts.find((c: any) => c.is_dashboard_reference === true)
+            ?? allContracts[0];
 
-        // Fallback: primeiro contrato
-        const contract = refContract ?? (allContracts ?? [])[0] ?? null;
-        console.log('[Dashboard] contract chosen:', contract);
+          console.log('[Dashboard] refContract chosen:', refContract);
 
-        if (contract) {
-          const rawDate = String(contract.contract_date ?? contract.start_date).substring(0, 10);
+          const rawDate = String(refContract.contract_date ?? refContract.start_date).substring(0, 10);
           const contractDate = parseISO(rawDate);
           const effectiveStart = startOfMonth(contractDate);
-          console.log('[Dashboard] rawDate:', rawDate, '→ contractDate:', contractDate, '→ effectiveStart:', effectiveStart);
+          console.log('[Dashboard] rawDate:', rawDate, '→ effectiveStart:', effectiveStart.toISOString());
           setContractStartDate(effectiveStart);
         } else {
-          console.warn('[Dashboard] No contract found for client', parsedData.id);
+          console.warn('[Dashboard] No contracts found for client', parsedData.id);
         }
       }
       setLoading(false);
