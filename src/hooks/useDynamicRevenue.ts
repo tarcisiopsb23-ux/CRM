@@ -31,9 +31,11 @@ export function useDynamicRevenue(organizationId?: string, clientId?: string) {
       // Filtra apenas registros de KPIs de faturamento (unit currency ou nome contendo "faturamento")
       const revenueRecords = (data as Array<{
         value: number;
-        client_kpis: { unit: string; name: string };
+        client_kpis: { unit: string; name: string } | { unit: string; name: string }[];
       }>).filter((row) => {
-        const kpi = row.client_kpis;
+        const kpiRaw = row.client_kpis;
+        const kpi = Array.isArray(kpiRaw) ? kpiRaw[0] : kpiRaw;
+        if (!kpi) return false;
         const isCurrency = kpi.unit === "currency";
         const isFaturamento = kpi.name.toLowerCase().includes("faturamento");
         return isCurrency || isFaturamento;

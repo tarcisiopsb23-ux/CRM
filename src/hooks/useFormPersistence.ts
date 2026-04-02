@@ -13,7 +13,7 @@ import { useState, useEffect, useCallback } from 'react';
 function useFormPersistence<T>(
   key: string,
   initialValue: T
-): [T, (v: T) => void, () => void] {
+): [T, (v: T | ((prev: T) => T)) => void, () => void] {
   const readFromStorage = useCallback((): T => {
     try {
       const raw = sessionStorage.getItem(key);
@@ -30,13 +30,16 @@ function useFormPersistence<T>(
   const [state, setStateInternal] = useState<T>(readFromStorage);
 
   const setState = useCallback(
-    (v: T) => {
-      setStateInternal(v);
-      try {
-        sessionStorage.setItem(key, JSON.stringify(v));
-      } catch {
-        // sessionStorage indisponível — continua sem persistência
-      }
+    (v: T | ((prev: T) => T)) => {
+      setStateInternal((prev) => {
+        const next = typeof v === 'function' ? (v as (prev: T) => T)(prev) : v;
+        try {
+          sessionStorage.setItem(key, JSON.stringify(next));
+        } catch {
+          // sessionStorage indisponível — continua sem persistência
+        }
+        return next;
+      });
     },
     [key]
   );
