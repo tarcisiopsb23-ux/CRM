@@ -62,6 +62,22 @@ export function useClientKPIs(organizationId?: string, clientId?: string) {
     },
   });
 
+  const update = useMutation({
+    mutationFn: async ({ id, name, unit, target_value }: { id: string; name: string; unit: string; target_value?: number | null }) => {
+      const { data, error } = await supabase
+        .from("client_kpis")
+        .update({ name, unit, target_value })
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["client_kpis_v2", organizationId, clientId] });
+    },
+  });
+
   const remove = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase.from("client_kpis").delete().eq("id", id);
@@ -73,7 +89,7 @@ export function useClientKPIs(organizationId?: string, clientId?: string) {
     },
   });
 
-  return { ...query, create, remove };
+  return { ...query, create, update, remove };
 }
 
 export function useClientKPIHistory(organizationId?: string, clientId?: string) {

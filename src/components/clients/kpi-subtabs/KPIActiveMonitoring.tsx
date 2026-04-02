@@ -1,10 +1,27 @@
 import { useState, useMemo, useEffect } from "react";
-import { useClientKPIs, useClientKPIHistory } from "@/hooks/useClientKPIs";
+import { useClientKPIs, useClientKPIHistory, ClientKPIHistory } from "@/hooks/useClientKPIs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { 
   format, 
   startOfMonth, 
@@ -14,7 +31,7 @@ import {
   getMonth
 } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Loader2, Plus, Calendar, TrendingUp } from "lucide-react";
+import { Loader2, Plus, Calendar, TrendingUp, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   Select,
@@ -28,7 +45,7 @@ import { KPISummary } from "./KPISummary";
 
 export function KPIActiveMonitoring({ organizationId, clientId, contractStartDate }: { organizationId: string, clientId: string, contractStartDate: Date | null }) {
   const { data: kpis = [], isLoading: loadingKPIs } = useClientKPIs(organizationId, clientId);
-  const { data: history = [], isLoading: loadingHistory, upsert } = useClientKPIHistory(organizationId, clientId);
+  const { data: history = [], isLoading: loadingHistory, upsert, update, remove } = useClientKPIHistory(organizationId, clientId);
   
   const [selectedKpiId, setSelectedKpiId] = useState<string>("resumo");
   const [selectedMonth, setSelectedMonth] = useState<string>(String(getMonth(new Date())));
@@ -36,7 +53,16 @@ export function KPIActiveMonitoring({ organizationId, clientId, contractStartDat
   const [kpiValue, setKpiValue] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Definir KPI selecionado inicial se não for resumo e houver KPIs
+  // Estado para dialog de edição
+  const [editEntry, setEditEntry] = useState<ClientKPIHistory | null>(null);
+  const [editValue, setEditValue] = useState<string>("");
+  const [editMonthYear, setEditMonthYear] = useState<string>("");
+  const [isEditing, setIsEditing] = useState(false);
+
+  // Estado para dialog de exclusão
+  const [deleteEntryId, setDeleteEntryId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   useEffect(() => {
     if (kpis.length > 0 && selectedKpiId !== "resumo" && !kpis.find(k => k.id === selectedKpiId)) {
       setSelectedKpiId("resumo");
@@ -60,7 +86,6 @@ export function KPIActiveMonitoring({ organizationId, clientId, contractStartDat
     const refDate = startOfMonth(new Date(Number(selectedYear), Number(selectedMonth), 1));
     const refDateKey = format(refDate, "yyyy-MM-dd");
 
-    // REGRA DE OURO: Não permitir registro antes do início do contrato
     if (contractStartDate && isBefore(refDate, contractStartDate)) {
       toast.error("Não é permitido registrar indicadores para meses anteriores ao início do contrato.", {
         description: `O contrato iniciou em ${format(contractStartDate, "MMMM yyyy", { locale: ptBR })}.`
@@ -78,17 +103,50 @@ export function KPIActiveMonitoring({ organizationId, clientId, contractStartDat
 
     setIsSubmitting(true);
     try {
-      await upsert.mutateAsync({
-        kpi_id: selectedKpiId,
-        month_year: refDateKey,
-        value: numValue
-      });
+      await upsert.mutateAsync({ kpi_id: selectedKpiId, month_year: refDateKey, value: numValue });
       toast.success("Registro adicionado com sucesso!");
       setKpiValue("");
-    } catch (err) {
+    } catch {
       toast.error("Erro ao salvar registro.");
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const openEdit = (entry: ClientKPIHistory) => {
+    setEditEntry(entry);
+    setEditValue(String(entry.value));
+    setEditMonthYear(entry.month_year);
+  };
+
+  const handleEdit = async () => {
+    if (!editEntry) return;
+    const cleanValue = editValue.replace(/[^\d.,]/g, "").replace(",", ".");
+    const numValue = parseFloat(cleanValue);
+    if (isNaN(numValue)) { toast.error("Valor inválido."); return; }
+    setIsEditing(true);
+    try {
+      await update.mutateAsync({ id: editEntry.id, value: numValue, month_year: editMonthYear });
+      toast.success("Registro atualizado!");
+      setEditEntry(null);
+    } catch {
+      toast.error("Erro ao atualizar registro.");
+    } finally {
+      setIsEditing(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteEntryId) return;
+    setIsDeleting(true);
+    try {
+      await remove.mutateAsync(deleteEntryId);
+      toast.success("Registro excluído.");
+      setDeleteEntryId(null);
+    } catch {
+      toast.error("Erro ao excluir registro.");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -100,6 +158,13 @@ export function KPIActiveMonitoring({ organizationId, clientId, contractStartDat
   }, [history, selectedKpiId]);
 
   const activeKpi = useMemo(() => kpis.find(k => k.id === selectedKpiId), [kpis, selectedKpiId]);
+
+  const fmtValue = (value: number, unit: string) =>
+    unit === 'currency'
+      ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
+      : unit === 'percentage'
+        ? `${value.toLocaleString('pt-BR')}%`
+        : value.toLocaleString('pt-BR');
 
   if (loadingKPIs || loadingHistory) {
     return (
@@ -131,18 +196,11 @@ export function KPIActiveMonitoring({ organizationId, clientId, contractStartDat
       <Tabs value={selectedKpiId} onValueChange={setSelectedKpiId} className="w-full">
         <div className="flex overflow-x-auto pb-2 scrollbar-none">
           <TabsList className="bg-muted/50 p-1 h-auto flex-nowrap">
-            <TabsTrigger 
-              value="resumo"
-              className="px-4 py-2 text-xs font-bold uppercase tracking-tight data-[state=active]:bg-[#2D8CC7] data-[state=active]:text-white transition-all whitespace-nowrap"
-            >
+            <TabsTrigger value="resumo" className="px-4 py-2 text-xs font-bold uppercase tracking-tight data-[state=active]:bg-[#2D8CC7] data-[state=active]:text-white transition-all whitespace-nowrap">
               Resumo Geral
             </TabsTrigger>
             {kpis.map(kpi => (
-              <TabsTrigger 
-                key={kpi.id} 
-                value={kpi.id}
-                className="px-4 py-2 text-xs font-bold uppercase tracking-tight data-[state=active]:bg-[#2D8CC7] data-[state=active]:text-white transition-all whitespace-nowrap"
-              >
+              <TabsTrigger key={kpi.id} value={kpi.id} className="px-4 py-2 text-xs font-bold uppercase tracking-tight data-[state=active]:bg-[#2D8CC7] data-[state=active]:text-white transition-all whitespace-nowrap">
                 {kpi.name}
               </TabsTrigger>
             ))}
@@ -150,17 +208,11 @@ export function KPIActiveMonitoring({ organizationId, clientId, contractStartDat
         </div>
 
         <TabsContent value="resumo" className="mt-6">
-          <KPISummary 
-            organizationId={organizationId} 
-            clientId={clientId} 
-            contractStartDate={contractStartDate}
-            mode="active"
-          />
+          <KPISummary organizationId={organizationId} clientId={clientId} contractStartDate={contractStartDate} mode="active" />
         </TabsContent>
 
         {kpis.map(kpi => (
           <TabsContent key={kpi.id} value={kpi.id} className="mt-6 space-y-6">
-            {/* Form de Registro */}
             <Card className="border-border shadow-sm">
               <CardHeader className="py-4 border-b bg-muted/5">
                 <CardTitle className="text-base flex items-center gap-2">
@@ -174,43 +226,27 @@ export function KPIActiveMonitoring({ organizationId, clientId, contractStartDat
                   <div className="space-y-2 min-w-[150px]">
                     <label className="text-[10px] font-black uppercase text-muted-foreground">Mês</label>
                     <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-                      <SelectTrigger className="h-10 bg-muted/20">
-                        <SelectValue />
-                      </SelectTrigger>
+                      <SelectTrigger className="h-10 bg-muted/20"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {months.map((m, i) => (
-                          <SelectItem key={i} value={String(i)}>{m}</SelectItem>
-                        ))}
+                        {months.map((m, i) => <SelectItem key={i} value={String(i)}>{m}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
-
                   <div className="space-y-2 min-w-[100px]">
                     <label className="text-[10px] font-black uppercase text-muted-foreground">Ano</label>
                     <Select value={selectedYear} onValueChange={setSelectedYear}>
-                      <SelectTrigger className="h-10 bg-muted/20">
-                        <SelectValue />
-                      </SelectTrigger>
+                      <SelectTrigger className="h-10 bg-muted/20"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {years.map(y => (
-                          <SelectItem key={y} value={y}>{y}</SelectItem>
-                        ))}
+                        {years.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
-
                   <div className="space-y-2 flex-1 min-w-[150px]">
                     <label className="text-[10px] font-black uppercase text-muted-foreground">
                       Valor ({kpi.unit === 'currency' ? 'R$' : kpi.unit === 'percentage' ? '%' : 'Nº'})
                     </label>
-                    <Input 
-                      placeholder="0,00"
-                      value={kpiValue}
-                      onChange={(e) => setKpiValue(e.target.value)}
-                      className="h-10 bg-muted/20 font-bold"
-                    />
+                    <Input placeholder="0,00" value={kpiValue} onChange={(e) => setKpiValue(e.target.value)} className="h-10 bg-muted/20 font-bold" />
                   </div>
-
                   <Button type="submit" className="h-10 bg-[#2D8CC7] hover:bg-[#2D8CC7]/90 px-6 font-bold" disabled={isSubmitting || !kpiValue}>
                     {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
                     Registrar
@@ -219,7 +255,6 @@ export function KPIActiveMonitoring({ organizationId, clientId, contractStartDat
               </CardContent>
             </Card>
 
-            {/* Tabela de Histórico */}
             <Card className="border-border shadow-sm overflow-hidden">
               <CardHeader className="py-4 border-b bg-muted/5">
                 <CardTitle className="text-base">Relatório de Evolução</CardTitle>
@@ -232,12 +267,13 @@ export function KPIActiveMonitoring({ organizationId, clientId, contractStartDat
                       <TableHead className="font-black uppercase text-[10px] text-slate-500">Mês de Referência</TableHead>
                       <TableHead className="font-black uppercase text-[10px] text-slate-500 text-right">Resultado</TableHead>
                       <TableHead className="font-black uppercase text-[10px] text-slate-500 text-center">Status</TableHead>
+                      <TableHead className="font-black uppercase text-[10px] text-slate-500 text-right">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {currentKpiHistory.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={3} className="h-24 text-center text-muted-foreground text-sm">
+                        <TableCell colSpan={4} className="h-24 text-center text-muted-foreground text-sm">
                           Nenhum registro encontrado para este KPI.
                         </TableCell>
                       </TableRow>
@@ -245,30 +281,30 @@ export function KPIActiveMonitoring({ organizationId, clientId, contractStartDat
                       currentKpiHistory.map((entry) => {
                         const date = parseISO(entry.month_year);
                         const isPreContract = contractStartDate ? isBefore(date, contractStartDate) : false;
-                        
                         return (
                           <TableRow key={entry.id} className="hover:bg-muted/10 transition-colors">
                             <TableCell className="font-bold text-slate-700">
                               {format(date, "MMMM yyyy", { locale: ptBR })}
                             </TableCell>
                             <TableCell className="text-right font-black text-slate-900">
-                              {kpi.unit === 'currency' 
-                                ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(entry.value)
-                                : kpi.unit === 'percentage'
-                                  ? `${entry.value.toLocaleString('pt-BR')}%`
-                                  : entry.value.toLocaleString('pt-BR')
-                              }
+                              {fmtValue(entry.value, kpi.unit)}
                             </TableCell>
                             <TableCell className="text-center">
                               {isPreContract ? (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-black uppercase bg-amber-100 text-amber-700">
-                                  Histórico Pré
-                                </span>
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-black uppercase bg-amber-100 text-amber-700">Histórico Pré</span>
                               ) : (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-black uppercase bg-emerald-100 text-emerald-700">
-                                  Vigência
-                                </span>
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-black uppercase bg-emerald-100 text-emerald-700">Vigência</span>
                               )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-[#2D8CC7]" onClick={() => openEdit(entry)}>
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => setDeleteEntryId(entry.id)}>
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
                             </TableCell>
                           </TableRow>
                         );
@@ -281,6 +317,73 @@ export function KPIActiveMonitoring({ organizationId, clientId, contractStartDat
           </TabsContent>
         ))}
       </Tabs>
+
+      {/* Dialog de Edição */}
+      <Dialog open={!!editEntry} onOpenChange={(open) => { if (!open) setEditEntry(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar Registro</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase text-muted-foreground">Mês de Referência</label>
+              <Select value={editMonthYear ? String(getMonth(parseISO(editMonthYear))) : ""} onValueChange={(m) => {
+                if (!editMonthYear) return;
+                const y = getYear(parseISO(editMonthYear));
+                setEditMonthYear(format(startOfMonth(new Date(y, Number(m), 1)), "yyyy-MM-dd"));
+              }}>
+                <SelectTrigger className="h-10 bg-muted/20"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {months.map((m, i) => <SelectItem key={i} value={String(i)}>{m}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase text-muted-foreground">Ano</label>
+              <Select value={editMonthYear ? String(getYear(parseISO(editMonthYear))) : ""} onValueChange={(y) => {
+                if (!editMonthYear) return;
+                const m = getMonth(parseISO(editMonthYear));
+                setEditMonthYear(format(startOfMonth(new Date(Number(y), m, 1)), "yyyy-MM-dd"));
+              }}>
+                <SelectTrigger className="h-10 bg-muted/20"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {years.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase text-muted-foreground">Valor</label>
+              <Input value={editValue} onChange={(e) => setEditValue(e.target.value)} className="h-10 bg-muted/20 font-bold" placeholder="0,00" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditEntry(null)}>Cancelar</Button>
+            <Button className="bg-[#2D8CC7] hover:bg-[#2D8CC7]/90" onClick={handleEdit} disabled={isEditing}>
+              {isEditing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Salvar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* AlertDialog de Exclusão */}
+      <AlertDialog open={!!deleteEntryId} onOpenChange={(open) => { if (!open) setDeleteEntryId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir Registro</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir este registro? Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive hover:bg-destructive/90" onClick={handleDelete} disabled={isDeleting}>
+              {isDeleting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -1,31 +1,33 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 
 /**
- * Hook para persistir estado de formulário no sessionStorage.
+ * Hook para persistir estado de formulário no localStorage.
+ *
+ * Usa localStorage para que os dados sobrevivam a trocas de aba,
+ * minimização de janela e alternância entre programas.
  *
  * @param key - Chave única para identificar o formulário (ex: "form_lead_new")
  * @param initialValue - Valor inicial caso não haja dado persistido
  * @returns [state, setState, clear]
  *   - state: valor atual
- *   - setState: atualiza o estado e persiste no sessionStorage
- *   - clear: remove a chave do sessionStorage e reseta para initialValue
+ *   - setState: atualiza o estado e persiste no localStorage (aceita valor ou função updater)
+ *   - clear: remove a chave do localStorage e reseta para initialValue
  */
 function useFormPersistence<T>(
   key: string,
   initialValue: T
 ): [T, (v: T | ((prev: T) => T)) => void, () => void] {
-  const readFromStorage = useCallback((): T => {
+  const readFromStorage = (): T => {
     try {
-      const raw = sessionStorage.getItem(key);
+      const raw = localStorage.getItem(key);
       if (raw !== null) {
         return JSON.parse(raw) as T;
       }
     } catch {
-      // sessionStorage indisponível ou JSON inválido — degradação graciosa
+      // localStorage indisponível ou JSON inválido — degradação graciosa
     }
     return initialValue;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  };
 
   const [state, setStateInternal] = useState<T>(readFromStorage);
 
@@ -34,9 +36,9 @@ function useFormPersistence<T>(
       setStateInternal((prev) => {
         const next = typeof v === 'function' ? (v as (prev: T) => T)(prev) : v;
         try {
-          sessionStorage.setItem(key, JSON.stringify(next));
+          localStorage.setItem(key, JSON.stringify(next));
         } catch {
-          // sessionStorage indisponível — continua sem persistência
+          // localStorage indisponível — continua sem persistência
         }
         return next;
       });
@@ -47,38 +49,10 @@ function useFormPersistence<T>(
   const clear = useCallback(() => {
     setStateInternal(initialValue);
     try {
-      sessionStorage.removeItem(key);
+      localStorage.removeItem(key);
     } catch {
-      // sessionStorage indisponível
+      // localStorage indisponível
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-
-  // Limpar em refresh (beforeunload)
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      try {
-        sessionStorage.removeItem(key);
-      } catch {
-        // sessionStorage indisponível
-      }
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [key]);
-
-  // Limpar ao navegar para trás (popstate)
-  useEffect(() => {
-    const handlePopState = () => {
-      try {
-        sessionStorage.removeItem(key);
-      } catch {
-        // sessionStorage indisponível
-      }
-      setStateInternal(initialValue);
-    };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 

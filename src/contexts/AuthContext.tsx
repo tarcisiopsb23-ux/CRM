@@ -260,15 +260,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let timeoutId: NodeJS.Timeout;
-    const INACTIVITY_LIMIT = 5 * 60 * 1000; // 5 minutos
+    const INACTIVITY_LIMIT = 30 * 60 * 1000; // 30 minutos
 
-    const resetTimer = () => {
+    const startTimer = () => {
       if (timeoutId) clearTimeout(timeoutId);
       if (user) {
         timeoutId = setTimeout(() => {
-          console.log("[Auth] Logout por inatividade (5 minutos)");
+          console.log("[Auth] Logout por inatividade (30 minutos)");
           signOut();
         }, INACTIVITY_LIMIT);
+      }
+    };
+
+    const resetTimer = () => {
+      // Só reinicia o timer se a aba estiver visível
+      if (document.visibilityState === 'visible') {
+        startTimer();
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        // Pausa o timer quando o usuário sai da aba
+        if (timeoutId) clearTimeout(timeoutId);
+      } else {
+        // Retoma o timer quando o usuário volta para a aba
+        startTimer();
       }
     };
 
@@ -276,12 +293,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     
     if (user) {
       events.forEach(event => window.addEventListener(event, resetTimer));
-      resetTimer();
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      startTimer();
     }
 
     return () => {
       if (timeoutId) clearTimeout(timeoutId);
       events.forEach(event => window.removeEventListener(event, resetTimer));
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [user, signOut]);
 
