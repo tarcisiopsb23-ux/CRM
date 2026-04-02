@@ -9,6 +9,26 @@ const VALID_EVENT_TYPES: EventType[] = ["reuniao", "ligacao", "entrega", "lembre
 const asEventType = (s: string): EventType => (VALID_EVENT_TYPES.includes(s as EventType) ? (s as EventType) : "outro");
 
 /** Dispara webhook do Google Calendar no n8n (fire-and-forget) */
+async function fireCalendarWebhook(
+  config: N8nConfig | undefined,
+  action: "create" | "update" | "delete",
+  event: Partial<EventRow> & { id?: string }
+) {
+  const url = config?.calendarWebhookUrl?.trim();
+  if (!url) return;
+  try {
+    await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(config?.apiKey ? { "x-api-key": config.apiKey, Authorization: `Bearer ${config.apiKey}` } : {}),
+      },
+      body: JSON.stringify({ action, event }),
+    });
+  } catch {
+    // fire-and-forget — não bloqueia o fluxo principal
+  }
+}
 
 /** Evento compatível com o schema events do DB. `type` é alias de `event_type` para compatibilidade com Agenda */
 export interface EventRow {

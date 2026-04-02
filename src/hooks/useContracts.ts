@@ -117,6 +117,7 @@ export function useCreateContract(organizationId: string | undefined) {
       first_payment_fees?: number;
       recurring_value: number;
       recurring_due_date: string;
+      metadata?: Record<string, unknown>;
     }) => {
       if (!organizationId) throw new Error("Sem organização");
 
@@ -147,6 +148,7 @@ export function useCreateContract(organizationId: string | undefined) {
         first_payment_split: false,
         first_payment_second_due_date: null,
         recurring_due_date: input.recurring_due_date,
+        ...(input.metadata ? { metadata: toJson(input.metadata) } : {}),
       };
 
       const { data: contract, error: contractError } = await supabaseUntyped
