@@ -153,17 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       keysToRemove.forEach((k) => localStorage.removeItem(k));
 
-      // Remover todas as chaves de formulário persistidas (prefixo form_)
-      try {
-        const formKeys: string[] = [];
-        for (let i = 0; i < sessionStorage.length; i++) {
-          const k = sessionStorage.key(i);
-          if (k && k.startsWith('form_')) formKeys.push(k);
-        }
-        formKeys.forEach((k) => sessionStorage.removeItem(k));
-      } catch {
-        // sessionStorage indisponível — ignorar
-      }
+      // Remover todas as chaves de formulário persistidas (prefixo form_) — já cobertas pela limpeza do localStorage acima
       
       // Limpar cookies do Supabase
       const cookies = document.cookie.split(";");
@@ -260,47 +250,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let timeoutId: NodeJS.Timeout;
-    const INACTIVITY_LIMIT = 30 * 60 * 1000; // 30 minutos
+    const INACTIVITY_LIMIT = 5 * 60 * 1000; // 5 minutos
 
-    const startTimer = () => {
+    const resetTimer = () => {
       if (timeoutId) clearTimeout(timeoutId);
       if (user) {
         timeoutId = setTimeout(() => {
-          console.log("[Auth] Logout por inatividade (30 minutos)");
+          console.log("[Auth] Logout por inatividade (5 minutos)");
           signOut();
         }, INACTIVITY_LIMIT);
       }
     };
 
-    const resetTimer = () => {
-      // Só reinicia o timer se a aba estiver visível
-      if (document.visibilityState === 'visible') {
-        startTimer();
-      }
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
-        // Pausa o timer quando o usuário sai da aba
-        if (timeoutId) clearTimeout(timeoutId);
-      } else {
-        // Retoma o timer quando o usuário volta para a aba
-        startTimer();
-      }
-    };
-
     const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
-    
+
     if (user) {
       events.forEach(event => window.addEventListener(event, resetTimer));
-      document.addEventListener('visibilitychange', handleVisibilityChange);
-      startTimer();
+      resetTimer();
     }
 
     return () => {
       if (timeoutId) clearTimeout(timeoutId);
       events.forEach(event => window.removeEventListener(event, resetTimer));
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [user, signOut]);
 
