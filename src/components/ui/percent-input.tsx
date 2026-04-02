@@ -38,7 +38,9 @@ export const PercentInput = forwardRef<HTMLInputElement, PercentInputProps>(
       const normalized = raw.replace(/[^0-9,.-]/g, "").replace(".", ",");
       // Garante no máximo uma vírgula
       const parts = normalized.split(",");
-      const cleaned = parts.length > 2 ? parts[0] + "," + parts.slice(1).join("") : normalized;
+      const intPart = parts[0];
+      const decPart = parts.length > 1 ? parts.slice(1).join("").substring(0, 2) : undefined;
+      const cleaned = decPart !== undefined ? `${intPart},${decPart}` : intPart;
       setDisplay(cleaned);
       // Passa para o onChange o valor com ponto (padrão JS)
       onChange(cleaned.replace(",", "."));
