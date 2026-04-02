@@ -58,11 +58,16 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
   );
 
   useEffect(() => {
-    supabase.from("contracts").select("start_date")
-      .eq("organization_id", organizationId).eq("client_id", clientId)
-      .order("start_date", { ascending: true }).limit(1)
+    supabase.from("contracts")
+      .select("start_date, contract_date, is_dashboard_reference")
+      .eq("organization_id", organizationId)
+      .eq("client_id", clientId)
+      .order("start_date", { ascending: true })
       .then(({ data }) => {
-        if (data?.[0]?.start_date) setContractStartDate(parseISO(data[0].start_date));
+        if (!data || data.length === 0) return;
+        const ref = data.find((c: any) => c.is_dashboard_reference) ?? data[0];
+        const raw = String(ref.contract_date ?? ref.start_date).substring(0, 10);
+        setContractStartDate(startOfMonth(parseISO(raw)));
       });
   }, [organizationId, clientId]);
 
@@ -101,17 +106,35 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
     return String(v);
   };
 
-  // KPI cards — mês atual vs anterior
+  // KPI cards — mesmo padrão do public/dashboard
   const kpiCards = useMemo(() => {
-    const currentKey = format(new Date(), "yyyy-MM");
-    const prevKey = format(subMonths(new Date(), 1), "yyyy-MM");
+    const contractStart = contractStartDate ? startOfMonth(contractStartDate) : null;
     return kpisArr.map((kpi, idx) => {
-      const current = historyArr.find(h => h.kpi_id === kpi.id && String(h.month_year).startsWith(currentKey))?.value ?? null;
-      const prev = historyArr.find(h => h.kpi_id === kpi.id && String(h.month_year).startsWith(prevKey))?.value ?? null;
-      const growth = current !== null && prev !== null && prev !== 0 ? ((current - prev) / prev) * 100 : null;
+      const history = historyArr
+        .filter((h: any) => h.kpi_id === kpi.id)
+        .sort((a: any, b: any) => String(b.month_year).localeCompare(String(a.month_year)));
+
+      const postHistory = contractStart
+        ? history.filter((h: any) => !isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), contractStart))
+        : history;
+      const preHistory = contractStart
+        ? history.filter((h: any) => isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), contractStart))
+        : [];
+
+      if (postHistory.length === 0) {
+        return { ...kpi, current: null, prev: null, growth: null, color: KPI_COLORS[idx % KPI_COLORS.length] };
+      }
+
+      const currentEntry = postHistory[0];
+      const current = currentEntry?.value ?? null;
+      let prevEntry = postHistory[1] ?? null;
+      if (!prevEntry && preHistory.length > 0) prevEntry = preHistory[0];
+      const prev = prevEntry?.value ?? null;
+      const growth = current !== null && prev !== null && prev !== 0
+        ? ((current - prev) / prev) * 100 : null;
       return { ...kpi, current, prev, growth, color: KPI_COLORS[idx % KPI_COLORS.length] };
     });
-  }, [kpisArr, historyArr]);
+  }, [kpisArr, historyArr, contractStartDate]);
 
   // Sparkline (6 meses) por KPI
   const kpiSparkline = useMemo(() => {
@@ -131,54 +154,75 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
   const selectedColor = selectedKpi ? KPI_COLORS[kpisArr.indexOf(selectedKpi) % KPI_COLORS.length] : "#2D8CC7";
 
   const longTermData = useMemo(() => {
+    const contractStart = contractStartDate ? startOfMonth(contractStartDate) : null;
     return Array.from({ length: 12 }).map((_, i) => {
-      const month = subMonths(new Date(), 11 - i);
+      const month = startOfMonth(subMonths(new Date(), 11 - i));
       const monthStr = format(month, "yyyy-MM");
-      const isVigencia = contractStartDate ? !isBefore(month, startOfMonth(contractStartDate)) : true;
+      const isVigencia = contractStart ? !isBefore(month, contractStart) : false;
       const point: any = { name: format(month, "MMM/yy", { locale: ptBR }), isVigencia };
       kpisArr.forEach(kpi => {
-        const h = historyArr.find(h => h.kpi_id === kpi.id && String(h.month_year).startsWith(monthStr));
+        const h = historyArr.find((h: any) => h.kpi_id === kpi.id && String(h.month_year).substring(0, 7) === monthStr);
         point[kpi.name] = h ? h.value : null;
       });
       return point;
     });
   }, [kpisArr, historyArr, contractStartDate]);
 
-  // Impacto da parceria
+  // Impacto da parceria — mesmo padrão do public/dashboard
   const partnershipImpact = useMemo(() => {
     if (!contractStartDate || historyArr.length === 0) return [];
+    const splitDate = startOfMonth(contractStartDate);
     return kpisArr.map(kpi => {
-      const pre = historyArr.filter(h => h.kpi_id === kpi.id && isBefore(parseISO(h.month_year), startOfMonth(contractStartDate)));
-      const post = historyArr.filter(h => h.kpi_id === kpi.id && !isBefore(parseISO(h.month_year), startOfMonth(contractStartDate)));
+      const kpiEntries = historyArr
+        .filter((h: any) => h.kpi_id === kpi.id)
+        .sort((a: any, b: any) => String(a.month_year).localeCompare(String(b.month_year)));
+      if (kpiEntries.length < 2) return null;
+      const pre = kpiEntries.filter((h: any) => isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), splitDate));
+      const post = kpiEntries.filter((h: any) => !isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), splitDate));
       if (pre.length === 0 || post.length === 0) return null;
-      const preAvg = pre.reduce((a: number, h: any) => a + h.value, 0) / pre.length;
-      const postAvg = post.reduce((a: number, h: any) => a + h.value, 0) / post.length;
-      return { name: kpi.name, unit: kpi.unit, pre: preAvg, post: postAvg, growth: preAvg !== 0 ? ((postAvg - preAvg) / preAvg) * 100 : null };
+      const preLast12 = pre.slice(-12);
+      const preAvg = preLast12.reduce((a: number, h: any) => a + Number(h.value), 0) / preLast12.length;
+      const postAvg = post.reduce((a: number, h: any) => a + Number(h.value), 0) / post.length;
+      return { name: kpi.name, unit: kpi.unit, pre: preAvg, post: postAvg, postMonths: post.length, growth: preAvg !== 0 ? ((postAvg - preAvg) / preAvg) * 100 : null };
     }).filter(Boolean);
   }, [kpisArr, historyArr, contractStartDate]);
 
-  // Comparativo de performance
+  // Comparativo de performance — mesmo padrão do public/dashboard
   const perfRows = useMemo(() => {
-    const currentKey = format(new Date(), "yyyy-MM");
+    const contractStart = contractStartDate ? startOfMonth(contractStartDate) : null;
+    const fmtRow = (v: number, unit: string) =>
+      unit === "currency" ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(v)
+      : unit === "percentage" ? `${v.toFixed(2)}%` : String(v);
     return kpisArr.map(kpi => {
-      const history = historyArr.filter(h => h.kpi_id === kpi.id);
-      const current = history.find(h => String(h.month_year).startsWith(currentKey))?.value ?? null;
-      const avg = history.length > 0 ? history.reduce((a: number, h: any) => a + h.value, 0) / history.length : null;
+      const all = historyArr
+        .filter((h: any) => h.kpi_id === kpi.id)
+        .sort((a: any, b: any) => String(b.month_year).localeCompare(String(a.month_year)));
+      const postHistory = contractStart
+        ? all.filter((h: any) => !isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), contractStart))
+        : all;
+      const preHistory = contractStart
+        ? all.filter((h: any) => isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), contractStart))
+        : [];
+      const preLast12 = preHistory.slice(0, 12);
+      const preAvg = preLast12.length > 0 ? preLast12.reduce((a: number, h: any) => a + Number(h.value), 0) / preLast12.length : null;
+      const postLast12 = postHistory.slice(0, 12);
+      const postAvg = postLast12.length > 0 ? postLast12.reduce((a: number, h: any) => a + Number(h.value), 0) / postLast12.length : null;
+      const displayCurrent = postAvg ?? postHistory[0]?.value ?? null;
       const target = kpi.target_value ?? null;
-      const vsAvg = current !== null && avg !== null && avg !== 0 ? ((current - avg) / avg) * 100 : null;
-      const pctMeta = current !== null && target !== null && target !== 0 ? (current / target) * 100 : null;
+      const vsAvg = displayCurrent !== null && preAvg !== null && preAvg !== 0 ? ((displayCurrent - preAvg) / preAvg) * 100 : null;
+      const pctMeta = displayCurrent !== null && target !== null && target !== 0 ? (displayCurrent / target) * 100 : null;
       const lower = isLowerBetter(kpi.name);
       let status = "Sem dados";
-      if (vsAvg !== null) {
+      if (displayCurrent !== null) {
         if (pctMeta !== null && (lower ? pctMeta <= 100 : pctMeta >= 100)) status = "Meta atingida";
         else if (pctMeta !== null && (lower ? pctMeta <= 105 : pctMeta >= 90)) status = "Próximo da meta";
-        else if (lower ? vsAvg <= -5 : vsAvg >= 5) status = "Acima da média";
-        else if (lower ? vsAvg >= 5 : vsAvg <= -5) status = "Abaixo da média";
-        else status = "Na média";
+        else if (vsAvg !== null && (lower ? vsAvg <= -5 : vsAvg >= 5)) status = "Acima da média";
+        else if (vsAvg !== null && (lower ? vsAvg >= 5 : vsAvg <= -5)) status = "Abaixo da média";
+        else if (vsAvg !== null) status = "Na média";
       }
-      return { kpi, current, avg, target, vsAvg, pctMeta, status };
+      return { kpi, current: displayCurrent, preAvg, target, vsAvg, pctMeta, status, fmt: fmtRow };
     });
-  }, [kpisArr, historyArr]);
+  }, [kpisArr, historyArr, contractStartDate]);
 
   // Consolidado mensal (12 meses)
   const consolidadoMonths = useMemo(() =>
@@ -426,6 +470,11 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
                       <p className="text-2xl font-black text-slate-900 mt-1">
                         {kpi.current !== null ? fmtVal(kpi.current, kpi.unit) : <span className="text-slate-300">—</span>}
                       </p>
+                      {kpi.prev !== null ? (
+                        <p className="text-[10px] text-slate-400 mt-1">Anterior: <span className="font-bold">{fmtVal(kpi.prev, kpi.unit)}</span></p>
+                      ) : (
+                        <p className="text-[10px] text-slate-300 mt-1">Mês atual vs anterior</p>
+                      )}
                     </div>
                     <div className="h-10">
                       <ResponsiveContainer width="100%" height="100%">
@@ -580,7 +629,7 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {perfRows.map(({ kpi, current, avg, target, vsAvg, pctMeta, status }) => {
+                    {perfRows.map(({ kpi, current, preAvg, target, vsAvg, pctMeta, status, fmt }) => {
                       const statusColor = status === "Meta atingida" ? "bg-emerald-500/10 text-emerald-600"
                         : status === "Próximo da meta" ? "bg-blue-500/10 text-blue-600"
                         : status === "Acima da média" ? "bg-violet-500/10 text-violet-600"
@@ -590,9 +639,9 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
                       return (
                         <TableRow key={kpi.id} className="hover:bg-slate-50">
                           <TableCell className="font-bold text-slate-800">{kpi.name}</TableCell>
-                          <TableCell className="text-center font-bold text-slate-700">{current !== null ? fmtVal(current, kpi.unit) : "—"}</TableCell>
-                          <TableCell className="text-center text-slate-500">{avg !== null ? fmtVal(avg, kpi.unit) : "—"}</TableCell>
-                          <TableCell className="text-center text-slate-500">{target !== null ? fmtVal(target, kpi.unit) : "—"}</TableCell>
+                          <TableCell className="text-center font-bold text-slate-700">{current !== null ? fmt(current, kpi.unit) : "—"}</TableCell>
+                          <TableCell className="text-center text-slate-500">{preAvg !== null ? fmt(preAvg, kpi.unit) : "—"}</TableCell>
+                          <TableCell className="text-center text-slate-500">{target !== null ? fmt(target, kpi.unit) : "—"}</TableCell>
                           <TableCell className="text-center">
                             {vsAvg !== null ? (
                               <span className={cn("text-xs font-bold", vsAvg >= 0 ? "text-emerald-600" : "text-red-500")}>
