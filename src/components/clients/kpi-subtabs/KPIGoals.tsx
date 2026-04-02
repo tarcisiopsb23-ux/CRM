@@ -3,6 +3,7 @@ import { useClientKPIs, useClientKPIHistory } from "@/hooks/useClientKPIs";
 import { useContractsByClient } from "@/hooks/useContracts";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PercentInput } from "@/components/ui/percent-input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Target, TrendingUp, Save } from "lucide-react";
@@ -192,13 +193,13 @@ export function KPIGoals({ organizationId, clientId }: KPIGoalsProps) {
                       {/* Input de crescimento */}
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-2 w-40">
-                          <Input
-                            type="number"
+                          <PercentInput
                             placeholder="Ex: 15"
                             value={growthInput[kpi.id] ?? ""}
-                            onChange={e => setGrowthInput(s => ({ ...s, [kpi.id]: e.target.value }))}
+                            onChange={v => setGrowthInput(s => ({ ...s, [kpi.id]: v }))}
                             className="h-8 text-sm bg-muted/20 w-24"
-                            disabled={avg === undefined}                          />
+                            disabled={avg === undefined}
+                          />
                           <span className="text-sm text-muted-foreground font-bold">%</span>
                         </div>
                       </td>

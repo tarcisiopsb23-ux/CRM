@@ -3,6 +3,7 @@ import { useClientKPIs, useClientKPIHistory, ClientKPIHistory } from "@/hooks/us
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
+import { PercentInput } from "@/components/ui/percent-input";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
@@ -279,12 +280,10 @@ export function KPIPreviousHistory({ organizationId, clientId, contractStartDate
                     <label className="text-[10px] font-black uppercase text-muted-foreground">
                       Valor ({kpi.unit === 'currency' ? 'R$' : kpi.unit === 'percentage' ? '%' : 'Nº'})
                     </label>
-                    <Input 
-                      placeholder="0,00"
-                      value={kpiValue}
-                      onChange={(e) => setKpiValue(e.target.value)}
-                      className="h-10 bg-muted/20 font-bold"
-                    />
+                    {kpi.unit === 'percentage'
+                      ? <PercentInput placeholder="0,00" value={kpiValue} onChange={setKpiValue} className="h-10 bg-muted/20 font-bold" />
+                      : <Input placeholder="0,00" value={kpiValue} onChange={(e) => setKpiValue(e.target.value)} className="h-10 bg-muted/20 font-bold" />
+                    }
                   </div>
 
                   <Button type="submit" className="h-10 bg-[#2D8CC7] hover:bg-[#2D8CC7]/90 px-6 font-bold" disabled={isSubmitting || !kpiValue}>
@@ -398,12 +397,10 @@ export function KPIPreviousHistory({ organizationId, clientId, contractStartDate
           </div>
           <div className="space-y-2">
             <label className="text-[10px] font-black uppercase text-muted-foreground">Valor</label>
-            <Input
-              value={editValue}
-              onChange={(e) => setEditValue(e.target.value)}
-              placeholder="0,00"
-              className="h-10 font-bold"
-            />
+            {editEntry && kpis.find(k => k.id === editEntry.kpi_id)?.unit === 'percentage'
+              ? <PercentInput value={editValue} onChange={setEditValue} placeholder="0,00" className="h-10 font-bold" />
+              : <Input value={editValue} onChange={(e) => setEditValue(e.target.value)} placeholder="0,00" className="h-10 font-bold" />
+            }
           </div>
         </div>
         <DialogFooter>
