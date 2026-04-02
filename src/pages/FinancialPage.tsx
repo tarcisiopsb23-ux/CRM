@@ -36,7 +36,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Check, Plus, UserPlus, Trash2, Calendar } from "lucide-react";
+import { Loader2, Check, Plus, UserPlus, Trash2, Calendar, Eye, Pencil } from "lucide-react";
 import { eachDayOfInterval, endOfMonth, format, isWithinInterval, parseISO, startOfMonth, subMonths, addMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
@@ -179,6 +179,21 @@ export default function FinancialPage() {
   const [cashflowFrom, setCashflowFrom] = useState(format(subMonths(monthStart, 2), "yyyy-MM-dd"));
   const [cashflowTo, setCashflowTo] = useState(format(monthEnd, "yyyy-MM-dd"));
   const [cashflowType, setCashflowType] = useState<"all" | "receita" | "despesa" | "folha">("all");
+
+  // Estados para visualizar/editar lançamento do fluxo de caixa
+  const [viewRow, setViewRow] = useState<{ id: string; type: "receita" | "despesa" | "folha"; date: string; category: string; description: string; value: number; status?: string } | null>(null);
+  const [editRow, setEditRow] = useState<typeof viewRow>(null);
+  const [editForm, setEditForm] = useState({ description: "", value: "", due_date: "" });
+
+  // Estados para receber pagamento (parcial ou total)
+  const [receivePaymentId, setReceivePaymentId] = useState<string | null>(null);
+  const [receivePaymentTotal, setReceivePaymentTotal] = useState<number>(0);
+  const [receivePaymentDesc, setReceivePaymentDesc] = useState<string>("");
+  const [receivePaymentClientId, setReceivePaymentClientId] = useState<string>("");
+  const [receivePaymentContractId, setReceivePaymentContractId] = useState<string | null>(null);
+  const [receiveValue, setReceiveValue] = useState<string>("");
+  const [receiveDate, setReceiveDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
+  const [isReceiving, setIsReceiving] = useState(false);
   const [reportsMonths, setReportsMonths] = useState<3 | 6 | 12 | 24>(6);
   const [reportsClientId, setReportsClientId] = useState("all");
   const [reportsExpenseCategory, setReportsExpenseCategory] = useState<string>("all");
@@ -855,7 +870,7 @@ export default function FinancialPage() {
     const from = safeParseDate(cashflowFrom);
     const to = safeParseDate(cashflowTo);
 
-    type Row = { date: string; type: "receita" | "despesa" | "folha"; category: string; description: string; value: number };
+    type Row = { id: string; date: string; type: "receita" | "despesa" | "folha"; category: string; description: string; value: number; status?: string };
     const rows: Row[] = [];
 
     for (const p of payments.data ?? []) {
@@ -866,11 +881,13 @@ export default function FinancialPage() {
       if (isValidDate(from) && dt < from) continue;
       if (isValidDate(to) && dt > to) continue;
       rows.push({
+        id: p.id,
         date: d,
         type: "receita",
         category: p.contract_id ? "Contrato" : "Receita",
         description: String(p.description ?? ""),
         value: Number(p.value ?? 0),
+        status: p.status ?? undefined,
       });
     }
 
@@ -883,11 +900,13 @@ export default function FinancialPage() {
       if (isValidDate(to) && dt > to) continue;
       const cat = (e as { suppliers?: { service_category?: string | null } | null }).suppliers?.service_category ?? "Outros";
       rows.push({
+        id: e.id,
         date: d,
         type: "despesa",
         category: cat,
         description: String(e.description ?? ""),
         value: -Math.abs(Number(e.value ?? 0)),
+        status: e.status ?? undefined,
       });
     }
 
@@ -899,6 +918,7 @@ export default function FinancialPage() {
       if (isValidDate(from) && dt < from) continue;
       if (isValidDate(to) && dt > to) continue;
       rows.push({
+        id: pe.id,
         date: d,
         type: "folha",
         category: "Folha",
@@ -1534,6 +1554,8 @@ export default function FinancialPage() {
                     <TableHead>Categoria</TableHead>
                     <TableHead>Descrição</TableHead>
                     <TableHead className="text-right">Valor</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1545,6 +1567,29 @@ export default function FinancialPage() {
                       <TableCell>{r.description}</TableCell>
                       <TableCell className={`text-right ${r.value >= 0 ? "text-emerald-600" : "text-red-500"}`}>
                         {formatCurrency(r.value)}
+                      </TableCell>
+                      <TableCell>
+                        <span className={`text-xs font-semibold capitalize px-2 py-0.5 rounded-full ${
+                          r.status === "pago" ? "bg-emerald-100 text-emerald-700" :
+                          r.status === "pendente" ? "bg-yellow-100 text-yellow-700" :
+                          r.status === "cancelado" ? "bg-red-100 text-red-700" :
+                          "bg-muted text-muted-foreground"
+                        }`}>{r.status ?? "—"}</span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button size="icon" variant="ghost" aria-label="Visualizar" onClick={() => setViewRow(r)}>
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          {r.type === "receita" && (
+                            <Button size="icon" variant="ghost" aria-label="Editar" onClick={() => {
+                              setEditRow(r);
+                              setEditForm({ description: r.description, value: String(Math.abs(r.value)), due_date: r.date });
+                            }}>
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -1605,7 +1650,15 @@ export default function FinancialPage() {
                         <TableCell className="capitalize">{p.status}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">
-                            <Button size="sm" onClick={() => payments.registerPayment.mutate(p.id)} disabled={payments.registerPayment.isPending}>
+                            <Button size="sm" onClick={() => {
+                              setReceivePaymentId(p.id);
+                              setReceivePaymentTotal(p.value);
+                              setReceivePaymentDesc(p.description);
+                              setReceivePaymentClientId(p.client_id);
+                              setReceivePaymentContractId(p.contract_id ?? null);
+                              setReceiveValue(String(p.value));
+                              setReceiveDate(format(new Date(), "yyyy-MM-dd"));
+                            }} disabled={payments.registerPayment.isPending}>
                               <Check className="h-4 w-4 mr-1" />
                               Receber
                             </Button>
@@ -2571,6 +2624,145 @@ export default function FinancialPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog: Visualizar lançamento ── */}
+      <Dialog open={!!viewRow} onOpenChange={(o) => { if (!o) setViewRow(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Detalhes do Lançamento</DialogTitle>
+          </DialogHeader>
+          {viewRow && (
+            <div className="space-y-3 py-2 text-sm">
+              <div className="flex justify-between"><span className="text-muted-foreground">Data</span><span className="font-semibold">{format(parseISO(viewRow.date), "dd/MM/yyyy", { locale: ptBR })}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Tipo</span><span className="font-semibold capitalize">{viewRow.type === "folha" ? "Folha de pagamento" : viewRow.type}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Categoria</span><span className="font-semibold">{viewRow.category}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Descrição</span><span className="font-semibold">{viewRow.description}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Valor</span><span className={`font-bold ${viewRow.value >= 0 ? "text-emerald-600" : "text-red-500"}`}>{formatCurrency(viewRow.value)}</span></div>
+              {viewRow.status && <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span className="font-semibold capitalize">{viewRow.status}</span></div>}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewRow(null)}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog: Editar lançamento de receita ── */}
+      <Dialog open={!!editRow} onOpenChange={(o) => { if (!o) setEditRow(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar Lançamento</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1">
+              <Label>Descrição</Label>
+              <Input value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <Label>Valor (R$)</Label>
+              <Input type="number" step="0.01" value={editForm.value} onChange={(e) => setEditForm({ ...editForm, value: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <Label>Data de vencimento</Label>
+              <Input type="date" value={editForm.due_date} onChange={(e) => setEditForm({ ...editForm, due_date: e.target.value })} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditRow(null)}>Cancelar</Button>
+            <Button onClick={async () => {
+              if (!editRow) return;
+              await payments.updatePayment.mutateAsync({
+                id: editRow.id,
+                description: editForm.description,
+                value: parseFloat(editForm.value),
+                due_date: editForm.due_date,
+              });
+              toast.success("Lançamento atualizado!");
+              setEditRow(null);
+            }} disabled={payments.updatePayment.isPending}>
+              {payments.updatePayment.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Salvar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog: Receber pagamento (total ou parcial) ── */}
+      <Dialog open={!!receivePaymentId} onOpenChange={(o) => { if (!o) setReceivePaymentId(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Registrar Recebimento</DialogTitle>
+            <DialogDescription>
+              Valor total: <strong>{formatCurrency(receivePaymentTotal)}</strong>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1">
+              <Label>Valor recebido (R$)</Label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0.01"
+                max={receivePaymentTotal}
+                value={receiveValue}
+                onChange={(e) => setReceiveValue(e.target.value)}
+                placeholder={String(receivePaymentTotal)}
+              />
+              {parseFloat(receiveValue) < receivePaymentTotal && parseFloat(receiveValue) > 0 && (
+                <p className="text-xs text-amber-600 mt-1">
+                  Pagamento parcial — saldo restante de {formatCurrency(receivePaymentTotal - parseFloat(receiveValue))} ficará em aberto.
+                </p>
+              )}
+            </div>
+            <div className="space-y-1">
+              <Label>Data do recebimento</Label>
+              <Input type="date" value={receiveDate} onChange={(e) => setReceiveDate(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReceivePaymentId(null)}>Cancelar</Button>
+            <Button onClick={async () => {
+              if (!receivePaymentId) return;
+              const received = parseFloat(receiveValue);
+              if (isNaN(received) || received <= 0) { toast.error("Informe um valor válido."); return; }
+              setIsReceiving(true);
+              try {
+                const isPartial = received < receivePaymentTotal;
+                // Marca o pagamento atual como pago com o valor recebido
+                await payments.updatePayment.mutateAsync({
+                  id: receivePaymentId,
+                  value: received,
+                  status: "pago",
+                  paid_at: new Date(receiveDate).toISOString(),
+                });
+                // Se parcial, cria novo pagamento com o saldo restante
+                if (isPartial) {
+                  const remaining = receivePaymentTotal - received;
+                  await payments.create.mutateAsync({
+                    client_id: receivePaymentClientId,
+                    contract_id: receivePaymentContractId ?? undefined,
+                    description: `${receivePaymentDesc} (saldo restante)`,
+                    value: remaining,
+                    due_date: receiveDate,
+                    status: "pendente",
+                  });
+                  toast.success(`Recebimento parcial registrado. Saldo de ${formatCurrency(remaining)} criado em aberto.`);
+                } else {
+                  toast.success("Pagamento recebido com sucesso!");
+                }
+                setReceivePaymentId(null);
+              } catch {
+                toast.error("Erro ao registrar recebimento.");
+              } finally {
+                setIsReceiving(false);
+              }
+            }} disabled={isReceiving}>
+              {isReceiving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Check className="h-4 w-4 mr-2" />}
+              Confirmar Recebimento
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
