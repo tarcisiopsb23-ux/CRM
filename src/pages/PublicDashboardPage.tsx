@@ -99,19 +99,27 @@ export function PublicDashboardPage() {
         }
       }
       if (parsedData.id) {
-        // Busca contratos do cliente incluindo is_dashboard_reference
+        // Usa RPC SECURITY DEFINER para bypasear RLS (usuário pode estar autenticado em outra org)
         const { data: allContracts, error: contractsError } = await supabase
-          .from("contracts")
-          .select("id, start_date, contract_date, is_dashboard_reference")
-          .eq("client_id", parsedData.id)
-          .order("start_date", { ascending: true });
+          .rpc('get_client_contracts_public', { p_client_id: parsedData.id });
 
-        console.log('[Dashboard] allContracts:', allContracts, 'error:', contractsError);
+        console.log('[Dashboard] allContracts via RPC:', allContracts, 'error:', contractsError);
 
-        if (allContracts && allContracts.length > 0) {
-          // Prioridade: contrato marcado como referência de dashboard
-          const refContract = allContracts.find((c: any) => c.is_dashboard_reference === true)
-            ?? allContracts[0];
+        // Fallback: query direta (caso RPC ainda não exista)
+        let contracts = (allContracts ?? []) as any[];
+        if (contractsError || contracts.length === 0) {
+          const { data: directContracts } = await supabase
+            .from("contracts")
+            .select("id, start_date, contract_date, is_dashboard_reference")
+            .eq("client_id", parsedData.id)
+            .order("start_date", { ascending: true });
+          console.log('[Dashboard] allContracts via direct query:', directContracts);
+          contracts = (directContracts ?? []) as any[];
+        }
+
+        if (contracts.length > 0) {
+          const refContract = contracts.find((c: any) => c.is_dashboard_reference === true)
+            ?? contracts[0];
 
           console.log('[Dashboard] refContract chosen:', refContract);
 
