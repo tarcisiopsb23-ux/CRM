@@ -19,7 +19,7 @@ export function ProtectedRoute({
   const { user, profile, loading, profileLoading, error, refetchProfile, signOut } = useAuth();
   const location = useLocation();
 
-  if (loading || profileLoading) {
+  if (loading || (profileLoading && !profile)) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <p className="text-gray-500">Carregando...</p>

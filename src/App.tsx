@@ -44,7 +44,7 @@ import { DynamicFavicon } from "@/components/layout/DynamicFavicon";
 import { DynamicTitle } from "@/components/layout/DynamicTitle";
 import { PublicDemoDashboardPage } from "./pages/PublicDemoDashboardPage";
 
-const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000 } } });
+const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, refetchOnWindowFocus: false } } });
 
 function App() {
   return (
