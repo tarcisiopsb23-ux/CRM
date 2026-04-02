@@ -383,11 +383,12 @@ export function PublicDashboardPage() {
         : null;
 
       const target = kpi.target_value ?? null;
-      // vs Média compara resultado atual com média pós-contrato
-      const vsAvg = current !== null && postAvg !== null && postAvg !== 0
-        ? ((current - postAvg) / postAvg) * 100
+      // vs Histórico: compara resultado atual (postAvg) com média histórica pré-contrato (preAvg)
+      const displayCurrent = postAvg ?? current;
+      const vsAvg = displayCurrent !== null && preAvg !== null && preAvg !== 0
+        ? ((displayCurrent - preAvg) / preAvg) * 100
         : null;
-      const pctMeta = current !== null && target !== null && target !== 0 ? (current / target) * 100 : null;
+      const pctMeta = displayCurrent !== null && target !== null && target !== 0 ? (displayCurrent / target) * 100 : null;
       const lower = isLowerBetter(kpi.name);
       let status = "Sem dados";
       if (current !== null) {
@@ -397,7 +398,7 @@ export function PublicDashboardPage() {
         else if (vsAvg !== null && (lower ? vsAvg >= 5 : vsAvg <= -5)) status = "Abaixo da média";
         else if (vsAvg !== null) status = "Na média";
       }
-      return { kpi, current, preAvg, postAvg, target, vsAvg, pctMeta, status, fmt };
+      return { kpi, current: displayCurrent, preAvg, postAvg, target, vsAvg, pctMeta, status, fmt };
     });
   }, [kpis, kpiHistory, contractStartDate]);
 
@@ -911,8 +912,7 @@ export function PublicDashboardPage() {
                             status === "Sem dados" ? "text-slate-600 bg-slate-800/50" :
                             "text-slate-400 bg-slate-700/30";
                           // Resultado atual = média pós-contrato (ou valor mais recente se só 1 mês)
-                          const displayCurrent = postAvg ?? current;
-                          return (
+                          const displayCurrent = postAvg ?? current;                          return (
                             <tr key={kpi.id} className="hover:bg-slate-800/30 transition-colors">
                               <td className="px-5 py-4">
                                 <p className="text-sm font-bold text-white">{kpi.name}</p>
