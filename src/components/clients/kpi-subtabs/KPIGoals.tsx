@@ -107,6 +107,7 @@ export function KPIGoals({ organizationId, clientId }: KPIGoalsProps) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="1">Último mês</SelectItem>
                   <SelectItem value="3">Últimos 3 meses</SelectItem>
                   <SelectItem value="6">Últimos 6 meses</SelectItem>
                   <SelectItem value="12">Últimos 12 meses</SelectItem>
@@ -116,7 +117,7 @@ export function KPIGoals({ organizationId, clientId }: KPIGoalsProps) {
             </div>
           </div>
           <CardDescription>
-            Média calculada com base nos últimos {monthsRef} meses do histórico completo do indicador.
+            Média calculada com base {monthsRef === 1 ? "no último mês" : `nos últimos ${monthsRef} meses`} do histórico completo do indicador.
             Informe o crescimento esperado (%) para definir a meta.
           </CardDescription>
         </CardHeader>
