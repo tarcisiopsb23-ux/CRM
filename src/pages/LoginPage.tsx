@@ -25,19 +25,6 @@ export function LoginPage() {
       if (!SUPABASE_URL) throw new Error("VITE_SUPABASE_URL não configurado");
       if (!SUPABASE_ANON_KEY) throw new Error("VITE_SUPABASE_ANON_KEY não configurado");
 
-      // Verifica se o e-mail existe no banco antes de tentar o login
-      const { data: profileCheck } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("email", email.trim().toLowerCase())
-        .maybeSingle();
-
-      if (!profileCheck) {
-        setErr("Este e-mail não está cadastrado no sistema. Verifique o endereço ou solicite um convite ao administrador.");
-        setLoading(false);
-        return;
-      }
-
       const res = await fetch(`${SUPABASE_URL}/functions/v1/sign-in-with-lockout`, {
         method: "POST",
         headers: {
@@ -77,12 +64,17 @@ export function LoginPage() {
       navigate(from, { replace: true });
     } catch (err: any) {
       console.error("Erro no login:", err);
-      if (err.message?.includes("Invalid login credentials") || err.status === 400) {
-        setErr("E-mail ou senha incorretos. Por favor, verifique seus dados.");
-      } else if (err.message?.includes("Failed to fetch")) {
+      const msg = err.message ?? "";
+      if (msg.includes("user not found") || msg.includes("User not found") || msg.includes("invalid_grant")) {
+        setErr("Este e-mail não está cadastrado no sistema. Verifique o endereço ou solicite um convite ao administrador.");
+      } else if (msg.includes("Invalid login credentials") || msg.includes("invalid_credentials") || err.status === 400) {
+        setErr("Senha incorreta. Por favor, verifique seus dados.");
+      } else if (msg.includes("Account locked") || msg.includes("locked")) {
+        setErr("Conta temporariamente bloqueada por excesso de tentativas. Tente novamente em alguns minutos.");
+      } else if (msg.includes("Failed to fetch")) {
         setErr("Erro de conexão. Verifique sua internet ou desative extensões que possam bloquear o acesso.");
       } else {
-        setErr(err.message || "Erro ao realizar login");
+        setErr(msg || "Erro ao realizar login");
       }
     } finally {
       setLoading(false);
