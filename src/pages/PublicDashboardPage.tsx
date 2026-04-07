@@ -152,14 +152,7 @@ export function PublicDashboardPage() {
     clicks: acc.clicks + (curr.clicks || 0),
   }), { spend: 0, leads: 0, sales: 0, revenue: 0, impressions: 0, clicks: 0 }), [realDailyMetrics]);
 
-  const funnelStats = useFunnelStats(
-    clientData?.id,
-    dateRange,
-    { impressions: totals.impressions, clicks: totals.clicks },
-    adClickQuery.data?.totalClicks,
-    gadsQuery.data ? { impressions: gadsQuery.data.impressions, clicks: gadsQuery.data.clicks } : null,
-    metaQuery.data  ? { impressions: metaQuery.data.impressions,  clicks: metaQuery.data.clicks  } : null
-  );
+  const funnelStats = useFunnelStats(clientData?.id, dateRange);
 
   const handleLogoff = () => {
     localStorage.removeItem("client_auth");
