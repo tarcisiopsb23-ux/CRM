@@ -9,7 +9,8 @@ import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { IntegrationStatusBadge, IntegrationStatus } from "@/components/crm/IntegrationStatusBadge";
 import { OAuthIntegrations } from "@/components/integrations/OAuthIntegrations";
-import { KpiManager } from "@/components/kpi/KpiManager";
+import { KpiList } from "@/components/kpi/KpiList";
+import { KpiHistoryTable } from "@/components/kpi/KpiHistoryTable";
 import { QRCodeSVG } from "qrcode.react";
 
 type AuthSession = {
@@ -454,7 +455,7 @@ export function ProfilePage() {
               </CardContent>
             </Card>
 
-            {/* KPIs */}
+            {/* KPIs — Cadastro */}
             <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-[#7C3AED]">
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
@@ -468,7 +469,7 @@ export function ProfilePage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <KpiManager clientId={session?.client_id ?? ""} />
+                <KpiList clientId={session?.client_id ?? ""} />
               </CardContent>
             </Card>
 
@@ -714,6 +715,24 @@ export function ProfilePage() {
           </div>
 
         </div>
+
+        {/* KPIs — Resultados Mensais */}
+        <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-[#7C3AED]">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center gap-2">
+              <svg className="h-5 w-5 text-[#7C3AED]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M3 14h18M10 3v18M14 3v18" />
+              </svg>
+              Resultados Mensais dos KPIs
+            </CardTitle>
+            <CardDescription className="text-slate-400 text-xs">
+              Registre os resultados mensais de cada indicador. Os dados alimentam os gráficos e comparativos do dashboard de performance.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <KpiHistoryTable clientId={session?.client_id ?? ""} />
+          </CardContent>
+        </Card>
 
         {/* Botao Voltar */}
         <Button className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white h-11"
