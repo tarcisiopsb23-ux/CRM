@@ -31,7 +31,7 @@ RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
 DECLARE
-  -- Ordered pipeline stages (excluding "perdido" which is a terminal state)
+  -- Ordered pipeline stages (excluding "perdido" and "follow_up" which are terminal/post-sale)
   pipeline TEXT[] := ARRAY['novo', 'contato', 'proposta', 'negociacao', 'fechado'];
   old_idx  INT;
   new_idx  INT;
@@ -117,6 +117,8 @@ AS $$
   FROM crm_lead_stage_history
   WHERE entered_at >= p_from
     AND entered_at <= p_to
+    -- follow_up is a post-sale stage, excluded from funnel metrics
+    AND stage NOT IN ('follow_up')
   GROUP BY stage
   ORDER BY
     CASE stage

@@ -100,7 +100,7 @@ export function CrmSection({ clientId: _clientId, clientMetadata }: CrmSectionPr
     const mesInicio = format(startOfMonth(now), "yyyy-MM-dd");
     const mesFim = format(endOfMonth(now), "yyyy-MM-dd");
 
-    const ativos = all.filter(l => !["fechado", "perdido"].includes(l.status)).length;
+    const ativos = all.filter(l => !["fechado", "follow_up", "perdido"].includes(l.status)).length;
     const fechadosMes = all.filter(l =>
       l.status === "fechado" &&
       (l.updated_at ?? l.created_at) >= mesInicio &&

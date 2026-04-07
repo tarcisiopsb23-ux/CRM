@@ -4,6 +4,7 @@ export type LeadStatus =
   | "proposta"
   | "negociacao"
   | "fechado"
+  | "follow_up"
   | "perdido";
 
 export type LeadTemperature = "quente" | "morno" | "frio";
@@ -38,6 +39,7 @@ export const COLUMNS: { id: LeadStatus; label: string; color: string }[] = [
   { id: "proposta",   label: "Proposta",    color: "border-t-yellow-400" },
   { id: "negociacao", label: "Negociação",  color: "border-t-orange-400" },
   { id: "fechado",    label: "Fechado",     color: "border-t-emerald-400" },
+  { id: "follow_up",  label: "Follow-up",   color: "border-t-cyan-400" },
   { id: "perdido",    label: "Perdido",     color: "border-t-red-400" },
 ];
 
