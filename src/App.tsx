@@ -9,6 +9,7 @@ import { CrmPage } from "@/pages/CrmPage";
 import { CatalogPage } from "@/pages/CatalogPage";
 import { WhatsAppSyncPage } from "@/pages/WhatsAppSyncPage";
 import { WhatsAppRedirectPage } from "@/pages/WhatsAppRedirectPage";
+import { OAuthCallbackPage } from "@/pages/OAuthCallbackPage";
 
 const queryClient = new QueryClient();
 
@@ -46,6 +47,9 @@ export default function App() {
 
           {/* Redirect de anúncios — captura UTMs e redireciona para WhatsApp */}
           <Route path="/wa" element={<WhatsAppRedirectPage />} />
+
+          {/* OAuth callback — Google e Meta */}
+          <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

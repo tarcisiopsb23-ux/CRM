@@ -8,6 +8,7 @@ import { ArrowLeft, Lock, Loader2, Plug, RefreshCw, Smartphone, User, Link2, Cop
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { IntegrationStatusBadge, IntegrationStatus } from "@/components/crm/IntegrationStatusBadge";
+import { OAuthIntegrations } from "@/components/integrations/OAuthIntegrations";
 import { QRCodeSVG } from "qrcode.react";
 
 type AuthSession = {
@@ -470,32 +471,11 @@ export function ProfilePage() {
               </CardHeader>
               <CardContent className="flex-1 overflow-x-hidden overflow-y-auto">
                 <form onSubmit={handleSaveIntegrations} className="space-y-5">
+                  {/* Google + Meta OAuth */}
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-slate-300">Google Tag Manager ID</Label>
-                      <IntegrationStatusBadge status={integrationStatus(gtmId)} />
-                    </div>
-                    <Input type="text" placeholder="GTM-XXXXXXX"
-                      className="bg-slate-900/50 border-slate-700 text-white h-11 font-mono"
-                      value={gtmId} onChange={(e) => setGtmId(e.target.value)} />
-                    <p className="text-xs text-slate-500">Formato: GTM-[A-Z0-9]+</p>
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-500">Google Analytics & Ads / Meta Ads</p>
+                    <OAuthIntegrations clientId={session?.client_id ?? ""} />
                   </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-slate-300">Meta Pixel ID</Label>
-                      <IntegrationStatusBadge status={integrationStatus(metaPixelId)} />
-                    </div>
-                    <Input type="text" placeholder="123456789012345"
-                      className="bg-slate-900/50 border-slate-700 text-white h-11 font-mono"
-                      value={metaPixelId} onChange={(e) => setMetaPixelId(e.target.value)} />
-                    <p className="text-xs text-slate-500">Numérico, 15 ou 16 dígitos</p>
-                  </div>
-                  {trackingError && <p className="text-sm text-red-400">{trackingError}</p>}
-                  <Button type="button" onClick={handleSaveTracking} disabled={trackingLoading}
-                    className="w-full bg-emerald-600 hover:bg-emerald-700 h-10 font-bold">
-                    {trackingLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                    Salvar GTM e Meta Pixel
-                  </Button>
                   {/* Separador WhatsApp */}
                   <div className="border-t border-slate-700 pt-4">
                     <p className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">Integração WhatsApp</p>
