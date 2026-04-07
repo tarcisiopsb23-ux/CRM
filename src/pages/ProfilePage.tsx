@@ -10,7 +10,6 @@ import { toast } from "sonner";
 import { IntegrationStatusBadge, IntegrationStatus } from "@/components/crm/IntegrationStatusBadge";
 import { OAuthIntegrations } from "@/components/integrations/OAuthIntegrations";
 import { KpiList } from "@/components/kpi/KpiList";
-import { KpiTargets } from "@/components/kpi/KpiTargets";
 import { KpiHistoryTable } from "@/components/kpi/KpiHistoryTable";
 import { QRCodeSVG } from "qrcode.react";
 

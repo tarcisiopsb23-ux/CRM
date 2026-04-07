@@ -131,16 +131,19 @@ export function PublicDashboardPage() {
   // Tracking injection removed — GTM and Meta Pixel are now injected only
   // in the WhatsAppRedirectPage (/wa) to avoid tracking the client dashboard.
 
-  const kpis = (useClientKPIs(clientData?.id).data ?? []) as any[];
-  const kpiHistory = (useClientKPIHistory(clientData?.id).data ?? []) as any[];
-  const { campaignDataQuery, dailyMetricsQuery } = useClientReports(clientData?.id, dateRange);
+  // Resolve client ID — localStorage may store it as client_id (login) or id (after RPC merge)
+  const clientId: string | undefined = clientData?.id ?? clientData?.client_id;
+
+  const kpis = (useClientKPIs(clientId).data ?? []) as any[];
+  const kpiHistory = (useClientKPIHistory(clientId).data ?? []) as any[];
+  const { campaignDataQuery, dailyMetricsQuery } = useClientReports(clientId, dateRange);
   const realCampaigns = (campaignDataQuery.data ?? []) as any[];
   const realDailyMetrics = (dailyMetricsQuery.data ?? []) as any[];
-  const adClickQuery = useAdClickSessions(clientData?.id, dateRange);
-  const { googleToken, metaToken } = useOAuthTokens(clientData?.id);
-  const ga4Query = useGA4Metrics(googleToken ? clientData?.id : undefined, dateRange);
-  const gadsQuery = useGoogleAdsMetrics(googleToken ? clientData?.id : undefined, dateRange);
-  const metaQuery = useMetaAdsMetrics(metaToken ? clientData?.id : undefined, dateRange);
+  const adClickQuery = useAdClickSessions(clientId, dateRange);
+  const { googleToken, metaToken } = useOAuthTokens(clientId);
+  const ga4Query = useGA4Metrics(googleToken ? clientId : undefined, dateRange);
+  const gadsQuery = useGoogleAdsMetrics(googleToken ? clientId : undefined, dateRange);
+  const metaQuery = useMetaAdsMetrics(metaToken ? clientId : undefined, dateRange);
 
   // totals must be declared before funnelStats (which references it)
   const totals = useMemo(() => realDailyMetrics.reduce((acc: any, curr: any) => ({
@@ -152,7 +155,7 @@ export function PublicDashboardPage() {
     clicks: acc.clicks + (curr.clicks || 0),
   }), { spend: 0, leads: 0, sales: 0, revenue: 0, impressions: 0, clicks: 0 }), [realDailyMetrics]);
 
-  const funnelStats = useFunnelStats(clientData?.id, dateRange);
+  const funnelStats = useFunnelStats(clientId, dateRange);
 
   const handleLogoff = () => {
     localStorage.removeItem("client_auth");
@@ -498,7 +501,7 @@ export function PublicDashboardPage() {
           <KpiResultDialog
             open={showKpiDialog}
             onClose={() => setShowKpiDialog(false)}
-            clientId={clientData?.id ?? ""}
+            clientId={clientId ?? ""}
           />
 
           {/* -- TABS (s? aparece quando ambos ativos) -- */}
@@ -979,8 +982,8 @@ export function PublicDashboardPage() {
                 metaConnected={!!metaToken}
                 isLoadingGoogle={ga4Query.isLoading || gadsQuery.isLoading}
                 isLoadingMeta={metaQuery.isLoading}
-                onConnectGoogle={() => clientData?.id && initiateGoogleOAuth(clientData.id)}
-                onConnectMeta={() => clientData?.id && initiateMetaOAuth(clientData.id)}
+                onConnectGoogle={() => clientId && initiateGoogleOAuth(clientId)}
+                onConnectMeta={() => clientId && initiateMetaOAuth(clientId)}
               />
             </CardContent>
           </Card>
@@ -1007,14 +1010,14 @@ export function PublicDashboardPage() {
           {/* -- CONTEÚDO: ATENDIMENTO -- */}
           {resolvedTab === "atendimento" && (
             <AtendimentoSection
-            clientId={clientData?.id}
+            clientId={clientId}
               dateRange={dateRange}
               hasN8n={!!(clientData?.metadata?.n8n_api_key?.trim())}
             />
           )}
 
           {resolvedTab === "crm" && (
-            <CrmSection clientId={clientData?.id} clientMetadata={clientData?.metadata} />
+            <CrmSection clientId={clientId} clientMetadata={clientData?.metadata} />
           )}
 
           <footer className="text-center pt-8 border-t border-slate-800">
