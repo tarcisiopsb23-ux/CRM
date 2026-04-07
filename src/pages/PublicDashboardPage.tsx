@@ -240,19 +240,51 @@ export function PublicDashboardPage() {
     }
     const dailyData = Array.from(dailyMap.values()).sort((a, b) => a.date.localeCompare(b.date));
 
-    // Campaigns: Google Ads + Meta Ads, fallback to campaign_data
-    const campaigns: { platform: string; name: string; spend: number; leads: number; sales: number; revenue: number }[] = [];
+    // Campaigns: Google Ads + Meta Ads merged with ad_click_sessions by campaign name
+    // Normalize name for matching: lowercase + trim
+    const normalize = (s: string) => s.toLowerCase().trim();
+
+    // Build ad_click_sessions map: normalized campaign name → tracked clicks count
+    const adClicksByCampaign = new Map<string, number>();
+    if (adClickQuery.data?.byCampaign) {
+      for (const c of adClickQuery.data.byCampaign) {
+        const key = normalize(c.campaign);
+        adClicksByCampaign.set(key, (adClicksByCampaign.get(key) ?? 0) + c.clicks);
+      }
+    }
+
+    const campaigns: {
+      platform: string; name: string; spend: number;
+      leads: number; sales: number; revenue: number;
+      trackedClicks: number; // from ad_click_sessions
+    }[] = [];
+
     if (gads?.byCampaign?.length) {
       for (const c of gads.byCampaign) {
-        campaigns.push({ platform: "Google Ads", name: c.campaign, spend: c.spend, leads: 0, sales: c.conversions, revenue: c.roas * c.spend });
+        campaigns.push({
+          platform: "Google Ads", name: c.campaign,
+          spend: c.spend, leads: 0, sales: c.conversions, revenue: c.roas * c.spend,
+          trackedClicks: adClicksByCampaign.get(normalize(c.campaign)) ?? 0,
+        });
       }
     }
     if (meta?.byCampaign?.length) {
       for (const c of meta.byCampaign) {
-        campaigns.push({ platform: "Meta Ads", name: c.campaign_name, spend: c.spend, leads: c.leads, sales: c.purchases, revenue: c.roas * c.spend });
+        campaigns.push({
+          platform: "Meta Ads", name: c.campaign_name,
+          spend: c.spend, leads: c.leads, sales: c.purchases, revenue: c.roas * c.spend,
+          trackedClicks: adClicksByCampaign.get(normalize(c.campaign_name)) ?? 0,
+        });
       }
     }
-    const finalCampaigns = campaigns.length > 0 ? campaigns : realCampaigns;
+
+    // If no API campaigns, fall back to campaign_data + enrich with ad_click_sessions
+    const finalCampaigns = campaigns.length > 0
+      ? campaigns
+      : realCampaigns.map((c: any) => ({
+          ...c,
+          trackedClicks: adClicksByCampaign.get(normalize(c.name ?? "")) ?? 0,
+        }));
 
     return { spend, impressions, clicks, leads, qualified, sales, revenue, roas, conversionRate, cpa, dailyData, finalCampaigns };
   }, [gadsQuery.data, metaQuery.data, funnelStats.data, adClickQuery.data, totals, realDailyMetrics, realCampaigns]);
@@ -590,6 +622,8 @@ export function PublicDashboardPage() {
                       <th className="pb-4">Plataforma</th>
                       <th className="pb-4">Campanha</th>
                       <th className="pb-4">Invest.</th>
+                      <th className="pb-4 text-center">Cliques API</th>
+                      <th className="pb-4 text-center">Cliques Rastr.</th>
                       <th className="pb-4 text-center">Leads</th>
                       <th className="pb-4 text-center">Vendas</th>
                       <th className="pb-4 text-right">ROAS</th>
@@ -598,8 +632,8 @@ export function PublicDashboardPage() {
                   <tbody className="divide-y divide-slate-800/50">
                     {consolidated.finalCampaigns.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="py-8 text-center text-slate-500 text-sm italic">
-                          No campaign data for this period.
+                        <td colSpan={8} className="py-8 text-center text-slate-500 text-sm italic">
+                          Sem dados de campanhas para este período.
                         </td>
                       </tr>
                     ) : consolidated.finalCampaigns.map((c: any, idx: number) => {
@@ -609,8 +643,15 @@ export function PublicDashboardPage() {
                           <td className="py-4 text-slate-400 font-bold">{c.platform}</td>
                           <td className="py-4 font-bold text-slate-200">{c.name}</td>
                           <td className="py-4 text-slate-400">R$ {(c.spend || 0).toLocaleString("pt-BR")}</td>
-                          <td className="py-4 text-slate-400 font-bold text-center">{c.leads ?? "?"}</td>
-                          <td className="py-4 text-slate-400 font-bold text-center">{c.sales ?? "?"}</td>
+                          <td className="py-4 text-slate-400 font-bold text-center">{(c.clicks ?? "—")}</td>
+                          <td className="py-4 text-center">
+                            {(c.trackedClicks ?? 0) > 0
+                              ? <span className="text-violet-400 font-black">{c.trackedClicks}</span>
+                              : <span className="text-slate-600">—</span>
+                            }
+                          </td>
+                          <td className="py-4 text-slate-400 font-bold text-center">{c.leads ?? "—"}</td>
+                          <td className="py-4 text-slate-400 font-bold text-center">{c.sales ?? "—"}</td>
                           <td className="py-4 text-right">
                             <span className={cn("font-black px-2 py-1 rounded text-xs", Number(roasCamp) >= 4 ? "bg-emerald-500/10 text-emerald-400" : "bg-orange-500/10 text-orange-400")}>
                               {roasCamp}x
