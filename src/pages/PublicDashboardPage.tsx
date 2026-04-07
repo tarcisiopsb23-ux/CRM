@@ -535,35 +535,35 @@ export function PublicDashboardPage() {
               <CardContent className="flex-1 flex flex-col justify-center pt-6">
                 <ModernFunnel textVariant="white" steps={[
                   {
-                    label: "Impressions",
+                    label: "Impressões",
                     value: consolidated.impressions.toLocaleString("pt-BR"),
                     color: "bg-slate-700", width: "w-full",
                     percentage: ((consolidated.clicks / (consolidated.impressions || 1)) * 100).toFixed(1) + "%",
                     rateLabel: "CTR"
                   },
                   {
-                    label: "Clicks",
+                    label: "Cliques",
                     value: consolidated.clicks.toLocaleString("pt-BR"),
                     color: "bg-[#7C3AED]/40", width: "w-[88%]",
                     percentage: ((consolidated.leads / (consolidated.clicks || 1)) * 100).toFixed(1) + "%",
-                    rateLabel: "CONV. RATE"
+                    rateLabel: "TX. CONV."
                   },
                   {
-                    label: "Leads (New)",
+                    label: "Leads (Novos)",
                     value: consolidated.leads.toLocaleString("pt-BR"),
                     color: "bg-blue-500/40", width: "w-[76%]",
                     percentage: ((consolidated.qualified / (consolidated.leads || 1)) * 100).toFixed(1) + "%",
                     rateLabel: "QUALIF."
                   },
                   {
-                    label: "Qualified",
+                    label: "Qualificados",
                     value: consolidated.qualified.toLocaleString("pt-BR"),
                     color: "bg-indigo-500/40", width: "w-[64%]",
                     percentage: ((consolidated.sales / (consolidated.qualified || 1)) * 100).toFixed(1) + "%",
-                    rateLabel: "CLOSE RATE"
+                    rateLabel: "TX. FECH."
                   },
                   {
-                    label: "Closed",
+                    label: "Fechados",
                     value: consolidated.sales.toLocaleString("pt-BR"),
                     color: "bg-emerald-500/40", width: "w-[52%]"
                   },
