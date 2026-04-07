@@ -8,7 +8,7 @@ import {
 import {
   ArrowDown, ArrowUp, BarChart3, Briefcase, Calendar,
   CheckCircle2, DollarSign, Info, KanbanSquare, ListFilter, Lock, LogOut,
-  Package, MessageCircle as MessageCircleIcon,
+  Package, MessageCircle as MessageCircleIcon, MousePointerClick,
   PieChart, Settings, Target, TrendingUp, Users, Zap,
 } from "lucide-react";import {
   Tooltip as ShadcnTooltip, TooltipContent, TooltipProvider, TooltipTrigger,
@@ -37,9 +37,11 @@ import { useClientKPIs, useClientKPIHistory } from "@/hooks/useClientKPIs";
 import { useClientReports } from "@/hooks/useHubPerformance";
 import { useClientConversationKpis } from "@/hooks/useClientConversationKpis";
 import { useTrackingInjection } from "@/hooks/useTrackingInjection";
+import { useAdClickSessions } from "@/hooks/useAdClickSessions";
 import { ConversationKpiDashboard } from "@/components/whatsapp/ConversationKpiDashboard";
 import { MessageCircle } from "lucide-react";
 import { CrmSection } from "@/components/crm/CrmSection";
+import { AdClickSection } from "@/components/performance/AdClickSection";
 
 const isLowerBetter = (name: string) => /cac|cpa|cpl|cpc|cpm|custo/i.test(name);
 const KPI_COLORS = ["#10b981","#7C3AED","#f59e0b","#a855f7","#f43f5e","#06b6d4","#e879f9","#34d399"];
@@ -128,6 +130,7 @@ export function PublicDashboardPage() {
   const { campaignDataQuery, dailyMetricsQuery } = useClientReports(clientData?.id, dateRange);
   const realCampaigns = (campaignDataQuery.data ?? []) as any[];
   const realDailyMetrics = (dailyMetricsQuery.data ?? []) as any[];
+  const adClickQuery = useAdClickSessions(clientData?.id, dateRange);
 
   const handleLogoff = () => {
     localStorage.removeItem("client_auth");
@@ -767,6 +770,25 @@ export function PublicDashboardPage() {
               </Card>
             );
           })()}
+
+          {/* -- 8. CLIQUES DE ANÚNCIOS -- */}
+          <Card className="bg-[#1E293B] border-slate-800 shadow-2xl">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-xl font-bold text-white flex items-center gap-2">
+                <MousePointerClick className="h-5 w-5 text-violet-400" />
+                Cliques de Anúncios
+              </CardTitle>
+              <InfoTooltip text="Cliques capturados via link intermediário com rastreamento de UTMs. Mostra de onde vêm os cliques, quais campanhas geram mais tráfego e a taxa de conversão em leads. GTM e Meta Pixel enviam esses eventos para Google Analytics e Meta Ads Manager." />
+            </CardHeader>
+            <CardContent>
+              <AdClickSection
+                stats={adClickQuery.data ?? { totalClicks: 0, uniqueCampaigns: 0, byCampaign: [], bySource: [], byDay: [], conversionRate: 0 }}
+                isLoading={adClickQuery.isLoading}
+                hasGtm={!!(clientData?.metadata?.gtm_id?.trim())}
+                hasPixel={!!(clientData?.metadata?.meta_pixel_id?.trim())}
+              />
+            </CardContent>
+          </Card>
 
           </div>
           )}
