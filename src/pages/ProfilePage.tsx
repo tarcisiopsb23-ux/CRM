@@ -339,7 +339,7 @@ export function ProfilePage() {
           <div className="space-y-6 flex flex-col">
 
             {/* Nome de Exibição */}
-            <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-slate-500 flex flex-col flex-1">
+            <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-slate-500">
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
                   <User className="h-5 w-5 text-slate-400" />
@@ -349,7 +349,7 @@ export function ProfilePage() {
                   Nome exibido abaixo do C8 Control na tela principal.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4 flex flex-col flex-1">
+              <CardContent className="space-y-4">
                 <div className="space-y-2">
                   <Label className="text-slate-300">Nome de Exibição</Label>
                   <Input type="text" placeholder="Ex: Empresa XYZ"
@@ -357,7 +357,7 @@ export function ProfilePage() {
                     value={displayName} onChange={e => setDisplayName(e.target.value)} />
                   <p className="text-xs text-slate-500">Se vazio, usa o nome do cadastro.</p>
                 </div>
-                <Button type="button" className="w-full bg-slate-600 hover:bg-slate-500 h-11 font-bold mt-auto"
+                <Button type="button" className="w-full bg-slate-600 hover:bg-slate-500 h-11 font-bold"
                   disabled={displayNameLoading} onClick={handleSaveDisplayName}>
                   {displayNameLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                   Salvar Nome de Exibição
@@ -366,7 +366,7 @@ export function ProfilePage() {
             </Card>
 
             {/* Alterar Senha */}
-            <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-[#7C3AED] flex flex-col flex-1">
+            <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-[#7C3AED]">
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
                   <Lock className="h-5 w-5 text-[#7C3AED]" />
@@ -376,8 +376,8 @@ export function ProfilePage() {
                   Informe sua senha atual para definir uma nova senha de acesso.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="flex flex-col flex-1">
-                <form onSubmit={handleChangePassword} className="space-y-4 flex flex-col flex-1">
+              <CardContent>
+                <form onSubmit={handleChangePassword} className="space-y-4">
                   <div className="space-y-2">
                     <Label className="text-slate-300">Senha Atual</Label>
                     <Input type="password" placeholder="••••••••"
@@ -397,7 +397,7 @@ export function ProfilePage() {
                       value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required />
                   </div>
                   {passwordError && <p className="text-sm text-red-400 font-medium">{passwordError}</p>}
-                  <Button type="submit" className="w-full bg-[#7C3AED] hover:bg-[#7C3AED]/90 h-11 font-bold mt-auto" disabled={passwordLoading}>
+                  <Button type="submit" className="w-full bg-[#7C3AED] hover:bg-[#7C3AED]/90 h-11 font-bold" disabled={passwordLoading}>
                     {passwordLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                     Alterar Senha
                   </Button>
@@ -406,7 +406,7 @@ export function ProfilePage() {
             </Card>
 
             {/* Abas do Dashboard */}
-            <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-violet-500 flex flex-col flex-1">
+            <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-violet-500">
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
                   <span className="text-violet-400 text-lg">&#9638;</span>
@@ -416,7 +416,7 @@ export function ProfilePage() {
                   Escolha quais seções ficam visíveis no dashboard.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4 flex flex-col flex-1">
+              <CardContent className="space-y-4">
                 {[
                   { label: "Performance", desc: "Métricas de anúncios, KPIs e campanhas", value: tabPerformance, set: setTabPerformance },
                   { label: "Atendimento", desc: "KPIs de conversas e WhatsApp", value: tabAtendimento, set: setTabAtendimento },
@@ -433,7 +433,7 @@ export function ProfilePage() {
                     </button>
                   </div>
                 ))}
-                <Button type="button" className="w-full bg-violet-600 hover:bg-violet-700 h-11 font-bold mt-auto"
+                <Button type="button" className="w-full bg-violet-600 hover:bg-violet-700 h-11 font-bold"
                   disabled={tabsLoading}
                   onClick={async () => {
                     if (!tabPerformance && !tabAtendimento && !tabCrm) { toast.error("Pelo menos uma aba deve estar ativa."); return; }
@@ -456,8 +456,8 @@ export function ProfilePage() {
               </CardContent>
             </Card>
 
-            {/* KPIs — Cadastro */}
-            <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-[#7C3AED]">
+            {/* KPIs — Cadastro (flex-1 para crescer e preencher coluna) */}
+            <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-[#7C3AED] flex flex-col flex-1">
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
                   <svg className="h-5 w-5 text-[#7C3AED]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -469,13 +469,13 @@ export function ProfilePage() {
                   Cadastre KPIs, defina metas e registre valores mensais para alimentar o dashboard de performance.
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="flex-1">
                 <KpiList clientId={session?.client_id ?? ""} />
               </CardContent>
             </Card>
 
-            {/* Metas dos KPIs */}
-            <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-emerald-500">
+            {/* Metas dos KPIs (flex-1 para crescer e preencher coluna) */}
+            <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-emerald-500 flex flex-col flex-1">
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
                   <svg className="h-5 w-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -487,7 +487,7 @@ export function ProfilePage() {
                   Defina a meta de cada indicador para acompanhar o progresso no dashboard.
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="flex-1">
                 <KpiTargets clientId={session?.client_id ?? ""} />
               </CardContent>
             </Card>
