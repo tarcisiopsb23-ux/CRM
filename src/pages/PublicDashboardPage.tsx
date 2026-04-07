@@ -141,6 +141,17 @@ export function PublicDashboardPage() {
   const ga4Query = useGA4Metrics(googleToken ? clientData?.id : undefined, dateRange);
   const gadsQuery = useGoogleAdsMetrics(googleToken ? clientData?.id : undefined, dateRange);
   const metaQuery = useMetaAdsMetrics(metaToken ? clientData?.id : undefined, dateRange);
+
+  // totals must be declared before funnelStats (which references it)
+  const totals = useMemo(() => realDailyMetrics.reduce((acc: any, curr: any) => ({
+    spend: acc.spend + (curr.total_spend || 0),
+    leads: acc.leads + (curr.total_leads || 0),
+    sales: acc.sales + (curr.total_sales || 0),
+    revenue: acc.revenue + (curr.revenue || 0),
+    impressions: acc.impressions + (curr.impressions || 0),
+    clicks: acc.clicks + (curr.clicks || 0),
+  }), { spend: 0, leads: 0, sales: 0, revenue: 0, impressions: 0, clicks: 0 }), [realDailyMetrics]);
+
   const funnelStats = useFunnelStats(
     clientData?.id,
     dateRange,
@@ -169,15 +180,6 @@ export function PublicDashboardPage() {
       setNewPassword("");
     } catch { toast.error("Erro ao atualizar senha."); }
   };
-
-  const totals = useMemo(() => realDailyMetrics.reduce((acc, curr) => ({
-    spend: acc.spend + (curr.total_spend || 0),
-    leads: acc.leads + (curr.total_leads || 0),
-    sales: acc.sales + (curr.total_sales || 0),
-    revenue: acc.revenue + (curr.revenue || 0),
-    impressions: acc.impressions + (curr.impressions || 0),
-    clicks: acc.clicks + (curr.clicks || 0),
-  }), { spend: 0, leads: 0, sales: 0, revenue: 0, impressions: 0, clicks: 0 }), [realDailyMetrics]);
 
   // ── Consolidated metrics: real API data takes priority over manual daily_metrics ──
   const consolidated = useMemo(() => {
