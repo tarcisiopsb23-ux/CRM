@@ -126,10 +126,8 @@ export function PublicDashboardPage() {
     fetchFreshData();
   }, [navigate]);
 
-  useTrackingInjection({
-    gtmId: clientData?.metadata?.gtm_id ?? null,
-    metaPixelId: clientData?.metadata?.meta_pixel_id ?? null,
-  });
+  // Tracking injection removed — GTM and Meta Pixel are now injected only
+  // in the WhatsAppRedirectPage (/wa) to avoid tracking the client dashboard.
 
   const kpis = (useClientKPIs(clientData?.id).data ?? []) as any[];
   const kpiHistory = (useClientKPIHistory(clientData?.id).data ?? []) as any[];

@@ -476,6 +476,40 @@ export function ProfilePage() {
                     <p className="text-xs font-black uppercase tracking-widest text-slate-500">Google Analytics & Ads / Meta Ads</p>
                     <OAuthIntegrations clientId={session?.client_id ?? ""} />
                   </div>
+
+                  {/* GTM + Meta Pixel — para página intermediária de anúncios */}
+                  <div className="border-t border-slate-700 pt-4 space-y-3">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-widest text-slate-500 mb-1">Rastreamento — Página Intermediária</p>
+                      <p className="text-xs text-slate-500">IDs usados exclusivamente na página <span className="font-mono text-violet-400">/wa</span> para disparar eventos de conversão nas plataformas de anúncios.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-slate-300 text-xs">Google Tag Manager ID</Label>
+                        <IntegrationStatusBadge status={integrationStatus(gtmId)} />
+                      </div>
+                      <Input type="text" placeholder="GTM-XXXXXXX"
+                        className="bg-slate-900/50 border-slate-700 text-white h-10 font-mono text-sm"
+                        value={gtmId} onChange={(e) => setGtmId(e.target.value)} />
+                      <p className="text-[10px] text-slate-600">Formato: GTM-[A-Z0-9]+</p>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-slate-300 text-xs">Meta Pixel ID</Label>
+                        <IntegrationStatusBadge status={integrationStatus(metaPixelId)} />
+                      </div>
+                      <Input type="text" placeholder="123456789012345"
+                        className="bg-slate-900/50 border-slate-700 text-white h-10 font-mono text-sm"
+                        value={metaPixelId} onChange={(e) => setMetaPixelId(e.target.value)} />
+                      <p className="text-[10px] text-slate-600">Numérico, 15 ou 16 dígitos</p>
+                    </div>
+                    {trackingError && <p className="text-xs text-red-400">{trackingError}</p>}
+                    <Button type="button" onClick={handleSaveTracking} disabled={trackingLoading}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 h-9 font-bold text-sm">
+                      {trackingLoading ? <Loader2 className="h-3 w-3 animate-spin mr-2" /> : null}
+                      Salvar GTM e Meta Pixel
+                    </Button>
+                  </div>
                   {/* Separador WhatsApp */}
                   <div className="border-t border-slate-700 pt-4">
                     <p className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">Integração WhatsApp</p>
