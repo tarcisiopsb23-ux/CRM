@@ -133,9 +133,19 @@ export function CrmSection({ clientId: _clientId, clientMetadata }: CrmSectionPr
       toast.success("Lead atualizado");
       if (form.status === "fechado" && clientMetadata) fireConversionEvents(clientMetadata);
     } else {
-      const { error } = await supabase.from("crm_leads").insert(form);
+      const { data: inserted, error } = await supabase
+        .from("crm_leads").insert(form).select("id, status, created_at").single();
       if (error) { toast.error("Erro ao criar lead"); return; }
       toast.success("Lead criado");
+      // Record initial stage in history
+      if (inserted) {
+        await supabase.from("crm_lead_stage_history").insert({
+          lead_id: inserted.id,
+          stage: inserted.status,
+          entered_at: inserted.created_at,
+          implicit: false,
+        });
+      }
       if (form.status === "fechado" && clientMetadata) fireConversionEvents(clientMetadata);
     }
     setDialogOpen(false);

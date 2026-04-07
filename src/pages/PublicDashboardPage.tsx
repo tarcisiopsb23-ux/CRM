@@ -41,6 +41,7 @@ import { useAdClickSessions } from "@/hooks/useAdClickSessions";
 import { useGA4Metrics, useGoogleAdsMetrics } from "@/hooks/useGoogleAnalytics";
 import { useMetaAdsMetrics } from "@/hooks/useMetaAds";
 import { useOAuthTokens } from "@/hooks/useOAuthTokens";
+import { useFunnelStats } from "@/hooks/useFunnelStats";
 import { ConversationKpiDashboard } from "@/components/whatsapp/ConversationKpiDashboard";
 import { MessageCircle } from "lucide-react";
 import { CrmSection } from "@/components/crm/CrmSection";
@@ -140,6 +141,14 @@ export function PublicDashboardPage() {
   const ga4Query = useGA4Metrics(googleToken ? clientData?.id : undefined, dateRange);
   const gadsQuery = useGoogleAdsMetrics(googleToken ? clientData?.id : undefined, dateRange);
   const metaQuery = useMetaAdsMetrics(metaToken ? clientData?.id : undefined, dateRange);
+  const funnelStats = useFunnelStats(
+    clientData?.id,
+    dateRange,
+    { impressions: totals.impressions, clicks: totals.clicks },
+    adClickQuery.data?.totalClicks,
+    gadsQuery.data ? { impressions: gadsQuery.data.impressions, clicks: gadsQuery.data.clicks } : null,
+    metaQuery.data  ? { impressions: metaQuery.data.impressions,  clicks: metaQuery.data.clicks  } : null
+  );
 
   const handleLogoff = () => {
     localStorage.removeItem("client_auth");
@@ -446,10 +455,39 @@ export function PublicDashboardPage() {
               </CardHeader>
               <CardContent className="flex-1 flex flex-col justify-center pt-6">
                 <ModernFunnel textVariant="white" steps={[
-                  { label: "Impressões", value: totals.impressions.toLocaleString("pt-BR"), color: "bg-slate-700", width: "w-full", percentage: ((totals.clicks / (totals.impressions || 1)) * 100).toFixed(1) + "%", rateLabel: "CTR" },
-                  { label: "Cliques", value: totals.clicks.toLocaleString("pt-BR"), color: "bg-[#7C3AED]/40", width: "w-[85%]", percentage: ((totals.leads / (totals.clicks || 1)) * 100).toFixed(1) + "%", rateLabel: "TX. CONV." },
-                  { label: "Leads", value: totals.leads, color: "bg-blue-500/40", width: "w-[70%]", percentage: ((totals.sales / (totals.leads || 1)) * 100).toFixed(1) + "%", rateLabel: "TX. FECH." },
-                  { label: "Vendas", value: totals.sales, color: "bg-emerald-500/40", width: "w-[55%]" },
+                  {
+                    label: "Impressions",
+                    value: (funnelStats.data?.impressions ?? totals.impressions).toLocaleString("pt-BR"),
+                    color: "bg-slate-700", width: "w-full",
+                    percentage: (((funnelStats.data?.clicks ?? totals.clicks) / ((funnelStats.data?.impressions ?? totals.impressions) || 1)) * 100).toFixed(1) + "%",
+                    rateLabel: "CTR"
+                  },
+                  {
+                    label: "Clicks",
+                    value: (funnelStats.data?.clicks ?? totals.clicks).toLocaleString("pt-BR"),
+                    color: "bg-[#7C3AED]/40", width: "w-[88%]",
+                    percentage: (((funnelStats.data?.novo ?? totals.leads) / ((funnelStats.data?.clicks ?? totals.clicks) || 1)) * 100).toFixed(1) + "%",
+                    rateLabel: "CONV. RATE"
+                  },
+                  {
+                    label: "Leads (New)",
+                    value: (funnelStats.data?.novo ?? totals.leads).toLocaleString("pt-BR"),
+                    color: "bg-blue-500/40", width: "w-[76%]",
+                    percentage: (((funnelStats.data?.contato ?? 0) / ((funnelStats.data?.novo ?? totals.leads) || 1)) * 100).toFixed(1) + "%",
+                    rateLabel: "QUALIF."
+                  },
+                  {
+                    label: "Qualified",
+                    value: (funnelStats.data?.contato ?? 0).toLocaleString("pt-BR"),
+                    color: "bg-indigo-500/40", width: "w-[64%]",
+                    percentage: (((funnelStats.data?.fechado ?? totals.sales) / ((funnelStats.data?.contato ?? 1) || 1)) * 100).toFixed(1) + "%",
+                    rateLabel: "CLOSE RATE"
+                  },
+                  {
+                    label: "Closed",
+                    value: (funnelStats.data?.fechado ?? totals.sales).toLocaleString("pt-BR"),
+                    color: "bg-emerald-500/40", width: "w-[52%]"
+                  },
                 ]} />
                 <div className="mt-8 pt-6 border-t border-slate-700 text-center w-full">
                   <p className="text-slate-400 text-xs uppercase font-black tracking-widest">Resultado Final</p>
