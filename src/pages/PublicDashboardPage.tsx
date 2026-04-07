@@ -931,8 +931,6 @@ export function PublicDashboardPage() {
               <AdClickSection
                 stats={adClickQuery.data ?? { totalClicks: 0, uniqueCampaigns: 0, byCampaign: [], bySource: [], byDay: [], conversionRate: 0 }}
                 isLoading={adClickQuery.isLoading}
-                hasGtm={false}
-                hasPixel={false}
               />
             </CardContent>
           </Card>

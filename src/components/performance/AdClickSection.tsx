@@ -2,7 +2,7 @@ import {
   BarChart, Bar, AreaChart, Area,
   CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts";
-import { MousePointerClick, TrendingUp, Target, Megaphone, ExternalLink } from "lucide-react";
+import { MousePointerClick, TrendingUp, Target, Megaphone } from "lucide-react";
 import type { AdClickStats } from "@/hooks/useAdClickSessions";
 
 const SOURCE_COLORS: Record<string, string> = {
@@ -34,58 +34,26 @@ function StatCard({ icon: Icon, label, value, sub, color = "text-white" }: {
 interface Props {
   stats: AdClickStats;
   isLoading: boolean;
-  hasGtm: boolean;
-  hasPixel: boolean;
 }
 
-export function AdClickSection({ stats, isLoading, hasGtm, hasPixel }: Props) {
+export function AdClickSection({ stats, isLoading }: Props) {
   if (isLoading) {
     return (
       <div className="rounded-2xl bg-white/5 border border-white/10 p-6 animate-pulse h-48" />
     );
   }
 
-  const noTracking = !hasGtm && !hasPixel;
-
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-xs uppercase font-black tracking-widest text-white/50 mb-1">
-            Cliques de Anúncios
-          </p>
-          <p className="text-white/60 text-xs">
-            Cliques capturados via link intermediário (/wa) com atribuição de campanha
-          </p>
-        </div>
-        <div className="flex gap-2">
-          {hasGtm && (
-            <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
-              <TrendingUp className="h-3 w-3" /> GTM ativo
-            </span>
-          )}
-          {hasPixel && (
-            <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-              <Target className="h-3 w-3" /> Pixel ativo
-            </span>
-          )}
-        </div>
+      <div>
+        <p className="text-xs uppercase font-black tracking-widest text-white/50 mb-1">
+          Cliques de Anúncios
+        </p>
+        <p className="text-white/60 text-xs">
+          Cliques capturados via link intermediário (/wa) com atribuição de campanha
+        </p>
       </div>
-
-      {/* Aviso se não tem tracking configurado */}
-      {noTracking && (
-        <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 flex items-start gap-3">
-          <Megaphone className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
-          <div>
-            <p className="text-amber-300 font-bold text-sm">GTM e Meta Pixel não configurados</p>
-            <p className="text-amber-400/70 text-xs mt-1">
-              Configure o GTM ID e/ou Meta Pixel ID em Perfil → Integrações para ativar o rastreamento de conversões nas plataformas de anúncios.
-              Os cliques via link intermediário já estão sendo capturados independentemente.
-            </p>
-          </div>
-        </div>
-      )}
 
       {/* Cards de métricas */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -128,8 +96,7 @@ export function AdClickSection({ stats, isLoading, hasGtm, hasPixel }: Props) {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                <XAxis dataKey="date" tick={{ fill: "#ffffff50", fontSize: 10 }}
-                  tickFormatter={v => v.slice(5)} />
+                <XAxis dataKey="date" tick={{ fill: "#ffffff50", fontSize: 10 }} tickFormatter={v => v.slice(5)} />
                 <YAxis tick={{ fill: "#ffffff50", fontSize: 10 }} />
                 <Tooltip
                   contentStyle={{ background: "#1e293b", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }}
@@ -152,8 +119,7 @@ export function AdClickSection({ stats, isLoading, hasGtm, hasPixel }: Props) {
                   contentStyle={{ background: "#1e293b", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }}
                   labelStyle={{ color: "#fff" }} itemStyle={{ color: "#10b981" }}
                 />
-                <Bar dataKey="clicks" name="Cliques" radius={[0, 4, 4, 0]}
-                  fill="#7C3AED" />
+                <Bar dataKey="clicks" name="Cliques" radius={[0, 4, 4, 0]} fill="#7C3AED" />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -193,19 +159,6 @@ export function AdClickSection({ stats, isLoading, hasGtm, hasPixel }: Props) {
               </div>
             </div>
           )}
-        </div>
-      )}
-
-      {/* Info sobre GTM/Pixel */}
-      {(hasGtm || hasPixel) && (
-        <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-xs text-white/50 space-y-1">
-          <p className="font-bold text-white/70">Rastreamento ativo nas plataformas:</p>
-          {hasGtm && <p>• GTM: eventos <code className="text-blue-400">whatsapp_click</code> e <code className="text-blue-400">conversion</code> enviados ao Google Analytics</p>}
-          {hasPixel && <p>• Meta Pixel: eventos <code className="text-indigo-400">Lead</code> e <code className="text-indigo-400">Purchase</code> enviados ao Gerenciador de Anúncios</p>}
-          <p className="mt-2 flex items-center gap-1">
-            <ExternalLink className="h-3 w-3" />
-            Veja os resultados completos no Google Analytics e Meta Ads Manager
-          </p>
         </div>
       )}
     </div>
