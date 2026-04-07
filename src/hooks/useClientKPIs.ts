@@ -36,10 +36,14 @@ export function useClientKPIs(clientId?: string) {
         .select("*")
         .eq("client_id", clientId)
         .order("name", { ascending: true });
-      if (error) throw error;
+      if (error) {
+        console.error("[useClientKPIs] erro ao buscar KPIs:", error);
+        throw error;
+      }
       return data || [];
     },
     enabled: !!clientId,
+    retry: 1,
   });
 
   const create = useMutation({
@@ -82,10 +86,14 @@ export function useClientKPIHistory(clientId?: string) {
         .select("*")
         .eq("client_id", clientId)
         .order("month_year", { ascending: false });
-      if (error) throw error;
+      if (error) {
+        console.error("[useClientKPIHistory] erro ao buscar histórico:", error);
+        throw error;
+      }
       return data || [];
     },
     enabled: !!clientId,
+    retry: 1,
   });
 
   const upsert = useMutation({

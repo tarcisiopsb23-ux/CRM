@@ -30,7 +30,7 @@ import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import {
   format, subDays, startOfMonth, endOfMonth,
-  subMonths,
+  subMonths, parseISO,
 } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useClientKPIs, useClientKPIHistory } from "@/hooks/useClientKPIs";
@@ -108,7 +108,9 @@ export function PublicDashboardPage() {
           const fresh = clients[0];
           const merged = {
             ...parsedData,
-            id: fresh.id,                                    // garante que id está disponível
+            // Em sessão de suporte, preserva o client_id original (cliente visualizado)
+            // e não sobrescreve com o id do agente retornado pelo RPC
+            ...(parsedData.is_support ? {} : { id: fresh.id }),
             name: fresh.name ?? parsedData.name,
             favicon_url: fresh.favicon_url ?? parsedData.favicon_url,
             metadata: {
@@ -131,11 +133,23 @@ export function PublicDashboardPage() {
   // Tracking injection removed — GTM and Meta Pixel are now injected only
   // in the WhatsAppRedirectPage (/wa) to avoid tracking the client dashboard.
 
-  // Resolve client ID — localStorage may store it as client_id (login) or id (after RPC merge)
-  const clientId: string | undefined = clientData?.id ?? clientData?.client_id;
+  // Resolve client ID — em sessão de suporte, client_id é o cliente visualizado; id é o agente
+  const clientId: string | undefined = clientData?.is_support
+    ? (clientData?.client_id ?? clientData?.id)
+    : (clientData?.id ?? clientData?.client_id);
 
-  const kpis = (useClientKPIs(clientId).data ?? []) as any[];
-  const kpiHistory = (useClientKPIHistory(clientId).data ?? []) as any[];
+  // DEBUG — remover após diagnóstico
+  console.log("[KPI DEBUG] clientData:", clientData);
+  console.log("[KPI DEBUG] clientId:", clientId);
+
+  const kpisQuery = useClientKPIs(clientId);
+  const kpiHistoryQuery = useClientKPIHistory(clientId);
+  const kpis = (kpisQuery.data ?? []) as any[];
+  const kpiHistory = (kpiHistoryQuery.data ?? []) as any[];
+
+  // DEBUG — remover após diagnóstico
+  console.log("[KPI DEBUG] kpisQuery status:", kpisQuery.status, "| data:", kpisQuery.data, "| error:", kpisQuery.error);
+  console.log("[KPI DEBUG] kpiHistoryQuery status:", kpiHistoryQuery.status, "| data:", kpiHistoryQuery.data);
   const { campaignDataQuery, dailyMetricsQuery } = useClientReports(clientId, dateRange);
   const realCampaigns = (campaignDataQuery.data ?? []) as any[];
   const realDailyMetrics = (dailyMetricsQuery.data ?? []) as any[];
@@ -319,22 +333,31 @@ export function PublicDashboardPage() {
 
   // KPI cards – mês atual vs anterior
   const kpiCards = useMemo(() => {
-    const currentKey = format(new Date(), "yyyy-MM");
-    const prevKey = format(subMonths(new Date(), 1), "yyyy-MM");
     return kpis.map((kpi, idx) => {
-      const current = kpiHistory.find(h => h.kpi_id === kpi.id && String(h.month_year).startsWith(currentKey))?.value ?? null;
-      const prev = kpiHistory.find(h => h.kpi_id === kpi.id && String(h.month_year).startsWith(prevKey))?.value ?? null;
-      const growth = current !== null && prev !== null && prev !== 0 ? ((current - prev) / prev) * 100 : null;
+      // Pega todos os registros deste KPI ordenados do mais recente ao mais antigo
+      const kpiEntries = kpiHistory
+        .filter(h => h.kpi_id === kpi.id)
+        .sort((a, b) => String(b.month_year).localeCompare(String(a.month_year)));
+
+      const current = kpiEntries[0]?.value ?? null;
+      // Se há apenas 1 registro, prev = 0 para permitir comparação
+      const prev = kpiEntries.length >= 2 ? kpiEntries[1].value : (kpiEntries.length === 1 ? 0 : null);
+      const growth = current !== null && prev !== null
+        ? (prev !== 0 ? ((current - prev) / prev) * 100 : (current > 0 ? 100 : 0))
+        : null;
       return { ...kpi, current, prev, growth, color: KPI_COLORS[idx % KPI_COLORS.length] };
     });
   }, [kpis, kpiHistory]);
 
-  // Sparkline (6 meses) por KPI
+  // Sparkline – até 12 meses, baseado nos registros existentes
   const kpiSparkline = useMemo(() => {
-    const monthKeys = Array.from({ length: 6 }).map((_, i) => format(subMonths(new Date(), i), "yyyy-MM")).reverse();
+    const allMonths = kpiHistory.map(h => String(h.month_year).slice(0, 7));
+    const uniqueMonths = [...new Set(allMonths)].sort();
+    // Pega até 12 meses mais recentes com pelo menos 1 registro
+    const relevantMonths = uniqueMonths.slice(-12);
     const byKpi = new Map<string, { month: string; value: number }[]>();
     for (const kpi of kpis) {
-      byKpi.set(kpi.id, monthKeys.map(mk => ({
+      byKpi.set(kpi.id, relevantMonths.map(mk => ({
         month: mk,
         value: kpiHistory.find(h => h.kpi_id === kpi.id && String(h.month_year).startsWith(mk))?.value ?? 0,
       })));
@@ -342,12 +365,13 @@ export function PublicDashboardPage() {
     return byKpi;
   }, [kpis, kpiHistory]);
 
-  // Evolução longo prazo (12 meses)
+  // Evolução longo prazo – até 12 meses com registros
   const longTermData = useMemo(() => {
-    return Array.from({ length: 12 }).map((_, i) => {
-      const month = subMonths(new Date(), 11 - i);
-      const monthStr = format(month, "yyyy-MM");
-      const point: any = { name: format(month, "MMM/yy", { locale: ptBR }) };
+    const allMonths = kpiHistory.map(h => String(h.month_year).slice(0, 7));
+    const uniqueMonths = [...new Set(allMonths)].sort();
+    const relevantMonths = uniqueMonths.slice(-12);
+    return relevantMonths.map(monthStr => {
+      const point: any = { name: format(parseISO(monthStr + "-01"), "MMM/yy", { locale: ptBR }) };
       kpis.forEach(kpi => {
         const h = kpiHistory.find(h => h.kpi_id === kpi.id && String(h.month_year).startsWith(monthStr));
         point[kpi.name] = h ? h.value : null;
@@ -717,7 +741,14 @@ export function PublicDashboardPage() {
                 <InfoTooltip text="Indicadores-chave de negócio registrados manualmente pela equipe. Cada card exibe o valor do mês atual e o badge colorido mostra a variação percentual em relação ao mês anterior (MoM – Month over Month)." />
               </CardHeader>
               <CardContent>
-                {kpis.length === 0 ? (
+                {kpisQuery.isError ? (
+                  <div className="flex flex-col items-center justify-center py-12 gap-3 text-red-400">
+                    <BarChart3 className="h-10 w-10 opacity-40" />
+                    <p className="text-sm text-center">Erro ao carregar indicadores.<br /><span className="text-xs text-slate-500">Verifique o console para detalhes.</span></p>
+                  </div>
+                ) : kpisQuery.isLoading ? (
+                  <div className="flex items-center justify-center py-12 text-slate-500 text-sm">Carregando...</div>
+                ) : kpis.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 gap-3 text-slate-500">
                     <BarChart3 className="h-10 w-10 opacity-20" />
                     <p className="text-sm text-center">Nenhum indicador cadastrado ainda.<br />Os KPIs aparecerão aqui após serem configurados.</p>
@@ -884,8 +915,13 @@ export function PublicDashboardPage() {
                   <p className="text-sm text-center">Nenhum indicador cadastrado.<br />Configure os KPIs em Perfil → Configurações.</p>
                 </div>
               ) : (() => {
-                const panelMonths = Array.from({ length: 6 }).map((_, i) => subMonths(new Date(), 5 - i));
-                const currentKey = format(new Date(), "yyyy-MM");
+                // Meses com registros (mín 1, máx 12), ordenados do mais antigo ao mais recente
+                const allHistoryMonths = [...new Set(kpiHistory.map(h => String(h.month_year).slice(0, 7)))].sort();
+                const panelMonthKeys = allHistoryMonths.slice(-12);
+                // Mês mais recente com registro = "atual"
+                const currentKey = panelMonthKeys[panelMonthKeys.length - 1] ?? format(new Date(), "yyyy-MM");
+                // Colunas históricas: todos exceto o mais recente (até 5)
+                const histCols = panelMonthKeys.slice(0, -1).slice(-5);
                 return (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
@@ -896,9 +932,9 @@ export function PublicDashboardPage() {
                           <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 whitespace-nowrap">Meta/Mês</th>
                           <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 whitespace-nowrap min-w-[140px]">Progresso</th>
                           <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 whitespace-nowrap">MoM</th>
-                          {panelMonths.slice(0, 5).map(m => (
-                            <th key={m.toISOString()} className="px-3 py-4 text-center text-[10px] font-black uppercase tracking-widest text-slate-500 whitespace-nowrap">
-                              {format(m, "MMM/yy", { locale: ptBR })}
+                          {histCols.map(mk => (
+                            <th key={mk} className="px-3 py-4 text-center text-[10px] font-black uppercase tracking-widest text-slate-500 whitespace-nowrap">
+                              {format(parseISO(mk + "-01"), "MMM/yy", { locale: ptBR })}
                             </th>
                           ))}
                         </tr>
@@ -946,12 +982,10 @@ export function PublicDashboardPage() {
                                   </span>
                                 ) : <span className="text-slate-600 text-xs">—</span>}
                               </td>
-                              {panelMonths.slice(0, 5).map(m => {
-                                const mk = format(m, "yyyy-MM");
+                              {histCols.map(mk => {
                                 const val = kpiHistory.find(h => h.kpi_id === kpi.id && String(h.month_year).startsWith(mk))?.value;
-                                const isCurrent = mk === currentKey;
                                 return (
-                                  <td key={mk} className={cn("px-3 py-4 text-center text-xs font-bold whitespace-nowrap", isCurrent ? "text-white" : "text-slate-400")}>
+                                  <td key={mk} className="px-3 py-4 text-center text-xs font-bold whitespace-nowrap text-slate-400">
                                     {val !== undefined ? fmtVal(val, kpi.unit) : <span className="text-slate-700">—</span>}
                                   </td>
                                 );
