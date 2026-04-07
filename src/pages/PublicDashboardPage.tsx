@@ -721,39 +721,66 @@ export function PublicDashboardPage() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {kpiCards.map(kpi => (
-                      <Card key={kpi.id} className="bg-slate-900/30 border-slate-800 p-5">
-                        <div className="flex items-start justify-between">
-                          <div className="h-8 w-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: kpi.color + "18" }}>
-                            <BarChart3 className="h-4 w-4" style={{ color: kpi.color }} />
+                    {kpiCards.map(kpi => {
+                      const pctMeta = kpi.target_value && kpi.current !== null
+                        ? Math.min((kpi.current / kpi.target_value) * 100, 150)
+                        : null;
+                      const metaOk = pctMeta !== null && (isLowerBetter(kpi.name) ? pctMeta <= 100 : pctMeta >= 100);
+                      const metaColor = pctMeta === null ? "#475569"
+                        : metaOk ? "#10b981"
+                        : pctMeta >= 80 ? "#f59e0b"
+                        : "#ef4444";
+                      return (
+                        <Card key={kpi.id} className="bg-slate-900/30 border-slate-800 p-5">
+                          <div className="flex items-start justify-between mb-3">
+                            <div className="h-8 w-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: kpi.color + "18" }}>
+                              <BarChart3 className="h-4 w-4" style={{ color: kpi.color }} />
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              {kpi.growth !== null && (
+                                <div className={cn("flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded",
+                                  (isLowerBetter(kpi.name) ? kpi.growth <= 0 : kpi.growth >= 0)
+                                    ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"
+                                )}>
+                                  {kpi.growth >= 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+                                  {Math.abs(kpi.growth).toFixed(0)}%
+                                </div>
+                              )}
+                            </div>
                           </div>
-                          <div className="flex items-start gap-2">
-                            {kpi.growth !== null && (
-                              <div className={cn("flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded",
-                                (isLowerBetter(kpi.name) ? kpi.growth <= 0 : kpi.growth >= 0)
-                                  ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"
-                              )}>
-                                {kpi.growth >= 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
-                                {Math.abs(kpi.growth).toFixed(0)}%
+                          <p className="text-[10px] uppercase font-black tracking-widest text-slate-500">{kpi.name}</p>
+                          <p className="text-2xl font-black text-white mt-1">
+                            {kpi.current !== null ? fmtVal(kpi.current, kpi.unit) : <span className="text-slate-600 text-base font-bold">Sem dados</span>}
+                          </p>
+                          {/* Meta progress */}
+                          {kpi.target_value !== null && (
+                            <div className="mt-3 space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] text-slate-500">Meta: {fmtVal(kpi.target_value, kpi.unit)}/mês</span>
+                                {pctMeta !== null && (
+                                  <span className="text-[10px] font-black" style={{ color: metaColor }}>
+                                    {pctMeta.toFixed(0)}%
+                                  </span>
+                                )}
                               </div>
-                            )}
-                            <InfoTooltip text={`${kpi.name}: valor do mês atual com variação percentual em relação ao mês anterior. O mini-gráfico mostra a tendência dos últimos 6 meses.`} />
+                              <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                <div className="h-full rounded-full transition-all"
+                                  style={{ width: `${Math.min(pctMeta ?? 0, 100)}%`, backgroundColor: metaColor }} />
+                              </div>
+                            </div>
+                          )}
+                          {/* Sparkline */}
+                          <div className="mt-3 h-10">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <LineChart data={kpiSparkline.get(kpi.id) ?? []}>
+                                <Line type="monotone" dataKey="value" stroke={kpi.color} strokeWidth={2} dot={false} />
+                              </LineChart>
+                            </ResponsiveContainer>
                           </div>
-                        </div>
-                        <p className="text-[10px] uppercase font-black tracking-widest text-slate-500 mt-3">{kpi.name}</p>
-                        <p className="text-2xl font-black text-white mt-1">
-                          {kpi.current !== null ? fmtVal(kpi.current, kpi.unit) : <span className="text-slate-600 text-base font-bold">Sem dados</span>}
-                        </p>
-                        <div className="mt-4 h-10">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={kpiSparkline.get(kpi.id) ?? []}>
-                              <Line type="monotone" dataKey="value" stroke={kpi.color} strokeWidth={2} dot={false} />
-                            </LineChart>
-                          </ResponsiveContainer>
-                        </div>
-                        <p className="text-[9px] text-slate-500 mt-2">Mês atual vs anterior</p>
-                      </Card>
-                    ))}
+                          <p className="text-[9px] text-slate-600 mt-1">Últimos 6 meses</p>
+                        </Card>
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>
@@ -838,144 +865,106 @@ export function PublicDashboardPage() {
             </Card>
           </div>
 
-          {/* -- 6. TABELA COMPARATIVA DE PERFORMANCE -- */}
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 px-1">
-              <ListFilter className="h-5 w-5 text-[#7C3AED]" />
-              <h2 className="text-xl font-bold text-white uppercase tracking-tight">Comparativo de Performance</h2>
-              <InfoTooltip text="Tabela que cruza a média histórica, a meta definida e o resultado atual de cada KPI. A coluna 'vs Média' mostra se o resultado está acima ou abaixo do histórico, enquanto '% Meta' indica o quanto da meta foi atingido. O status resume a situação de cada indicador." />
-            </div>
-            <Card className="bg-[#1E293B] border-slate-800 shadow-2xl overflow-hidden">
-              <CardContent className="p-0">
-                {perfRows.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-12 gap-3 text-slate-500">
-                    <ListFilter className="h-10 w-10 opacity-20" />
-                    <p className="text-sm text-center">Nenhum indicador cadastrado.<br />A tabela comparativa aparecerá após o cadastro dos KPIs.</p>
-                  </div>
-                ) : (
+          {/* -- 6. PAINEL DE KPIs — resultado do mês vs meta + histórico 6 meses -- */}
+          <Card className="bg-[#1E293B] border-slate-800 shadow-2xl overflow-hidden">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-xl font-bold text-white flex items-center gap-2">
+                <ListFilter className="h-5 w-5 text-[#7C3AED]" />
+                Painel de KPIs
+              </CardTitle>
+              <InfoTooltip text="Resultado do mês atual de cada KPI comparado à meta mensal e ao histórico dos últimos 6 meses. A barra de progresso mostra o quanto da meta foi atingido no mês corrente." />
+            </CardHeader>
+            <CardContent className="p-0">
+              {kpis.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 gap-3 text-slate-500">
+                  <ListFilter className="h-10 w-10 opacity-20" />
+                  <p className="text-sm text-center">Nenhum indicador cadastrado.<br />Configure os KPIs em Perfil → Configurações.</p>
+                </div>
+              ) : (() => {
+                const panelMonths = Array.from({ length: 6 }).map((_, i) => subMonths(new Date(), 5 - i));
+                const currentKey = format(new Date(), "yyyy-MM");
+                return (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="border-b border-slate-800 bg-slate-900/40">
-                          {["KPI", "Média Histórica", "Meta", "Resultado Atual", "vs Média", "% Meta", "Status"].map(h => (
-                            <th key={h} className="px-5 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 whitespace-nowrap">{h}</th>
+                          <th className="px-5 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 min-w-[160px]">KPI</th>
+                          <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 whitespace-nowrap">Mês Atual</th>
+                          <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 whitespace-nowrap">Meta/Mês</th>
+                          <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 whitespace-nowrap min-w-[140px]">Progresso</th>
+                          <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 whitespace-nowrap">MoM</th>
+                          {panelMonths.slice(0, 5).map(m => (
+                            <th key={m.toISOString()} className="px-3 py-4 text-center text-[10px] font-black uppercase tracking-widest text-slate-500 whitespace-nowrap">
+                              {format(m, "MMM/yy", { locale: ptBR })}
+                            </th>
                           ))}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/50">
-                        {perfRows.map(({ kpi, current, avg, target, vsAvg, pctMeta, status, fmt }) => {
+                        {kpiCards.map(kpi => {
                           const lower = isLowerBetter(kpi.name);
-                          const vsPositive = vsAvg !== null && (lower ? vsAvg <= 0 : vsAvg >= 0);
-                          const statusColor =
-                            status === "Meta atingida" ? "text-emerald-400 bg-emerald-500/10" :
-                            status === "Próximo da meta" ? "text-yellow-400 bg-yellow-500/10" :
-                            status === "Acima da média" ? "text-blue-400 bg-blue-500/10" :
-                            status === "Abaixo da média" ? "text-red-400 bg-red-500/10" :
-                            status === "Sem dados" ? "text-slate-600 bg-slate-800/50" :
-                            "text-slate-400 bg-slate-700/30";
+                          const pct = kpi.target_value && kpi.current !== null
+                            ? (kpi.current / kpi.target_value) * 100 : null;
+                          const metaOk = pct !== null && (lower ? pct <= 100 : pct >= 100);
+                          const barColor = pct === null ? "#475569" : metaOk ? "#10b981" : pct >= 80 ? "#f59e0b" : "#ef4444";
+                          const growthOk = kpi.growth !== null && (lower ? kpi.growth <= 0 : kpi.growth >= 0);
                           return (
                             <tr key={kpi.id} className="hover:bg-slate-800/30 transition-colors">
                               <td className="px-5 py-4">
-                                <p className="text-sm font-bold text-white">{kpi.name}</p>
-                                <p className="text-[10px] text-slate-500 uppercase font-bold">{kpi.category}</p>
+                                <div className="flex items-center gap-2">
+                                  <div className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: kpi.color }} />
+                                  <p className="text-sm font-bold text-white">{kpi.name}</p>
+                                </div>
                               </td>
-                              <td className="px-5 py-4 text-sm text-slate-400 font-semibold whitespace-nowrap">
-                                {avg !== null ? fmt(avg, kpi.unit) : <span className="text-slate-600">?</span>}
+                              <td className="px-4 py-4 text-sm font-black text-white whitespace-nowrap">
+                                {kpi.current !== null ? fmtVal(kpi.current, kpi.unit) : <span className="text-slate-600 text-xs">—</span>}
                               </td>
-                              <td className="px-5 py-4 text-sm text-slate-400 font-semibold whitespace-nowrap">
-                                {target !== null ? fmt(target, kpi.unit) : <span className="text-slate-600 text-xs italic">Não definida</span>}
+                              <td className="px-4 py-4 text-sm text-slate-400 whitespace-nowrap">
+                                {kpi.target_value !== null ? fmtVal(kpi.target_value, kpi.unit) : <span className="text-slate-600 text-xs italic">sem meta</span>}
                               </td>
-                              <td className="px-5 py-4 text-sm font-black text-white whitespace-nowrap">
-                                {current !== null ? fmt(current, kpi.unit) : <span className="text-slate-600">?</span>}
-                              </td>
-                              <td className="px-5 py-4 whitespace-nowrap">
-                                {vsAvg !== null ? (
-                                  <span className={cn("flex items-center gap-1 text-xs font-black", vsPositive ? "text-emerald-400" : "text-red-400")}>
-                                    {vsAvg >= 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
-                                    {Math.abs(vsAvg).toFixed(2)}%
-                                  </span>
-                                ) : <span className="text-slate-600 text-xs">?</span>}
-                              </td>
-                              <td className="px-5 py-4 whitespace-nowrap">
-                                {pctMeta !== null ? (
-                                  <div className="space-y-1">
-                                    <span className="text-xs font-black text-slate-300">{pctMeta.toFixed(2)}%</span>
-                                    <div className="w-20 h-1.5 bg-slate-700 rounded-full overflow-hidden">
-                                      <div className={cn("h-full rounded-full", pctMeta >= 100 ? "bg-emerald-400" : pctMeta >= 80 ? "bg-yellow-400" : "bg-red-400")}
-                                        style={{ width: `${Math.min(pctMeta, 100)}%` }} />
+                              <td className="px-4 py-4">
+                                {pct !== null ? (
+                                  <div className="space-y-1 min-w-[120px]">
+                                    <div className="flex justify-between">
+                                      <span className="text-[10px] font-black" style={{ color: barColor }}>{Math.min(pct, 150).toFixed(0)}%</span>
+                                      {metaOk && <span className="text-[10px] text-emerald-400 font-bold">✓ Meta</span>}
+                                    </div>
+                                    <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                      <div className="h-full rounded-full" style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: barColor }} />
                                     </div>
                                   </div>
-                                ) : <span className="text-slate-600 text-xs">?</span>}
+                                ) : <span className="text-slate-700 text-xs">—</span>}
                               </td>
-                              <td className="px-5 py-4">
-                                <span className={cn("text-[10px] font-black px-2 py-1 rounded-full uppercase tracking-wider whitespace-nowrap", statusColor)}>
-                                  {status}
-                                </span>
+                              <td className="px-4 py-4 whitespace-nowrap">
+                                {kpi.growth !== null ? (
+                                  <span className={cn("flex items-center gap-1 text-xs font-black", growthOk ? "text-emerald-400" : "text-red-400")}>
+                                    {kpi.growth >= 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+                                    {Math.abs(kpi.growth).toFixed(1)}%
+                                  </span>
+                                ) : <span className="text-slate-600 text-xs">—</span>}
                               </td>
+                              {panelMonths.slice(0, 5).map(m => {
+                                const mk = format(m, "yyyy-MM");
+                                const val = kpiHistory.find(h => h.kpi_id === kpi.id && String(h.month_year).startsWith(mk))?.value;
+                                const isCurrent = mk === currentKey;
+                                return (
+                                  <td key={mk} className={cn("px-3 py-4 text-center text-xs font-bold whitespace-nowrap", isCurrent ? "text-white" : "text-slate-400")}>
+                                    {val !== undefined ? fmtVal(val, kpi.unit) : <span className="text-slate-700">—</span>}
+                                  </td>
+                                );
+                              })}
                             </tr>
                           );
                         })}
                       </tbody>
                     </table>
                   </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+                );
+              })()}
+            </CardContent>
+          </Card>
 
-          {/* -- 7. CONSOLIDADO MENSAL (KPIs) -- */}
-          {(() => {
-            const months = Array.from({ length: 12 }).map((_, i) => subMonths(new Date(), 11 - i));
-            return (
-              <Card className="bg-[#1E293B] border-slate-800 shadow-2xl overflow-hidden">
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle className="text-xl font-bold text-white">Consolidado Mensal</CardTitle>
-                  <InfoTooltip text="Histórico completo dos últimos 12 meses para cada indicador de negócio cadastrado. Permite visualizar tendências de longo prazo, sazonalidades e a evolução mês a mês de cada KPI." />
-                </CardHeader>
-                <CardContent className="p-0">
-                  {kpis.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-12 gap-3 text-slate-500">
-                      <ListFilter className="h-10 w-10 opacity-20" />
-                      <p className="text-sm text-center">A tabela consolidada aparecerá aqui<br />após o cadastro e registro dos indicadores.</p>
-                    </div>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="text-slate-500 text-[10px] uppercase font-black tracking-widest border-b border-slate-800">
-                            <th className="pb-4 pl-5 min-w-[160px]">Indicador</th>
-                            {months.map(m => (
-                              <th key={m.toISOString()} className="pb-4 text-center min-w-[90px]">
-                                {format(m, "MMM/yy", { locale: ptBR })}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-800/50">
-                          {kpis.map(kpi => (
-                            <tr key={kpi.id} className="text-sm hover:bg-slate-800/20 transition-colors">
-                              <td className="py-4 pl-5 font-bold text-slate-200">{kpi.name}</td>
-                              {months.map(m => {
-                                const mk = format(m, "yyyy-MM");
-                                const val = kpiHistory.find(h => h.kpi_id === kpi.id && String(h.month_year).startsWith(mk))?.value;
-                                return (
-                                  <td key={mk} className="py-4 text-center text-slate-300 font-bold">
-                                    {val !== undefined ? fmtVal(val, kpi.unit) : <span className="text-slate-700">?</span>}
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })()}
-
-          {/* -- 8. GOOGLE + META DASHBOARD -- */}
+          {/* -- 7. GOOGLE + META DASHBOARD -- */}
           <Card className="bg-[#1E293B] border-slate-800 shadow-2xl">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-xl font-bold text-white">Google & Meta Ads</CardTitle>

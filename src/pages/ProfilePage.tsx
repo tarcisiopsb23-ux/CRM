@@ -466,29 +466,11 @@ export function ProfilePage() {
                   Indicadores de Performance (KPIs)
                 </CardTitle>
                 <CardDescription className="text-slate-400 text-xs">
-                  Cadastre KPIs, defina metas e registre valores mensais para alimentar o dashboard de performance.
+                  Cadastre KPIs com meta mensal. A meta é o valor alvo para cada mês — o dashboard mostra o progresso automaticamente.
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex-1">
                 <KpiList clientId={session?.client_id ?? ""} />
-              </CardContent>
-            </Card>
-
-            {/* Metas dos KPIs (flex-1 para crescer e preencher coluna) */}
-            <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-emerald-500 flex flex-col flex-1">
-              <CardHeader>
-                <CardTitle className="text-white flex items-center gap-2">
-                  <svg className="h-5 w-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" />
-                  </svg>
-                  Metas dos KPIs
-                </CardTitle>
-                <CardDescription className="text-slate-400 text-xs">
-                  Defina a meta de cada indicador para acompanhar o progresso no dashboard.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex-1">
-                <KpiTargets clientId={session?.client_id ?? ""} />
               </CardContent>
             </Card>
 

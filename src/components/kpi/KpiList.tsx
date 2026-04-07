@@ -18,9 +18,10 @@ interface Props { clientId: string; }
 interface KpiForm {
   name: string;
   unit: "currency" | "percentage" | "number";
+  target_value: string;
 }
 
-const emptyForm = (): KpiForm => ({ name: "", unit: "number" });
+const emptyForm = (): KpiForm => ({ name: "", unit: "number", target_value: "" });
 
 export function KpiList({ clientId }: Props) {
   const qc = useQueryClient();
@@ -41,7 +42,7 @@ export function KpiList({ clientId }: Props) {
         category: "Geral",
         unit: form.unit,
         is_predefined: false,
-        target_value: null,
+        target_value: (() => { const v = parseFloat(form.target_value.replace(",", ".")); return isNaN(v) ? null : v; })(),
       });
       toast.success("KPI criado");
       setForm(emptyForm());
@@ -52,14 +53,16 @@ export function KpiList({ clientId }: Props) {
 
   const startEdit = (kpi: ClientKPI) => {
     setEditingId(kpi.id);
-    setEditForm({ name: kpi.name, unit: kpi.unit });
+    setEditForm({ name: kpi.name, unit: kpi.unit, target_value: kpi.target_value?.toString() ?? "" });
   };
 
   const saveEdit = async (id: string) => {
     if (!editForm.name.trim()) { toast.error("Nome obrigatório"); return; }
+    const target = parseFloat(editForm.target_value.replace(",", "."));
     const { error } = await supabase.from("client_kpis").update({
       name: editForm.name.trim(),
       unit: editForm.unit,
+      target_value: isNaN(target) ? null : target,
     }).eq("id", id);
     if (error) { toast.error("Erro ao salvar"); return; }
     toast.success("KPI atualizado");
@@ -105,7 +108,7 @@ export function KpiList({ clientId }: Props) {
             return (
               <div key={kpi.id} className={`rounded-lg border px-3 py-2.5 flex items-center gap-3 ${inactive ? "border-slate-800 bg-slate-900/20 opacity-60" : "border-slate-700 bg-slate-900/40"}`}>
                 {editingId === kpi.id ? (
-                  <div className="flex-1 grid grid-cols-2 gap-2">
+                  <div className="flex-1 grid grid-cols-3 gap-2">
                     <Input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
                       className="h-8 bg-slate-900 border-slate-600 text-white text-xs" placeholder="Nome" />
                     <Select value={editForm.unit} onValueChange={v => setEditForm(f => ({ ...f, unit: v as any }))}>
@@ -116,11 +119,16 @@ export function KpiList({ clientId }: Props) {
                         {Object.entries(UNIT_LABELS).map(([v, l]) => <SelectItem key={v} value={v} className="focus:bg-slate-800 text-xs">{l}</SelectItem>)}
                       </SelectContent>
                     </Select>
+                    <Input value={editForm.target_value} onChange={e => setEditForm(f => ({ ...f, target_value: e.target.value }))}
+                      className="h-8 bg-slate-900 border-slate-600 text-white text-xs" placeholder="Meta mensal" />
                   </div>
                 ) : (
                   <div className="flex-1 min-w-0">
                     <p className={`text-sm font-bold truncate ${inactive ? "text-slate-500 line-through" : "text-white"}`}>{displayName}</p>
-                    <p className="text-[10px] text-slate-600 uppercase font-bold">{UNIT_LABELS[kpi.unit]}</p>
+                    <p className="text-[10px] text-slate-600 uppercase font-bold">
+                      {UNIT_LABELS[kpi.unit]}
+                      {kpi.target_value !== null ? <span className="text-slate-500"> · Meta: {kpi.target_value}/mês</span> : <span className="text-slate-700"> · sem meta</span>}
+                    </p>
                   </div>
                 )}
                 <div className="flex items-center gap-1 shrink-0">
@@ -151,14 +159,18 @@ export function KpiList({ clientId }: Props) {
           <div className="grid grid-cols-1 gap-2">
             <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
               placeholder="Nome do indicador" className="h-9 bg-slate-900 border-slate-700 text-white text-sm" autoFocus />
-            <Select value={form.unit} onValueChange={v => setForm(f => ({ ...f, unit: v as any }))}>
-              <SelectTrigger className="h-9 bg-slate-900 border-slate-700 text-white text-sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="bg-[#1E293B] border-slate-700 text-slate-200">
-                {Object.entries(UNIT_LABELS).map(([v, l]) => <SelectItem key={v} value={v} className="focus:bg-slate-800">{l}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <div className="grid grid-cols-2 gap-2">
+              <Select value={form.unit} onValueChange={v => setForm(f => ({ ...f, unit: v as any }))}>
+                <SelectTrigger className="h-9 bg-slate-900 border-slate-700 text-white text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1E293B] border-slate-700 text-slate-200">
+                  {Object.entries(UNIT_LABELS).map(([v, l]) => <SelectItem key={v} value={v} className="focus:bg-slate-800">{l}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Input value={form.target_value} onChange={e => setForm(f => ({ ...f, target_value: e.target.value }))}
+                placeholder="Meta mensal (opcional)" className="h-9 bg-slate-900 border-slate-700 text-white text-sm" />
+            </div>
           </div>
           <div className="flex gap-2">
             <button onClick={handleAdd} disabled={saving}
