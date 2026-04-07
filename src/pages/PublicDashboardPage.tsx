@@ -284,7 +284,32 @@ export function PublicDashboardPage() {
           trackedClicks: adClicksByCampaign.get(normalize(c.name ?? "")) ?? 0,
         }));
 
-    return { spend, impressions, clicks, leads, qualified, sales, revenue, roas, conversionRate, cpa, dailyData, finalCampaigns };
+    // Add campaigns that exist ONLY in ad_click_sessions (no API match)
+    // These are campaigns tracked via the /wa link but not connected to any ad platform API
+    const matchedNames = new Set(finalCampaigns.map((c: any) => normalize(c.name ?? "")));
+    const adOnlyCampaigns: typeof campaigns = [];
+    for (const [normName, trackedClicks] of adClicksByCampaign.entries()) {
+      if (!matchedNames.has(normName)) {
+        // Find original (non-normalized) name and source from byCampaign
+        const original = adClickQuery.data?.byCampaign.find(
+          c => normalize(c.campaign) === normName
+        );
+        adOnlyCampaigns.push({
+          platform: original?.source ?? "Link Rastreado",
+          name: original?.campaign ?? normName,
+          spend: 0,
+          leads: 0,
+          sales: 0,
+          revenue: 0,
+          trackedClicks,
+        });
+      }
+    }
+
+    const allCampaigns = [...finalCampaigns, ...adOnlyCampaigns]
+      .sort((a: any, b: any) => (b.trackedClicks + (b.spend ?? 0)) - (a.trackedClicks + (a.spend ?? 0)));
+
+    return { spend, impressions, clicks, leads, qualified, sales, revenue, roas, conversionRate, cpa, dailyData, finalCampaigns: allCampaigns };
   }, [gadsQuery.data, metaQuery.data, funnelStats.data, adClickQuery.data, totals, realDailyMetrics, realCampaigns]);
 
   // KPI cards – mês atual vs anterior
