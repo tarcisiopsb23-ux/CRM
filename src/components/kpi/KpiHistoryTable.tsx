@@ -86,14 +86,21 @@ export function KpiHistoryTable({ clientId }: Props) {
     toast.success("Registro excluído");
   };
 
-  // Build month columns from earliest KPI creation
+  // Build month columns: from the earliest recorded result OR KPI creation, whichever is older
   const now = new Date();
-  const earliestCreated = kpis.length > 0
+  const earliestFromHistory = history.length > 0
+    ? history.reduce((min, h) => String(h.month_year) < min ? String(h.month_year) : min, String(history[0].month_year))
+    : null;
+  const earliestFromKpis = kpis.length > 0
     ? kpis.reduce((min, k) => k.created_at < min ? k.created_at : min, kpis[0].created_at)
     : now.toISOString();
-  const startDate = parseISO(earliestCreated);
-  const monthsDiff = (now.getFullYear() - startDate.getFullYear()) * 12 + (now.getMonth() - startDate.getMonth());
-  const totalMonths = Math.min(Math.max(monthsDiff + 1, 1), 24);
+
+  const earliestMonth = earliestFromHistory
+    ? new Date(earliestFromHistory + "-01")
+    : parseISO(earliestFromKpis);
+
+  const monthsDiff = (now.getFullYear() - earliestMonth.getFullYear()) * 12 + (now.getMonth() - earliestMonth.getMonth());
+  const totalMonths = Math.min(Math.max(monthsDiff + 1, 1), 36);
   const months = Array.from({ length: totalMonths }, (_, i) => {
     const idx = totalMonths - 1 - i;
     const d = new Date(now.getFullYear(), now.getMonth() - idx, 1);
@@ -184,7 +191,6 @@ export function KpiHistoryTable({ clientId }: Props) {
           </thead>
           <tbody>
             {kpis.map(kpi => {
-              const kpiCreatedMonth = format(parseISO(kpi.created_at), "yyyy-MM");
               return (
                 <tr key={kpi.id} className="border-b border-slate-800/50 hover:bg-slate-800/20 transition-colors">
                   <td className="py-3 px-4 sticky left-0 bg-[#1E293B]">
@@ -193,10 +199,7 @@ export function KpiHistoryTable({ clientId }: Props) {
                   </td>
                   {months.map(({ key }) => {
                     const rec = history.find(h => h.kpi_id === kpi.id && String(h.month_year).startsWith(key));
-                    const isBeforeCreation = key < kpiCreatedMonth;
                     const isEditing = editingId === rec?.id;
-
-                    if (isBeforeCreation) return <td key={key} className="py-3 px-3 text-center"><span className="text-slate-800 text-xs">—</span></td>;
 
                     return (
                       <td key={key} className="py-3 px-3 text-center">
