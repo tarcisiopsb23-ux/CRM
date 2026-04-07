@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>C8 Control — Integração Google & Meta Ads</title>
+<title>C8 Control — Google & Meta Ads Integration</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Segoe UI', Arial, sans-serif; color: #1e293b; background: #fff; font-size: 13px; line-height: 1.6; }
@@ -13,11 +13,6 @@
   h3 { font-size: 14px; font-weight: 700; color: #334155; margin: 20px 0 8px; }
   p { margin-bottom: 10px; color: #475569; }
   .subtitle { color: #64748b; font-size: 14px; margin-top: 4px; }
-  .badge { display: inline-block; padding: 2px 10px; border-radius: 99px; font-size: 11px; font-weight: 700; }
-  .badge-purple { background: #ede9fe; color: #7c3aed; }
-  .badge-blue { background: #dbeafe; color: #1d4ed8; }
-  .badge-green { background: #dcfce7; color: #16a34a; }
-  .badge-orange { background: #ffedd5; color: #ea580c; }
   .divider { border: none; border-top: 1px solid #e2e8f0; margin: 28px 0; }
   .cover { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: white; padding: 56px 48px; border-radius: 12px; margin-bottom: 40px; }
   .cover h1 { color: white; font-size: 32px; }
@@ -31,7 +26,6 @@
   .box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px 20px; margin: 12px 0; }
   .box-purple { background: #faf5ff; border-color: #ddd6fe; }
   .box-blue { background: #eff6ff; border-color: #bfdbfe; }
-  .box-green { background: #f0fdf4; border-color: #bbf7d0; }
   table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12px; }
   th { background: #f1f5f9; text-align: left; padding: 8px 12px; font-weight: 700; color: #475569; border-bottom: 2px solid #e2e8f0; }
   td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; color: #334155; vertical-align: top; }
@@ -54,9 +48,6 @@
   .wf-table { width: 100%; font-size: 11px; border-collapse: collapse; }
   .wf-table th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-weight: 700; color: #64748b; }
   .wf-table td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; }
-  .tag { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; }
-  .tag-g { background: #dbeafe; color: #1d4ed8; }
-  .tag-m { background: #ede9fe; color: #7c3aed; }
   code { background: #f1f5f9; padding: 1px 6px; border-radius: 4px; font-family: monospace; font-size: 12px; color: #7c3aed; }
   .secret-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
   .secret-key { font-family: monospace; font-size: 12px; background: #1e293b; color: #a5b4fc; padding: 3px 10px; border-radius: 4px; }
@@ -66,7 +57,6 @@
   @media print {
     body { font-size: 12px; }
     .page { padding: 20px 24px; }
-    h2 { page-break-before: auto; }
     .wireframe { page-break-inside: avoid; }
   }
 </style>
@@ -74,98 +64,98 @@
 <body>
 <div class="page">
 
-<!-- CAPA -->
+<!-- COVER -->
 <div class="cover">
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
     <div style="width:40px;height:40px;background:#7c3aed;border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:900;color:white;font-size:18px;">C8</div>
     <span style="color:#a5b4fc;font-weight:700;font-size:15px;">C8 Control</span>
   </div>
-  <h1>Integração Google & Meta Ads</h1>
-  <p class="sub">Documentação técnica do fluxo OAuth, endpoints, armazenamento e visualização de dados</p>
+  <h1>Google & Meta Ads Integration</h1>
+  <p class="sub">Technical documentation — OAuth flow, API endpoints, data storage and dashboard visualization</p>
   <div class="meta">
-    <div class="meta-item"><strong>Versão</strong>1.0 — Abril 2026</div>
-    <div class="meta-item"><strong>Plataforma</strong>React + Supabase Edge Functions</div>
+    <div class="meta-item"><strong>Version</strong>1.0 — April 2026</div>
+    <div class="meta-item"><strong>Platform</strong>React + Supabase Edge Functions</div>
     <div class="meta-item"><strong>APIs</strong>GA4 Data API · Google Ads API v16 · Meta Marketing API v19</div>
   </div>
 </div>
 
-<!-- VISÃO GERAL -->
-<h2>1. Visão Geral</h2>
-<p>O C8 Control integra diretamente com as APIs do Google e Meta para exibir métricas de campanhas, gastos e conversões no dashboard do cliente. A integração usa o protocolo <strong>OAuth 2.0</strong> — o cliente autoriza o acesso uma única vez e os dados são atualizados automaticamente.</p>
+<!-- OVERVIEW -->
+<h2>1. Overview</h2>
+<p>C8 Control integrates directly with Google and Meta APIs to display campaign metrics, ad spend, and conversions in the client dashboard. The integration uses the <strong>OAuth 2.0</strong> protocol — the client authorizes access once and data is refreshed automatically.</p>
 
 <div class="box box-purple">
-  <strong>Arquitetura de segurança:</strong> os tokens OAuth e os client secrets <em>nunca</em> ficam expostos no browser. Todo o acesso às APIs externas é feito por <strong>Supabase Edge Functions</strong> (servidor), que leem os tokens armazenados no banco de dados.
+  <strong>Security architecture:</strong> OAuth tokens and client secrets are <em>never</em> exposed in the browser. All calls to external APIs are made by <strong>Supabase Edge Functions</strong> (server-side), which read tokens stored in the database.
 </div>
 
 <hr class="divider" />
 
-<!-- FLUXO OAUTH -->
-<h2>2. Fluxo de Autenticação OAuth 2.0</h2>
+<!-- OAUTH FLOW -->
+<h2>2. OAuth 2.0 Authentication Flow</h2>
 
-<h3>2.1 Fluxo Google (GA4 + Google Ads)</h3>
+<h3>2.1 Google Flow (GA4 + Google Ads)</h3>
 <div class="flow">
-  <div class="flow-step">① Cliente clica<br/>"Conectar Google"</div>
+  <div class="flow-step">① Client clicks<br/>"Connect Google"</div>
   <div class="flow-arrow">→</div>
-  <div class="flow-step">② Redirect para<br/>accounts.google.com</div>
+  <div class="flow-step">② Redirect to<br/>accounts.google.com</div>
   <div class="flow-arrow">→</div>
-  <div class="flow-step">③ Cliente autoriza<br/>os escopos</div>
+  <div class="flow-step">③ Client grants<br/>requested scopes</div>
   <div class="flow-arrow">→</div>
-  <div class="flow-step">④ Google redireciona<br/>para /oauth/callback</div>
+  <div class="flow-step">④ Google redirects<br/>to /oauth/callback</div>
   <div class="flow-arrow">→</div>
-  <div class="flow-step">⑤ Edge Function<br/>troca code por tokens</div>
+  <div class="flow-step">⑤ Edge Function<br/>exchanges code for tokens</div>
   <div class="flow-arrow">→</div>
-  <div class="flow-step">⑥ Tokens salvos<br/>no Supabase</div>
+  <div class="flow-step">⑥ Tokens saved<br/>in Supabase</div>
 </div>
 
 <table>
-  <tr><th>Parâmetro</th><th>Valor</th></tr>
+  <tr><th>Parameter</th><th>Value</th></tr>
   <tr><td>Authorization URL</td><td><code>https://accounts.google.com/o/oauth2/v2/auth</code></td></tr>
   <tr><td>Token URL</td><td><code>https://oauth2.googleapis.com/token</code></td></tr>
   <tr><td>Redirect URI</td><td><code>https://crm-crm.whlwlh.easypanel.host/oauth/callback</code></td></tr>
-  <tr><td>Escopos solicitados</td><td><code>analytics.readonly</code> · <code>adwords</code></td></tr>
-  <tr><td>Access Type</td><td><code>offline</code> (gera refresh_token para renovação automática)</td></tr>
-  <tr><td>Prompt</td><td><code>consent</code> (garante refresh_token mesmo em reconexões)</td></tr>
+  <tr><td>Requested scopes</td><td><code>analytics.readonly</code> · <code>adwords</code></td></tr>
+  <tr><td>Access Type</td><td><code>offline</code> (generates refresh_token for automatic renewal)</td></tr>
+  <tr><td>Prompt</td><td><code>consent</code> (ensures refresh_token is issued on reconnects)</td></tr>
 </table>
 
-<h3>2.2 Fluxo Meta (Facebook/Instagram Ads)</h3>
+<h3>2.2 Meta Flow (Facebook/Instagram Ads)</h3>
 <div class="flow">
-  <div class="flow-step">① Cliente clica<br/>"Conectar Meta"</div>
+  <div class="flow-step">① Client clicks<br/>"Connect Meta"</div>
   <div class="flow-arrow">→</div>
-  <div class="flow-step">② Redirect para<br/>facebook.com/dialog/oauth</div>
+  <div class="flow-step">② Redirect to<br/>facebook.com/dialog/oauth</div>
   <div class="flow-arrow">→</div>
-  <div class="flow-step">③ Cliente autoriza<br/>os escopos</div>
+  <div class="flow-step">③ Client grants<br/>requested scopes</div>
   <div class="flow-arrow">→</div>
-  <div class="flow-step">④ Meta redireciona<br/>para /oauth/callback</div>
+  <div class="flow-step">④ Meta redirects<br/>to /oauth/callback</div>
   <div class="flow-arrow">→</div>
-  <div class="flow-step">⑤ Edge Function troca<br/>code → short token<br/>→ long-lived token</div>
+  <div class="flow-step">⑤ Edge Function exchanges<br/>code → short token<br/>→ long-lived token</div>
   <div class="flow-arrow">→</div>
-  <div class="flow-step">⑥ Token (60 dias)<br/>salvo no Supabase</div>
+  <div class="flow-step">⑥ Token (60 days)<br/>saved in Supabase</div>
 </div>
 
 <table>
-  <tr><th>Parâmetro</th><th>Valor</th></tr>
+  <tr><th>Parameter</th><th>Value</th></tr>
   <tr><td>Authorization URL</td><td><code>https://www.facebook.com/v19.0/dialog/oauth</code></td></tr>
   <tr><td>Token URL</td><td><code>https://graph.facebook.com/v19.0/oauth/access_token</code></td></tr>
   <tr><td>Long-lived token URL</td><td><code>https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token</code></td></tr>
-  <tr><td>Escopos solicitados</td><td><code>ads_read</code> · <code>ads_management</code> · <code>read_insights</code></td></tr>
-  <tr><td>Validade do token</td><td>~60 dias (long-lived token)</td></tr>
+  <tr><td>Requested scopes</td><td><code>ads_read</code> · <code>ads_management</code> · <code>read_insights</code></td></tr>
+  <tr><td>Token validity</td><td>~60 days (long-lived token)</td></tr>
 </table>
 
 <hr class="divider" />
 
 <!-- ENDPOINTS -->
-<h2>3. Endpoints e Dados Acessados</h2>
+<h2>3. API Endpoints and Data Accessed</h2>
 
 <h3>3.1 Google Analytics 4 — Data API</h3>
 <div class="box box-blue">
   <strong>Base URL:</strong> <code>https://analyticsdata.googleapis.com/v1beta/{propertyId}:runReport</code>
 </div>
 <table>
-  <tr><th>Consulta</th><th>Métricas</th><th>Dimensões</th></tr>
-  <tr><td>Totais do período</td><td>sessions, totalUsers, newUsers, screenPageViews, bounceRate, averageSessionDuration, conversions</td><td>—</td></tr>
-  <tr><td>Por fonte de tráfego</td><td>sessions, conversions</td><td>sessionSource</td></tr>
-  <tr><td>Por campanha</td><td>sessions, conversions</td><td>sessionCampaignName</td></tr>
-  <tr><td>Por dia</td><td>sessions, conversions</td><td>date</td></tr>
+  <tr><th>Query</th><th>Metrics</th><th>Dimensions</th></tr>
+  <tr><td>Period totals</td><td>sessions, totalUsers, newUsers, screenPageViews, bounceRate, averageSessionDuration, conversions</td><td>—</td></tr>
+  <tr><td>By traffic source</td><td>sessions, conversions</td><td>sessionSource</td></tr>
+  <tr><td>By campaign</td><td>sessions, conversions</td><td>sessionCampaignName</td></tr>
+  <tr><td>By day</td><td>sessions, conversions</td><td>date</td></tr>
 </table>
 
 <h3>3.2 Google Ads API</h3>
@@ -173,21 +163,21 @@
   <strong>Base URL:</strong> <code>https://googleads.googleapis.com/v16/customers/{customerId}/googleAds:search</code>
 </div>
 <table>
-  <tr><th>Consulta GAQL</th><th>Campos retornados</th></tr>
-  <tr><td>Métricas por campanha</td><td>campaign.name, cost_micros, impressions, clicks, ctr, average_cpc, conversions, cost_per_conversion, conversions_value</td></tr>
-  <tr><td>Métricas por dia</td><td>segments.date, cost_micros, clicks, conversions</td></tr>
+  <tr><th>GAQL Query</th><th>Fields returned</th></tr>
+  <tr><td>Metrics by campaign</td><td>campaign.name, cost_micros, impressions, clicks, ctr, average_cpc, conversions, cost_per_conversion, conversions_value</td></tr>
+  <tr><td>Metrics by day</td><td>segments.date, cost_micros, clicks, conversions</td></tr>
 </table>
-<p><strong>Nota:</strong> requer Developer Token aprovado pelo Google (solicitado via MCC — My Client Center).</p>
+<p><strong>Note:</strong> requires an approved Developer Token from Google (requested via MCC — My Client Center).</p>
 
 <h3>3.3 Meta Marketing API</h3>
 <div class="box box-blue">
   <strong>Base URL:</strong> <code>https://graph.facebook.com/v19.0/{adAccountId}/insights</code>
 </div>
 <table>
-  <tr><th>Consulta</th><th>Campos retornados</th></tr>
-  <tr><td>Totais da conta</td><td>spend, impressions, clicks, ctr, cpc, cpm, reach, actions (lead, purchase), action_values</td></tr>
-  <tr><td>Por campanha (level=campaign)</td><td>campaign_id, campaign_name, spend, impressions, clicks, actions, action_values</td></tr>
-  <tr><td>Por dia (time_increment=1)</td><td>date_start, spend, impressions, clicks, actions</td></tr>
+  <tr><th>Query</th><th>Fields returned</th></tr>
+  <tr><td>Account-level totals</td><td>spend, impressions, clicks, ctr, cpc, cpm, reach, actions (lead, purchase), action_values</td></tr>
+  <tr><td>By campaign (level=campaign)</td><td>campaign_id, campaign_name, spend, impressions, clicks, actions, action_values</td></tr>
+  <tr><td>By day (time_increment=1)</td><td>date_start, spend, impressions, clicks, actions</td></tr>
 </table>
 
 <hr class="divider" />
@@ -195,7 +185,7 @@
 <!-- WIREFRAMES -->
 <h2>4. Interface — Wireframes</h2>
 
-<h3>4.1 Tela de Integrações (Perfil → Integrações)</h3>
+<h3>4.1 Integrations Screen (Profile → Integrations)</h3>
 <div class="wireframe">
   <div class="wf-header">
     <div class="wf-dot" style="background:#ef4444"></div>
@@ -204,31 +194,31 @@
     <span style="color:#94a3b8;font-size:11px;margin-left:12px;">crm-crm.whlwlh.easypanel.host/dashboard/profile</span>
   </div>
   <div class="wf-body">
-    <!-- Google Card - não conectado -->
+    <!-- Google Card - not connected -->
     <div class="wf-card">
       <div class="wf-card-header">
         <div style="display:flex;align-items:center;gap:10px;">
           <div style="width:24px;height:24px;background:#f1f5f9;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;color:#4285F4;">G</div>
           <div>
             <div class="wf-title">Google Analytics 4 + Google Ads</div>
-            <div class="wf-sub">Sessões, conversões, gastos e campanhas do Google</div>
+            <div class="wf-sub">Sessions, conversions, spend and campaigns from Google</div>
           </div>
         </div>
-        <span style="font-size:11px;color:#94a3b8;">Não conectado</span>
+        <span style="font-size:11px;color:#94a3b8;">Not connected</span>
       </div>
-      <button class="wf-btn">Conectar com Google</button>
+      <button class="wf-btn">Connect with Google</button>
     </div>
-    <!-- Google Card - conectado -->
+    <!-- Google Card - connected -->
     <div class="wf-card" style="border-color:#bbf7d0;">
       <div class="wf-card-header">
         <div style="display:flex;align-items:center;gap:10px;">
           <div style="width:24px;height:24px;background:#f1f5f9;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;color:#4285F4;">G</div>
           <div>
             <div class="wf-title">Google Analytics 4 + Google Ads</div>
-            <div class="wf-sub">Sessões, conversões, gastos e campanhas do Google</div>
+            <div class="wf-sub">Sessions, conversions, spend and campaigns from Google</div>
           </div>
         </div>
-        <div class="wf-connected">✓ Conectado</div>
+        <div class="wf-connected">✓ Connected</div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
         <div>
@@ -241,8 +231,8 @@
         </div>
       </div>
       <div style="display:flex;gap:8px;">
-        <button class="wf-btn wf-btn-green" style="font-size:10px;padding:4px 10px;">Salvar configuração</button>
-        <button style="background:#fef2f2;color:#ef4444;border:none;border-radius:4px;padding:4px 10px;font-size:10px;font-weight:700;">Desconectar</button>
+        <button class="wf-btn wf-btn-green" style="font-size:10px;padding:4px 10px;">Save configuration</button>
+        <button style="background:#fef2f2;color:#ef4444;border:none;border-radius:4px;padding:4px 10px;font-size:10px;font-weight:700;">Disconnect</button>
       </div>
     </div>
     <!-- Meta Card -->
@@ -252,39 +242,39 @@
           <div style="width:24px;height:24px;background:#1877F2;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;color:white;">f</div>
           <div>
             <div class="wf-title">Meta Ads (Facebook/Instagram)</div>
-            <div class="wf-sub">Gastos, impressões, leads e ROAS das campanhas Meta</div>
+            <div class="wf-sub">Spend, impressions, leads and ROAS from Meta campaigns</div>
           </div>
         </div>
-        <span style="font-size:11px;color:#94a3b8;">Não conectado</span>
+        <span style="font-size:11px;color:#94a3b8;">Not connected</span>
       </div>
-      <button class="wf-btn" style="background:#1877F2;">Conectar com Meta</button>
+      <button class="wf-btn" style="background:#1877F2;">Connect with Meta</button>
     </div>
   </div>
 </div>
 
-<h3>4.2 Dashboard de Performance — Seção Google & Meta</h3>
+<h3>4.2 Performance Dashboard — Google & Meta Section</h3>
 <div class="wireframe">
   <div class="wf-header">
     <div class="wf-dot" style="background:#ef4444"></div>
     <div class="wf-dot" style="background:#f59e0b;margin-left:4px"></div>
     <div class="wf-dot" style="background:#22c55e;margin-left:4px"></div>
-    <span style="color:#94a3b8;font-size:11px;margin-left:12px;">crm-crm.whlwlh.easypanel.host/dashboard — Aba Performance</span>
+    <span style="color:#94a3b8;font-size:11px;margin-left:12px;">crm-crm.whlwlh.easypanel.host/dashboard — Performance Tab</span>
   </div>
   <div class="wf-body">
     <div class="wf-card">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
         <div style="font-size:10px;font-weight:900;color:#4285F4;">G</div>
         <div class="wf-title">Google Analytics 4</div>
-        <span style="font-size:10px;color:#94a3b8;">01/03/2026 – 31/03/2026</span>
+        <span style="font-size:10px;color:#94a3b8;">Mar 1, 2026 – Mar 31, 2026</span>
       </div>
       <div class="wf-metrics">
-        <div class="wf-metric"><div class="wf-metric-val">4.821</div><div class="wf-metric-label">Sessões</div></div>
-        <div class="wf-metric"><div class="wf-metric-val">3.204</div><div class="wf-metric-label">Usuários</div></div>
-        <div class="wf-metric"><div class="wf-metric-val" style="color:#16a34a;">187</div><div class="wf-metric-label">Conversões</div></div>
-        <div class="wf-metric"><div class="wf-metric-val" style="color:#16a34a;">38,7%</div><div class="wf-metric-label">Taxa Rejeição</div></div>
+        <div class="wf-metric"><div class="wf-metric-val">4,821</div><div class="wf-metric-label">Sessions</div></div>
+        <div class="wf-metric"><div class="wf-metric-val">3,204</div><div class="wf-metric-label">Users</div></div>
+        <div class="wf-metric"><div class="wf-metric-val" style="color:#16a34a;">187</div><div class="wf-metric-label">Conversions</div></div>
+        <div class="wf-metric"><div class="wf-metric-val" style="color:#16a34a;">38.7%</div><div class="wf-metric-label">Bounce Rate</div></div>
       </div>
       <div style="background:#f1f5f9;border-radius:6px;height:60px;margin-top:10px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;">
-        📈 Gráfico: Sessões e Conversões por Dia
+        📈 Chart: Sessions and Conversions by Day
       </div>
     </div>
     <div class="wf-card" style="margin-top:8px;">
@@ -293,16 +283,16 @@
         <div class="wf-title">Google Ads</div>
       </div>
       <div class="wf-metrics">
-        <div class="wf-metric"><div class="wf-metric-val" style="color:#7c3aed;">R$4.280</div><div class="wf-metric-label">Investimento</div></div>
-        <div class="wf-metric"><div class="wf-metric-val">2.341</div><div class="wf-metric-label">Cliques</div></div>
-        <div class="wf-metric"><div class="wf-metric-val" style="color:#16a34a;">94</div><div class="wf-metric-label">Conversões</div></div>
+        <div class="wf-metric"><div class="wf-metric-val" style="color:#7c3aed;">$4,280</div><div class="wf-metric-label">Spend</div></div>
+        <div class="wf-metric"><div class="wf-metric-val">2,341</div><div class="wf-metric-label">Clicks</div></div>
+        <div class="wf-metric"><div class="wf-metric-val" style="color:#16a34a;">94</div><div class="wf-metric-label">Conversions</div></div>
         <div class="wf-metric"><div class="wf-metric-val" style="color:#16a34a;">3.8x</div><div class="wf-metric-label">ROAS</div></div>
       </div>
       <table class="wf-table" style="margin-top:10px;">
-        <tr><th>Campanha</th><th>Investimento</th><th>Cliques</th><th>Conv.</th><th>ROAS</th></tr>
-        <tr><td>Marca — Pesquisa</td><td>R$1.840</td><td>980</td><td>42</td><td style="color:#16a34a;font-weight:700;">4.2x</td></tr>
-        <tr><td>Produto A — Display</td><td>R$1.240</td><td>720</td><td>31</td><td style="color:#16a34a;font-weight:700;">3.6x</td></tr>
-        <tr><td>Remarketing</td><td>R$1.200</td><td>641</td><td>21</td><td style="color:#f59e0b;font-weight:700;">2.9x</td></tr>
+        <tr><th>Campaign</th><th>Spend</th><th>Clicks</th><th>Conv.</th><th>ROAS</th></tr>
+        <tr><td>Brand — Search</td><td>$1,840</td><td>980</td><td>42</td><td style="color:#16a34a;font-weight:700;">4.2x</td></tr>
+        <tr><td>Product A — Display</td><td>$1,240</td><td>720</td><td>31</td><td style="color:#16a34a;font-weight:700;">3.6x</td></tr>
+        <tr><td>Remarketing</td><td>$1,200</td><td>641</td><td>21</td><td style="color:#f59e0b;font-weight:700;">2.9x</td></tr>
       </table>
     </div>
     <div class="wf-card" style="margin-top:8px;">
@@ -311,8 +301,8 @@
         <div class="wf-title">Meta Ads (Facebook + Instagram)</div>
       </div>
       <div class="wf-metrics">
-        <div class="wf-metric"><div class="wf-metric-val" style="color:#1877F2;">R$3.120</div><div class="wf-metric-label">Investimento</div></div>
-        <div class="wf-metric"><div class="wf-metric-val">48.200</div><div class="wf-metric-label">Alcance</div></div>
+        <div class="wf-metric"><div class="wf-metric-val" style="color:#1877F2;">$3,120</div><div class="wf-metric-label">Spend</div></div>
+        <div class="wf-metric"><div class="wf-metric-val">48,200</div><div class="wf-metric-label">Reach</div></div>
         <div class="wf-metric"><div class="wf-metric-val" style="color:#16a34a;">213</div><div class="wf-metric-label">Leads</div></div>
         <div class="wf-metric"><div class="wf-metric-val" style="color:#16a34a;">4.1x</div><div class="wf-metric-label">ROAS</div></div>
       </div>
@@ -322,81 +312,81 @@
 
 <hr class="divider" />
 
-<!-- ARMAZENAMENTO -->
-<h2>5. Como os Dados são Armazenados</h2>
+<!-- DATA STORAGE -->
+<h2>5. How Data is Stored and Displayed</h2>
 
-<h3>5.1 Tabela oauth_tokens (Supabase PostgreSQL)</h3>
+<h3>5.1 oauth_tokens table (Supabase PostgreSQL)</h3>
 <table>
-  <tr><th>Campo</th><th>Tipo</th><th>Descrição</th></tr>
-  <tr><td><code>id</code></td><td>UUID</td><td>Identificador único</td></tr>
-  <tr><td><code>client_id</code></td><td>UUID</td><td>FK para a tabela clients</td></tr>
-  <tr><td><code>provider</code></td><td>TEXT</td><td>"google" ou "meta"</td></tr>
-  <tr><td><code>access_token</code></td><td>TEXT</td><td>Token de acesso atual (renovado automaticamente)</td></tr>
-  <tr><td><code>refresh_token</code></td><td>TEXT</td><td>Token de renovação (Google) — nunca expira</td></tr>
-  <tr><td><code>expires_at</code></td><td>TIMESTAMPTZ</td><td>Quando o access_token expira</td></tr>
-  <tr><td><code>ga4_property_id</code></td><td>TEXT</td><td>ID da propriedade GA4 (ex: properties/123456789)</td></tr>
-  <tr><td><code>gads_customer_id</code></td><td>TEXT</td><td>ID da conta Google Ads (ex: 123-456-7890)</td></tr>
-  <tr><td><code>meta_ad_account_id</code></td><td>TEXT</td><td>ID da conta Meta Ads (ex: act_123456789)</td></tr>
+  <tr><th>Column</th><th>Type</th><th>Description</th></tr>
+  <tr><td><code>id</code></td><td>UUID</td><td>Unique identifier</td></tr>
+  <tr><td><code>client_id</code></td><td>UUID</td><td>Foreign key to the clients table</td></tr>
+  <tr><td><code>provider</code></td><td>TEXT</td><td>"google" or "meta"</td></tr>
+  <tr><td><code>access_token</code></td><td>TEXT</td><td>Current access token (auto-renewed when expired)</td></tr>
+  <tr><td><code>refresh_token</code></td><td>TEXT</td><td>Refresh token (Google) — never expires</td></tr>
+  <tr><td><code>expires_at</code></td><td>TIMESTAMPTZ</td><td>When the access_token expires</td></tr>
+  <tr><td><code>ga4_property_id</code></td><td>TEXT</td><td>GA4 property ID (e.g. properties/123456789)</td></tr>
+  <tr><td><code>gads_customer_id</code></td><td>TEXT</td><td>Google Ads account ID (e.g. 123-456-7890)</td></tr>
+  <tr><td><code>meta_ad_account_id</code></td><td>TEXT</td><td>Meta Ads account ID (e.g. act_123456789)</td></tr>
 </table>
 
 <div class="box">
-  <strong>Segurança:</strong> a tabela tem Row Level Security (RLS) ativado. Os tokens são acessados apenas pelas Edge Functions usando a <code>SUPABASE_SERVICE_ROLE_KEY</code>, que nunca é exposta ao browser.
+  <strong>Security:</strong> the table has Row Level Security (RLS) enabled. Tokens are accessed only by Edge Functions using the <code>SUPABASE_SERVICE_ROLE_KEY</code>, which is never exposed to the browser.
 </div>
 
-<h3>5.2 Fluxo de dados em tempo real</h3>
+<h3>5.2 Real-time data flow</h3>
 <div class="flow" style="flex-direction:column;align-items:flex-start;gap:8px;">
   <div style="display:flex;align-items:center;gap:8px;">
-    <div class="flow-step" style="min-width:180px;">Browser solicita dashboard</div>
+    <div class="flow-step" style="min-width:180px;">Browser opens dashboard</div>
     <div class="flow-arrow">→</div>
-    <div class="flow-step" style="min-width:220px;">React chama supabase.functions.invoke()</div>
+    <div class="flow-step" style="min-width:240px;">React calls supabase.functions.invoke()</div>
   </div>
   <div style="display:flex;align-items:center;gap:8px;">
-    <div class="flow-step" style="min-width:180px;">Edge Function executa</div>
+    <div class="flow-step" style="min-width:180px;">Edge Function runs</div>
     <div class="flow-arrow">→</div>
-    <div class="flow-step" style="min-width:220px;">Lê token do banco (service role)</div>
+    <div class="flow-step" style="min-width:240px;">Reads token from DB (service role)</div>
     <div class="flow-arrow">→</div>
-    <div class="flow-step" style="min-width:220px;">Renova token se expirado</div>
+    <div class="flow-step" style="min-width:200px;">Renews token if expired</div>
   </div>
   <div style="display:flex;align-items:center;gap:8px;">
-    <div class="flow-step" style="min-width:180px;">Chama API externa</div>
+    <div class="flow-step" style="min-width:180px;">Calls external API</div>
     <div class="flow-arrow">→</div>
-    <div class="flow-step" style="min-width:220px;">Google/Meta retorna dados</div>
+    <div class="flow-step" style="min-width:240px;">Google/Meta returns data</div>
     <div class="flow-arrow">→</div>
-    <div class="flow-step" style="min-width:220px;">Edge Function retorna JSON ao browser</div>
+    <div class="flow-step" style="min-width:200px;">Edge Function returns JSON to browser</div>
   </div>
   <div style="display:flex;align-items:center;gap:8px;">
-    <div class="flow-step" style="min-width:180px;">React renderiza cards/gráficos</div>
+    <div class="flow-step" style="min-width:180px;">React renders cards/charts</div>
     <div class="flow-arrow">→</div>
-    <div class="flow-step" style="min-width:220px;">Cache de 5 min (React Query)</div>
+    <div class="flow-step" style="min-width:240px;">5-minute client-side cache (React Query)</div>
   </div>
 </div>
 
-<p style="margin-top:12px;">Os dados <strong>não são persistidos</strong> no banco — são buscados em tempo real a cada abertura do dashboard (com cache de 5 minutos no cliente via React Query). Isso garante que os dados estejam sempre atualizados sem sobrecarregar as APIs.</p>
+<p style="margin-top:12px;">API data is <strong>not persisted</strong> in the database — it is fetched in real time on each dashboard load (with a 5-minute client-side cache via React Query). This ensures data is always up to date without overloading the external APIs.</p>
 
 <hr class="divider" />
 
-<!-- SECRETS -->
-<h2>6. Configuração de Credenciais</h2>
+<!-- CREDENTIALS -->
+<h2>6. Credentials Configuration</h2>
 
-<h3>6.1 Variáveis de ambiente do frontend (Easypanel)</h3>
-<p>Configuradas no painel do Easypanel → serviço <code>crm</code> → aba Environment. São IDs públicos, seguros para o browser:</p>
+<h3>6.1 Frontend environment variables (Easypanel)</h3>
+<p>Set in Easypanel → <code>crm</code> service → Environment tab. These are public IDs, safe to expose in the browser:</p>
 <div class="box">
   <div class="secret-row"><span class="secret-key">VITE_GOOGLE_CLIENT_ID</span><span class="secret-where">Google Cloud Console → APIs & Services → Credentials</span></div>
   <div class="secret-row"><span class="secret-key">VITE_META_APP_ID</span><span class="secret-where">Meta for Developers → App Dashboard → App ID</span></div>
 </div>
 
-<h3>6.2 Secrets do servidor (Supabase Edge Functions)</h3>
-<p>Configurados via <code>supabase secrets set</code>. Nunca expostos ao browser:</p>
+<h3>6.2 Server-side secrets (Supabase Edge Functions)</h3>
+<p>Set via <code>supabase secrets set</code>. Never exposed to the browser:</p>
 <div class="box">
   <div class="secret-row"><span class="secret-key">GOOGLE_CLIENT_ID</span><span class="secret-where">Google Cloud Console → OAuth 2.0 Client ID</span></div>
   <div class="secret-row"><span class="secret-key">GOOGLE_CLIENT_SECRET</span><span class="secret-where">Google Cloud Console → OAuth 2.0 Client Secret</span></div>
-  <div class="secret-row"><span class="secret-key">GOOGLE_ADS_DEVELOPER_TOKEN</span><span class="secret-where">Google Ads → Ferramentas → API Center (conta MCC)</span></div>
+  <div class="secret-row"><span class="secret-key">GOOGLE_ADS_DEVELOPER_TOKEN</span><span class="secret-where">Google Ads → Tools → API Center (MCC account)</span></div>
   <div class="secret-row"><span class="secret-key">META_APP_ID</span><span class="secret-where">Meta for Developers → App Dashboard</span></div>
   <div class="secret-row"><span class="secret-key">META_APP_SECRET</span><span class="secret-where">Meta for Developers → App Dashboard → App Secret</span></div>
 </div>
 
-<h3>6.3 URI de redirecionamento autorizado</h3>
-<p>Deve ser cadastrado em ambas as plataformas:</p>
+<h3>6.3 Authorized redirect URI</h3>
+<p>Must be registered on both platforms:</p>
 <div class="box box-purple">
   <code>https://crm-crm.whlwlh.easypanel.host/oauth/callback</code>
   <p style="margin-top:6px;font-size:11px;color:#7c3aed;">Google Cloud Console → OAuth 2.0 → Authorized redirect URIs<br/>Meta for Developers → Facebook Login → Valid OAuth Redirect URIs</p>
@@ -405,33 +395,33 @@
 <hr class="divider" />
 
 <!-- EDGE FUNCTIONS -->
-<h2>7. Edge Functions Deployadas</h2>
+<h2>7. Deployed Edge Functions</h2>
 <table>
-  <tr><th>Função</th><th>Endpoint</th><th>Responsabilidade</th></tr>
+  <tr><th>Function</th><th>Endpoint</th><th>Responsibility</th></tr>
   <tr>
     <td><code>oauth-exchange</code></td>
     <td>/functions/v1/oauth-exchange</td>
-    <td>Troca o authorization code por access + refresh tokens. Salva na tabela oauth_tokens.</td>
+    <td>Exchanges the authorization code for access + refresh tokens. Saves them to the oauth_tokens table.</td>
   </tr>
   <tr>
     <td><code>ga4-metrics</code></td>
     <td>/functions/v1/ga4-metrics</td>
-    <td>Busca métricas do GA4 Data API. Renova o token automaticamente se expirado.</td>
+    <td>Fetches metrics from the GA4 Data API. Automatically renews the access token when expired.</td>
   </tr>
   <tr>
     <td><code>gads-metrics</code></td>
     <td>/functions/v1/gads-metrics</td>
-    <td>Busca métricas do Google Ads API v16 via GAQL. Requer Developer Token.</td>
+    <td>Fetches metrics from Google Ads API v16 via GAQL queries. Requires an approved Developer Token.</td>
   </tr>
   <tr>
     <td><code>meta-ads-metrics</code></td>
     <td>/functions/v1/meta-ads-metrics</td>
-    <td>Busca Insights da Meta Marketing API v19. Suporta totais, por campanha e por dia.</td>
+    <td>Fetches Insights from Meta Marketing API v19. Supports account totals, by campaign, and by day.</td>
   </tr>
 </table>
 
 <div style="margin-top:40px;padding-top:20px;border-top:1px solid #e2e8f0;text-align:center;color:#94a3b8;font-size:11px;">
-  C8 Control — Documentação Técnica · Gerado em Abril 2026 · Confidencial
+  C8 Control — Technical Documentation · Generated April 2026 · Confidential
 </div>
 
 </div><!-- .page -->
