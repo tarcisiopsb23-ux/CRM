@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { IntegrationStatusBadge, IntegrationStatus } from "@/components/crm/IntegrationStatusBadge";
 import { OAuthIntegrations } from "@/components/integrations/OAuthIntegrations";
 import { KpiList } from "@/components/kpi/KpiList";
+import { KpiTargets } from "@/components/kpi/KpiTargets";
 import { KpiHistoryTable } from "@/components/kpi/KpiHistoryTable";
 import { QRCodeSVG } from "qrcode.react";
 
@@ -470,6 +471,24 @@ export function ProfilePage() {
               </CardHeader>
               <CardContent>
                 <KpiList clientId={session?.client_id ?? ""} />
+              </CardContent>
+            </Card>
+
+            {/* Metas dos KPIs */}
+            <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-emerald-500">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2">
+                  <svg className="h-5 w-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" />
+                  </svg>
+                  Metas dos KPIs
+                </CardTitle>
+                <CardDescription className="text-slate-400 text-xs">
+                  Defina a meta de cada indicador para acompanhar o progresso no dashboard.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <KpiTargets clientId={session?.client_id ?? ""} />
               </CardContent>
             </Card>
 

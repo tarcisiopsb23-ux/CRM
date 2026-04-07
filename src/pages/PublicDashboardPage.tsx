@@ -48,6 +48,7 @@ import { CrmSection } from "@/components/crm/CrmSection";
 import { AdClickSection } from "@/components/performance/AdClickSection";
 import { GoogleMetaDashboard } from "@/components/performance/GoogleMetaDashboard";
 import { initiateGoogleOAuth, initiateMetaOAuth } from "@/lib/oauth";
+import { KpiResultDialog } from "@/components/kpi/KpiResultDialog";
 
 const isLowerBetter = (name: string) => /cac|cpa|cpl|cpc|cpm|custo/i.test(name);
 const KPI_COLORS = ["#10b981","#7C3AED","#f59e0b","#a855f7","#f43f5e","#06b6d4","#e879f9","#34d399"];
@@ -57,6 +58,7 @@ export function PublicDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [clientData, setClientData] = useState<any>(null);
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+  const [showKpiDialog, setShowKpiDialog] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [dateRange, setDateRange] = useState({
     from: format(subDays(new Date(), 30), "yyyy-MM-dd"),
@@ -444,6 +446,11 @@ export function PublicDashboardPage() {
                     <span className="text-sm font-bold">Meu Perfil / Integrações</span>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator className="bg-slate-800" />
+                  <DropdownMenuItem className="gap-2 focus:bg-slate-800 cursor-pointer py-3" onClick={() => setShowKpiDialog(true)}>
+                    <BarChart3 className="h-4 w-4 text-[#7C3AED]" />
+                    <span className="text-sm font-bold">Registrar Resultado KPI</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator className="bg-slate-800" />
                   <DropdownMenuItem className="gap-2 focus:bg-slate-800 cursor-pointer py-3" onClick={() => navigate("/dashboard/catalog")}>
                     <Package className="h-4 w-4 text-violet-400" />
                     <span className="text-sm font-bold">Produtos/Serviços</span>
@@ -486,6 +493,13 @@ export function PublicDashboardPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+
+          {/* KPI Result Dialog */}
+          <KpiResultDialog
+            open={showKpiDialog}
+            onClose={() => setShowKpiDialog(false)}
+            clientId={clientData?.id ?? ""}
+          />
 
           {/* -- TABS (s? aparece quando ambos ativos) -- */}
           {activeCount >= 2 && (
