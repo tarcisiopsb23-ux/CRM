@@ -1,5 +1,8 @@
 ﻿import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/hooks/useAuth";
+import { SupportBanner } from "@/components/auth/SupportBanner";
+import { TenantSelector } from "@/components/auth/TenantSelector";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line,
@@ -26,7 +29,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ModernFunnel } from "@/components/ui/modern-funnel";
-import { supabase } from "@/lib/supabase";
+import { supabase, supabaseCrm } from "@/lib/supabase";
 import { toast } from "sonner";
 import {
   format, subDays, startOfMonth, endOfMonth,
@@ -55,7 +58,7 @@ const KPI_COLORS = ["#10b981","#7C3AED","#f59e0b","#a855f7","#f43f5e","#06b6d4",
 
 export function PublicDashboardPage() {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
+  const { session, tenantId, isSupport, loading: authLoading, signOut } = useAuth();
   const [clientData, setClientData] = useState<any>(null);
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [showKpiDialog, setShowKpiDialog] = useState(false);
@@ -66,7 +69,8 @@ export function PublicDashboardPage() {
   });
   const [activeKpiId, setActiveKpiId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"performance" | "atendimento" | "crm">("crm");
-  const [isSupportSession, setIsSupportSession] = useState(false);
+  const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
+  const [selectedTenantName, setSelectedTenantName] = useState<string | undefined>(undefined);
 
   // Dashboard flags from client metadata
   const dashPerformance: boolean = clientData?.metadata?.dashboard_performance ?? true;
@@ -93,46 +97,44 @@ export function PublicDashboardPage() {
     return enabled.includes(activeTab as any) ? activeTab as any : enabled[0];
   })();
 
+  // Redirect to login when session is gone
   useEffect(() => {
-    const authSession = localStorage.getItem("client_auth");
-    if (!authSession) { navigate("/login"); return; }
-    const parsedData = JSON.parse(authSession);
-    setClientData(parsedData);
-    setIsSupportSession(parsedData.is_support === true);
-    const fetchFreshData = async () => {
-      // Re-fetch via RPC (bypasses RLS) to get latest metadata flags
-      if (true) {
-        const { data: clients } = await supabase
-          .rpc('get_client_data');
-        if (clients && clients.length > 0) {
-          const fresh = clients[0];
-          const merged = {
-            ...parsedData,
-            id: fresh.id,  // sempre o ID do cliente real (único registro em clients)
-            name: fresh.name ?? parsedData.name,
-            favicon_url: fresh.favicon_url ?? parsedData.favicon_url,
-            metadata: {
-              ...(parsedData.metadata ?? {}),
-              ...(fresh.metadata ?? {}),
-              dashboard_performance: fresh.dashboard_performance ?? true,
-              dashboard_atendimento: fresh.dashboard_atendimento ?? false,
-              dashboard_crm: fresh.dashboard_crm ?? false,
-            },
-          };
-          setClientData(merged);
-          localStorage.setItem("client_auth", JSON.stringify(merged));
-        }
+    if (!authLoading && !session) {
+      navigate("/login");
+    }
+  }, [authLoading, session, navigate]);
+
+  // Fetch client metadata from CRM_DB using RLS (tenant_id from JWT)
+  const effectiveTenantId = isSupport ? selectedTenantId : tenantId;
+  useEffect(() => {
+    if (!effectiveTenantId) return;
+    const fetchClientData = async () => {
+      const { data: clients } = await supabaseCrm
+        .from("clients")
+        .select("id, name, favicon_url, metadata, dashboard_performance, dashboard_atendimento, dashboard_crm")
+        .eq("tenant_id", effectiveTenantId)
+        .limit(1);
+      if (clients && clients.length > 0) {
+        const fresh = clients[0];
+        setClientData({
+          ...fresh,
+          metadata: {
+            ...(fresh.metadata ?? {}),
+            dashboard_performance: fresh.dashboard_performance ?? true,
+            dashboard_atendimento: fresh.dashboard_atendimento ?? false,
+            dashboard_crm: fresh.dashboard_crm ?? false,
+          },
+        });
       }
-      setLoading(false);
     };
-    fetchFreshData();
-  }, [navigate]);
+    fetchClientData();
+  }, [effectiveTenantId]);
 
   // Tracking injection removed — GTM and Meta Pixel are now injected only
   // in the WhatsAppRedirectPage (/wa) to avoid tracking the client dashboard.
 
-  // clientId é sempre o ID do cliente real, resolvido via RPC get_client_data (LIMIT 1)
-  const clientId: string | undefined = clientData?.id ?? clientData?.client_id;
+  // clientId is the effective tenant ID (support uses selectedTenantId)
+  const clientId: string | undefined = effectiveTenantId ?? undefined;
 
   const kpisQuery = useClientKPIs(clientId);
   const kpiHistoryQuery = useClientKPIHistory(clientId);
@@ -159,8 +161,8 @@ export function PublicDashboardPage() {
 
   const funnelStats = useFunnelStats(clientId, dateRange);
 
-  const handleLogoff = () => {
-    localStorage.removeItem("client_auth");
+  const handleLogoff = async () => {
+    await signOut();
     navigate("/login");
   };
 
@@ -394,7 +396,7 @@ export function PublicDashboardPage() {
     });
   }, [kpis, kpiHistory]);
 
-  if (loading) return (
+  if (authLoading) return (
     <div className="flex items-center justify-center min-h-screen bg-[#111827]">
       <div className="flex flex-col items-center gap-4">
         <div className="h-12 w-12 animate-spin rounded-full border-4 border-[#7C3AED] border-t-transparent" />
@@ -419,15 +421,19 @@ export function PublicDashboardPage() {
       <div className="min-h-screen bg-[#0F172A] text-slate-100 font-sans p-4 md:p-8 selection:bg-[#7C3AED]/30">
         <div className="max-w-[1600px] mx-auto space-y-8">
 
+          {/* -- SUPORTE: seletor de tenant -- */}
+          {isSupport && !selectedTenantId && (
+            <TenantSelector
+              onSelect={(id, name) => {
+                setSelectedTenantId(id);
+                setSelectedTenantName(name);
+              }}
+            />
+          )}
+
           {/* -- BANNER DE SUPORTE TÉCNICO -- */}
-          {isSupportSession && (
-            <div className="flex items-center gap-3 rounded-xl border border-orange-500/40 bg-orange-500/10 px-5 py-3 text-orange-300">
-              <span className="text-lg">🛠️</span>
-              <div>
-                <p className="text-sm font-black uppercase tracking-wide text-orange-400">Sessão de Suporte Técnico</p>
-                <p className="text-xs text-orange-300/80">Você está acessando este dashboard com credenciais de suporte da agência. Este acesso é monitorado.</p>
-              </div>
-            </div>
+          {isSupport && selectedTenantId && (
+            <SupportBanner tenantName={selectedTenantName} />
           )}
 
           {/* -- HEADER -- */}

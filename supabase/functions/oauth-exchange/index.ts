@@ -20,15 +20,34 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+function getTenantIdFromJwt(req: Request): string | null {
+  const auth = req.headers.get("Authorization") ?? "";
+  const token = auth.replace("Bearer ", "");
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload.tenant_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
-    const { code, provider, clientId, redirectUri } = await req.json();
+    const tenantId = getTenantIdFromJwt(req);
+    if (!tenantId) {
+      return new Response(JSON.stringify({ error: "tenant_id não encontrado no token" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
-    if (!code || !provider || !clientId || !redirectUri) {
+    const { code, provider, redirectUri } = await req.json();
+
+    if (!code || !provider || !redirectUri) {
       return new Response(JSON.stringify({ error: "Missing required fields" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -96,14 +115,14 @@ Deno.serve(async (req) => {
     const { error: dbError } = await supabase
       .from("oauth_tokens")
       .upsert({
-        client_id: clientId,
+        tenant_id: tenantId,
         provider,
         access_token: tokenData.access_token,
         refresh_token: tokenData.refresh_token ?? null,
         expires_at: expiresAt,
         scope: tokenData.scope ?? null,
         updated_at: new Date().toISOString(),
-      }, { onConflict: "client_id,provider" });
+      }, { onConflict: "tenant_id,provider" });
 
     if (dbError) throw dbError;
 

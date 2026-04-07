@@ -10,18 +10,15 @@ import { CatalogPage } from "@/pages/CatalogPage";
 import { WhatsAppSyncPage } from "@/pages/WhatsAppSyncPage";
 import { WhatsAppRedirectPage } from "@/pages/WhatsAppRedirectPage";
 import { OAuthCallbackPage } from "@/pages/OAuthCallbackPage";
+import { TenantUsersPage } from "@/pages/TenantUsersPage";
+import { useAuth } from "@/hooks/useAuth";
 
 const queryClient = new QueryClient();
 
 export function ProtectedRoute() {
-  try {
-    const raw = localStorage.getItem("client_auth");
-    if (!raw) return <Navigate to="/login" replace />;
-    const session = JSON.parse(raw);
-    if (!session?.client_id) return <Navigate to="/login" replace />;
-  } catch {
-    return <Navigate to="/login" replace />;
-  }
+  const { session, loading } = useAuth();
+  if (loading) return null;
+  if (!session) return <Navigate to="/login" replace />;
   return <Outlet />;
 }
 
@@ -40,6 +37,7 @@ export default function App() {
             <Route path="/dashboard/import" element={<CsvImportPage />} />
             <Route path="/dashboard/catalog" element={<CatalogPage />} />
             <Route path="/dashboard/whatsapp-sync" element={<WhatsAppSyncPage />} />
+            <Route path="/dashboard/users" element={<TenantUsersPage />} />
           </Route>
 
           {/* CRM standalone */}

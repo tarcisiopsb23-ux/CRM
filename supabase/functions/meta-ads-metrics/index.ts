@@ -17,12 +17,31 @@ const corsHeaders = {
 
 const META_API = "https://graph.facebook.com/v19.0";
 
+function getTenantIdFromJwt(req: Request): string | null {
+  const auth = req.headers.get("Authorization") ?? "";
+  const token = auth.replace("Bearer ", "");
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload.tenant_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { clientId, dateRange } = await req.json();
-    if (!clientId || !dateRange) throw new Error("Missing clientId or dateRange");
+    const tenantId = getTenantIdFromJwt(req);
+    if (!tenantId) {
+      return new Response(JSON.stringify({ error: "tenant_id não encontrado no token" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const { dateRange } = await req.json();
+    if (!dateRange) throw new Error("Missing dateRange");
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
@@ -32,7 +51,7 @@ Deno.serve(async (req) => {
     const { data: tokenRow, error: tokenErr } = await supabase
       .from("oauth_tokens")
       .select("*")
-      .eq("client_id", clientId)
+      .eq("tenant_id", tenantId)
       .eq("provider", "meta")
       .single();
 

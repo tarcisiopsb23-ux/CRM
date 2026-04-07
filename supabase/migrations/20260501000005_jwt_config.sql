@@ -1,0 +1,40 @@
+-- Migration: 20260501000005_jwt_config.sql
+--
+-- ATENÇÃO: Este arquivo NÃO deve ser executado via SQL Editor do Supabase.
+-- O Supabase hospedado não permite ALTER DATABASE para configurar jwt_secret.
+--
+-- A configuração do JWT secret compartilhado é feita de duas formas:
+--
+-- ============================================================
+-- OPÇÃO 1 (Recomendada): Supabase Dashboard — JWT Secret
+-- ============================================================
+-- No projeto CRM_DB no Supabase Dashboard:
+--   Settings > API > JWT Settings > JWT Secret
+-- Substitua o valor pelo JWT Secret do projeto SaaS
+-- (encontrado em SaaS Dashboard > Settings > API > JWT Secret)
+--
+-- Isso faz o CRM_DB aceitar tokens emitidos pelo SaaS Auth diretamente.
+--
+-- ============================================================
+-- OPÇÃO 2: Variável de ambiente nas Edge Functions
+-- ============================================================
+-- Nas Edge Functions do CRM que precisam validar o JWT do SaaS,
+-- use a variável de ambiente SAAS_JWT_SECRET para verificação manual:
+--
+--   const jwt = await verify(token, Deno.env.get('SAAS_JWT_SECRET')!)
+--
+-- Configurar em: Supabase Dashboard > Edge Functions > Secrets
+--   SAAS_JWT_SECRET = <jwt-secret-do-saas>
+--   SAAS_URL        = https://<saas-project-ref>.supabase.co
+--   SAAS_SERVICE_ROLE_KEY = <saas-service-role-key>
+--
+-- ============================================================
+-- VERIFICAÇÃO
+-- ============================================================
+-- Após configurar, faça login via SaaS Auth e use o JWT retornado
+-- para fazer uma query no CRM_DB. Se os dados aparecerem filtrados
+-- por tenant_id, a configuração está correta.
+
+-- Este arquivo serve apenas como documentação.
+-- Nenhum SQL executável aqui.
+SELECT 'JWT config: ver comentários acima — configurar via Supabase Dashboard' AS instrucao;
