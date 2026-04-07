@@ -4,11 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Lock, Loader2, Plug, RefreshCw, Smartphone, User, Link2, Copy, Check, Info } from "lucide-react";
+import { ArrowLeft, BarChart3, Lock, Loader2, Plug, RefreshCw, Smartphone, User, Link2, Copy, Check, Info } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { IntegrationStatusBadge, IntegrationStatus } from "@/components/crm/IntegrationStatusBadge";
 import { OAuthIntegrations } from "@/components/integrations/OAuthIntegrations";
+import { KpiManager } from "@/components/kpi/KpiManager";
 import { QRCodeSVG } from "qrcode.react";
 
 type AuthSession = {
@@ -695,6 +696,22 @@ export function ProfilePage() {
           </div>
 
         </div>
+
+        {/* KPIs */}
+        <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-[#7C3AED]">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center gap-2">
+              <BarChart3 className="h-5 w-5 text-[#7C3AED]" />
+              Indicadores de Performance (KPIs)
+            </CardTitle>
+            <CardDescription className="text-slate-400 text-xs">
+              Cadastre os KPIs do negócio, defina metas e registre os valores mensais. Os dados alimentam os blocos de KPIs no dashboard de performance.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <KpiManager clientId={session?.client_id ?? ""} />
+          </CardContent>
+        </Card>
 
         {/* Botao Voltar */}
         <Button className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white h-11"
