@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, BarChart3, Target, Check, X } from "lucide-react";
+import { Plus, Trash2, Check, X, Target } from "lucide-react";
 import { useClientKPIs, useClientKPIHistory, type ClientKPI } from "@/hooks/useClientKPIs";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
@@ -16,12 +16,13 @@ const UNIT_LABELS: Record<string, string> = {
   number: "Número",
 };
 
-const CATEGORY_OPTIONS = [
-  "Vendas", "Marketing", "Financeiro", "Operacional",
-  "Atendimento", "Produto", "RH", "Outro",
-];
-
 const MONTHS_BACK = 6;
+
+function fmtVal(v: number, unit: string) {
+  if (unit === "currency") return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(v);
+  if (unit === "percentage") return `${v.toFixed(1)}%`;
+  return new Intl.NumberFormat("pt-BR").format(v);
+}
 
 interface KpiRowProps {
   kpi: ClientKPI;
@@ -29,12 +30,6 @@ interface KpiRowProps {
   onDelete: (id: string) => void;
   onUpsertHistory: (kpiId: string, monthYear: string, value: number) => void;
   onUpdateTarget: (kpiId: string, target: number | null) => void;
-}
-
-function fmtVal(v: number, unit: string) {
-  if (unit === "currency") return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(v);
-  if (unit === "percentage") return `${v.toFixed(1)}%`;
-  return new Intl.NumberFormat("pt-BR").format(v);
 }
 
 function KpiRow({ kpi, history, onDelete, onUpsertHistory, onUpdateTarget }: KpiRowProps) {
@@ -71,7 +66,7 @@ function KpiRow({ kpi, history, onDelete, onUpsertHistory, onUpdateTarget }: Kpi
       <td className="py-3 px-3">
         <div>
           <p className="text-sm font-bold text-white">{kpi.name}</p>
-          <p className="text-[10px] text-slate-500 uppercase font-bold">{kpi.category} · {UNIT_LABELS[kpi.unit]}</p>
+          <p className="text-[10px] text-slate-500 uppercase font-bold">{UNIT_LABELS[kpi.unit]}</p>
         </div>
       </td>
       {/* Meta */}
@@ -93,7 +88,7 @@ function KpiRow({ kpi, history, onDelete, onUpsertHistory, onUpdateTarget }: Kpi
         )}
       </td>
       {/* Monthly values */}
-      {months.map(({ key, label }) => {
+      {months.map(({ key }) => {
         const existing = history.find(h => String(h.month_year).startsWith(key));
         return (
           <td key={key} className="py-3 px-2 text-center">
@@ -125,9 +120,7 @@ function KpiRow({ kpi, history, onDelete, onUpsertHistory, onUpdateTarget }: Kpi
   );
 }
 
-interface Props {
-  clientId: string;
-}
+interface Props { clientId: string; }
 
 export function KpiManager({ clientId }: Props) {
   const qc = useQueryClient();
@@ -136,7 +129,6 @@ export function KpiManager({ clientId }: Props) {
 
   const [showForm, setShowForm] = useState(false);
   const [newName, setNewName] = useState("");
-  const [newCategory, setNewCategory] = useState("Vendas");
   const [newUnit, setNewUnit] = useState<"currency" | "percentage" | "number">("number");
   const [saving, setSaving] = useState(false);
 
@@ -149,11 +141,12 @@ export function KpiManager({ clientId }: Props) {
     if (!newName.trim()) { toast.error("Nome obrigatório"); return; }
     setSaving(true);
     try {
-      await create.mutateAsync({ name: newName.trim(), category: newCategory, unit: newUnit, is_predefined: false });
+      await create.mutateAsync({ name: newName.trim(), category: "Geral", unit: newUnit, is_predefined: false });
       toast.success("KPI criado");
       setNewName(""); setShowForm(false);
-    } catch { toast.error("Erro ao criar KPI"); }
-    finally { setSaving(false); }
+    } catch (e: any) {
+      toast.error(e?.message ?? "Erro ao criar KPI");
+    } finally { setSaving(false); }
   };
 
   const handleDelete = async (id: string) => {
@@ -180,37 +173,22 @@ export function KpiManager({ clientId }: Props) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <div>
-          <p className="text-xs font-black uppercase tracking-widest text-slate-500 mb-1">Indicadores de Performance (KPIs)</p>
-          <p className="text-xs text-slate-500">Cadastre os KPIs do negócio e registre os valores mensais. Aparecem nos blocos de performance do dashboard.</p>
-        </div>
+        <p className="text-xs text-slate-500">Cadastre KPIs, defina metas e registre valores mensais. Alimentam os blocos de performance do dashboard.</p>
         <button onClick={() => setShowForm(v => !v)}
-          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-xs font-bold transition-colors">
+          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-xs font-bold transition-colors shrink-0">
           <Plus className="h-3.5 w-3.5" /> Novo KPI
         </button>
       </div>
 
-      {/* Form */}
       {showForm && (
         <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-4 space-y-3">
           <p className="text-xs font-bold text-slate-300 uppercase tracking-widest">Novo Indicador</p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label className="text-slate-400 text-xs">Nome</Label>
               <Input value={newName} onChange={e => setNewName(e.target.value)}
                 placeholder="ex: Taxa de Conversão"
                 className="bg-slate-900 border-slate-700 text-white h-9 text-sm" />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-slate-400 text-xs">Categoria</Label>
-              <Select value={newCategory} onValueChange={setNewCategory}>
-                <SelectTrigger className="bg-slate-900 border-slate-700 text-white h-9 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-[#1E293B] border-slate-700 text-slate-200">
-                  {CATEGORY_OPTIONS.map(c => <SelectItem key={c} value={c} className="focus:bg-slate-800">{c}</SelectItem>)}
-                </SelectContent>
-              </Select>
             </div>
             <div className="space-y-1">
               <Label className="text-slate-400 text-xs">Unidade</Label>
@@ -219,7 +197,9 @@ export function KpiManager({ clientId }: Props) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="bg-[#1E293B] border-slate-700 text-slate-200">
-                  {Object.entries(UNIT_LABELS).map(([v, l]) => <SelectItem key={v} value={v} className="focus:bg-slate-800">{l}</SelectItem>)}
+                  {Object.entries(UNIT_LABELS).map(([v, l]) => (
+                    <SelectItem key={v} value={v} className="focus:bg-slate-800">{l}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -237,10 +217,8 @@ export function KpiManager({ clientId }: Props) {
         </div>
       )}
 
-      {/* Table */}
       {kpis.length === 0 ? (
-        <div className="rounded-lg border border-slate-800 bg-slate-900/30 p-8 text-center">
-          <BarChart3 className="h-8 w-8 mx-auto mb-2 text-slate-700" />
+        <div className="rounded-lg border border-slate-800 bg-slate-900/30 p-6 text-center">
           <p className="text-slate-500 text-sm font-bold">Nenhum KPI cadastrado</p>
           <p className="text-slate-600 text-xs mt-1">Clique em "Novo KPI" para começar</p>
         </div>
@@ -261,9 +239,7 @@ export function KpiManager({ clientId }: Props) {
             </thead>
             <tbody>
               {kpis.map(kpi => (
-                <KpiRow
-                  key={kpi.id}
-                  kpi={kpi}
+                <KpiRow key={kpi.id} kpi={kpi}
                   history={history.filter(h => h.kpi_id === kpi.id) as any}
                   onDelete={handleDelete}
                   onUpsertHistory={handleUpsertHistory}
@@ -272,7 +248,7 @@ export function KpiManager({ clientId }: Props) {
               ))}
             </tbody>
           </table>
-          <p className="text-[10px] text-slate-600 p-3">Clique em qualquer célula para editar o valor. Pressione Enter para salvar ou Esc para cancelar.</p>
+          <p className="text-[10px] text-slate-600 p-3">Clique em qualquer célula para editar. Enter para salvar, Esc para cancelar.</p>
         </div>
       )}
     </div>
