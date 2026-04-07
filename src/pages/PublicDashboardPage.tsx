@@ -108,9 +108,7 @@ export function PublicDashboardPage() {
           const fresh = clients[0];
           const merged = {
             ...parsedData,
-            // Em sessão de suporte, preserva o client_id original (cliente visualizado)
-            // e não sobrescreve com o id do agente retornado pelo RPC
-            ...(parsedData.is_support ? {} : { id: fresh.id }),
+            id: fresh.id,  // sempre o ID do cliente real (único registro em clients)
             name: fresh.name ?? parsedData.name,
             favicon_url: fresh.favicon_url ?? parsedData.favicon_url,
             metadata: {
@@ -133,23 +131,13 @@ export function PublicDashboardPage() {
   // Tracking injection removed — GTM and Meta Pixel are now injected only
   // in the WhatsAppRedirectPage (/wa) to avoid tracking the client dashboard.
 
-  // Resolve client ID — em sessão de suporte, client_id é o cliente visualizado; id é o agente
-  const clientId: string | undefined = clientData?.is_support
-    ? (clientData?.client_id ?? clientData?.id)
-    : (clientData?.id ?? clientData?.client_id);
-
-  // DEBUG — remover após diagnóstico
-  console.log("[KPI DEBUG] clientData:", clientData);
-  console.log("[KPI DEBUG] clientId:", clientId);
+  // clientId é sempre o ID do cliente real, resolvido via RPC get_client_data (LIMIT 1)
+  const clientId: string | undefined = clientData?.id ?? clientData?.client_id;
 
   const kpisQuery = useClientKPIs(clientId);
   const kpiHistoryQuery = useClientKPIHistory(clientId);
   const kpis = (kpisQuery.data ?? []) as any[];
   const kpiHistory = (kpiHistoryQuery.data ?? []) as any[];
-
-  // DEBUG — remover após diagnóstico
-  console.log("[KPI DEBUG] kpisQuery status:", kpisQuery.status, "| data:", kpisQuery.data, "| error:", kpisQuery.error);
-  console.log("[KPI DEBUG] kpiHistoryQuery status:", kpiHistoryQuery.status, "| data:", kpiHistoryQuery.data);
   const { campaignDataQuery, dailyMetricsQuery } = useClientReports(clientId, dateRange);
   const realCampaigns = (campaignDataQuery.data ?? []) as any[];
   const realDailyMetrics = (dailyMetricsQuery.data ?? []) as any[];
