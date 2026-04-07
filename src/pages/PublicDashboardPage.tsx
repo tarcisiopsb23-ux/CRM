@@ -179,6 +179,89 @@ export function PublicDashboardPage() {
     clicks: acc.clicks + (curr.clicks || 0),
   }), { spend: 0, leads: 0, sales: 0, revenue: 0, impressions: 0, clicks: 0 }), [realDailyMetrics]);
 
+  // ── Consolidated metrics: real API data takes priority over manual daily_metrics ──
+  const consolidated = useMemo(() => {
+    const gads = gadsQuery.data;
+    const meta = metaQuery.data;
+    const funnel = funnelStats.data;
+    const adClicks = adClickQuery.data?.totalClicks ?? 0;
+
+    // Spend: Google Ads + Meta Ads, fallback to daily_metrics
+    const spend = (gads || meta)
+      ? (gads?.spend ?? 0) + (meta?.spend ?? 0)
+      : totals.spend;
+
+    // Impressions: Google Ads + Meta Ads, fallback to daily_metrics
+    const impressions = (gads || meta)
+      ? (gads?.impressions ?? 0) + (meta?.impressions ?? 0)
+      : totals.impressions;
+
+    // Clicks: Google Ads + Meta Ads + ad_click_sessions, fallback to daily_metrics
+    const clicks = (gads || meta || adClicks > 0)
+      ? (gads?.clicks ?? 0) + (meta?.clicks ?? 0) + adClicks
+      : totals.clicks;
+
+    // Leads: CRM "novo" stage history, fallback to daily_metrics
+    const leads = funnel ? funnel.novo : totals.leads;
+
+    // Qualified: CRM "contato" stage history
+    const qualified = funnel?.contato ?? 0;
+
+    // Sales: CRM "fechado" stage history, fallback to daily_metrics
+    const sales = funnel ? funnel.fechado : totals.sales;
+
+    // Revenue: from daily_metrics (manually entered or API-fed)
+    const revenue = totals.revenue;
+
+    const roas = spend > 0 ? (revenue / spend).toFixed(1) : "0.0";
+    const conversionRate = leads > 0 ? ((sales / leads) * 100).toFixed(1) : "0.0";
+    const cpa = sales > 0 ? (spend / sales).toFixed(0) : "0";
+
+    // Daily chart: merge Google Ads + Meta Ads by day, fallback to daily_metrics
+    const dailyMap = new Map<string, { date: string; total_spend: number; revenue: number; total_leads: number; impressions: number; clicks: number }>();
+    // Start with daily_metrics as base
+    for (const d of realDailyMetrics) {
+      dailyMap.set(d.date, { ...d });
+    }
+    // Override/merge with Google Ads daily data
+    if (gads?.byDay) {
+      for (const d of gads.byDay) {
+        const existing = dailyMap.get(d.date) ?? { date: d.date, total_spend: 0, revenue: 0, total_leads: 0, impressions: 0, clicks: 0 };
+        dailyMap.set(d.date, { ...existing, total_spend: existing.total_spend + d.spend, clicks: existing.clicks + d.clicks });
+      }
+    }
+    // Merge Meta Ads daily data
+    if (meta?.byDay) {
+      for (const d of meta.byDay) {
+        const existing = dailyMap.get(d.date) ?? { date: d.date, total_spend: 0, revenue: 0, total_leads: 0, impressions: 0, clicks: 0 };
+        dailyMap.set(d.date, {
+          ...existing,
+          total_spend: existing.total_spend + d.spend,
+          impressions: existing.impressions + d.impressions,
+          clicks: existing.clicks + d.clicks,
+          total_leads: existing.total_leads + d.leads,
+        });
+      }
+    }
+    const dailyData = Array.from(dailyMap.values()).sort((a, b) => a.date.localeCompare(b.date));
+
+    // Campaigns: Google Ads + Meta Ads, fallback to campaign_data
+    const campaigns: { platform: string; name: string; spend: number; leads: number; sales: number; revenue: number }[] = [];
+    if (gads?.byCampaign?.length) {
+      for (const c of gads.byCampaign) {
+        campaigns.push({ platform: "Google Ads", name: c.campaign, spend: c.spend, leads: 0, sales: c.conversions, revenue: c.roas * c.spend });
+      }
+    }
+    if (meta?.byCampaign?.length) {
+      for (const c of meta.byCampaign) {
+        campaigns.push({ platform: "Meta Ads", name: c.campaign_name, spend: c.spend, leads: c.leads, sales: c.purchases, revenue: c.roas * c.spend });
+      }
+    }
+    const finalCampaigns = campaigns.length > 0 ? campaigns : realCampaigns;
+
+    return { spend, impressions, clicks, leads, qualified, sales, revenue, roas, conversionRate, cpa, dailyData, finalCampaigns };
+  }, [gadsQuery.data, metaQuery.data, funnelStats.data, adClickQuery.data, totals, realDailyMetrics, realCampaigns]);
+
   // KPI cards – mês atual vs anterior
   const kpiCards = useMemo(() => {
     const currentKey = format(new Date(), "yyyy-MM");
@@ -253,9 +336,10 @@ export function PublicDashboardPage() {
     </div>
   );
 
-  const roas = totals.spend > 0 ? (totals.revenue / totals.spend).toFixed(1) : "0.0";
-  const cpa = totals.sales > 0 ? (totals.spend / totals.sales).toFixed(0) : "0";
-  const conversionRate = totals.leads > 0 ? ((totals.sales / totals.leads) * 100).toFixed(1) : "0.0";
+  // Use consolidated values (real API data > manual daily_metrics)
+  const roas = consolidated.roas;
+  const cpa = consolidated.cpa;
+  const conversionRate = consolidated.conversionRate;
   const selectedKpi = kpis.find(k => k.id === (activeKpiId ?? kpis[0]?.id)) ?? kpis[0];
   const selectedColor = selectedKpi ? KPI_COLORS[kpis.indexOf(selectedKpi) % KPI_COLORS.length] : "#7C3AED";
 
@@ -401,12 +485,12 @@ export function PublicDashboardPage() {
 
           {/* -- 1. MÉTRICAS DE ANÚNCIOS -- */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            <MetricCard label="Investimento" value={`R$ ${totals.spend.toLocaleString("pt-BR")}`} icon={<DollarSign className="h-5 w-5 text-[#7C3AED]" />} info="Valor total investido em mídia paga (Meta Ads, Google Ads, etc.) no período selecionado. Representa o custo direto das campanhas ativas." />
-            <MetricCard label="Leads" value={totals.leads} icon={<Users className="h-5 w-5 text-blue-400" />} info="Número total de leads gerados pelas campanhas no período. Um lead é um potencial cliente que demonstrou interesse e deixou seus dados de contato." />
-            <MetricCard label="Vendas" value={totals.sales} icon={<Target className="h-5 w-5 text-emerald-400" />} info="Total de vendas fechadas e atribuídas às campanhas de mídia paga no período. Indica o resultado comercial direto das ações de marketing." />
-            <MetricCard label="Conversão" value={`${conversionRate}%`} icon={<CheckCircle2 className="h-5 w-5 text-emerald-400" />} info="Percentual de leads que se tornaram clientes (vendas ÷ leads × 100). Mede a eficiência do processo comercial em transformar interesse em receita." />
-            <MetricCard label="Faturamento Estimado" value={`R$ ${totals.revenue.toLocaleString("pt-BR")}`} icon={<TrendingUp className="h-5 w-5 text-white" />} info="Receita total estimada gerada pelas vendas atribuídas às campanhas no período. Calculado com base no ticket médio das vendas registradas." highlight />
-            <MetricCard label="ROAS" value={`${roas}x`} icon={<PieChart className="h-5 w-5 text-orange-400" />} info="Return on Ad Spend – retorno sobre o investimento em anúncios. Um ROAS de 4x significa que cada R$ 1 investido gerou R$ 4 em faturamento estimado." />
+            <MetricCard label="Investimento" value={`R$ ${consolidated.spend.toLocaleString("pt-BR")}`} icon={<DollarSign className="h-5 w-5 text-[#7C3AED]" />} info="Total ad spend from Google Ads + Meta Ads in the selected period. Falls back to manually entered data if APIs are not connected." />
+            <MetricCard label="Leads" value={consolidated.leads} icon={<Users className="h-5 w-5 text-blue-400" />} info="Leads that entered the CRM pipeline (stage: New) in the period, tracked via stage history." />
+            <MetricCard label="Vendas" value={consolidated.sales} icon={<Target className="h-5 w-5 text-emerald-400" />} info="Deals closed in the CRM (stage: Closed) in the period, tracked via stage history." />
+            <MetricCard label="Conversão" value={`${conversionRate}%`} icon={<CheckCircle2 className="h-5 w-5 text-emerald-400" />} info="Percentage of leads that became closed deals (Closed ÷ New × 100)." />
+            <MetricCard label="Faturamento Estimado" value={`R$ ${consolidated.revenue.toLocaleString("pt-BR")}`} icon={<TrendingUp className="h-5 w-5 text-white" />} info="Estimated revenue from closed deals in the period." highlight />
+            <MetricCard label="ROAS" value={`${roas}x`} icon={<PieChart className="h-5 w-5 text-orange-400" />} info="Return on Ad Spend — revenue ÷ ad spend. A ROAS of 4x means every R$1 spent generated R$4 in revenue." />
           </div>
 
           {/* -- 2. EVOLUÇÃO DIÁRIA + FUNIL -- */}
@@ -422,7 +506,7 @@ export function PublicDashboardPage() {
                 </CardHeader>
                 <CardContent className="flex-1 min-h-[450px] pt-4">
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={realDailyMetrics}>
+                    <AreaChart data={consolidated.dailyData}>
                       <defs>
                         <linearGradient id="gRev" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
@@ -457,41 +541,41 @@ export function PublicDashboardPage() {
                 <ModernFunnel textVariant="white" steps={[
                   {
                     label: "Impressions",
-                    value: (funnelStats.data?.impressions ?? totals.impressions).toLocaleString("pt-BR"),
+                    value: consolidated.impressions.toLocaleString("pt-BR"),
                     color: "bg-slate-700", width: "w-full",
-                    percentage: (((funnelStats.data?.clicks ?? totals.clicks) / ((funnelStats.data?.impressions ?? totals.impressions) || 1)) * 100).toFixed(1) + "%",
+                    percentage: ((consolidated.clicks / (consolidated.impressions || 1)) * 100).toFixed(1) + "%",
                     rateLabel: "CTR"
                   },
                   {
                     label: "Clicks",
-                    value: (funnelStats.data?.clicks ?? totals.clicks).toLocaleString("pt-BR"),
+                    value: consolidated.clicks.toLocaleString("pt-BR"),
                     color: "bg-[#7C3AED]/40", width: "w-[88%]",
-                    percentage: (((funnelStats.data?.novo ?? totals.leads) / ((funnelStats.data?.clicks ?? totals.clicks) || 1)) * 100).toFixed(1) + "%",
+                    percentage: ((consolidated.leads / (consolidated.clicks || 1)) * 100).toFixed(1) + "%",
                     rateLabel: "CONV. RATE"
                   },
                   {
                     label: "Leads (New)",
-                    value: (funnelStats.data?.novo ?? totals.leads).toLocaleString("pt-BR"),
+                    value: consolidated.leads.toLocaleString("pt-BR"),
                     color: "bg-blue-500/40", width: "w-[76%]",
-                    percentage: (((funnelStats.data?.contato ?? 0) / ((funnelStats.data?.novo ?? totals.leads) || 1)) * 100).toFixed(1) + "%",
+                    percentage: ((consolidated.qualified / (consolidated.leads || 1)) * 100).toFixed(1) + "%",
                     rateLabel: "QUALIF."
                   },
                   {
                     label: "Qualified",
-                    value: (funnelStats.data?.contato ?? 0).toLocaleString("pt-BR"),
+                    value: consolidated.qualified.toLocaleString("pt-BR"),
                     color: "bg-indigo-500/40", width: "w-[64%]",
-                    percentage: (((funnelStats.data?.fechado ?? totals.sales) / ((funnelStats.data?.contato ?? 1) || 1)) * 100).toFixed(1) + "%",
+                    percentage: ((consolidated.sales / (consolidated.qualified || 1)) * 100).toFixed(1) + "%",
                     rateLabel: "CLOSE RATE"
                   },
                   {
                     label: "Closed",
-                    value: (funnelStats.data?.fechado ?? totals.sales).toLocaleString("pt-BR"),
+                    value: consolidated.sales.toLocaleString("pt-BR"),
                     color: "bg-emerald-500/40", width: "w-[52%]"
                   },
                 ]} />
                 <div className="mt-8 pt-6 border-t border-slate-700 text-center w-full">
                   <p className="text-slate-400 text-xs uppercase font-black tracking-widest">Resultado Final</p>
-                  <p className="text-3xl font-black text-emerald-400 mt-2">R$ {totals.revenue.toLocaleString("pt-BR")}</p>
+                  <p className="text-3xl font-black text-emerald-400 mt-2">R$ {consolidated.revenue.toLocaleString("pt-BR")}</p>
                 </div>
               </CardContent>
             </Card>
@@ -517,16 +601,16 @@ export function PublicDashboardPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/50">
-                    {realCampaigns.length === 0 ? (
+                    {consolidated.finalCampaigns.length === 0 ? (
                       <tr>
                         <td colSpan={6} className="py-8 text-center text-slate-500 text-sm italic">
-                          Sem dados de campanhas para este período.
+                          No campaign data for this period.
                         </td>
                       </tr>
-                    ) : realCampaigns.map((c: any) => {
+                    ) : consolidated.finalCampaigns.map((c: any, idx: number) => {
                       const roasCamp = c.spend > 0 ? (c.revenue / c.spend).toFixed(1) : "0.0";
                       return (
-                        <tr key={c.id ?? c.name} className="text-sm hover:bg-slate-800/30 transition-colors">
+                        <tr key={c.id ?? c.name ?? idx} className="text-sm hover:bg-slate-800/30 transition-colors">
                           <td className="py-4 text-slate-400 font-bold">{c.platform}</td>
                           <td className="py-4 font-bold text-slate-200">{c.name}</td>
                           <td className="py-4 text-slate-400">R$ {(c.spend || 0).toLocaleString("pt-BR")}</td>
@@ -614,7 +698,7 @@ export function PublicDashboardPage() {
                 <InsightItem icon={<TrendingUp className="h-4 w-4 text-[#7C3AED]" />}
                   text={<>ROAS de <span className="text-[#7C3AED] font-bold">{roas}x</span> – cada R$ 1 investido gerou R$ {roas} em faturamento estimado.</>} />
                 <InsightItem icon={<Users className="h-4 w-4 text-blue-400" />}
-                  text={<><span className="text-blue-400 font-bold">{totals.leads}</span> leads gerados com taxa de conversão de <span className="text-blue-400 font-bold">{conversionRate}%</span>.</>} />
+                  text={<><span className="text-blue-400 font-bold">{consolidated.leads}</span> leads gerados com taxa de conversão de <span className="text-blue-400 font-bold">{conversionRate}%</span>.</>} />
                 {kpiCards.filter(k => k.growth !== null && (isLowerBetter(k.name) ? k.growth <= -5 : k.growth >= 5)).slice(0, 2).map(k => (
                   <InsightItem key={k.id} icon={<Zap className="h-4 w-4 text-yellow-400" />}
                     text={<><span className="text-yellow-400 font-bold">{k.name}</span>: variação de {k.growth! >= 0 ? "+" : ""}{k.growth!.toFixed(1)}% vs mês anterior.</>} />
