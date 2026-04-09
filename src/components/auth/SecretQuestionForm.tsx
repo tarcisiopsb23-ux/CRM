@@ -1,12 +1,11 @@
 /**
  * SecretQuestionForm
  *
- * Formulário para definir/atualizar a pergunta secreta de recuperação de senha.
- * Usado no dialog de senha temporária (força definição) e na página de perfil (opcional).
+ * Salva pergunta secreta + hash SHA-256 da resposta diretamente no user_metadata
+ * via supabaseAuth.auth.updateUser — sem depender de edge function.
  *
- * Props:
- *   onSaved?  — callback após salvar com sucesso
- *   required? — se true, não exibe botão "Pular" e mostra aviso de obrigatoriedade
+ * O hash é calculado no frontend com Web Crypto API (SHA-256).
+ * A resposta é normalizada (lowercase + trim + remove acentos) antes do hash.
  */
 
 import { useState } from "react";
@@ -19,8 +18,6 @@ import {
 import { Loader2, ShieldCheck } from "lucide-react";
 import { supabaseAuth } from "@/lib/supabase-auth";
 
-const SECRET_QUESTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/secret-question`;
-
 const PRESET_QUESTIONS = [
   "Qual o nome do seu primeiro animal de estimação?",
   "Qual o nome da cidade onde você nasceu?",
@@ -32,6 +29,20 @@ const PRESET_QUESTIONS = [
   "Qual a sua comida favorita?",
   "Pergunta personalizada...",
 ];
+
+async function sha256hex(text: string): Promise<string> {
+  const buf = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(text)
+  );
+  return Array.from(new Uint8Array(buf))
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function normalizeAnswer(answer: string): string {
+  return answer.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
 
 interface Props {
   onSaved?: () => void;
@@ -59,26 +70,27 @@ export function SecretQuestionForm({ onSaved, onSkip, required = false }: Props)
 
     setLoading(true);
     try {
-      const { data: { session } } = await supabaseAuth.auth.getSession();
-      if (!session) { setError("Sessão expirada. Faça login novamente."); return; }
+      const answerHash = await sha256hex(normalizeAnswer(answer));
 
-      const res = await fetch(SECRET_QUESTION_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.access_token}`,
-          "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
+      const { error: updateErr } = await supabaseAuth.auth.updateUser({
+        data: {
+          secret_question:    question,
+          secret_answer_hash: answerHash,
         },
-        body: JSON.stringify({ action: "save", question, answer: answer.trim() }),
       });
 
-      const data = await res.json();
-      if (!res.ok || data.error) { setError(data.error ?? "Erro ao salvar. Tente novamente."); return; }
+      if (updateErr) {
+        setError(`Erro ao salvar: ${updateErr.message}`);
+        return;
+      }
 
       setSuccess(true);
       setTimeout(() => { onSaved?.(); }, 1200);
-    } catch { setError("Erro ao salvar. Tente novamente."); }
-    finally { setLoading(false); }
+    } catch (e: any) {
+      setError(`Erro inesperado: ${e?.message ?? "tente novamente"}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (success) {
@@ -131,7 +143,7 @@ export function SecretQuestionForm({ onSaved, onSkip, required = false }: Props)
         <Input type="text" placeholder="Repita a resposta" autoComplete="off"
           className="bg-slate-900/50 border-slate-700 text-white h-12"
           value={confirmAnswer} onChange={e => setConfirmAnswer(e.target.value)} />
-        <p className="text-[10px] text-slate-500">A resposta não diferencia maiúsculas/minúsculas ou acentos.</p>
+        <p className="text-[10px] text-slate-500">Não diferencia maiúsculas/minúsculas ou acentos.</p>
       </div>
 
       {error && <p className="text-red-400 text-sm font-medium">{error}</p>}

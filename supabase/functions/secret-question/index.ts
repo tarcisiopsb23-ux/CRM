@@ -100,6 +100,7 @@ Deno.serve(async (req) => {
     const storedHash = user.user_metadata?.secret_answer_hash ?? null;
     if (!storedHash) return jsonResponse({ correct: false }, 200);
 
+    // Hash calculado no frontend (Web Crypto) e também aqui para verificação
     const inputHash = await sha256hex(normalizeAnswer(answer));
 
     if (inputHash !== storedHash) {
@@ -125,35 +126,9 @@ Deno.serve(async (req) => {
     });
   }
 
-  // ── save: salva pergunta + hash da resposta (requer JWT) ──────────────────
+  // ── save: não mais necessário — frontend salva via supabaseAuth.updateUser ──
   if (action === "save") {
-    const token = extractBearerToken(req);
-    if (!token) return jsonResponse({ error: "Não autorizado" }, 401);
-
-    const payload = decodeJwtPayload(token);
-    const userId = payload?.sub;
-    if (!userId) return jsonResponse({ error: "Token inválido" }, 401);
-
-    const { question, answer } = body;
-    if (!question?.trim()) return jsonResponse({ error: "question é obrigatório" }, 400);
-    if (!answer?.trim())   return jsonResponse({ error: "answer é obrigatório" }, 400);
-    if (answer.trim().length < 3) return jsonResponse({ error: "Resposta muito curta (mínimo 3 caracteres)" }, 400);
-
-    const answerHash = await sha256hex(normalizeAnswer(answer));
-
-    const { error: updateErr } = await supabase.auth.admin.updateUserById(userId, {
-      user_metadata: {
-        secret_question:    question.trim(),
-        secret_answer_hash: answerHash,
-      },
-    });
-
-    if (updateErr) {
-      console.error("[secret-question] updateUserById error:", updateErr.message);
-      return jsonResponse({ error: "Erro ao salvar pergunta secreta" }, 500);
-    }
-
-    return jsonResponse({ success: true });
+    return jsonResponse({ error: "Use supabaseAuth.auth.updateUser para salvar a pergunta secreta." }, 400);
   }
 
   return jsonResponse({ error: `action inválida: ${action}` }, 400);
