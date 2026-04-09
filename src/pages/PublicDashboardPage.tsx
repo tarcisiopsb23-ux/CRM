@@ -823,15 +823,6 @@ export function PublicDashboardPage() {
                               </div>
                             </div>
                           )}
-                          {/* Sparkline */}
-                          <div className="mt-3 h-10">
-                            <ResponsiveContainer width="100%" height="100%">
-                              <LineChart data={kpiSparkline.get(kpi.id) ?? []}>
-                                <Line type="monotone" dataKey="value" stroke={kpi.color} strokeWidth={2} dot={false} />
-                              </LineChart>
-                            </ResponsiveContainer>
-                          </div>
-                          <p className="text-[9px] text-slate-600 mt-1">Últimos 6 meses</p>
                         </Card>
                       );
                     })}
