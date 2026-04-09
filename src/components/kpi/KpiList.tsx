@@ -71,7 +71,7 @@ export function KpiList({ clientId }: Props) {
   };
 
   const toggleActive = async (kpi: ClientKPI) => {
-    const newActive = !(kpi as any).active ?? false;
+    const newActive = !((kpi as any).active ?? false);
     // We use is_predefined as active flag workaround — or add a real active column
     // For now, we soft-delete by prefixing name with [inativo]
     const isCurrentlyInactive = kpi.name.startsWith("[inativo] ");
