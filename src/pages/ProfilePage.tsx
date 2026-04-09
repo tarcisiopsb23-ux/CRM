@@ -57,6 +57,7 @@ export function ProfilePage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [showSecretQuestionDialog, setShowSecretQuestionDialog] = useState(false);
 
   // Integracoes
   const [gtmId, setGtmId] = useState("");
@@ -455,25 +456,35 @@ export function ProfilePage() {
                     {passwordLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                     Alterar Senha
                   </Button>
+                  <div className="border-t border-slate-700 pt-3">
+                    <button type="button"
+                      onClick={() => setShowSecretQuestionDialog(true)}
+                      className="w-full flex items-center justify-between text-sm text-slate-400 hover:text-slate-200 transition-colors py-1">
+                      <span className="flex items-center gap-2">
+                        <Lock className="h-4 w-4 text-emerald-400" />
+                        Gerenciar pergunta secreta de recuperação
+                      </span>
+                      <span className="text-slate-600 text-xs">→</span>
+                    </button>
+                  </div>
                 </form>
               </CardContent>
             </Card>
 
-            {/* Pergunta Secreta */}
-            <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-emerald-500">
-              <CardHeader>
-                <CardTitle className="text-white flex items-center gap-2">
-                  <Lock className="h-5 w-5 text-emerald-400" />
-                  Pergunta Secreta
-                </CardTitle>
-                <CardDescription className="text-slate-400 text-xs">
-                  Configure uma pergunta para recuperar o acesso sem depender de e-mail.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <SecretQuestionForm />
-              </CardContent>
-            </Card>
+            {/* Dialog: Pergunta Secreta */}
+            {showSecretQuestionDialog && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+                <div className="bg-[#1E293B] border border-slate-700 rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-white font-black text-lg">Pergunta Secreta</h2>
+                    <button onClick={() => setShowSecretQuestionDialog(false)}
+                      className="text-slate-400 hover:text-white transition-colors text-xl leading-none">✕</button>
+                  </div>
+                  <p className="text-slate-400 text-xs">Configure ou atualize a pergunta usada para recuperar o acesso.</p>
+                  <SecretQuestionForm onSaved={() => { setShowSecretQuestionDialog(false); toast.success("Pergunta secreta atualizada!"); }} />
+                </div>
+              </div>
+            )}
 
             {/* Abas do Dashboard */}
             <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-violet-500">
