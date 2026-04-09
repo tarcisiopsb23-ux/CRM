@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
-import { Activity, Lock, Loader2, Mail, Eye, EyeOff, ArrowLeft, HelpCircle } from "lucide-react";
+import { Activity, Lock, Loader2, Mail, Eye, EyeOff, ArrowLeft } from "lucide-react";
 import { supabaseAuth } from "@/lib/supabase-auth";
 import { supabaseCrm } from "@/lib/supabase";
 import { SecretQuestionForm } from "@/components/auth/SecretQuestionForm";
@@ -28,7 +28,7 @@ const STATUS_MESSAGES: Record<string, string> = {
   cancelado: "Contrato cancelado. Entre em contato com a agência.",
 };
 
-type View = "login" | "forgot-choose" | "forgot-email" | "forgot-email-sent" | "forgot-question" | "forgot-reset";
+type View = "login" | "forgot-question" | "forgot-reset";
 
 export function PublicDashboardLoginPage() {
   const navigate = useNavigate();
@@ -43,10 +43,6 @@ export function PublicDashboardLoginPage() {
 
   // Forgot — shared email field
   const [forgotEmail, setForgotEmail] = useState("");
-
-  // Forgot — email flow
-  const [forgotEmailLoading, setForgotEmailLoading] = useState(false);
-  const [forgotEmailError, setForgotEmailError] = useState<string | null>(null);
 
   // Forgot — secret question flow
   const [secretQuestion, setSecretQuestion] = useState<string | null>(null);
@@ -153,50 +149,31 @@ export function PublicDashboardLoginPage() {
     finally { setChangeLoading(false); }
   };
 
-  // ── Forgot: choose method ─────────────────────────────────────────────────
+  // ── Forgot: go to secret question ────────────────────────────────────────
   const goToForgot = () => {
     setForgotEmail(email);
-    setForgotEmailError(null);
     setQuestionError(null);
     setSecretQuestion(null);
     setSecretAnswer("");
-    setView("forgot-choose");
-  };
-
-  // ── Forgot: email flow ────────────────────────────────────────────────────
-  const handleForgotEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setForgotEmailLoading(true);
-    setForgotEmailError(null);
-    try {
-      const { error } = await supabaseAuth.auth.resetPasswordForEmail(
-        forgotEmail.trim(),
-        { redirectTo: `${window.location.origin}/login?reset=1` }
-      );
-      if (error) { setForgotEmailError("Não foi possível enviar o e-mail. Verifique o endereço."); return; }
-      setView("forgot-email-sent");
-    } catch { setForgotEmailError("Erro ao enviar e-mail. Tente novamente."); }
-    finally { setForgotEmailLoading(false); }
+    setView("forgot-question");
   };
 
   // ── Forgot: load secret question ──────────────────────────────────────────
-  const handleLoadQuestion = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleLoadQuestion = async (emailValue: string) => {
     setQuestionLoading(true);
     setQuestionError(null);
     try {
       const res = await fetch(SECRET_QUESTION_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY },
-        body: JSON.stringify({ action: "get-question", email: forgotEmail.trim() }),
+        body: JSON.stringify({ action: "get-question", email: emailValue.trim() }),
       });
       const data = await res.json();
       if (!data.has_question) {
-        setQuestionError("Nenhuma pergunta secreta cadastrada para este e-mail. Use a recuperação por e-mail.");
+        setQuestionError("Nenhuma pergunta secreta cadastrada para este e-mail. Entre em contato com a agência.");
         return;
       }
       setSecretQuestion(data.question);
-      setView("forgot-question");
     } catch { setQuestionError("Erro ao buscar pergunta. Tente novamente."); }
     finally { setQuestionLoading(false); }
   };
@@ -271,7 +248,6 @@ export function PublicDashboardLoginPage() {
   };
 
   const backToLogin = () => { setView("login"); setError(null); };
-  const backToChoose = () => { setView("forgot-choose"); setQuestionError(null); setForgotEmailError(null); };
 
   return (
     <div className="min-h-screen bg-[#0F172A] flex items-center justify-center p-4">
@@ -333,115 +309,70 @@ export function PublicDashboardLoginPage() {
           </Card>
         )}
 
-        {/* ── ESCOLHER MÉTODO DE RECUPERAÇÃO ── */}
-        {view === "forgot-choose" && (
-          <Card className="bg-[#1E293B] border-slate-800 shadow-2xl overflow-hidden border-t-4 border-t-[#7C3AED]">
-            <CardHeader>
-              <CardTitle className="text-white">Recuperar Senha</CardTitle>
-              <CardDescription className="text-slate-400 text-xs">Escolha como deseja recuperar o acesso.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label className="text-slate-300">E-mail</Label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
-                  <Input type="email" placeholder="seu@email.com" className="bg-slate-900/50 border-slate-700 text-white pl-10 h-12"
-                    value={forgotEmail} onChange={e => setForgotEmail(e.target.value)} />
-                </div>
-              </div>
-              <div className="grid grid-cols-1 gap-3 pt-1">
-                <Button onClick={() => { setForgotEmailError(null); setView("forgot-email"); }}
-                  className="w-full bg-[#7C3AED] hover:bg-[#7C3AED]/90 h-12 font-bold gap-2" disabled={!forgotEmail.trim()}>
-                  <Mail className="h-4 w-4" /> Receber link por e-mail
-                </Button>
-                <Button onClick={handleLoadQuestion} variant="outline"
-                  className="w-full border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 h-12 font-bold gap-2"
-                  disabled={!forgotEmail.trim() || questionLoading}>
-                  {questionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <HelpCircle className="h-4 w-4" />}
-                  Usar pergunta secreta
-                </Button>
-              </div>
-              {questionError && <p className="text-red-400 text-sm font-medium">{questionError}</p>}
-              <button onClick={backToLogin} className="w-full flex items-center justify-center gap-2 text-slate-400 hover:text-slate-200 text-sm font-medium transition-colors pt-1">
-                <ArrowLeft className="h-4 w-4" /> Voltar ao login
-              </button>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ── RECUPERAÇÃO POR E-MAIL ── */}
-        {view === "forgot-email" && (
-          <Card className="bg-[#1E293B] border-slate-800 shadow-2xl overflow-hidden border-t-4 border-t-[#7C3AED]">
-            <CardHeader>
-              <CardTitle className="text-white">Recuperação por E-mail</CardTitle>
-              <CardDescription className="text-slate-400 text-xs">Enviaremos um link para redefinir sua senha.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleForgotEmail} className="space-y-4">
-                <div className="space-y-2">
-                  <Label className="text-slate-300">E-mail</Label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
-                    <Input type="email" placeholder="seu@email.com" className="bg-slate-900/50 border-slate-700 text-white pl-10 h-12"
-                      value={forgotEmail} onChange={e => setForgotEmail(e.target.value)} required />
-                  </div>
-                </div>
-                {forgotEmailError && <p className="text-red-400 text-sm font-medium">{forgotEmailError}</p>}
-                <Button type="submit" className="w-full bg-[#7C3AED] hover:bg-[#7C3AED]/90 h-12 font-bold" disabled={forgotEmailLoading}>
-                  {forgotEmailLoading ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : "Enviar Link de Recuperação"}
-                </Button>
-                <button type="button" onClick={backToChoose} className="w-full flex items-center justify-center gap-2 text-slate-400 hover:text-slate-200 text-sm font-medium transition-colors pt-1">
-                  <ArrowLeft className="h-4 w-4" /> Voltar
-                </button>
-              </form>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ── E-MAIL ENVIADO ── */}
-        {view === "forgot-email-sent" && (
-          <Card className="bg-[#1E293B] border-slate-800 shadow-2xl overflow-hidden border-t-4 border-t-emerald-500">
-            <CardHeader>
-              <CardTitle className="text-white">E-mail enviado</CardTitle>
-              <CardDescription className="text-slate-400 text-xs">Verifique sua caixa de entrada.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-slate-300 text-sm">Enviamos um link para <span className="text-white font-bold">{forgotEmail}</span>. O link expira em 1 hora.</p>
-              <p className="text-slate-500 text-xs">Não recebeu? Verifique a pasta de spam.</p>
-              <button onClick={backToChoose} className="w-full flex items-center justify-center gap-2 text-slate-400 hover:text-slate-200 text-sm font-medium transition-colors">
-                <ArrowLeft className="h-4 w-4" /> Tentar novamente
-              </button>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ── PERGUNTA SECRETA ── */}
+        {/* ── ESQUECI MINHA SENHA — pergunta secreta ── */}
         {view === "forgot-question" && (
           <Card className="bg-[#1E293B] border-slate-800 shadow-2xl overflow-hidden border-t-4 border-t-[#7C3AED]">
             <CardHeader>
-              <CardTitle className="text-white">Pergunta Secreta</CardTitle>
-              <CardDescription className="text-slate-400 text-xs">Responda corretamente para redefinir sua senha.</CardDescription>
+              <CardTitle className="text-white">Recuperar Senha</CardTitle>
+              <CardDescription className="text-slate-400 text-xs">
+                Informe seu e-mail e responda a pergunta secreta para redefinir sua senha.
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleVerifyAnswer} className="space-y-4">
-                <div className="rounded-lg bg-slate-900/50 border border-slate-700 p-4">
-                  <p className="text-[10px] uppercase font-black tracking-widest text-slate-500 mb-1">Sua pergunta</p>
-                  <p className="text-slate-200 font-bold text-sm">{secretQuestion}</p>
-                </div>
+              <div className="space-y-4">
+                {/* Campo de e-mail + botão buscar pergunta */}
                 <div className="space-y-2">
-                  <Label className="text-slate-300">Sua resposta</Label>
-                  <Input type="text" placeholder="Digite sua resposta" className="bg-slate-900/50 border-slate-700 text-white h-12"
-                    value={secretAnswer} onChange={e => setSecretAnswer(e.target.value)} required autoComplete="off" />
-                  <p className="text-[10px] text-slate-500">A resposta não diferencia maiúsculas/minúsculas ou acentos.</p>
+                  <Label className="text-slate-300">E-mail</Label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+                      <input type="email" placeholder="seu@email.com"
+                        className="w-full bg-slate-900/50 border border-slate-700 text-white pl-10 h-12 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/50"
+                        value={forgotEmail}
+                        onChange={e => { setForgotEmail(e.target.value); setSecretQuestion(null); setQuestionError(null); }}
+                        onBlur={e => { if (e.target.value.trim()) handleLoadQuestion(e.target.value); }}
+                      />
+                    </div>
+                    <button type="button"
+                      onClick={() => handleLoadQuestion(forgotEmail)}
+                      disabled={!forgotEmail.trim() || questionLoading}
+                      className="h-12 px-4 rounded-md bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-bold transition-colors disabled:opacity-50">
+                      {questionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Buscar"}
+                    </button>
+                  </div>
                 </div>
-                {questionError && <p className="text-red-400 text-sm font-medium">{questionError}</p>}
-                <Button type="submit" className="w-full bg-[#7C3AED] hover:bg-[#7C3AED]/90 h-12 font-bold" disabled={questionLoading || !secretAnswer.trim()}>
-                  {questionLoading ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : "Verificar Resposta"}
-                </Button>
-                <button type="button" onClick={backToChoose} className="w-full flex items-center justify-center gap-2 text-slate-400 hover:text-slate-200 text-sm font-medium transition-colors pt-1">
-                  <ArrowLeft className="h-4 w-4" /> Voltar
+
+                {/* Pergunta + resposta — aparece após buscar */}
+                {secretQuestion && (
+                  <form onSubmit={handleVerifyAnswer} className="space-y-4">
+                    <div className="rounded-lg bg-slate-900/50 border border-slate-700 p-4">
+                      <p className="text-[10px] uppercase font-black tracking-widest text-slate-500 mb-1">Sua pergunta secreta</p>
+                      <p className="text-slate-200 font-bold text-sm">{secretQuestion}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-slate-300">Sua resposta</Label>
+                      <input type="text" placeholder="Digite sua resposta" autoComplete="off"
+                        className="w-full bg-slate-900/50 border border-slate-700 text-white h-12 rounded-md px-4 text-sm focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/50"
+                        value={secretAnswer} onChange={e => setSecretAnswer(e.target.value)} required />
+                      <p className="text-[10px] text-slate-500">Não diferencia maiúsculas/minúsculas ou acentos.</p>
+                    </div>
+                    {questionError && <p className="text-red-400 text-sm font-medium">{questionError}</p>}
+                    <button type="submit" disabled={questionLoading || !secretAnswer.trim()}
+                      className="w-full h-12 rounded-md bg-[#7C3AED] hover:bg-[#7C3AED]/90 text-white font-bold text-sm transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                      {questionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verificar e Continuar"}
+                    </button>
+                  </form>
+                )}
+
+                {questionError && !secretQuestion && (
+                  <p className="text-red-400 text-sm font-medium">{questionError}</p>
+                )}
+
+                <button onClick={backToLogin}
+                  className="w-full flex items-center justify-center gap-2 text-slate-400 hover:text-slate-200 text-sm font-medium transition-colors pt-1">
+                  <ArrowLeft className="h-4 w-4" /> Voltar ao login
                 </button>
-              </form>
+              </div>
             </CardContent>
           </Card>
         )}
