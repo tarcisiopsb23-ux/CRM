@@ -47,6 +47,7 @@ import { useGA4Metrics, useGoogleAdsMetrics } from "@/hooks/useGoogleAnalytics";
 import { useMetaAdsMetrics } from "@/hooks/useMetaAds";
 import { useOAuthTokens } from "@/hooks/useOAuthTokens";
 import { useFunnelStats } from "@/hooks/useFunnelStats";
+import { useInactivityLogout } from "@/hooks/useInactivityLogout";
 import { ConversationKpiDashboard } from "@/components/whatsapp/ConversationKpiDashboard";
 import { MessageCircle } from "lucide-react";
 import { CrmSection } from "@/components/crm/CrmSection";
@@ -62,6 +63,7 @@ export function PublicDashboardPage() {
   const navigate = useNavigate();
   const { session, tenantId, isSupport, loading: authLoading, signOut } = useAuth();
   const tenantStatus = useTenantStatus();
+  useInactivityLogout();
   const [clientData, setClientData] = useState<any>(null);
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [showKpiDialog, setShowKpiDialog] = useState(false);

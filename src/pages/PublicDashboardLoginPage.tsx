@@ -18,6 +18,60 @@ const TENANT_STATUS_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ten
 const SECRET_QUESTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/secret-question`;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+// ─── Lockout config ───────────────────────────────────────────────────────────
+const MAX_ATTEMPTS   = 3;
+const WINDOW_MS      = 30 * 60 * 1000; // janela de 30 minutos
+const LOCKOUT_KEY    = "c8_login_attempts"; // localStorage key
+
+interface LockoutData {
+  attempts: number;
+  windowStart: number;  // timestamp da primeira tentativa na janela
+  lockedAt: number | null; // timestamp do bloqueio
+}
+
+function getLockout(): LockoutData {
+  try {
+    const raw = localStorage.getItem(LOCKOUT_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return { attempts: 0, windowStart: Date.now(), lockedAt: null };
+}
+
+function saveLockout(data: LockoutData) {
+  localStorage.setItem(LOCKOUT_KEY, JSON.stringify(data));
+}
+
+function clearLockout() {
+  localStorage.removeItem(LOCKOUT_KEY);
+}
+
+function isLocked(data: LockoutData): boolean {
+  if (!data.lockedAt) return false;
+  // Bloqueio permanente até reset de senha — não expira automaticamente
+  return true;
+}
+
+function recordFailedAttempt(): { locked: boolean; remaining: number } {
+  const now = Date.now();
+  let data = getLockout();
+
+  // Resetar janela se passou mais de WINDOW_MS desde a primeira tentativa
+  if (now - data.windowStart > WINDOW_MS) {
+    data = { attempts: 0, windowStart: now, lockedAt: null };
+  }
+
+  data.attempts += 1;
+
+  if (data.attempts >= MAX_ATTEMPTS) {
+    data.lockedAt = now;
+    saveLockout(data);
+    return { locked: true, remaining: 0 };
+  }
+
+  saveLockout(data);
+  return { locked: false, remaining: MAX_ATTEMPTS - data.attempts };
+}
+
 function parseJwtPayload(token: string): Record<string, any> {
   try { return JSON.parse(atob(token.split(".")[1])); } catch { return {}; }
 }
@@ -40,6 +94,11 @@ export function PublicDashboardLoginPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isLockedOut, setIsLockedOut] = useState(() => isLocked(getLockout()));
+  const [attemptsLeft, setAttemptsLeft] = useState(() => {
+    const d = getLockout();
+    return isLocked(d) ? 0 : MAX_ATTEMPTS - d.attempts;
+  });
 
   // Forgot — shared email field
   const [forgotEmail, setForgotEmail] = useState("");
@@ -70,18 +129,42 @@ export function PublicDashboardLoginPage() {
   useEffect(() => {
     const blocked = searchParams.get("blocked");
     if (blocked) setError(decodeURIComponent(blocked));
+    const reason = searchParams.get("reason");
+    if (reason === "inatividade") setError("Sessão encerrada por inatividade. Faça login novamente.");
   }, [searchParams]);
 
   // ── Login ─────────────────────────────────────────────────────────────────
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Verificar lockout antes de qualquer coisa
+    if (isLocked(getLockout())) {
+      setIsLockedOut(true);
+      setError("Acesso bloqueado após 3 tentativas incorretas. Redefina sua senha para desbloquear.");
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
       const { data, error: authError } = await supabaseAuth.auth.signInWithPassword({
         email: email.trim(), password,
       });
-      if (authError || !data.session) { setError("E-mail ou senha incorretos."); return; }
+      if (authError || !data.session) {
+        const result = recordFailedAttempt();
+        setAttemptsLeft(result.remaining);
+        if (result.locked) {
+          setIsLockedOut(true);
+          setError("Acesso bloqueado após 3 tentativas incorretas. Redefina sua senha para desbloquear.");
+        } else {
+          setError(`E-mail ou senha incorretos. ${result.remaining} tentativa${result.remaining !== 1 ? "s" : ""} restante${result.remaining !== 1 ? "s" : ""}.`);
+        }
+        return;
+      }
+
+      // Login bem-sucedido — limpar lockout
+      clearLockout();
+      setAttemptsLeft(MAX_ATTEMPTS);
 
       const payload = parseJwtPayload(data.session.access_token);
       const role     = payload.role     ?? payload.user_metadata?.role     ?? "member";
@@ -129,7 +212,16 @@ export function PublicDashboardLoginPage() {
       if (forceChange) { setShowForceChange(true); return; }
 
       navigate("/dashboard");
-    } catch { setError("E-mail ou senha incorretos."); }
+    } catch { 
+      const result = recordFailedAttempt();
+      setAttemptsLeft(result.remaining);
+      if (result.locked) {
+        setIsLockedOut(true);
+        setError("Acesso bloqueado após 3 tentativas incorretas. Redefina sua senha para desbloquear.");
+      } else {
+        setError(`E-mail ou senha incorretos. ${result.remaining} tentativa${result.remaining !== 1 ? "s" : ""} restante${result.remaining !== 1 ? "s" : ""}.`);
+      }
+    }
     finally { setLoading(false); }
   };
 
@@ -241,6 +333,9 @@ export function PublicDashboardLoginPage() {
       setView("login");
       setError(null);
       setPassword("");
+      clearLockout();
+      setIsLockedOut(false);
+      setAttemptsLeft(MAX_ATTEMPTS);
       // Pequeno feedback visual
       setTimeout(() => setError("Senha atualizada com sucesso. Faça login."), 100);
     } catch { setResetError("Erro ao redefinir senha. Tente novamente."); }
@@ -301,7 +396,13 @@ export function PublicDashboardLoginPage() {
                 {error && (
                   <p className={`text-sm font-medium ${error.startsWith("Senha atualizada") ? "text-emerald-400" : "text-red-400"}`}>{error}</p>
                 )}
-                <Button type="submit" className="w-full bg-[#7C3AED] hover:bg-[#7C3AED]/90 h-12 font-bold" disabled={loading}>
+                {isLockedOut && (
+                  <div className="rounded-lg bg-red-500/10 border border-red-500/30 p-3 space-y-2">
+                    <p className="text-red-400 text-xs font-bold">Conta bloqueada por segurança.</p>
+                    <p className="text-slate-400 text-xs">Use "Esqueci minha senha" para redefinir e desbloquear o acesso.</p>
+                  </div>
+                )}
+                <Button type="submit" className="w-full bg-[#7C3AED] hover:bg-[#7C3AED]/90 h-12 font-bold" disabled={loading || isLockedOut}>
                   {loading ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : "Entrar no Dashboard"}
                 </Button>
               </form>
