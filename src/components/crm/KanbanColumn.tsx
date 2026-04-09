@@ -18,7 +18,7 @@ export function KanbanColumn({ col, leads, onEdit, onDelete }: KanbanColumnProps
     <div
       ref={setNodeRef}
       className={cn(
-        "flex flex-col gap-3 min-w-[260px] w-[260px] bg-slate-800/60 rounded-xl border-t-4 p-3",
+        "flex flex-col gap-3 min-w-[320px] w-[320px] bg-slate-800/60 rounded-xl border-t-4 p-3",
         col.color,
         isOver && "bg-slate-700/80"
       )}
