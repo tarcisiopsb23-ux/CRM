@@ -2,55 +2,57 @@
  * Edge Function: oauth-exchange
  *
  * Exchanges an OAuth authorization code for access + refresh tokens.
- * Stores the tokens in the oauth_tokens table.
+ * Stores the tokens in the oauth_tokens table associated with the caller's tenant_id.
  *
- * Required Supabase secrets (set via: supabase secrets set KEY=value):
+ * Required Supabase secrets:
  *   GOOGLE_CLIENT_ID
  *   GOOGLE_CLIENT_SECRET
  *   META_APP_ID
  *   META_APP_SECRET
  *   SUPABASE_URL         (auto-injected)
  *   SUPABASE_SERVICE_ROLE_KEY (auto-injected)
+ *   SAAS_JWT_SECRET
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { verifyJwt } from "../_shared/jwt.ts";
 
+const allowedOrigin = Deno.env.get("APP_URL") ?? "*";
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": allowedOrigin,
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-function getTenantIdFromJwt(req: Request): string | null {
-  const auth = req.headers.get("Authorization") ?? "";
-  const token = auth.replace("Bearer ", "");
-  if (!token) return null;
-  try {
-    const payload = JSON.parse(atob(token.split(".")[1]));
-    return payload.tenant_id ?? null;
-  } catch {
-    return null;
-  }
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const tenantId = getTenantIdFromJwt(req);
-    if (!tenantId) {
-      return new Response(JSON.stringify({ error: "tenant_id não encontrado no token" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    // Verificar JWT com assinatura
+    const auth = req.headers.get("Authorization") ?? "";
+    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+    if (!token) return jsonResponse({ error: "Não autorizado" }, 401);
+
+    const jwtSecret = Deno.env.get("SAAS_JWT_SECRET") ?? "";
+    let payload: { tenant_id?: string | null; role?: string };
+    try {
+      payload = await verifyJwt(token, jwtSecret);
+    } catch {
+      return jsonResponse({ error: "Token inválido ou expirado" }, 401);
     }
 
-    const { code, provider, redirectUri } = await req.json();
+    const tenantId = payload.tenant_id ?? null;
+    if (!tenantId) return jsonResponse({ error: "tenant_id não encontrado no token" }, 401);
 
+    const { code, provider, redirectUri } = await req.json();
     if (!code || !provider || !redirectUri) {
-      return new Response(JSON.stringify({ error: "Missing required fields" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: "Missing required fields: code, provider, redirectUri" }, 400);
     }
 
     let tokenData: any;
@@ -96,17 +98,13 @@ Deno.serve(async (req) => {
         tokenData.expires_in = longToken.expires_in;
       }
     } else {
-      return new Response(JSON.stringify({ error: "Unknown provider" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: "Provider não suportado" }, 400);
     }
 
-    // Calculate expiry
     const expiresAt = tokenData.expires_in
       ? new Date(Date.now() + tokenData.expires_in * 1000).toISOString()
       : null;
 
-    // Store in Supabase
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
@@ -124,15 +122,15 @@ Deno.serve(async (req) => {
         updated_at: new Date().toISOString(),
       }, { onConflict: "tenant_id,provider" });
 
-    if (dbError) throw dbError;
+    if (dbError) {
+      console.error("[oauth-exchange] upsert error:", dbError.message);
+      throw new Error("Erro ao salvar token");
+    }
 
-    return new Response(JSON.stringify({ success: true }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse({ success: true });
 
   } catch (err: any) {
-    return new Response(JSON.stringify({ error: err.message ?? "Internal error" }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    console.error("[oauth-exchange]", err.message);
+    return jsonResponse({ error: "Erro interno" }, 500);
   }
 });

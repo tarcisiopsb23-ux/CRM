@@ -1,11 +1,15 @@
 ﻿import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/lib/supabase";
+import { supabaseCrm } from "@/lib/supabase";
+import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { ArrowLeft, RefreshCw, CheckCircle2, XCircle, Clock, MessageCircle, Search } from "lucide-react";
+import {
+  ArrowLeft, RefreshCw, CheckCircle2, XCircle, Clock,
+  MessageCircle, Search,
+} from "lucide-react";
 import { IntegrationStatusBadge } from "@/components/crm/IntegrationStatusBadge";
 import type { IntegrationStatus } from "@/components/crm/IntegrationStatusBadge";
 
@@ -35,6 +39,8 @@ const STATUS_COLOR: Record<WaContact["status"], string> = {
 
 export function WhatsAppSyncPage() {
   const navigate = useNavigate();
+  const { tenantId, isSupport, loading: authLoading } = useAuth();
+
   const [webhookUrl, setWebhookUrl] = useState("");
   const [waStatus, setWaStatus] = useState<IntegrationStatus>("inativo");
   const [contacts, setContacts] = useState<WaContact[]>([]);
@@ -43,18 +49,30 @@ export function WhatsAppSyncPage() {
   const [filter, setFilter] = useState<"todos" | WaContact["status"]>("pendente");
   const [importing, setImporting] = useState<number | null>(null);
 
-  // Load webhook URL from session and auto-fetch contacts
-  useEffect(() => {
-    const raw = localStorage.getItem("client_auth");
-    if (!raw) return;
-    const session = JSON.parse(raw);
-    const url = session?.metadata?.whatsapp_webhook_url ?? "";
-    setWebhookUrl(url);
-    if (!url) return;
+  // Effective tenant — support uses selectedTenantId stored in sessionStorage by PublicDashboardPage
+  const effectiveTenantId = isSupport
+    ? sessionStorage.getItem("support_selected_tenant_id")
+    : tenantId;
 
-    fetchStatus(url);
-    fetchContactsFromUrl(url);
-  }, []);
+  // Load webhook URL from clients.metadata for the current tenant
+  useEffect(() => {
+    if (!effectiveTenantId) return;
+
+    supabaseCrm
+      .from("clients")
+      .select("metadata")
+      .eq("tenant_id", effectiveTenantId)
+      .limit(1)
+      .single()
+      .then(({ data }) => {
+        const url: string = data?.metadata?.whatsapp_webhook_url ?? "";
+        setWebhookUrl(url);
+        if (url) {
+          fetchStatus(url);
+          fetchContactsFromUrl(url);
+        }
+      });
+  }, [effectiveTenantId]);
 
   const fetchStatus = async (url: string) => {
     try {
@@ -83,11 +101,13 @@ export function WhatsAppSyncPage() {
   };
 
   const fetchContacts = useCallback(async () => {
-    if (!webhookUrl) { toast.error("Configure a URL do webhook WhatsApp no Perfil primeiro."); return; }
+    if (!webhookUrl) {
+      toast.error("Configure a URL do webhook WhatsApp no Perfil primeiro.");
+      return;
+    }
     setLoading(true);
     try {
-      const url = `${webhookUrl.replace(/\/$/, "")}/api/contatos`;
-      const res = await fetch(url);
+      const res = await fetch(`${webhookUrl.replace(/\/$/, "")}/api/contatos`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: WaContact[] = await res.json();
       setContacts(data);
@@ -106,27 +126,42 @@ export function WhatsAppSyncPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
       });
-      setContacts(prev => prev.map(c => c.id === contact.id ? { ...c, status: newStatus } : c));
+      setContacts(prev =>
+        prev.map(c => c.id === contact.id ? { ...c, status: newStatus } : c)
+      );
     } catch {
       toast.error("Erro ao atualizar status");
     }
   };
 
-  // Marca como negócio E importa como lead no CRM em uma só ação
+  // Marca como negócio E importa como lead no CRM com tenant_id correto
   const markAsNegocioAndImport = async (contact: WaContact) => {
+    if (!effectiveTenantId) {
+      toast.error("Tenant não identificado. Faça login novamente.");
+      return;
+    }
     setImporting(contact.id);
     try {
-      const { data: existing } = await supabase
-        .from("crm_leads").select("id").eq("phone", contact.telefone).maybeSingle();
+      // Verificar se já existe lead com esse telefone neste tenant
+      const { data: existing } = await supabaseCrm
+        .from("crm_leads")
+        .select("id")
+        .eq("phone", contact.telefone)
+        .eq("tenant_id", effectiveTenantId)
+        .maybeSingle();
 
       if (!existing) {
-        const { error } = await supabase.from("crm_leads").insert({
+        const { error } = await supabaseCrm.from("crm_leads").insert({
+          tenant_id: effectiveTenantId,
+          client_id: effectiveTenantId,
           name: contact.nome,
           phone: contact.telefone,
           origin: "WhatsApp",
           whatsapp_link: `https://wa.me/${contact.telefone.replace(/\D/g, "")}`,
           last_contact_at: contact.data_ultima_interacao,
-          notes: contact.ultima_mensagem ? `Última mensagem: ${contact.ultima_mensagem}` : null,
+          notes: contact.ultima_mensagem
+            ? `Última mensagem: ${contact.ultima_mensagem}`
+            : null,
           status: "novo",
         });
         if (error) throw error;
@@ -145,16 +180,27 @@ export function WhatsAppSyncPage() {
 
   const filtered = contacts.filter(c => {
     const matchFilter = filter === "todos" || c.status === filter;
-    const matchSearch = !search || c.nome.toLowerCase().includes(search.toLowerCase()) || c.telefone.includes(search);
+    const matchSearch =
+      !search ||
+      c.nome.toLowerCase().includes(search.toLowerCase()) ||
+      c.telefone.includes(search);
     return matchFilter && matchSearch;
   });
 
   const counts = {
-    todos: contacts.length,
-    pendente: contacts.filter(c => c.status === "pendente").length,
-    negocio: contacts.filter(c => c.status === "negocio").length,
+    todos:       contacts.length,
+    pendente:    contacts.filter(c => c.status === "pendente").length,
+    negocio:     contacts.filter(c => c.status === "negocio").length,
     nao_negocio: contacts.filter(c => c.status === "nao_negocio").length,
   };
+
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-[#0F172A]">
+        <div className="h-10 w-10 animate-spin rounded-full border-4 border-[#7C3AED] border-t-transparent" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0F172A] text-slate-100 p-4 md:p-8">
@@ -163,33 +209,53 @@ export function WhatsAppSyncPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" className="text-slate-400 hover:text-white hover:bg-slate-800"
-              onClick={() => navigate("/dashboard")}>
+            <Button
+              variant="ghost" size="icon"
+              className="text-slate-400 hover:text-white hover:bg-slate-800"
+              onClick={() => navigate("/dashboard")}
+            >
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <div>
-              <h1 className="text-2xl font-black text-white uppercase tracking-tight">WhatsApp → CRM</h1>
-              <p className="text-slate-400 text-sm">Classifique contatos e importe como leads</p>
+              <h1 className="text-2xl font-black text-white uppercase tracking-tight">
+                WhatsApp → CRM
+              </h1>
+              <p className="text-slate-400 text-sm">
+                Classifique contatos e importe como leads
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-3">
             <IntegrationStatusBadge status={waStatus} />
-            <button onClick={fetchContacts} disabled={loading}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-sm font-bold transition-colors disabled:opacity-50 disabled:pointer-events-none">
+            <button
+              onClick={fetchContacts}
+              disabled={loading}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-sm font-bold transition-colors disabled:opacity-50 disabled:pointer-events-none"
+            >
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
               Sincronizar
             </button>
           </div>
         </div>
 
-        {/* Status sem URL */}
+        {/* Aviso sem URL */}
         {!webhookUrl && (
           <Card className="bg-amber-900/20 border-amber-500/30">
             <CardContent className="py-4 flex items-center gap-3">
               <MessageCircle className="h-5 w-5 text-amber-400 shrink-0" />
               <div>
-                <p className="text-amber-300 font-bold text-sm">URL do webhook não configurada</p>
-                <p className="text-amber-400/70 text-xs">Configure a URL do backend WhatsApp em <button onClick={() => navigate("/dashboard/profile")} className="underline">Perfil → Integrações</button></p>
+                <p className="text-amber-300 font-bold text-sm">
+                  URL do webhook não configurada
+                </p>
+                <p className="text-amber-400/70 text-xs">
+                  Configure a URL do backend WhatsApp em{" "}
+                  <button
+                    onClick={() => navigate("/dashboard/profile")}
+                    className="underline"
+                  >
+                    Perfil → Integrações
+                  </button>
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -200,19 +266,28 @@ export function WhatsAppSyncPage() {
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
-              <Input value={search} onChange={e => setSearch(e.target.value)}
-                className="bg-slate-800 border-slate-700 text-white pl-9" placeholder="Buscar por nome ou telefone..." />
+              <Input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="bg-slate-800 border-slate-700 text-white pl-9"
+                placeholder="Buscar por nome ou telefone..."
+              />
             </div>
             <div className="flex gap-1">
               {(["todos", "pendente", "negocio", "nao_negocio"] as const).map(f => (
-                <button key={f} onClick={() => setFilter(f)}
+                <button
+                  key={f}
+                  onClick={() => setFilter(f)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap ${
-                    filter === f ? "bg-[#7C3AED] text-white" : "bg-slate-800 text-slate-400 hover:text-white"
-                  }`}>
-                  {f === "todos" ? `Todos (${counts.todos})` :
-                   f === "pendente" ? `Pendentes (${counts.pendente})` :
-                   f === "negocio" ? `Negócios (${counts.negocio})` :
-                   `Não negócio (${counts.nao_negocio})`}
+                    filter === f
+                      ? "bg-[#7C3AED] text-white"
+                      : "bg-slate-800 text-slate-400 hover:text-white"
+                  }`}
+                >
+                  {f === "todos"       ? `Todos (${counts.todos})` :
+                   f === "pendente"    ? `Pendentes (${counts.pendente})` :
+                   f === "negocio"     ? `Negócios (${counts.negocio})` :
+                                        `Não negócio (${counts.nao_negocio})`}
                 </button>
               ))}
             </div>
@@ -225,13 +300,18 @@ export function WhatsAppSyncPage() {
             <CardContent className="py-16 text-center text-slate-500">
               <MessageCircle className="h-12 w-12 mx-auto mb-3 opacity-30" />
               <p className="font-bold">Nenhum contato ainda</p>
-              <p className="text-xs mt-1">Clique em "Sincronizar" para buscar contatos do WhatsApp</p>
+              <p className="text-xs mt-1">
+                Clique em "Sincronizar" para buscar contatos do WhatsApp
+              </p>
             </CardContent>
           </Card>
         ) : (
           <div className="space-y-2">
             {filtered.map(contact => (
-              <Card key={contact.id} className="bg-[#1E293B] border-slate-800 hover:border-slate-700 transition-colors">
+              <Card
+                key={contact.id}
+                className="bg-[#1E293B] border-slate-800 hover:border-slate-700 transition-colors"
+              >
                 <CardContent className="p-4">
                   <div className="flex items-start gap-3">
                     <div className="h-9 w-9 rounded-full bg-slate-700 flex items-center justify-center text-sm font-black text-white shrink-0">
@@ -269,25 +349,41 @@ export function WhatsAppSyncPage() {
                       )}
                     </div>
                     <div className="flex flex-col gap-1.5 shrink-0">
-                      {/* Classificação */}
                       <div className="flex gap-1">
                         <button
                           onClick={() => markAsNegocioAndImport(contact)}
                           disabled={importing === contact.id}
                           title="É negócio — importar como lead"
-                          className={`p-1.5 rounded transition-colors ${contact.status === "negocio" ? "bg-emerald-600 text-white" : "bg-slate-800 text-slate-400 hover:text-emerald-400"} disabled:opacity-50`}>
-                          {importing === contact.id ? <RefreshCw className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                          className={`p-1.5 rounded transition-colors ${
+                            contact.status === "negocio"
+                              ? "bg-emerald-600 text-white"
+                              : "bg-slate-800 text-slate-400 hover:text-emerald-400"
+                          } disabled:opacity-50`}
+                        >
+                          {importing === contact.id
+                            ? <RefreshCw className="h-4 w-4 animate-spin" />
+                            : <CheckCircle2 className="h-4 w-4" />}
                         </button>
                         <button
                           onClick={() => updateStatus(contact, "nao_negocio")}
                           title="Não é negócio"
-                          className={`p-1.5 rounded transition-colors ${contact.status === "nao_negocio" ? "bg-red-700 text-white" : "bg-slate-800 text-slate-400 hover:text-red-400"}`}>
+                          className={`p-1.5 rounded transition-colors ${
+                            contact.status === "nao_negocio"
+                              ? "bg-red-700 text-white"
+                              : "bg-slate-800 text-slate-400 hover:text-red-400"
+                          }`}
+                        >
                           <XCircle className="h-4 w-4" />
                         </button>
                         <button
                           onClick={() => updateStatus(contact, "pendente")}
                           title="Marcar como pendente"
-                          className={`p-1.5 rounded transition-colors ${contact.status === "pendente" ? "bg-slate-600 text-white" : "bg-slate-800 text-slate-400 hover:text-slate-300"}`}>
+                          className={`p-1.5 rounded transition-colors ${
+                            contact.status === "pendente"
+                              ? "bg-slate-600 text-white"
+                              : "bg-slate-800 text-slate-400 hover:text-slate-300"
+                          }`}
+                        >
                           <Clock className="h-4 w-4" />
                         </button>
                       </div>

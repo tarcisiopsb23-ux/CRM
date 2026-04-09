@@ -24,10 +24,21 @@ CREATE TABLE IF NOT EXISTS tenant_subscriptions (
 
 CREATE INDEX IF NOT EXISTS idx_tenant_subscriptions_tenant_id ON tenant_subscriptions (tenant_id);
 
+-- Garantir unicidade do nome do plano para que ON CONFLICT funcione corretamente
+DO $
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'plans_name_unique' AND conrelid = 'plans'::regclass
+  ) THEN
+    ALTER TABLE plans ADD CONSTRAINT plans_name_unique UNIQUE (name);
+  END IF;
+END $;
+
 -- Inserir planos iniciais (idempotente)
 INSERT INTO plans (name, max_users, price_brl)
 VALUES
   ('Starter',    3,   0.00),
   ('Pro',        10,  197.00),
   ('Enterprise', 50,  497.00)
-ON CONFLICT DO NOTHING;
+ON CONFLICT (name) DO NOTHING;

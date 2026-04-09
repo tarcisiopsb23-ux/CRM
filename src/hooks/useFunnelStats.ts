@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/lib/supabase";
+import { supabaseCrm } from "@/lib/supabase";
 
 export interface CrmFunnelStats {
   novo: number;
@@ -11,22 +11,24 @@ export interface CrmFunnelStats {
 }
 
 /**
- * Fetches CRM stage history counts for the given date range.
- * Each number = distinct leads that entered that stage in the period.
- * Uses the get_funnel_stats RPC (migration 20260406000002).
+ * Fetches CRM stage history counts for the given date range and tenant.
+ * Uses the get_funnel_stats RPC (migration 20260501000007).
+ * The RPC uses SECURITY INVOKER — RLS filters by the caller's JWT tenant_id automatically.
+ * p_tenant_id is passed explicitly for support sessions where the JWT tenant_id is null.
  */
 export function useFunnelStats(
-  clientId?: string,
+  tenantId?: string,
   dateRange?: { from: string; to: string }
 ) {
   return useQuery<CrmFunnelStats>({
-    queryKey: ["funnel_stats", clientId, dateRange],
+    queryKey: ["funnel_stats", tenantId, dateRange],
     queryFn: async () => {
-      if (!clientId || !dateRange) return empty();
+      if (!tenantId || !dateRange) return empty();
 
-      const { data, error } = await supabase.rpc("get_funnel_stats", {
-        p_from: dateRange.from + "T00:00:00Z",
-        p_to:   dateRange.to   + "T23:59:59Z",
+      const { data, error } = await supabaseCrm.rpc("get_funnel_stats", {
+        p_from:      dateRange.from + "T00:00:00Z",
+        p_to:        dateRange.to   + "T23:59:59Z",
+        p_tenant_id: tenantId,
       });
 
       if (error) {
@@ -48,7 +50,7 @@ export function useFunnelStats(
         perdido:    map["perdido"]    ?? 0,
       };
     },
-    enabled: !!clientId && !!dateRange,
+    enabled: !!tenantId && !!dateRange,
   });
 }
 

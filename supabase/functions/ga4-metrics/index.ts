@@ -7,27 +7,25 @@
  * Required Supabase secrets:
  *   GOOGLE_CLIENT_ID
  *   GOOGLE_CLIENT_SECRET
- *   SUPABASE_URL         (auto-injected)
- *   SUPABASE_SERVICE_ROLE_KEY (auto-injected)
+ *   SUPABASE_URL
+ *   SUPABASE_SERVICE_ROLE_KEY
+ *   SAAS_JWT_SECRET
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { verifyJwt } from "../_shared/jwt.ts";
 
+const allowedOrigin = Deno.env.get("APP_URL") ?? "*";
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": allowedOrigin,
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-function getTenantIdFromJwt(req: Request): string | null {
-  const auth = req.headers.get("Authorization") ?? "";
-  const token = auth.replace("Bearer ", "");
-  if (!token) return null;
-  try {
-    const payload = JSON.parse(atob(token.split(".")[1]));
-    return payload.tenant_id ?? null;
-  } catch {
-    return null;
-  }
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 }
 
 async function refreshGoogleToken(refreshToken: string): Promise<string> {
@@ -50,12 +48,21 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const tenantId = getTenantIdFromJwt(req);
-    if (!tenantId) {
-      return new Response(JSON.stringify({ error: "tenant_id não encontrado no token" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    // Verificar JWT com assinatura
+    const auth = req.headers.get("Authorization") ?? "";
+    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+    if (!token) return jsonResponse({ error: "Não autorizado" }, 401);
+
+    const jwtSecret = Deno.env.get("SAAS_JWT_SECRET") ?? "";
+    let payload: { tenant_id?: string | null; role?: string };
+    try {
+      payload = await verifyJwt(token, jwtSecret);
+    } catch {
+      return jsonResponse({ error: "Token inválido ou expirado" }, 401);
     }
+
+    const tenantId = payload.tenant_id ?? null;
+    if (!tenantId) return jsonResponse({ error: "tenant_id não encontrado no token" }, 401);
 
     const { dateRange } = await req.json();
     if (!dateRange) throw new Error("Missing dateRange");
@@ -65,21 +72,19 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
 
-    // Get stored token
     const { data: tokenRow, error: tokenErr } = await supabase
       .from("oauth_tokens")
-      .select("*")
+      .select("access_token, refresh_token, expires_at, ga4_property_id, id")
       .eq("tenant_id", tenantId)
       .eq("provider", "google")
       .single();
 
-    if (tokenErr || !tokenRow) throw new Error("Google not connected");
-    if (!tokenRow.ga4_property_id) throw new Error("GA4 Property ID not configured");
+    if (tokenErr || !tokenRow) return jsonResponse({ error: "Google not connected" }, 404);
+    if (!tokenRow.ga4_property_id) return jsonResponse({ error: "GA4 Property ID not configured" }, 400);
 
-    // Refresh token if expired
     let accessToken = tokenRow.access_token;
     if (tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date()) {
-      if (!tokenRow.refresh_token) throw new Error("Token expired and no refresh token");
+      if (!tokenRow.refresh_token) return jsonResponse({ error: "Token expired and no refresh token" }, 400);
       accessToken = await refreshGoogleToken(tokenRow.refresh_token);
       await supabase.from("oauth_tokens").update({
         access_token: accessToken,
@@ -88,54 +93,37 @@ Deno.serve(async (req) => {
     }
 
     const propertyId = tokenRow.ga4_property_id;
+    const gaFetch = (body: object) =>
+      fetch(`https://analyticsdata.googleapis.com/v1beta/${propertyId}:runReport`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
 
-    // Call GA4 Data API
-    const body = {
+    // Totals
+    const totalsRes = await gaFetch({
       dateRanges: [{ startDate: dateRange.from, endDate: dateRange.to }],
       metrics: [
-        { name: "sessions" },
-        { name: "totalUsers" },
-        { name: "newUsers" },
-        { name: "screenPageViews" },
-        { name: "bounceRate" },
-        { name: "averageSessionDuration" },
-        { name: "conversions" },
+        { name: "sessions" }, { name: "totalUsers" }, { name: "newUsers" },
+        { name: "screenPageViews" }, { name: "bounceRate" },
+        { name: "averageSessionDuration" }, { name: "conversions" },
       ],
       dimensions: [],
-    };
+    });
+    const totalsData = await totalsRes.json();
+    if (totalsData.error) throw new Error(totalsData.error.message);
 
-    const res = await fetch(
-      `https://analyticsdata.googleapis.com/v1beta/${propertyId}:runReport`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      }
-    );
-    const data = await res.json();
-    if (data.error) throw new Error(data.error.message);
-
-    const row = data.rows?.[0]?.metricValues ?? [];
+    const row = totalsData.rows?.[0]?.metricValues ?? [];
     const v = (i: number) => parseFloat(row[i]?.value ?? "0");
 
     // By source
-    const sourceRes = await fetch(
-      `https://analyticsdata.googleapis.com/v1beta/${propertyId}:runReport`,
-      {
-        method: "POST",
-        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          dateRanges: [{ startDate: dateRange.from, endDate: dateRange.to }],
-          metrics: [{ name: "sessions" }, { name: "conversions" }],
-          dimensions: [{ name: "sessionSource" }],
-          orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
-          limit: 10,
-        }),
-      }
-    );
+    const sourceRes = await gaFetch({
+      dateRanges: [{ startDate: dateRange.from, endDate: dateRange.to }],
+      metrics: [{ name: "sessions" }, { name: "conversions" }],
+      dimensions: [{ name: "sessionSource" }],
+      orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
+      limit: 10,
+    });
     const sourceData = await sourceRes.json();
     const bySource = (sourceData.rows ?? []).map((r: any) => ({
       source: r.dimensionValues[0].value,
@@ -144,20 +132,13 @@ Deno.serve(async (req) => {
     }));
 
     // By campaign
-    const campRes = await fetch(
-      `https://analyticsdata.googleapis.com/v1beta/${propertyId}:runReport`,
-      {
-        method: "POST",
-        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          dateRanges: [{ startDate: dateRange.from, endDate: dateRange.to }],
-          metrics: [{ name: "sessions" }, { name: "conversions" }],
-          dimensions: [{ name: "sessionCampaignName" }],
-          orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
-          limit: 10,
-        }),
-      }
-    );
+    const campRes = await gaFetch({
+      dateRanges: [{ startDate: dateRange.from, endDate: dateRange.to }],
+      metrics: [{ name: "sessions" }, { name: "conversions" }],
+      dimensions: [{ name: "sessionCampaignName" }],
+      orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
+      limit: 10,
+    });
     const campData = await campRes.json();
     const byCampaign = (campData.rows ?? []).map((r: any) => ({
       campaign: r.dimensionValues[0].value,
@@ -166,30 +147,23 @@ Deno.serve(async (req) => {
     }));
 
     // By day
-    const dayRes = await fetch(
-      `https://analyticsdata.googleapis.com/v1beta/${propertyId}:runReport`,
-      {
-        method: "POST",
-        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          dateRanges: [{ startDate: dateRange.from, endDate: dateRange.to }],
-          metrics: [{ name: "sessions" }, { name: "conversions" }],
-          dimensions: [{ name: "date" }],
-          orderBys: [{ dimension: { dimensionName: "date" } }],
-        }),
-      }
-    );
+    const dayRes = await gaFetch({
+      dateRanges: [{ startDate: dateRange.from, endDate: dateRange.to }],
+      metrics: [{ name: "sessions" }, { name: "conversions" }],
+      dimensions: [{ name: "date" }],
+      orderBys: [{ dimension: { dimensionName: "date" } }],
+    });
     const dayData = await dayRes.json();
     const byDay = (dayData.rows ?? []).map((r: any) => {
-      const d = r.dimensionValues[0].value; // YYYYMMDD
+      const d = r.dimensionValues[0].value;
       return {
-        date: `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`,
+        date: `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`,
         sessions: parseInt(r.metricValues[0].value),
         conversions: parseInt(r.metricValues[1].value),
       };
     });
 
-    const result = {
+    return jsonResponse({
       sessions: v(0),
       users: v(1),
       newUsers: v(2),
@@ -200,15 +174,10 @@ Deno.serve(async (req) => {
       bySource,
       byCampaign,
       byDay,
-    };
-
-    return new Response(JSON.stringify(result), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
   } catch (err: any) {
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    console.error("[ga4-metrics]", err.message);
+    return jsonResponse({ error: "Erro interno" }, 500);
   }
 });

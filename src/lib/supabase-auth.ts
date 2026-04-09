@@ -1,29 +1,27 @@
+/**
+ * supabase-auth.ts
+ *
+ * Autenticação agora usa diretamente o banco CRM (xcymhcqbyyuozkzhpxgi).
+ * Não há mais dependência do Maestr.ia / SaaS externo.
+ *
+ * O custom_access_token_hook no CRM injeta tenant_id e role no JWT.
+ * O supabaseCrm em supabase.ts usa a mesma sessão — sem necessidade de
+ * injetar token manualmente, pois auth e dados estão no mesmo projeto.
+ */
 import { createClient } from "@supabase/supabase-js";
 
-const saasUrl = import.meta.env.VITE_SAAS_URL;
-const saasAnonKey = import.meta.env.VITE_SAAS_ANON_KEY;
+const crmUrl     = import.meta.env.VITE_SUPABASE_URL;
+const crmAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const supabaseAuth = createClient(
-  saasUrl || "",
-  saasAnonKey || "",
+  crmUrl     || "",
+  crmAnonKey || "",
   {
     auth: {
-      persistSession: true,
-      storageKey: "c8control-saas-auth",
-      storage: window.localStorage,
+      persistSession:   true,
+      storageKey:       "c8control-auth",
+      storage:          window.localStorage,
       autoRefreshToken: true,
     },
   }
 );
-
-// Retorna o JWT da sessão SaaS atual (para injetar no CRM client)
-export function getSaasToken(): string | null {
-  const raw = window.localStorage.getItem("c8control-saas-auth");
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed?.access_token ?? null;
-  } catch {
-    return null;
-  }
-}

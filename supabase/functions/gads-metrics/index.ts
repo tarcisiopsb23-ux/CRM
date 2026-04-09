@@ -6,28 +6,26 @@
  * Required Supabase secrets:
  *   GOOGLE_CLIENT_ID
  *   GOOGLE_CLIENT_SECRET
- *   GOOGLE_ADS_DEVELOPER_TOKEN   (from your MCC account)
+ *   GOOGLE_ADS_DEVELOPER_TOKEN
  *   SUPABASE_URL
  *   SUPABASE_SERVICE_ROLE_KEY
+ *   SAAS_JWT_SECRET
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { verifyJwt } from "../_shared/jwt.ts";
 
+const allowedOrigin = Deno.env.get("APP_URL") ?? "*";
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": allowedOrigin,
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-function getTenantIdFromJwt(req: Request): string | null {
-  const auth = req.headers.get("Authorization") ?? "";
-  const token = auth.replace("Bearer ", "");
-  if (!token) return null;
-  try {
-    const payload = JSON.parse(atob(token.split(".")[1]));
-    return payload.tenant_id ?? null;
-  } catch {
-    return null;
-  }
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 }
 
 async function refreshGoogleToken(refreshToken: string): Promise<string> {
@@ -50,12 +48,21 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const tenantId = getTenantIdFromJwt(req);
-    if (!tenantId) {
-      return new Response(JSON.stringify({ error: "tenant_id não encontrado no token" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    // Verificar JWT com assinatura
+    const auth = req.headers.get("Authorization") ?? "";
+    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+    if (!token) return jsonResponse({ error: "Não autorizado" }, 401);
+
+    const jwtSecret = Deno.env.get("SAAS_JWT_SECRET") ?? "";
+    let payload: { tenant_id?: string | null; role?: string };
+    try {
+      payload = await verifyJwt(token, jwtSecret);
+    } catch {
+      return jsonResponse({ error: "Token inválido ou expirado" }, 401);
     }
+
+    const tenantId = payload.tenant_id ?? null;
+    if (!tenantId) return jsonResponse({ error: "tenant_id não encontrado no token" }, 401);
 
     const { dateRange } = await req.json();
     if (!dateRange) throw new Error("Missing dateRange");
@@ -67,17 +74,17 @@ Deno.serve(async (req) => {
 
     const { data: tokenRow, error: tokenErr } = await supabase
       .from("oauth_tokens")
-      .select("*")
+      .select("access_token, refresh_token, expires_at, gads_customer_id, id")
       .eq("tenant_id", tenantId)
       .eq("provider", "google")
       .single();
 
-    if (tokenErr || !tokenRow) throw new Error("Google not connected");
-    if (!tokenRow.gads_customer_id) throw new Error("Google Ads Customer ID not configured");
+    if (tokenErr || !tokenRow) return jsonResponse({ error: "Google not connected" }, 404);
+    if (!tokenRow.gads_customer_id) return jsonResponse({ error: "Google Ads Customer ID not configured" }, 400);
 
     let accessToken = tokenRow.access_token;
     if (tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date()) {
-      if (!tokenRow.refresh_token) throw new Error("Token expired and no refresh token");
+      if (!tokenRow.refresh_token) return jsonResponse({ error: "Token expired and no refresh token" }, 400);
       accessToken = await refreshGoogleToken(tokenRow.refresh_token);
       await supabase.from("oauth_tokens").update({
         access_token: accessToken,
@@ -85,14 +92,9 @@ Deno.serve(async (req) => {
       }).eq("id", tokenRow.id);
     }
 
-    // Normalize customer ID (remove dashes)
     const customerId = tokenRow.gads_customer_id.replace(/-/g, "");
     const devToken = Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN") ?? "";
 
-    const fromDate = dateRange.from.replace(/-/g, "");
-    const toDate = dateRange.to.replace(/-/g, "");
-
-    // Query campaign metrics
     const query = `
       SELECT
         campaign.name,
@@ -127,7 +129,6 @@ Deno.serve(async (req) => {
     if (data.error) throw new Error(data.error.message ?? JSON.stringify(data.error));
 
     const rows = data.results ?? [];
-
     const byCampaign = rows.map((r: any) => {
       const spend = (r.metrics.costMicros ?? 0) / 1_000_000;
       const revenue = r.metrics.conversionsValue ?? 0;
@@ -141,21 +142,20 @@ Deno.serve(async (req) => {
       };
     });
 
-    const totals = byCampaign.reduce((acc: any, c: any) => ({
-      spend: acc.spend + c.spend,
-      impressions: acc.impressions + c.impressions,
-      clicks: acc.clicks + c.clicks,
-      conversions: acc.conversions + c.conversions,
-      revenue: acc.revenue + (c.roas * c.spend),
-    }), { spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0 });
+    const totals = byCampaign.reduce(
+      (acc: any, c: any) => ({
+        spend: acc.spend + c.spend,
+        impressions: acc.impressions + c.impressions,
+        clicks: acc.clicks + c.clicks,
+        conversions: acc.conversions + c.conversions,
+        revenue: acc.revenue + c.roas * c.spend,
+      }),
+      { spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0 }
+    );
 
     // Daily breakdown
     const dayQuery = `
-      SELECT
-        segments.date,
-        metrics.cost_micros,
-        metrics.clicks,
-        metrics.conversions
+      SELECT segments.date, metrics.cost_micros, metrics.clicks, metrics.conversions
       FROM campaign
       WHERE segments.date BETWEEN '${dateRange.from}' AND '${dateRange.to}'
       ORDER BY segments.date ASC
@@ -174,9 +174,8 @@ Deno.serve(async (req) => {
     );
     const dayData = await dayRes.json();
 
-    // Aggregate by day
     const dayMap = new Map<string, { spend: number; clicks: number; conversions: number }>();
-    for (const r of (dayData.results ?? [])) {
+    for (const r of dayData.results ?? []) {
       const d = r.segments.date;
       const existing = dayMap.get(d) ?? { spend: 0, clicks: 0, conversions: 0 };
       dayMap.set(d, {
@@ -187,7 +186,7 @@ Deno.serve(async (req) => {
     }
     const byDay = Array.from(dayMap.entries()).map(([date, v]) => ({ date, ...v }));
 
-    const result = {
+    return jsonResponse({
       spend: totals.spend,
       impressions: totals.impressions,
       clicks: totals.clicks,
@@ -198,15 +197,10 @@ Deno.serve(async (req) => {
       roas: totals.spend > 0 ? totals.revenue / totals.spend : 0,
       byCampaign,
       byDay,
-    };
-
-    return new Response(JSON.stringify(result), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
   } catch (err: any) {
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    console.error("[gads-metrics]", err.message);
+    return jsonResponse({ error: "Erro interno" }, 500);
   }
 });

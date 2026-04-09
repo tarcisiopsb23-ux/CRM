@@ -1,35 +1,18 @@
-import { useEffect, useState } from "react";
-import { supabaseCrm } from "@/lib/supabase";
+import { useState } from "react";
 import { Activity } from "lucide-react";
+import { useSupportTenants } from "@/hooks/useSupportTenants";
 
 interface Props {
   onSelect: (tenantId: string, tenantName: string) => void;
 }
 
-interface ClientRow {
-  id: string;
-  name: string;
-}
-
 export function TenantSelector({ onSelect }: Props) {
-  const [clients, setClients] = useState<ClientRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { tenants, loading, error } = useSupportTenants();
   const [selected, setSelected] = useState("");
 
-  useEffect(() => {
-    supabaseCrm
-      .from("clients")
-      .select("id, name")
-      .order("name", { ascending: true })
-      .then(({ data }) => {
-        setClients(data ?? []);
-        setLoading(false);
-      });
-  }, []);
-
   const handleConfirm = () => {
-    const client = clients.find((c) => c.id === selected);
-    if (client) onSelect(client.id, client.name);
+    const tenant = tenants.find((t) => t.id === selected);
+    if (tenant) onSelect(tenant.id, tenant.name);
   };
 
   return (
@@ -52,6 +35,8 @@ export function TenantSelector({ onSelect }: Props) {
             <div className="flex justify-center py-6">
               <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#7C3AED] border-t-transparent" />
             </div>
+          ) : error ? (
+            <p className="text-red-400 text-sm text-center py-4">{error}</p>
           ) : (
             <>
               <label className="block text-slate-300 text-sm font-bold mb-1">
@@ -65,9 +50,9 @@ export function TenantSelector({ onSelect }: Props) {
                 <option value="" disabled>
                   — Selecione um cliente —
                 </option>
-                {clients.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
+                {tenants.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
                   </option>
                 ))}
               </select>

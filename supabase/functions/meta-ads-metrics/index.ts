@@ -6,39 +6,46 @@
  * Required Supabase secrets:
  *   SUPABASE_URL
  *   SUPABASE_SERVICE_ROLE_KEY
+ *   SAAS_JWT_SECRET
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { verifyJwt } from "../_shared/jwt.ts";
 
+const allowedOrigin = Deno.env.get("APP_URL") ?? "*";
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": allowedOrigin,
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
 const META_API = "https://graph.facebook.com/v19.0";
 
-function getTenantIdFromJwt(req: Request): string | null {
-  const auth = req.headers.get("Authorization") ?? "";
-  const token = auth.replace("Bearer ", "");
-  if (!token) return null;
-  try {
-    const payload = JSON.parse(atob(token.split(".")[1]));
-    return payload.tenant_id ?? null;
-  } catch {
-    return null;
-  }
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 }
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const tenantId = getTenantIdFromJwt(req);
-    if (!tenantId) {
-      return new Response(JSON.stringify({ error: "tenant_id não encontrado no token" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    // Verificar JWT com assinatura
+    const auth = req.headers.get("Authorization") ?? "";
+    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+    if (!token) return jsonResponse({ error: "Não autorizado" }, 401);
+
+    const jwtSecret = Deno.env.get("SAAS_JWT_SECRET") ?? "";
+    let payload: { tenant_id?: string | null; role?: string };
+    try {
+      payload = await verifyJwt(token, jwtSecret);
+    } catch {
+      return jsonResponse({ error: "Token inválido ou expirado" }, 401);
     }
+
+    const tenantId = payload.tenant_id ?? null;
+    if (!tenantId) return jsonResponse({ error: "tenant_id não encontrado no token" }, 401);
 
     const { dateRange } = await req.json();
     if (!dateRange) throw new Error("Missing dateRange");
@@ -50,17 +57,16 @@ Deno.serve(async (req) => {
 
     const { data: tokenRow, error: tokenErr } = await supabase
       .from("oauth_tokens")
-      .select("*")
+      .select("access_token, meta_ad_account_id")
       .eq("tenant_id", tenantId)
       .eq("provider", "meta")
       .single();
 
-    if (tokenErr || !tokenRow) throw new Error("Meta not connected");
-    if (!tokenRow.meta_ad_account_id) throw new Error("Meta Ad Account ID not configured");
+    if (tokenErr || !tokenRow) return jsonResponse({ error: "Meta not connected" }, 404);
+    if (!tokenRow.meta_ad_account_id) return jsonResponse({ error: "Meta Ad Account ID not configured" }, 400);
 
-    const token = tokenRow.access_token;
-    const adAccountId = tokenRow.meta_ad_account_id; // e.g. "act_123456789"
-
+    const accessToken = tokenRow.access_token;
+    const adAccountId = tokenRow.meta_ad_account_id;
     const timeRange = JSON.stringify({ since: dateRange.from, until: dateRange.to });
 
     // Account-level totals
@@ -68,7 +74,7 @@ Deno.serve(async (req) => {
       `${META_API}/${adAccountId}/insights?` +
       `fields=spend,impressions,clicks,ctr,cpc,cpm,reach,actions,action_values&` +
       `time_range=${encodeURIComponent(timeRange)}&` +
-      `access_token=${token}`
+      `access_token=${accessToken}`
     );
     const totalsData = await totalsRes.json();
     if (totalsData.error) throw new Error(totalsData.error.message);
@@ -88,11 +94,8 @@ Deno.serve(async (req) => {
     const campRes = await fetch(
       `${META_API}/${adAccountId}/insights?` +
       `fields=campaign_id,campaign_name,spend,impressions,clicks,actions,action_values&` +
-      `level=campaign&` +
-      `time_range=${encodeURIComponent(timeRange)}&` +
-      `sort=spend_descending&` +
-      `limit=20&` +
-      `access_token=${token}`
+      `level=campaign&time_range=${encodeURIComponent(timeRange)}&` +
+      `sort=spend_descending&limit=20&access_token=${accessToken}`
     );
     const campData = await campRes.json();
     if (campData.error) throw new Error(campData.error.message);
@@ -117,10 +120,8 @@ Deno.serve(async (req) => {
     // Daily breakdown
     const dayRes = await fetch(
       `${META_API}/${adAccountId}/insights?` +
-      `fields=spend,impressions,clicks,actions&` +
-      `time_increment=1&` +
-      `time_range=${encodeURIComponent(timeRange)}&` +
-      `access_token=${token}`
+      `fields=spend,impressions,clicks,actions&time_increment=1&` +
+      `time_range=${encodeURIComponent(timeRange)}&access_token=${accessToken}`
     );
     const dayData = await dayRes.json();
     if (dayData.error) throw new Error(dayData.error.message);
@@ -133,7 +134,7 @@ Deno.serve(async (req) => {
       leads: getAction(d.actions, "lead") + getAction(d.actions, "onsite_conversion.lead_grouped"),
     }));
 
-    const result = {
+    return jsonResponse({
       spend,
       impressions: parseInt(t.impressions ?? "0"),
       clicks: parseInt(t.clicks ?? "0"),
@@ -147,15 +148,10 @@ Deno.serve(async (req) => {
       roas: spend > 0 ? purchaseValue / spend : 0,
       byCampaign,
       byDay,
-    };
-
-    return new Response(JSON.stringify(result), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
   } catch (err: any) {
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    console.error("[meta-ads-metrics]", err.message);
+    return jsonResponse({ error: "Erro interno" }, 500);
   }
 });
