@@ -18,7 +18,7 @@ export function KanbanColumn({ col, leads, onEdit, onDelete }: KanbanColumnProps
     <div
       ref={setNodeRef}
       className={cn(
-        "flex flex-col gap-3 min-w-[300px] w-[300px] bg-slate-800/60 rounded-xl border-t-4 p-3",
+        "flex flex-col gap-3 min-w-[320px] w-[320px] bg-slate-800/60 rounded-xl border-t-4 p-3",
         col.color,
         isOver && "bg-slate-700/80"
       )}
@@ -29,7 +29,7 @@ export function KanbanColumn({ col, leads, onEdit, onDelete }: KanbanColumnProps
       </div>
       {/* Lista de cards: altura máxima de 2 cards visíveis, scroll quando houver mais */}
       <div
-        className="flex flex-col gap-2 min-h-[80px] overflow-y-auto"
+        className="flex flex-col gap-2 min-h-[80px] overflow-y-auto pr-2"
         style={{ maxHeight: "22rem" }}
       >
         {leads.map(lead => (
