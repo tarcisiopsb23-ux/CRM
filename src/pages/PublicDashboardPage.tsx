@@ -468,12 +468,18 @@ export function PublicDashboardPage() {
           <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-slate-800 pb-8">
             <div className="space-y-1">
               <div className="flex items-center gap-3">
-                <img src={clientData?.favicon_url ?? "/favicon.png"} alt="Logo" className="h-10 w-10 rounded-xl shadow-lg object-contain" />
-                <h1 className="text-3xl font-black tracking-tight text-white uppercase">{dashboardTitle}</h1>
+                {clientData?.metadata?.avatar_url ? (
+                  <img src={clientData.metadata.avatar_url} alt="Logo" className="h-10 w-10 rounded-xl shadow-lg object-cover" />
+                ) : (
+                  <img src={clientData?.favicon_url ?? "/favicon.png"} alt="Logo" className="h-10 w-10 rounded-xl shadow-lg object-contain" />
+                )}
+                <div>
+                  <h1 className="text-3xl font-black tracking-tight text-white uppercase">{dashboardTitle}</h1>
+                  <p className="text-slate-300 font-bold text-sm">
+                    {clientData?.metadata?.display_name || clientData?.company || clientData?.name}
+                  </p>
+                </div>
               </div>
-              <p className="text-slate-300 font-bold pl-[52px]">
-                {clientData?.metadata?.display_name || clientData?.company || clientData?.name}
-              </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-4">

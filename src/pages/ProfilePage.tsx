@@ -48,6 +48,9 @@ export function ProfilePage() {
   // Nome de exibicao
   const [displayName, setDisplayName] = useState("");
   const [displayNameLoading, setDisplayNameLoading] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [avatarLoading, setAvatarLoading] = useState(false);
+  const [clientName, setClientName] = useState<string>("");
 
   // Alterar senha
   const [newPassword, setNewPassword] = useState("");
@@ -97,7 +100,7 @@ export function ProfilePage() {
     if (!clientId) return;
     supabaseCrm
       .from("clients")
-      .select("metadata")
+      .select("name, metadata")
       .eq("tenant_id", clientId)
       .limit(1)
       .single()
@@ -111,6 +114,8 @@ export function ProfilePage() {
         setTabAtendimento(meta.dashboard_atendimento === true);
         setTabCrm(meta.dashboard_crm === true);
         setDisplayName(meta.display_name ?? "");
+        setAvatarUrl(meta.avatar_url ?? null);
+        setClientName(meta.display_name || data?.name || "");
 
         const webhookUrl: string = meta.whatsapp_webhook_url ?? "";
         if (webhookUrl.trim()) {
@@ -168,16 +173,44 @@ export function ProfilePage() {
   const handleSaveDisplayName = async () => {
     setDisplayNameLoading(true);
     try {
+      const { data: existing } = await supabaseCrm
+        .from("clients").select("metadata").eq("tenant_id", clientId).single();
+      const merged = { ...(existing?.metadata ?? {}), display_name: displayName.trim() };
       const { error } = await supabaseCrm
-        .from("clients")
-        .update({ metadata: { display_name: displayName.trim() } })
-        .eq("tenant_id", clientId);
+        .from("clients").update({ metadata: merged }).eq("tenant_id", clientId);
       if (error) throw error;
+      setClientName(displayName.trim() || clientName);
       toast.success("Nome de exibição atualizado!");
     } catch {
       toast.error("Erro ao salvar nome de exibição.");
     } finally {
       setDisplayNameLoading(false);
+    }
+  };
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !clientId) return;
+    if (file.size > 2 * 1024 * 1024) { toast.error("Imagem muito grande. Máximo 2 MB."); return; }
+    setAvatarLoading(true);
+    try {
+      const ext = file.name.split(".").pop() ?? "jpg";
+      const path = `avatars/${clientId}.${ext}`;
+      const { error: upErr } = await supabaseCrm.storage
+        .from("client-assets").upload(path, file, { upsert: true, contentType: file.type });
+      if (upErr) throw upErr;
+      const { data: urlData } = supabaseCrm.storage.from("client-assets").getPublicUrl(path);
+      const url = urlData.publicUrl + `?t=${Date.now()}`;
+      const { data: existing } = await supabaseCrm
+        .from("clients").select("metadata").eq("tenant_id", clientId).single();
+      const merged = { ...(existing?.metadata ?? {}), avatar_url: url };
+      await supabaseCrm.from("clients").update({ metadata: merged }).eq("tenant_id", clientId);
+      setAvatarUrl(url);
+      toast.success("Foto de perfil atualizada!");
+    } catch (err: any) {
+      toast.error(`Erro ao enviar foto: ${err?.message ?? "tente novamente"}`);
+    } finally {
+      setAvatarLoading(false);
     }
   };
 
@@ -316,9 +349,18 @@ export function ProfilePage() {
           <Button variant="ghost" size="icon" className="text-slate-400 hover:text-white hover:bg-slate-800" onClick={() => navigate("/dashboard")}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <div>
-            <h1 className="text-2xl font-black text-white uppercase tracking-tight">Perfil e Configurações</h1>
-            <p className="text-slate-400 text-sm">{userEmail}</p>
+          <div className="flex items-center gap-3">
+            {avatarUrl ? (
+              <img src={avatarUrl} alt="Avatar" className="h-10 w-10 rounded-xl object-cover shadow-lg" />
+            ) : (
+              <div className="h-10 w-10 rounded-xl bg-[#7C3AED] flex items-center justify-center text-white font-black text-lg shadow-lg">
+                {(clientName || userEmail).charAt(0).toUpperCase()}
+              </div>
+            )}
+            <div>
+              <h1 className="text-2xl font-black text-white uppercase tracking-tight">Perfil e Configurações</h1>
+              <p className="text-slate-400 text-sm">{clientName || userEmail}</p>
+            </div>
           </div>
         </div>
 
@@ -328,24 +370,52 @@ export function ProfilePage() {
           {/* Coluna esquerda */}
           <div className="space-y-6 flex flex-col">
 
-            {/* Nome de Exibição */}
+            {/* Nome de Exibição + Foto de Perfil */}
             <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-slate-500">
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
                   <User className="h-5 w-5 text-slate-400" />
-                  Nome de Exibição
+                  Identidade Visual
                 </CardTitle>
                 <CardDescription className="text-slate-400 text-xs">
-                  Nome exibido abaixo do C8 Control na tela principal.
+                  Nome e foto exibidos no dashboard.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-5">
+                {/* Foto de perfil */}
+                <div className="flex items-center gap-4">
+                  <div className="relative shrink-0">
+                    {avatarUrl ? (
+                      <img src={avatarUrl} alt="Avatar" className="h-16 w-16 rounded-xl object-cover border-2 border-slate-700 shadow-lg" />
+                    ) : (
+                      <div className="h-16 w-16 rounded-xl bg-slate-700 flex items-center justify-center text-slate-400 text-2xl font-black border-2 border-slate-600">
+                        {(clientName || userEmail).charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    {avatarLoading && (
+                      <div className="absolute inset-0 rounded-xl bg-black/60 flex items-center justify-center">
+                        <Loader2 className="h-5 w-5 animate-spin text-white" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <p className="text-slate-300 text-sm font-bold">Foto de Perfil</p>
+                    <p className="text-slate-500 text-xs">JPG, PNG ou WebP. Máx. 2 MB.</p>
+                    <label className="cursor-pointer inline-flex items-center gap-2 text-xs font-bold text-[#7C3AED] hover:text-[#7C3AED]/80 transition-colors">
+                      <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+                        onChange={handleAvatarUpload} disabled={avatarLoading} />
+                      {avatarLoading ? "Enviando..." : avatarUrl ? "Trocar foto" : "Enviar foto"}
+                    </label>
+                  </div>
+                </div>
+
+                {/* Nome de exibição */}
                 <div className="space-y-2">
                   <Label className="text-slate-300">Nome de Exibição</Label>
                   <Input type="text" placeholder="Ex: Empresa XYZ"
                     className="bg-slate-900/50 border-slate-700 text-white h-11"
                     value={displayName} onChange={e => setDisplayName(e.target.value)} />
-                  <p className="text-xs text-slate-500">Se vazio, usa o nome do cadastro.</p>
+                  <p className="text-xs text-slate-500">Se vazio, usa o nome do cadastro vindo do Maestr.IA.</p>
                 </div>
                 <Button type="button" className="w-full bg-slate-600 hover:bg-slate-500 h-11 font-bold"
                   disabled={displayNameLoading} onClick={handleSaveDisplayName}>
