@@ -36,7 +36,7 @@ function FieldInfo({ text }: { text: string }) {
 
 export function ProfilePage() {
   const navigate = useNavigate();
-  const { session, tenantId, isSupport, loading: authLoading } = useAuth();
+  const { session, tenantId, role, isSupport, loading: authLoading } = useAuth();
 
   // clientId: para suporte usa o tenant selecionado, para usuário normal usa tenantId do JWT
   const clientId = isSupport
@@ -484,6 +484,27 @@ export function ProfilePage() {
                   <SecretQuestionForm onSaved={() => { setShowSecretQuestionDialog(false); toast.success("Pergunta secreta atualizada!"); }} />
                 </div>
               </div>
+            )}
+
+            {/* Usuários do Tenant */}
+            {role === "admin" && (
+              <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-blue-500">
+                <CardHeader>
+                  <CardTitle className="text-white flex items-center gap-2">
+                    <User className="h-5 w-5 text-blue-400" />
+                    Usuários
+                  </CardTitle>
+                  <CardDescription className="text-slate-400 text-xs">
+                    Gerencie quem tem acesso ao dashboard.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Button type="button" className="w-full bg-blue-600 hover:bg-blue-700 h-11 font-bold gap-2"
+                    onClick={() => navigate("/dashboard/users")}>
+                    <User className="h-4 w-4" /> Gerenciar Usuários
+                  </Button>
+                </CardContent>
+              </Card>
             )}
 
             {/* Abas do Dashboard */}
