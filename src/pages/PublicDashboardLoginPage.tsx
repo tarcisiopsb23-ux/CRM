@@ -206,9 +206,10 @@ export function PublicDashboardLoginPage() {
       }
 
       // Verificar senha temporária
-      const forceChange =
-        payload.user_metadata?.force_password_change ??
-        data.session.user.user_metadata?.force_password_change ?? false;
+      // Usa getUser() para garantir user_metadata atualizado (não depende do JWT)
+      const { data: { user: freshUser } } = await supabaseAuth.auth.getUser();
+      const userMeta = freshUser?.user_metadata ?? data.session.user.user_metadata ?? {};
+      const forceChange = userMeta.force_password_change === true;
       if (forceChange) { setShowForceChange(true); return; }
 
       navigate("/dashboard");
