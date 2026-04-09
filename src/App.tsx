@@ -23,12 +23,18 @@ export function ProtectedRoute() {
   return <Outlet />;
 }
 
+function RootRedirect() {
+  const { session, loading } = useAuth();
+  if (loading) return null;
+  return <Navigate to={session ? "/dashboard" : "/demo"} replace />;
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/" element={<RootRedirect />} />
           <Route path="/login" element={<PublicDashboardLoginPage />} />
 
           {/* Rotas protegidas */}
@@ -53,7 +59,7 @@ export default function App() {
           {/* OAuth callback — Google e Meta */}
           <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
 
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<RootRedirect />} />
         </Routes>
       </BrowserRouter>
       <Toaster />
