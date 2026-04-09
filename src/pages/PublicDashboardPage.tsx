@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { SupportBanner } from "@/components/auth/SupportBanner";
 import { TenantSelector } from "@/components/auth/TenantSelector";
+import { ContractExpiryBanner } from "@/components/ContractExpiryBanner";
+import { useTenantStatus } from "@/hooks/useTenantStatus";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line,
@@ -59,6 +61,7 @@ const KPI_COLORS = ["#10b981","#7C3AED","#f59e0b","#a855f7","#f43f5e","#06b6d4",
 export function PublicDashboardPage() {
   const navigate = useNavigate();
   const { session, tenantId, isSupport, loading: authLoading, signOut } = useAuth();
+  const tenantStatus = useTenantStatus();
   const [clientData, setClientData] = useState<any>(null);
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [showKpiDialog, setShowKpiDialog] = useState(false);
@@ -69,13 +72,17 @@ export function PublicDashboardPage() {
   });
   const [activeKpiId, setActiveKpiId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"performance" | "atendimento" | "crm">("crm");
-  const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
-  const [selectedTenantName, setSelectedTenantName] = useState<string | undefined>(undefined);
+  const [selectedTenantId, setSelectedTenantId] = useState<string | null>(
+    () => sessionStorage.getItem("support_selected_tenant_id")
+  );
+  const [selectedTenantName, setSelectedTenantName] = useState<string | undefined>(
+    () => sessionStorage.getItem("support_selected_tenant_name") ?? undefined
+  );
 
-  // Dashboard flags from client metadata
+  // Dashboard flags from client metadata — CRM é sempre true por padrão
   const dashPerformance: boolean = clientData?.metadata?.dashboard_performance ?? true;
   const dashAtendimento: boolean = clientData?.metadata?.dashboard_atendimento ?? false;
-  const dashCrm: boolean = clientData?.metadata?.dashboard_crm ?? false;
+  const dashCrm: boolean         = clientData?.metadata?.dashboard_crm         ?? true;
 
   // Dynamic title
   const activeCount = [dashPerformance, dashAtendimento, dashCrm].filter(Boolean).length;
@@ -405,6 +412,21 @@ export function PublicDashboardPage() {
     </div>
   );
 
+  // Suporte sem tenant selecionado — mostrar seletor em tela cheia antes do dashboard
+  if (isSupport && !selectedTenantId) {
+    return (
+      <TenantSelector
+        onSelect={(id, name) => {
+          setSelectedTenantId(id);
+          setSelectedTenantName(name);
+          // Persiste para subpáginas (WhatsApp sync, etc.)
+          sessionStorage.setItem("support_selected_tenant_id", id);
+          sessionStorage.setItem("support_selected_tenant_name", name);
+        }}
+      />
+    );
+  }
+
   // Use consolidated values (real API data > manual daily_metrics)
   const roas = consolidated.roas;
   const cpa = consolidated.cpa;
@@ -421,19 +443,23 @@ export function PublicDashboardPage() {
       <div className="min-h-screen bg-[#0F172A] text-slate-100 font-sans p-4 md:p-8 selection:bg-[#7C3AED]/30">
         <div className="max-w-[1600px] mx-auto space-y-8">
 
-          {/* -- SUPORTE: seletor de tenant -- */}
-          {isSupport && !selectedTenantId && (
-            <TenantSelector
-              onSelect={(id, name) => {
-                setSelectedTenantId(id);
-                setSelectedTenantName(name);
-              }}
-            />
+          {/* -- BANNER DE VENCIMENTO DE CONTRATO -- */}
+          {!isSupport && tenantStatus.isNearExpiry && tenantStatus.contractEnd && (
+            <ContractExpiryBanner contractEnd={tenantStatus.contractEnd} />
           )}
 
-          {/* -- BANNER DE SUPORTE TÉCNICO -- */}
+          {/* -- SUPORTE: banner permanente após seleção -- */}
           {isSupport && selectedTenantId && (
-            <SupportBanner tenantName={selectedTenantName} />
+            <SupportBanner
+              tenantName={selectedTenantName}
+              onChangeTenant={() => {
+                setSelectedTenantId(null);
+                setSelectedTenantName(undefined);
+                setClientData(null);
+                sessionStorage.removeItem("support_selected_tenant_id");
+                sessionStorage.removeItem("support_selected_tenant_name");
+              }}
+            />
           )}
 
           {/* -- HEADER -- */}

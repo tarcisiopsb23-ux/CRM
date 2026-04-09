@@ -27,7 +27,11 @@ export function KanbanColumn({ col, leads, onEdit, onDelete }: KanbanColumnProps
         <span className="text-xs font-black uppercase tracking-widest text-slate-300">{col.label}</span>
         <span className="text-xs font-bold text-slate-500 bg-slate-700 px-2 py-0.5 rounded-full">{leads.length}</span>
       </div>
-      <div className="flex flex-col gap-2 min-h-[80px]">
+      {/* Lista de cards: altura máxima de 2 cards visíveis, scroll quando houver mais */}
+      <div
+        className="flex flex-col gap-2 min-h-[80px] overflow-y-auto"
+        style={{ maxHeight: "22rem" }}
+      >
         {leads.map(lead => (
           <LeadCard key={lead.id} lead={lead} onEdit={onEdit} onDelete={onDelete} />
         ))}

@@ -124,7 +124,7 @@ export function DemoPage() {
     from: format(subDays(new Date(), 29), "yyyy-MM-dd"),
     to: format(new Date(), "yyyy-MM-dd"),
   });
-  const [activeTab, setActiveTab] = useState<"performance" | "atendimento" | "crm">("performance");
+  const [activeTab, setActiveTab] = useState<"performance" | "atendimento" | "crm">("crm");
   const [activeKpiId, setActiveKpiId] = useState<string | null>(null);
   const [demoLeads, setDemoLeads] = useState<Lead[]>(DEMO_LEADS);
   const [activeLead, setActiveLead] = useState<Lead | null>(null);
@@ -323,14 +323,14 @@ export function DemoPage() {
 
           {/* Tabs */}
           <div className="flex gap-1 bg-slate-800/60 p-1 rounded-xl border border-slate-700 w-fit">
-            {(["performance", "atendimento", "crm"] as const).map(tab => (
+            {(["crm", "performance", "atendimento"] as const).map(tab => (
               <button key={tab} onClick={() => setActiveTab(tab)}
                 className={cn("flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all",
                   activeTab === tab ? "bg-[#7C3AED] text-white shadow" : "text-slate-400 hover:text-slate-200"
                 )}>
+                {tab === "crm" && <><KanbanSquare className="h-4 w-4" /> CRM</>}
                 {tab === "performance" && <><BarChart3 className="h-4 w-4" /> Performance</>}
                 {tab === "atendimento" && <><MessageCircle className="h-4 w-4" /> Atendimento</>}
-                {tab === "crm" && <><KanbanSquare className="h-4 w-4" /> CRM</>}
               </button>
             ))}
           </div>
