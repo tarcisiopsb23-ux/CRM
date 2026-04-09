@@ -65,6 +65,7 @@ export function PublicDashboardPage() {
   const tenantStatus = useTenantStatus();
   useInactivityLogout();
   const [clientData, setClientData] = useState<any>(null);
+  const [clientDataLoaded, setClientDataLoaded] = useState(false);
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [showKpiDialog, setShowKpiDialog] = useState(false);
   const [newPassword, setNewPassword] = useState("");
@@ -81,10 +82,10 @@ export function PublicDashboardPage() {
     () => sessionStorage.getItem("support_selected_tenant_name") ?? undefined
   );
 
-  // Dashboard flags from client metadata — CRM é sempre true por padrão
-  const dashPerformance: boolean = clientData?.metadata?.dashboard_performance ?? true;
-  const dashAtendimento: boolean = clientData?.metadata?.dashboard_atendimento ?? false;
-  const dashCrm: boolean         = clientData?.metadata?.dashboard_crm         ?? true;
+  // Dashboard flags — só aplica defaults após carregar os dados do cliente
+  const dashPerformance: boolean = clientDataLoaded ? (clientData?.metadata?.dashboard_performance ?? true)  : false;
+  const dashAtendimento: boolean = clientDataLoaded ? (clientData?.metadata?.dashboard_atendimento ?? false) : false;
+  const dashCrm: boolean         = clientDataLoaded ? (clientData?.metadata?.dashboard_crm         ?? true)  : false;
 
   // Dynamic title
   const activeCount = [dashPerformance, dashAtendimento, dashCrm].filter(Boolean).length;
@@ -135,6 +136,7 @@ export function PublicDashboardPage() {
           },
         });
       }
+      setClientDataLoaded(true);
     };
     fetchClientData();
   }, [effectiveTenantId]);
