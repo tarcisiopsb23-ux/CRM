@@ -5,13 +5,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Lock, Loader2, Plug, RefreshCw, Smartphone, User, Link2, Copy, Check, Info } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { supabaseCrm } from "@/lib/supabase";
+import { supabaseAuth } from "@/lib/supabase-auth";
+import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { IntegrationStatusBadge, IntegrationStatus } from "@/components/crm/IntegrationStatusBadge";
 import { OAuthIntegrations } from "@/components/integrations/OAuthIntegrations";
 import { KpiList } from "@/components/kpi/KpiList";
 import { KpiHistoryTable } from "@/components/kpi/KpiHistoryTable";
 import { QRCodeSVG } from "qrcode.react";
+import { SecretQuestionForm } from "@/components/auth/SecretQuestionForm";
 
 type AuthSession = {
   client_id: string;
@@ -33,14 +36,20 @@ function FieldInfo({ text }: { text: string }) {
 
 export function ProfilePage() {
   const navigate = useNavigate();
-  const [session, setSession] = useState<AuthSession | null>(null);
+  const { session, tenantId, isSupport, loading: authLoading } = useAuth();
+
+  // clientId: para suporte usa o tenant selecionado, para usuário normal usa tenantId do JWT
+  const clientId = isSupport
+    ? (sessionStorage.getItem("support_selected_tenant_id") ?? "")
+    : (tenantId ?? "");
+
+  const userEmail = session?.user?.email ?? "";
 
   // Nome de exibicao
   const [displayName, setDisplayName] = useState("");
   const [displayNameLoading, setDisplayNameLoading] = useState(false);
 
   // Alterar senha
-  const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordLoading, setPasswordLoading] = useState(false);
@@ -78,36 +87,43 @@ export function ProfilePage() {
   const [genMsg, setGenMsg] = useState("");
   const [copied, setCopied] = useState(false);
 
+  // Redirecionar se não autenticado
   useEffect(() => {
-    const raw = localStorage.getItem("client_auth");
-    if (!raw) { navigate("/login"); return; }
-    const parsed: AuthSession = JSON.parse(raw);
-    setSession(parsed);
+    if (!authLoading && !session) navigate("/login");
+  }, [authLoading, session, navigate]);
 
-    const meta = parsed.metadata ?? {};
-    setGtmId(meta.gtm_id ?? "");
-    setMetaPixelId(meta.meta_pixel_id ?? "");
-    setN8nApiKey(meta.n8n_api_key ?? "");
-    setWhatsappWebhookUrl(meta.whatsapp_webhook_url ?? "");
-    setTabPerformance((meta as any).dashboard_performance !== false);
-    setTabAtendimento((meta as any).dashboard_atendimento === true);
-    setTabCrm((meta as any).dashboard_crm === true);
-    setDisplayName((meta as any).display_name ?? "");
+  // Carregar metadata do cliente do CRM_DB
+  useEffect(() => {
+    if (!clientId) return;
+    supabaseCrm
+      .from("clients")
+      .select("metadata")
+      .eq("tenant_id", clientId)
+      .limit(1)
+      .single()
+      .then(({ data }) => {
+        const meta = data?.metadata ?? {};
+        setGtmId(meta.gtm_id ?? "");
+        setMetaPixelId(meta.meta_pixel_id ?? "");
+        setN8nApiKey(meta.n8n_api_key ?? "");
+        setWhatsappWebhookUrl(meta.whatsapp_webhook_url ?? "");
+        setTabPerformance(meta.dashboard_performance !== false);
+        setTabAtendimento(meta.dashboard_atendimento === true);
+        setTabCrm(meta.dashboard_crm === true);
+        setDisplayName(meta.display_name ?? "");
 
-    const webhookUrl = meta.whatsapp_webhook_url ?? "";
-    if (webhookUrl.trim() !== "") {
-      fetch(`${webhookUrl.replace(/\/$/, "")}/api/status`)
-        .then((res) => res.json())
-        .then((data) => {
-          const status = data?.status as IntegrationStatus | undefined;
-          const valid: IntegrationStatus[] = ["conectado", "aguardando_qr", "desconectado", "inativo"];
-          setWhatsappStatus(valid.includes(status as IntegrationStatus) ? (status as IntegrationStatus) : "desconectado");
-        })
-        .catch(() => setWhatsappStatus("desconectado"));
-    } else {
-      setWhatsappStatus("inativo");
-    }
-  }, [navigate]);
+        const webhookUrl: string = meta.whatsapp_webhook_url ?? "";
+        if (webhookUrl.trim()) {
+          fetch(`${webhookUrl.replace(/\/$/, "")}/api/status`)
+            .then(res => res.json())
+            .then(d => {
+              const valid: IntegrationStatus[] = ["conectado", "aguardando_qr", "desconectado", "inativo"];
+              setWhatsappStatus(valid.includes(d?.status) ? d.status : "desconectado");
+            })
+            .catch(() => setWhatsappStatus("desconectado"));
+        }
+      });
+  }, [clientId]);
 
   const fetchQr = useCallback(async () => {
     const url = whatsappWebhookUrl.trim();
@@ -152,17 +168,11 @@ export function ProfilePage() {
   const handleSaveDisplayName = async () => {
     setDisplayNameLoading(true);
     try {
-      const { error } = await supabase.rpc("update_display_name", {
-        p_client_id: session?.client_id,
-        p_display_name: displayName.trim(),
-      });
+      const { error } = await supabaseCrm
+        .from("clients")
+        .update({ metadata: { display_name: displayName.trim() } })
+        .eq("tenant_id", clientId);
       if (error) throw error;
-      const raw = localStorage.getItem("client_auth");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        parsed.metadata = { ...(parsed.metadata ?? {}), display_name: displayName.trim() };
-        localStorage.setItem("client_auth", JSON.stringify(parsed));
-      }
       toast.success("Nome de exibição atualizado!");
     } catch {
       toast.error("Erro ao salvar nome de exibição.");
@@ -184,19 +194,11 @@ export function ProfilePage() {
     }
     setPasswordLoading(true);
     try {
-      const { data: isValid, error: validationError } = await supabase.rpc(
-        "validate_client_dashboard_password",
-        { p_email: session?.email ?? "", p_password: currentPassword }
-      );
-      if (validationError) { setPasswordError("Erro ao verificar senha atual. Tente novamente."); return; }
-      if (!isValid) { setPasswordError("Senha atual incorreta. Verifique e tente novamente."); return; }
-      const { error: updateError } = await supabase.rpc("update_client_dashboard_password", {
-        p_client_id: session?.client_id,
-        p_new_password: newPassword,
-      });
-      if (updateError) throw updateError;
+      const { error } = await supabaseAuth.auth.updateUser({ password: newPassword });
+      if (error) throw error;
       toast.success("Senha alterada com sucesso!");
-      setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
     } catch {
       setPasswordError("Erro ao alterar senha. Tente novamente.");
     } finally {
@@ -209,31 +211,18 @@ export function ProfilePage() {
     setIntegrationsError(null);
     setIntegrationsLoading(true);
     try {
-      const { error } = await supabase.rpc("update_client_integrations", {
-        p_client_id: session?.client_id,
-        p_gtm_id: gtmId.trim(),
-        p_meta_pixel_id: metaPixelId.trim(),
-        p_n8n_api_key: n8nApiKey.trim(),
-        p_whatsapp_webhook_url: whatsappWebhookUrl.trim(),
-      });
-      if (error) {
-        const msg = error.message ?? "";
-        if (msg.includes("GTM")) setIntegrationsError("Formato de GTM ID inválido. Use o formato GTM-XXXXXXX.");
-        else if (msg.includes("Pixel")) setIntegrationsError("Formato de Meta Pixel ID inválido. Deve ser numérico com 15 ou 16 dígitos.");
-        else setIntegrationsError("Erro ao salvar integrações. Verifique os valores e tente novamente.");
-        return;
-      }
-      const raw = localStorage.getItem("client_auth");
-      if (raw) {
-        const parsed: AuthSession = JSON.parse(raw);
-        parsed.metadata = {
-          ...(parsed.metadata ?? {}),
-          gtm_id: gtmId.trim(), meta_pixel_id: metaPixelId.trim(),
-          n8n_api_key: n8nApiKey.trim(), whatsapp_webhook_url: whatsappWebhookUrl.trim(),
-        };
-        localStorage.setItem("client_auth", JSON.stringify(parsed));
-        setSession(parsed);
-      }
+      const { error } = await supabaseCrm
+        .from("clients")
+        .update({
+          metadata: {
+            gtm_id: gtmId.trim(),
+            meta_pixel_id: metaPixelId.trim(),
+            n8n_api_key: n8nApiKey.trim(),
+            whatsapp_webhook_url: whatsappWebhookUrl.trim(),
+          },
+        })
+        .eq("tenant_id", clientId);
+      if (error) throw error;
       toast.success("Integrações salvas com sucesso!");
     } catch {
       setIntegrationsError("Erro inesperado ao salvar integrações. Tente novamente.");
@@ -242,31 +231,27 @@ export function ProfilePage() {
     }
   };
 
-  const saveIntegrationFields = async (fields: Record<string, string>, setLoading: (v: boolean) => void, setError: (v: string | null) => void, successMsg: string) => {
+  const saveIntegrationFields = async (
+    fields: Record<string, string>,
+    setLoading: (v: boolean) => void,
+    setError: (v: string | null) => void,
+    successMsg: string
+  ) => {
     setError(null);
     setLoading(true);
     try {
-      const { error } = await supabase.rpc("update_client_integrations", {
-        p_client_id: session?.client_id,
-        p_gtm_id: fields.gtm_id ?? gtmId.trim(),
-        p_meta_pixel_id: fields.meta_pixel_id ?? metaPixelId.trim(),
-        p_n8n_api_key: fields.n8n_api_key ?? n8nApiKey.trim(),
-        p_whatsapp_webhook_url: fields.whatsapp_webhook_url ?? whatsappWebhookUrl.trim(),
-      });
-      if (error) {
-        const msg = error.message ?? "";
-        if (msg.includes("GTM")) setError("Formato de GTM ID inválido. Use o formato GTM-XXXXXXX.");
-        else if (msg.includes("Pixel")) setError("Formato de Meta Pixel ID inválido. Deve ser numérico com 15 ou 16 dígitos.");
-        else setError("Erro ao salvar. Verifique os valores e tente novamente.");
-        return;
-      }
-      const raw = localStorage.getItem("client_auth");
-      if (raw) {
-        const parsed: AuthSession = JSON.parse(raw);
-        parsed.metadata = { ...(parsed.metadata ?? {}), ...fields };
-        localStorage.setItem("client_auth", JSON.stringify(parsed));
-        setSession(parsed);
-      }
+      // Merge fields into existing metadata
+      const { data: existing } = await supabaseCrm
+        .from("clients")
+        .select("metadata")
+        .eq("tenant_id", clientId)
+        .single();
+      const merged = { ...(existing?.metadata ?? {}), ...fields };
+      const { error } = await supabaseCrm
+        .from("clients")
+        .update({ metadata: merged })
+        .eq("tenant_id", clientId);
+      if (error) throw error;
       toast.success(successMsg);
     } catch {
       setError("Erro inesperado. Tente novamente.");
@@ -294,18 +279,18 @@ export function ProfilePage() {
     value.trim() !== "" ? "conectado" : "inativo";
 
   const generatedLink = useMemo(() => {
-    if (!genPhone.trim() || !session?.client_id) return "";
+    if (!genPhone.trim() || !clientId) return "";
     const base = `${window.location.origin}/wa`;
     const p = new URLSearchParams();
     p.set("to", genPhone.trim().replace(/\D/g, ""));
-    p.set("cid", session.client_id);
+    p.set("cid", clientId);
     if (genSource)   p.set("utm_source", genSource);
     if (genMedium)   p.set("utm_medium", genMedium);
     if (genCampaign) p.set("utm_campaign", genCampaign);
     if (genContent)  p.set("utm_content", genContent);
     if (genMsg)      p.set("msg", genMsg);
     return `${base}?${p.toString()}`;
-  }, [genPhone, genSource, genMedium, genCampaign, genContent, genMsg, session]);
+  }, [genPhone, genSource, genMedium, genCampaign, genContent, genMsg, clientId]);
 
   const handleCopy = () => {
     if (!generatedLink) return;
@@ -313,6 +298,12 @@ export function ProfilePage() {
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  if (authLoading) return (
+    <div className="flex items-center justify-center min-h-screen bg-[#0F172A]">
+      <div className="h-10 w-10 animate-spin rounded-full border-4 border-[#7C3AED] border-t-transparent" />
+    </div>
+  );
 
   if (!session) return null;
 
@@ -327,7 +318,7 @@ export function ProfilePage() {
           </Button>
           <div>
             <h1 className="text-2xl font-black text-white uppercase tracking-tight">Perfil e Configurações</h1>
-            <p className="text-slate-400 text-sm">{session.email}</p>
+            <p className="text-slate-400 text-sm">{userEmail}</p>
           </div>
         </div>
 
@@ -372,17 +363,11 @@ export function ProfilePage() {
                   Alterar Senha
                 </CardTitle>
                 <CardDescription className="text-slate-400 text-xs">
-                  Informe sua senha atual para definir uma nova senha de acesso.
+                  Defina uma nova senha de acesso ao dashboard.
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <form onSubmit={handleChangePassword} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label className="text-slate-300">Senha Atual</Label>
-                    <Input type="password" placeholder="••••••••"
-                      className="bg-slate-900/50 border-slate-700 text-white h-11"
-                      value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required />
-                  </div>
                   <div className="space-y-2">
                     <Label className="text-slate-300">Nova Senha (mín. 8 caracteres)</Label>
                     <Input type="password" placeholder="••••••••"
@@ -401,6 +386,22 @@ export function ProfilePage() {
                     Alterar Senha
                   </Button>
                 </form>
+              </CardContent>
+            </Card>
+
+            {/* Pergunta Secreta */}
+            <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-emerald-500">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2">
+                  <Lock className="h-5 w-5 text-emerald-400" />
+                  Pergunta Secreta
+                </CardTitle>
+                <CardDescription className="text-slate-400 text-xs">
+                  Configure uma pergunta para recuperar o acesso sem depender de e-mail.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <SecretQuestionForm />
               </CardContent>
             </Card>
 
@@ -438,12 +439,16 @@ export function ProfilePage() {
                     if (!tabPerformance && !tabAtendimento && !tabCrm) { toast.error("Pelo menos uma aba deve estar ativa."); return; }
                     setTabsLoading(true);
                     try {
-                      const { error } = await supabase.rpc("update_dashboard_tabs", {
-                        p_client_id: session?.client_id,
-                        p_dashboard_performance: tabPerformance,
-                        p_dashboard_atendimento: tabAtendimento,
-                        p_dashboard_crm: tabCrm,
-                      });
+                      const { data: existing } = await supabaseCrm
+                        .from("clients").select("metadata").eq("tenant_id", clientId).single();
+                      const merged = {
+                        ...(existing?.metadata ?? {}),
+                        dashboard_performance: tabPerformance,
+                        dashboard_atendimento: tabAtendimento,
+                        dashboard_crm: tabCrm,
+                      };
+                      const { error } = await supabaseCrm
+                        .from("clients").update({ metadata: merged }).eq("tenant_id", clientId);
                       if (error) throw error;
                       toast.success("Abas do dashboard atualizadas!");
                     } catch { toast.error("Erro ao salvar configuração das abas."); }
@@ -469,7 +474,7 @@ export function ProfilePage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex-1">
-                <KpiList clientId={session?.client_id ?? ""} />
+                <KpiList clientId={clientId} />
               </CardContent>
             </Card>
 
@@ -494,7 +499,7 @@ export function ProfilePage() {
                   {/* Google + Meta OAuth */}
                   <div className="space-y-2">
                     <p className="text-xs font-black uppercase tracking-widest text-slate-500">Google Analytics & Ads / Meta Ads</p>
-                    <OAuthIntegrations clientId={session?.client_id ?? ""} />
+                    <OAuthIntegrations clientId={clientId} />
                   </div>
 
                   {/* GTM + Meta Pixel — para página intermediária de anúncios */}
@@ -730,7 +735,7 @@ export function ProfilePage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <KpiHistoryTable clientId={session?.client_id ?? ""} />
+            <KpiHistoryTable clientId={clientId} />
           </CardContent>
         </Card>
 
