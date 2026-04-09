@@ -7,7 +7,7 @@ COPY package*.json ./
 RUN npm ci
 
 # Cache bust — incrementar para forçar rebuild do COPY
-ARG CACHEBUST=2
+ARG CACHEBUST=3
 COPY . .
 
 # Variáveis de build — com valores padrão para quando não forem passadas como ARG
