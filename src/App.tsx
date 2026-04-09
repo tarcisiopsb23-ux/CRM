@@ -26,7 +26,7 @@ export function ProtectedRoute() {
 function RootRedirect() {
   const { session, loading } = useAuth();
   if (loading) return null;
-  return <Navigate to={session ? "/dashboard" : "/demo"} replace />;
+  return <Navigate to={session ? "/dashboard" : "/login"} replace />;
 }
 
 export default function App() {
