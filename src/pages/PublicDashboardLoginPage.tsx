@@ -458,18 +458,18 @@ export function PublicDashboardLoginPage() {
             </DialogFooter>
           </>)}
 
-          {/* Passo 2: configurar pergunta secreta */}
+          {/* Passo 2: configurar pergunta secreta (obrigatório) */}
           {forceStep === "question" && (<>
             <DialogHeader>
               <DialogTitle className="text-white">Configure sua pergunta secreta</DialogTitle>
               <DialogDescription className="text-slate-400 text-sm">
-                Use para recuperar o acesso sem depender de e-mail. Você pode pular e configurar depois no perfil.
+                Necessário para recuperar o acesso caso esqueça a senha. Não é possível pular esta etapa.
               </DialogDescription>
             </DialogHeader>
             <div className="py-2">
               <SecretQuestionForm
+                required
                 onSaved={() => { setShowForceChange(false); navigate("/dashboard"); }}
-                onSkip={() => { setShowForceChange(false); navigate("/dashboard"); }}
               />
             </div>
           </>)}

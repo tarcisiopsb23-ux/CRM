@@ -95,7 +95,7 @@ export function SecretQuestionForm({ onSaved, onSkip, required = false }: Props)
       {required && (
         <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-3">
           <p className="text-amber-300 text-xs font-bold">
-            Recomendado: configure uma pergunta secreta para recuperar o acesso sem depender de e-mail.
+            Obrigatório: configure uma pergunta secreta para poder recuperar o acesso caso esqueça a senha.
           </p>
         </div>
       )}
