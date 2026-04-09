@@ -11,6 +11,7 @@ import { WhatsAppSyncPage } from "@/pages/WhatsAppSyncPage";
 import { WhatsAppRedirectPage } from "@/pages/WhatsAppRedirectPage";
 import { OAuthCallbackPage } from "@/pages/OAuthCallbackPage";
 import { TenantUsersPage } from "@/pages/TenantUsersPage";
+import { DemoPage } from "@/pages/DemoPage";
 import { useAuth } from "@/hooks/useAuth";
 
 const queryClient = new QueryClient();
@@ -42,6 +43,9 @@ export default function App() {
 
           {/* CRM standalone */}
           <Route path="/crm" element={<CrmPage />} />
+
+          {/* Demo — sem login */}
+          <Route path="/demo" element={<DemoPage />} />
 
           {/* Redirect de anúncios — captura UTMs e redireciona para WhatsApp */}
           <Route path="/wa" element={<WhatsAppRedirectPage />} />
