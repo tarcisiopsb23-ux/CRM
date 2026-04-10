@@ -108,7 +108,7 @@ Deno.serve(async (req) => {
       dashboard_slug: dashboardSlug,
       metadata:       {
         dashboard_performance: true,
-        dashboard_atendimento: false,
+        dashboard_atendimento: true,
         dashboard_crm:         true,
       },
     })

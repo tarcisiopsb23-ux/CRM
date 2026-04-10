@@ -80,8 +80,8 @@ export function ProfilePage() {
 
   // Abas do dashboard
   const [tabPerformance, setTabPerformance] = useState(true);
-  const [tabAtendimento, setTabAtendimento] = useState(false);
-  const [tabCrm, setTabCrm] = useState(false);
+  const [tabAtendimento, setTabAtendimento] = useState(true);
+  const [tabCrm, setTabCrm] = useState(true);
   const [tabsLoading, setTabsLoading] = useState(false);
 
   // Gerador de link de anúncio
@@ -114,8 +114,8 @@ export function ProfilePage() {
         setN8nApiKey(meta.n8n_api_key ?? "");
         setWhatsappWebhookUrl(meta.whatsapp_webhook_url ?? "");
         setTabPerformance(meta.dashboard_performance !== false);
-        setTabAtendimento(meta.dashboard_atendimento === true);
-        setTabCrm(meta.dashboard_crm === true);
+        setTabAtendimento(meta.dashboard_atendimento !== false);
+        setTabCrm(meta.dashboard_crm !== false);
         setDisplayName(meta.display_name ?? "");
         setAvatarUrl(meta.avatar_url ?? null);
         setClientName(meta.display_name || data?.name || "");
