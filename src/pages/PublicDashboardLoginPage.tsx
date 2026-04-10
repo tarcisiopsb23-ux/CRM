@@ -13,7 +13,6 @@ import { Activity, Lock, Loader2, Mail, Eye, EyeOff, ArrowLeft } from "lucide-re
 import { supabaseAuth } from "@/lib/supabase-auth";
 import { supabaseCrm } from "@/lib/supabase";
 import { SecretQuestionForm } from "@/components/auth/SecretQuestionForm";
-
 const TENANT_STATUS_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/tenant-status`;
 const SECRET_QUESTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/secret-question`;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -162,9 +161,23 @@ export function PublicDashboardLoginPage() {
         return;
       }
 
-      // Login bem-sucedido — limpar lockout
+      // Login bem-sucedido — limpar lockout e registrar auditoria
       clearLockout();
       setAttemptsLeft(MAX_ATTEMPTS);
+
+      // Registrar login no audit log (fire-and-forget)
+      const loginTenantId = (payload.tenant_id ?? data.session.user.user_metadata?.tenant_id) as string | null;
+      if (loginTenantId) {
+        supabaseCrm.from("audit_logs").insert({
+          tenant_id:  loginTenantId,
+          user_id:    data.session.user.id,
+          user_email: data.session.user.email ?? null,
+          user_role:  payload.role ?? "member",
+          action:     "Login realizado",
+          category:   "login",
+          ip_hint:    "browser",
+        }).then(() => {}).catch(() => {});
+      }
 
       const payload = parseJwtPayload(data.session.access_token);
       const role     = payload.role     ?? payload.user_metadata?.role     ?? "member";

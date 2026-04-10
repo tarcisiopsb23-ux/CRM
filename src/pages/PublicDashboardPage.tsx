@@ -423,9 +423,18 @@ export function PublicDashboardPage() {
         onSelect={(id, name) => {
           setSelectedTenantId(id);
           setSelectedTenantName(name);
-          // Persiste para subpáginas (WhatsApp sync, etc.)
           sessionStorage.setItem("support_selected_tenant_id", id);
           sessionStorage.setItem("support_selected_tenant_name", name);
+          // Registrar acesso de suporte no audit log
+          supabaseCrm.from("audit_logs").insert({
+            tenant_id:  id,
+            user_id:    session?.user?.id ?? "unknown",
+            user_email: session?.user?.email ?? null,
+            user_role:  "agency",
+            action:     `Suporte acessou dashboard do tenant: ${name ?? id}`,
+            category:   "support",
+            ip_hint:    "browser",
+          }).then(() => {}).catch(() => {});
         }}
       />
     );
@@ -522,6 +531,13 @@ export function PublicDashboardPage() {
                     <Lock className="h-4 w-4 text-orange-400" />
                     <span className="text-sm font-bold">Alterar Senha</span>
                   </DropdownMenuItem>
+                  {(role === "admin" || isSupport) && (<>
+                    <DropdownMenuSeparator className="bg-slate-800" />
+                    <DropdownMenuItem className="gap-2 focus:bg-slate-800 cursor-pointer py-3" onClick={() => navigate("/dashboard/logs")}>
+                      <ListFilter className="h-4 w-4 text-slate-400" />
+                      <span className="text-sm font-bold">Logs de Auditoria</span>
+                    </DropdownMenuItem>
+                  </>)}
                   <DropdownMenuSeparator className="bg-slate-800" />
                   <DropdownMenuItem className="gap-2 focus:bg-red-900/40 focus:text-red-400 text-red-400 hover:bg-red-900/40 cursor-pointer py-3" onClick={handleLogoff}>
                     <LogOut className="h-4 w-4" />

@@ -15,6 +15,7 @@ import { KpiList } from "@/components/kpi/KpiList";
 import { KpiHistoryTable } from "@/components/kpi/KpiHistoryTable";
 import { QRCodeSVG } from "qrcode.react";
 import { SecretQuestionForm } from "@/components/auth/SecretQuestionForm";
+import { useAuditLog } from "@/hooks/useAuditLog";
 
 type AuthSession = {
   client_id: string;
@@ -37,6 +38,7 @@ function FieldInfo({ text }: { text: string }) {
 export function ProfilePage() {
   const navigate = useNavigate();
   const { session, tenantId, role, isSupport, loading: authLoading } = useAuth();
+  const { log } = useAuditLog();
 
   // clientId: para suporte usa o tenant selecionado, para usuário normal usa tenantId do JWT
   const clientId = isSupport
@@ -182,6 +184,7 @@ export function ProfilePage() {
       if (error) throw error;
       setClientName(displayName.trim() || clientName);
       toast.success("Nome de exibição atualizado!");
+      log({ action: "Nome de exibição atualizado", category: "config", details: { display_name: displayName.trim() } });
     } catch {
       toast.error("Erro ao salvar nome de exibição.");
     } finally {
@@ -231,6 +234,7 @@ export function ProfilePage() {
       const { error } = await supabaseAuth.auth.updateUser({ password: newPassword });
       if (error) throw error;
       toast.success("Senha alterada com sucesso!");
+      log({ action: "Senha alterada", category: "config" });
       setNewPassword("");
       setConfirmPassword("");
     } catch {

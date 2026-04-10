@@ -20,6 +20,7 @@ import { COLUMNS } from "./types";
 import { KanbanColumn } from "./KanbanColumn";
 import { LeadCard } from "./LeadCard";
 import { LeadForm } from "./LeadForm";
+import { useAuditLog } from "@/hooks/useAuditLog";
 
 const CRM_FIELDS = [
   { value: "name",            label: "Nome (name)" },
@@ -67,6 +68,7 @@ function StatCard({ icon, label, value, sub }: { icon: React.ReactNode; label: s
 }
 
 export function CrmSection({ clientId: _clientId, clientMetadata }: CrmSectionProps) {
+  const { log } = useAuditLog();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -131,19 +133,18 @@ export function CrmSection({ clientId: _clientId, clientMetadata }: CrmSectionPr
       const { error } = await supabase.from("crm_leads").update(form).eq("id", editing.id);
       if (error) { toast.error("Erro ao atualizar"); return; }
       toast.success("Lead atualizado");
+      log({ action: `Lead editado: ${form.name}`, category: "lead", entity_type: "lead", entity_id: editing.id, details: { status: form.status, origin: form.origin } });
       if (form.status === "fechado" && clientMetadata) fireConversionEvents(clientMetadata);
     } else {
       const { data: inserted, error } = await supabase
         .from("crm_leads").insert(form).select("id, status, created_at").single();
       if (error) { toast.error("Erro ao criar lead"); return; }
       toast.success("Lead criado");
-      // Record initial stage in history
+      log({ action: `Lead criado: ${form.name}`, category: "lead", entity_type: "lead", entity_id: inserted?.id, details: { status: form.status, origin: form.origin } });
       if (inserted) {
         await supabase.from("crm_lead_stage_history").insert({
-          lead_id: inserted.id,
-          stage: inserted.status,
-          entered_at: inserted.created_at,
-          implicit: false,
+          lead_id: inserted.id, stage: inserted.status,
+          entered_at: inserted.created_at, implicit: false,
         });
       }
       if (form.status === "fechado" && clientMetadata) fireConversionEvents(clientMetadata);
@@ -155,9 +156,11 @@ export function CrmSection({ clientId: _clientId, clientMetadata }: CrmSectionPr
 
   const handleDelete = async (id: string) => {
     if (!confirm("Excluir este lead?")) return;
+    const lead = leads.find(l => l.id === id);
     const { error } = await supabase.from("crm_leads").delete().eq("id", id);
     if (error) { toast.error("Erro ao excluir"); return; }
     toast.success("Lead excluído");
+    log({ action: `Lead excluído: ${lead?.name ?? id}`, category: "lead", entity_type: "lead", entity_id: id });
     fetchLeads();
   };
 
@@ -171,10 +174,13 @@ export function CrmSection({ clientId: _clientId, clientMetadata }: CrmSectionPr
     if (!over) return;
     const newStatus = COLUMNS.find((c) => c.id === over.id)?.id;
     if (!newStatus || newStatus === leads.find((l) => l.id === active.id)?.status) return;
+    const movedLead = leads.find((l) => l.id === active.id);
     setLeads((prev) => prev.map((l) => l.id === active.id ? { ...l, status: newStatus } : l));
     const { error } = await supabase.from("crm_leads").update({ status: newStatus }).eq("id", String(active.id));
-    if (!error && newStatus === "fechado" && clientMetadata) fireConversionEvents(clientMetadata);
-    // Rebusca para atualizar stats com updated_at correto do banco
+    if (!error) {
+      log({ action: `Lead movido para "${newStatus}": ${movedLead?.name ?? active.id}`, category: "crm", entity_type: "lead", entity_id: String(active.id), details: { from: movedLead?.status, to: newStatus } });
+      if (newStatus === "fechado" && clientMetadata) fireConversionEvents(clientMetadata);
+    }
     fetchLeads();
   };
 
