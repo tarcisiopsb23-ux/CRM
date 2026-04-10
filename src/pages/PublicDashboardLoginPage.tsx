@@ -149,15 +149,48 @@ export function PublicDashboardLoginPage() {
       const { data, error: authError } = await supabaseAuth.auth.signInWithPassword({
         email: email.trim(), password,
       });
-      if (authError || !data.session) {
+
+      if (authError) {
+        // Supabase retorna "Invalid login credentials" tanto para e-mail inexistente
+        // quanto para senha errada. Verificamos se o e-mail existe via resetPasswordForEmail
+        // que retorna erro diferente para e-mails não cadastrados.
+        const msg = authError.message?.toLowerCase() ?? "";
+        const isInvalidCredentials = msg.includes("invalid login credentials") || msg.includes("invalid credentials");
+
+        if (isInvalidCredentials) {
+          // Checar se o e-mail existe tentando reset (não envia e-mail, só verifica)
+          const { error: resetErr } = await supabaseAuth.auth.resetPasswordForEmail(
+            email.trim(),
+            { redirectTo: `${window.location.origin}/login` }
+          );
+          // Se resetPasswordForEmail não retornar erro, o e-mail existe → senha errada
+          // Se retornar erro com "user not found", o e-mail não existe
+          const notFound = resetErr?.message?.toLowerCase().includes("user not found")
+            || resetErr?.message?.toLowerCase().includes("email not found")
+            || resetErr?.status === 400;
+
+          if (notFound) {
+            setError("Usuário não cadastrado. Entre em contato com a agência.");
+            return; // Não conta como tentativa falha
+          }
+        }
+
+        // E-mail existe mas senha errada — contar tentativa
         const result = recordFailedAttempt();
         setAttemptsLeft(result.remaining);
         if (result.locked) {
           setIsLockedOut(true);
           setError("Acesso bloqueado após 3 tentativas incorretas. Redefina sua senha para desbloquear.");
         } else {
-          setError(`E-mail ou senha incorretos. ${result.remaining} tentativa${result.remaining !== 1 ? "s" : ""} restante${result.remaining !== 1 ? "s" : ""}.`);
+          setError(`Senha incorreta. ${result.remaining} tentativa${result.remaining !== 1 ? "s" : ""} restante${result.remaining !== 1 ? "s" : ""}.`);
         }
+        return;
+      }
+
+      if (!data.session) {
+        const result = recordFailedAttempt();
+        setAttemptsLeft(result.remaining);
+        setError(`E-mail ou senha incorretos. ${result.remaining} tentativa${result.remaining !== 1 ? "s" : ""} restante${result.remaining !== 1 ? "s" : ""}.`);
         return;
       }
 
