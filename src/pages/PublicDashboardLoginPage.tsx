@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+﻿import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Card, CardContent, CardHeader, CardTitle, CardDescription,
@@ -17,10 +17,10 @@ const TENANT_STATUS_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ten
 const SECRET_QUESTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/secret-question`;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// --- Lockout config -----------------------------------------------------------
+// ─── Lockout config ───────────────────────────────────────────────────────────
 const MAX_ATTEMPTS   = 3;
 const WINDOW_MS      = 30 * 60 * 1000; // janela de 30 minutos
-const LOCKOUT_PREFIX = "c8_lockout_"; // chave por e-mail: c8_lockout_<email>
+const LOCKOUT_PREFIX = "c8_lockout_"; // chave por e-mail
 
 interface LockoutData {
   attempts: number;
@@ -28,9 +28,7 @@ interface LockoutData {
   lockedAt: number | null;
 }
 
-function lockoutKey(email: string) {
-  return LOCKOUT_PREFIX + email.trim().toLowerCase();
-}
+function lockoutKey(email: string) { return LOCKOUT_PREFIX + email.trim().toLowerCase(); }
 
 function getLockout(email: string): LockoutData {
   try {
@@ -55,19 +53,15 @@ function isLocked(data: LockoutData): boolean {
 function recordFailedAttempt(email: string): { locked: boolean; remaining: number } {
   const now = Date.now();
   let data = getLockout(email);
-
   if (now - data.windowStart > WINDOW_MS) {
     data = { attempts: 0, windowStart: now, lockedAt: null };
   }
-
   data.attempts += 1;
-
   if (data.attempts >= MAX_ATTEMPTS) {
     data.lockedAt = now;
     saveLockout(email, data);
     return { locked: true, remaining: 0 };
   }
-
   saveLockout(email, data);
   return { locked: false, remaining: MAX_ATTEMPTS - data.attempts };
 }
@@ -78,8 +72,8 @@ function parseJwtPayload(token: string): Record<string, any> {
 
 const STATUS_MESSAGES: Record<string, string> = {
   bloqueado: "Acesso bloqueado",
-  suspenso:  "Acesso suspenso. Entre em contato com a ag�ncia.",
-  cancelado: "Contrato cancelado. Entre em contato com a ag�ncia.",
+  suspenso:  "Acesso suspenso. Entre em contato com a agência.",
+  cancelado: "Contrato cancelado. Entre em contato com a agência.",
 };
 
 type View = "login" | "forgot-question" | "forgot-reset";
@@ -110,10 +104,10 @@ export function PublicDashboardLoginPage() {
     }
   };
 
-  // Forgot � shared email field
+  // Forgot — shared email field
   const [forgotEmail, setForgotEmail] = useState("");
 
-  // Forgot � secret question flow
+  // Forgot — secret question flow
   const [secretQuestion, setSecretQuestion] = useState<string | null>(null);
   const [secretAnswer, setSecretAnswer] = useState("");
   const [questionLoading, setQuestionLoading] = useState(false);
@@ -140,17 +134,17 @@ export function PublicDashboardLoginPage() {
     const blocked = searchParams.get("blocked");
     if (blocked) setError(decodeURIComponent(blocked));
     const reason = searchParams.get("reason");
-    if (reason === "inatividade") setError("Sess�o encerrada por inatividade. Fa�a login novamente.");
+    if (reason === "inatividade") setError("Sessão encerrada por inatividade. Faça login novamente.");
   }, [searchParams]);
 
-  // -- Login -----------------------------------------------------------------
+  // ── Login ─────────────────────────────────────────────────────────────────
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
 
     // Verificar lockout antes de qualquer coisa
     if (isLocked(getLockout(email.trim()))) {
       setIsLockedOut(true);
-      setError("Acesso bloqueado ap�s 3 tentativas incorretas. Redefina sua senha para desbloquear.");
+      setError("Acesso bloqueado após 3 tentativas incorretas. Redefina sua senha para desbloquear.");
       return;
     }
 
@@ -164,34 +158,34 @@ export function PublicDashboardLoginPage() {
       if (authError) {
         // Supabase retorna "Invalid login credentials" tanto para e-mail inexistente
         // quanto para senha errada. Verificamos se o e-mail existe via resetPasswordForEmail
-        // que retorna erro diferente para e-mails n�o cadastrados.
+        // que retorna erro diferente para e-mails não cadastrados.
         const msg = authError.message?.toLowerCase() ?? "";
         const isInvalidCredentials = msg.includes("invalid login credentials") || msg.includes("invalid credentials");
 
         if (isInvalidCredentials) {
-          // Checar se o e-mail existe tentando reset (n�o envia e-mail, s� verifica)
+          // Checar se o e-mail existe tentando reset (não envia e-mail, só verifica)
           const { error: resetErr } = await supabaseAuth.auth.resetPasswordForEmail(
             email.trim(),
             { redirectTo: `${window.location.origin}/login` }
           );
-          // Se resetPasswordForEmail n�o retornar erro, o e-mail existe ? senha errada
-          // Se retornar erro com "user not found", o e-mail n�o existe
+          // Se resetPasswordForEmail não retornar erro, o e-mail existe → senha errada
+          // Se retornar erro com "user not found", o e-mail não existe
           const notFound = resetErr?.message?.toLowerCase().includes("user not found")
             || resetErr?.message?.toLowerCase().includes("email not found")
             || resetErr?.status === 400;
 
           if (notFound) {
-            setError("Usu�rio n�o cadastrado. Entre em contato com a ag�ncia.");
-            return; // N�o conta como tentativa falha
+            setError("Usuário não cadastrado. Entre em contato com a agência.");
+            return; // Não conta como tentativa falha
           }
         }
 
-        // E-mail existe mas senha errada � contar tentativa
+        // E-mail existe mas senha errada — contar tentativa
         const result = recordFailedAttempt(email.trim());
         setAttemptsLeft(result.remaining);
         if (result.locked) {
           setIsLockedOut(true);
-          setError("Acesso bloqueado ap�s 3 tentativas incorretas. Redefina sua senha para desbloquear.");
+          setError("Acesso bloqueado após 3 tentativas incorretas. Redefina sua senha para desbloquear.");
         } else {
           setError(`Senha incorreta. ${result.remaining} tentativa${result.remaining !== 1 ? "s" : ""} restante${result.remaining !== 1 ? "s" : ""}.`);
         }
@@ -205,7 +199,7 @@ export function PublicDashboardLoginPage() {
         return;
       }
 
-      // Login bem-sucedido � limpar lockout
+      // Login bem-sucedido — limpar lockout
       clearLockout(email.trim());
       setAttemptsLeft(MAX_ATTEMPTS);
 
@@ -229,13 +223,13 @@ export function PublicDashboardLoginPage() {
 
       if (role === "viewer") {
         await supabaseAuth.auth.signOut();
-        setError("Seu perfil n�o tem permiss�o de acesso ao C8 Control.");
+        setError("Seu perfil não tem permissão de acesso ao C8 Control.");
         return;
       }
       if (role === "agency" || role === "support") { navigate("/dashboard"); return; }
       if (!tenantId) {
         await supabaseAuth.auth.signOut();
-        setError("Usu�rio sem tenant configurado. Entre em contato com a ag�ncia.");
+        setError("Usuário sem tenant configurado. Entre em contato com a agência.");
         return;
       }
 
@@ -262,8 +256,8 @@ export function PublicDashboardLoginPage() {
         return;
       }
 
-      // Verificar senha tempor�ria
-      // Usa getUser() para garantir user_metadata atualizado (n�o depende do JWT)
+      // Verificar senha temporária
+      // Usa getUser() para garantir user_metadata atualizado (não depende do JWT)
       const { data: { user: freshUser } } = await supabaseAuth.auth.getUser();
       const userMeta = freshUser?.user_metadata ?? data.session.user.user_metadata ?? {};
       const forceChange = userMeta.force_password_change === true;
@@ -275,7 +269,7 @@ export function PublicDashboardLoginPage() {
       setAttemptsLeft(result.remaining);
       if (result.locked) {
         setIsLockedOut(true);
-        setError("Acesso bloqueado ap�s 3 tentativas incorretas. Redefina sua senha para desbloquear.");
+        setError("Acesso bloqueado após 3 tentativas incorretas. Redefina sua senha para desbloquear.");
       } else {
         setError(`E-mail ou senha incorretos. ${result.remaining} tentativa${result.remaining !== 1 ? "s" : ""} restante${result.remaining !== 1 ? "s" : ""}.`);
       }
@@ -283,23 +277,23 @@ export function PublicDashboardLoginPage() {
     finally { setLoading(false); }
   };
 
-  // -- Force password change -------------------------------------------------
+  // ── Force password change ─────────────────────────────────────────────────
   const handleForcePasswordChange = async () => {
     setChangeError(null);
     if (!newPassword.trim() || newPassword.length < 6) { setChangeError("A senha deve ter pelo menos 6 caracteres."); return; }
-    if (newPassword !== confirmPassword) { setChangeError("As senhas n�o coincidem."); return; }
+    if (newPassword !== confirmPassword) { setChangeError("As senhas não coincidem."); return; }
     setChangeLoading(true);
     try {
       const { error: pwErr } = await supabaseAuth.auth.updateUser({ password: newPassword });
       if (pwErr) { setChangeError("Erro ao atualizar senha. Tente novamente."); return; }
       await supabaseAuth.auth.updateUser({ data: { force_password_change: false } });
-      // Avan�a para o passo de pergunta secreta
+      // Avança para o passo de pergunta secreta
       setForceStep("question");
     } catch { setChangeError("Erro ao atualizar senha. Tente novamente."); }
     finally { setChangeLoading(false); }
   };
 
-  // -- Forgot: go to secret question ----------------------------------------
+  // ── Forgot: go to secret question ────────────────────────────────────────
   const goToForgot = () => {
     setForgotEmail(email);
     setQuestionError(null);
@@ -308,7 +302,7 @@ export function PublicDashboardLoginPage() {
     setView("forgot-question");
   };
 
-  // -- Forgot: load secret question ------------------------------------------
+  // ── Forgot: load secret question ──────────────────────────────────────────
   const handleLoadQuestion = async (emailValue: string) => {
     setQuestionLoading(true);
     setQuestionError(null);
@@ -320,7 +314,7 @@ export function PublicDashboardLoginPage() {
       });
       const data = await res.json();
       if (!data.has_question) {
-        setQuestionError("Nenhuma pergunta secreta cadastrada para este e-mail. Entre em contato com a ag�ncia.");
+        setQuestionError("Nenhuma pergunta secreta cadastrada para este e-mail. Entre em contato com a agência.");
         return;
       }
       setSecretQuestion(data.question);
@@ -328,7 +322,7 @@ export function PublicDashboardLoginPage() {
     finally { setQuestionLoading(false); }
   };
 
-  // -- Forgot: verify answer -------------------------------------------------
+  // ── Forgot: verify answer ─────────────────────────────────────────────────
   const handleVerifyAnswer = async (e: React.FormEvent) => {
     e.preventDefault();
     setQuestionLoading(true);
@@ -341,8 +335,8 @@ export function PublicDashboardLoginPage() {
       });
       const data = await res.json();
       if (!data.correct) { setQuestionError("Resposta incorreta. Tente novamente."); return; }
-      // Resposta correta � redirecionar para o link de reset gerado no servidor
-      // O link abre a sess�o de recovery no Supabase e redireciona para /login?reset=1
+      // Resposta correta — redirecionar para o link de reset gerado no servidor
+      // O link abre a sessão de recovery no Supabase e redireciona para /login?reset=1
       // Mas como queremos mostrar a tela de nova senha inline, usamos o action_link
       // para autenticar e depois updateUser
       setResetActionLink(data.action_link);
@@ -354,13 +348,13 @@ export function PublicDashboardLoginPage() {
     finally { setQuestionLoading(false); }
   };
 
-  // -- Forgot: set new password after secret question ------------------------
+  // ── Forgot: set new password after secret question ────────────────────────
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setResetError(null);
     if (!resetPassword.trim() || resetPassword.length < 6) { setResetError("A senha deve ter pelo menos 6 caracteres."); return; }
-    if (resetPassword !== resetConfirm) { setResetError("As senhas n�o coincidem."); return; }
-    if (!resetActionLink) { setResetError("Link de recupera��o inv�lido. Recomece o processo."); return; }
+    if (resetPassword !== resetConfirm) { setResetError("As senhas não coincidem."); return; }
+    if (!resetActionLink) { setResetError("Link de recuperação inválido. Recomece o processo."); return; }
     setResetLoading(true);
     try {
       // Extrair token do action_link e autenticar via OTP
@@ -395,7 +389,7 @@ export function PublicDashboardLoginPage() {
       setIsLockedOut(false);
       setAttemptsLeft(MAX_ATTEMPTS);
       // Pequeno feedback visual
-      setTimeout(() => setError("Senha atualizada com sucesso. Fa�a login."), 100);
+      setTimeout(() => setError("Senha atualizada com sucesso. Faça login."), 100);
     } catch { setResetError("Erro ao redefinir senha. Tente novamente."); }
     finally { setResetLoading(false); }
   };
@@ -412,10 +406,10 @@ export function PublicDashboardLoginPage() {
             <Activity className="h-10 w-10 text-white" />
           </div>
           <h1 className="text-3xl font-black text-white uppercase tracking-tighter">C8 Control</h1>
-          <p className="text-slate-400 font-medium italic">Powered by Ag�ncia C8</p>
+          <p className="text-slate-400 font-medium italic">Powered by Agência C8</p>
         </div>
 
-        {/* -- LOGIN -- */}
+        {/* ── LOGIN ── */}
         {view === "login" && (
           <Card className="bg-[#1E293B] border-slate-800 shadow-2xl overflow-hidden border-t-4 border-t-[#7C3AED]">
             <CardHeader>
@@ -442,7 +436,7 @@ export function PublicDashboardLoginPage() {
                   </div>
                   <div className="relative">
                     <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
-                    <Input type={showPassword ? "text" : "password"} placeholder="��������"
+                    <Input type={showPassword ? "text" : "password"} placeholder="••••••••"
                       className="bg-slate-900/50 border-slate-700 text-white pl-10 pr-10 h-12"
                       value={password} onChange={e => setPassword(e.target.value)} required />
                     <button type="button" onClick={() => setShowPassword(v => !v)}
@@ -456,7 +450,7 @@ export function PublicDashboardLoginPage() {
                 )}
                 {isLockedOut && (
                   <div className="rounded-lg bg-red-500/10 border border-red-500/30 p-3 space-y-2">
-                    <p className="text-red-400 text-xs font-bold">Conta bloqueada por seguran�a.</p>
+                    <p className="text-red-400 text-xs font-bold">Conta bloqueada por segurança.</p>
                     <p className="text-slate-400 text-xs">Use "Esqueci minha senha" para redefinir e desbloquear o acesso.</p>
                   </div>
                 )}
@@ -468,7 +462,7 @@ export function PublicDashboardLoginPage() {
           </Card>
         )}
 
-        {/* -- ESQUECI MINHA SENHA � pergunta secreta -- */}
+        {/* ── ESQUECI MINHA SENHA — pergunta secreta ── */}
         {view === "forgot-question" && (
           <Card className="bg-[#1E293B] border-slate-800 shadow-2xl overflow-hidden border-t-4 border-t-[#7C3AED]">
             <CardHeader>
@@ -479,7 +473,7 @@ export function PublicDashboardLoginPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {/* Campo de e-mail + bot�o buscar pergunta */}
+                {/* Campo de e-mail + botão buscar pergunta */}
                 <div className="space-y-2">
                   <Label className="text-slate-300">E-mail</Label>
                   <div className="flex gap-2">
@@ -501,7 +495,7 @@ export function PublicDashboardLoginPage() {
                   </div>
                 </div>
 
-                {/* Pergunta + resposta � aparece ap�s buscar */}
+                {/* Pergunta + resposta — aparece após buscar */}
                 {secretQuestion && (
                   <form onSubmit={handleVerifyAnswer} className="space-y-4">
                     <div className="rounded-lg bg-slate-900/50 border border-slate-700 p-4">
@@ -513,7 +507,7 @@ export function PublicDashboardLoginPage() {
                       <input type="text" placeholder="Digite sua resposta" autoComplete="off"
                         className="w-full bg-slate-900/50 border border-slate-700 text-white h-12 rounded-md px-4 text-sm focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/50"
                         value={secretAnswer} onChange={e => setSecretAnswer(e.target.value)} required />
-                      <p className="text-[10px] text-slate-500">N�o diferencia mai�sculas/min�sculas ou acentos.</p>
+                      <p className="text-[10px] text-slate-500">Não diferencia maiúsculas/minúsculas ou acentos.</p>
                     </div>
                     {questionError && <p className="text-red-400 text-sm font-medium">{questionError}</p>}
                     <button type="submit" disabled={questionLoading || !secretAnswer.trim()}
@@ -536,7 +530,7 @@ export function PublicDashboardLoginPage() {
           </Card>
         )}
 
-        {/* -- NOVA SENHA (ap�s pergunta secreta) -- */}
+        {/* ── NOVA SENHA (após pergunta secreta) ── */}
         {view === "forgot-reset" && (
           <Card className="bg-[#1E293B] border-slate-800 shadow-2xl overflow-hidden border-t-4 border-t-emerald-500">
             <CardHeader>
@@ -548,7 +542,7 @@ export function PublicDashboardLoginPage() {
                 <div className="space-y-2">
                   <Label className="text-slate-300">Nova senha</Label>
                   <div className="relative">
-                    <Input type={showResetPwd ? "text" : "password"} placeholder="M�nimo 6 caracteres"
+                    <Input type={showResetPwd ? "text" : "password"} placeholder="Mínimo 6 caracteres"
                       className="bg-slate-900/50 border-slate-700 text-white pr-10 h-12"
                       value={resetPassword} onChange={e => setResetPassword(e.target.value)} required />
                     <button type="button" onClick={() => setShowResetPwd(v => !v)}
@@ -572,11 +566,11 @@ export function PublicDashboardLoginPage() {
         )}
 
         <footer className="text-center text-slate-500 text-[10px] uppercase tracking-widest font-bold">
-          <p>&copy; {new Date().getFullYear()} Ag�ncia C8. Todos os Direitos Reservados.</p>
+          <p>&copy; {new Date().getFullYear()} Agência C8. Todos os Direitos Reservados.</p>
         </footer>
       </div>
 
-      {/* -- DIALOG: TROCA DE SENHA OBRIGAT�RIA (senha tempor�ria) -- */}
+      {/* ── DIALOG: TROCA DE SENHA OBRIGATÓRIA (senha temporária) ── */}
       <Dialog open={showForceChange} onOpenChange={() => {}}>
         <DialogContent className="bg-[#1E293B] border-slate-800 text-slate-100 sm:max-w-md"
           onPointerDownOutside={e => e.preventDefault()} onEscapeKeyDown={e => e.preventDefault()}>
@@ -586,14 +580,14 @@ export function PublicDashboardLoginPage() {
             <DialogHeader>
               <DialogTitle className="text-white">Defina sua senha permanente</DialogTitle>
               <DialogDescription className="text-slate-400 text-sm">
-                Voc� est� usando uma senha tempor�ria. Por seguran�a, crie uma senha permanente antes de continuar.
+                Você está usando uma senha temporária. Por segurança, crie uma senha permanente antes de continuar.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-2">
               <div className="space-y-2">
                 <Label className="text-slate-300">Nova senha</Label>
                 <div className="relative">
-                  <Input type={showNewPwd ? "text" : "password"} placeholder="M�nimo 6 caracteres"
+                  <Input type={showNewPwd ? "text" : "password"} placeholder="Mínimo 6 caracteres"
                     className="bg-slate-900 border-slate-700 text-white pr-10 h-12"
                     value={newPassword} onChange={e => setNewPassword(e.target.value)} />
                   <button type="button" onClick={() => setShowNewPwd(v => !v)}
@@ -612,17 +606,17 @@ export function PublicDashboardLoginPage() {
             <DialogFooter>
               <Button onClick={handleForcePasswordChange} disabled={changeLoading}
                 className="w-full bg-[#7C3AED] hover:bg-[#7C3AED]/90 h-12 font-bold">
-                {changeLoading ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : "Continuar ?"}
+                {changeLoading ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : "Continuar →"}
               </Button>
             </DialogFooter>
           </>)}
 
-          {/* Passo 2: configurar pergunta secreta (obrigat�rio) */}
+          {/* Passo 2: configurar pergunta secreta (obrigatório) */}
           {forceStep === "question" && (<>
             <DialogHeader>
               <DialogTitle className="text-white">Configure sua pergunta secreta</DialogTitle>
               <DialogDescription className="text-slate-400 text-sm">
-                Necess�rio para recuperar o acesso caso esque�a a senha. N�o � poss�vel pular esta etapa.
+                Necessário para recuperar o acesso caso esqueça a senha. Não é possível pular esta etapa.
               </DialogDescription>
             </DialogHeader>
             <div className="py-2">
