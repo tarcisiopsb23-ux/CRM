@@ -61,7 +61,7 @@ const KPI_COLORS = ["#10b981","#7C3AED","#f59e0b","#a855f7","#f43f5e","#06b6d4",
 
 export function PublicDashboardPage() {
   const navigate = useNavigate();
-  const { session, tenantId, isSupport, loading: authLoading, signOut } = useAuth();
+  const { session, tenantId, role, isSupport, loading: authLoading, signOut } = useAuth();
   const tenantStatus = useTenantStatus();
   useInactivityLogout();
   const [clientData, setClientData] = useState<any>(null);
@@ -426,7 +426,7 @@ export function PublicDashboardPage() {
           sessionStorage.setItem("support_selected_tenant_id", id);
           sessionStorage.setItem("support_selected_tenant_name", name);
           // Registrar acesso de suporte no audit log
-          supabaseCrm.from("audit_logs").insert({
+          void supabaseCrm.from("audit_logs").insert({
             tenant_id:  id,
             user_id:    session?.user?.id ?? "unknown",
             user_email: session?.user?.email ?? null,
@@ -434,7 +434,7 @@ export function PublicDashboardPage() {
             action:     `Suporte acessou dashboard do tenant: ${name ?? id}`,
             category:   "support",
             ip_hint:    "browser",
-          }).then(() => {}).catch(() => {});
+          });
         }}
       />
     );

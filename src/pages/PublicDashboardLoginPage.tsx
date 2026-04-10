@@ -161,27 +161,27 @@ export function PublicDashboardLoginPage() {
         return;
       }
 
-      // Login bem-sucedido — limpar lockout e registrar auditoria
+      // Login bem-sucedido — limpar lockout
       clearLockout();
       setAttemptsLeft(MAX_ATTEMPTS);
+
+      const payload  = parseJwtPayload(data.session.access_token);
+      const role     = payload.role     ?? payload.user_metadata?.role     ?? "member";
+      const tenantId = payload.tenant_id ?? payload.user_metadata?.tenant_id ?? null;
 
       // Registrar login no audit log (fire-and-forget)
       const loginTenantId = (payload.tenant_id ?? data.session.user.user_metadata?.tenant_id) as string | null;
       if (loginTenantId) {
-        supabaseCrm.from("audit_logs").insert({
+        void supabaseCrm.from("audit_logs").insert({
           tenant_id:  loginTenantId,
           user_id:    data.session.user.id,
           user_email: data.session.user.email ?? null,
-          user_role:  payload.role ?? "member",
+          user_role:  role ?? "member",
           action:     "Login realizado",
           category:   "login",
           ip_hint:    "browser",
-        }).then(() => {}).catch(() => {});
+        });
       }
-
-      const payload = parseJwtPayload(data.session.access_token);
-      const role     = payload.role     ?? payload.user_metadata?.role     ?? "member";
-      const tenantId = payload.tenant_id ?? payload.user_metadata?.tenant_id ?? null;
 
       if (role === "viewer") {
         await supabaseAuth.auth.signOut();
