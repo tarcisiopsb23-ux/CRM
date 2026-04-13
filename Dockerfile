@@ -6,8 +6,10 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 
-# Cache bust — incrementar para forçar rebuild do COPY
-ARG CACHEBUST=4
+# Cache bust — valor muda a cada commit para forçar COPY fresco
+ARG GIT_SHA=unknown
+ARG CACHEBUST=5
+RUN echo "Build SHA: $GIT_SHA | Bust: $CACHEBUST"
 COPY . .
 
 # Variáveis de build — com valores padrão para quando não forem passadas como ARG
