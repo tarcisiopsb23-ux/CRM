@@ -20,9 +20,15 @@ import { ptBR } from "date-fns/locale";
 
 export function TenantUsersPage() {
   const navigate = useNavigate();
-  const { tenantId, role, loading: authLoading } = useAuth();
+  const { tenantId, role, isSupport, loading: authLoading } = useAuth();
+
+  // Suporte usa o tenant selecionado na sessão
+  const effectiveTenantId = isSupport
+    ? (sessionStorage.getItem("support_selected_tenant_id") ?? tenantId ?? undefined)
+    : (tenantId ?? undefined);
+
   const { users, currentCount, maxUsers, planName, isLoading, inviteUser, removeUser } =
-    useTenantUsers(tenantId ?? undefined);
+    useTenantUsers(effectiveTenantId);
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviting, setInviting] = useState(false);
@@ -36,7 +42,7 @@ export function TenantUsersPage() {
     );
   }
 
-  if (role !== "admin") {
+  if (role !== "admin" && !isSupport) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-[#0F172A]">
         <div className="text-center space-y-3">
