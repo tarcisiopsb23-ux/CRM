@@ -48,6 +48,7 @@ import { useMetaAdsMetrics } from "@/hooks/useMetaAds";
 import { useOAuthTokens } from "@/hooks/useOAuthTokens";
 import { useFunnelStats } from "@/hooks/useFunnelStats";
 import { useInactivityLogout } from "@/hooks/useInactivityLogout";
+import { canManageRole } from "@/hooks/useAuth";
 import { ConversationKpiDashboard } from "@/components/whatsapp/ConversationKpiDashboard";
 import { MessageCircle } from "lucide-react";
 import { CrmSection } from "@/components/crm/CrmSection";
@@ -64,6 +65,7 @@ export function PublicDashboardPage() {
   const { session, tenantId, role, isSupport, loading: authLoading, signOut } = useAuth();
   const tenantStatus = useTenantStatus();
   useInactivityLogout();
+  const canManage = canManageRole(role, isSupport);
   const [clientData, setClientData] = useState<any>(null);
   const [clientDataLoaded, setClientDataLoaded] = useState(false);
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
@@ -541,7 +543,7 @@ export function PublicDashboardPage() {
                     <Lock className="h-4 w-4 text-orange-400" />
                     <span className="text-sm font-bold">Alterar Senha</span>
                   </DropdownMenuItem>
-                  {(role === "admin" || isSupport) && (<>
+                  {canManage && (<>
                     <DropdownMenuSeparator className="bg-slate-800" />
                     <DropdownMenuItem className="gap-2 focus:bg-slate-800 cursor-pointer py-3" onClick={() => navigate("/dashboard/logs")}>
                       <ListFilter className="h-4 w-4 text-slate-400" />

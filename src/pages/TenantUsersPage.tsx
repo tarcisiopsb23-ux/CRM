@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
+import { canManageRole } from "@/hooks/useAuth";
 import { useTenantUsers } from "@/hooks/useTenantUsers";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +22,7 @@ import { ptBR } from "date-fns/locale";
 export function TenantUsersPage() {
   const navigate = useNavigate();
   const { tenantId, role, isSupport, loading: authLoading } = useAuth();
+  const canManage = canManageRole(role, isSupport);
 
   // Suporte usa o tenant selecionado na sessão
   const effectiveTenantId = isSupport
@@ -42,7 +44,7 @@ export function TenantUsersPage() {
     );
   }
 
-  if (role !== "admin" && !isSupport) {
+  if (!canManage) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-[#0F172A]">
         <div className="text-center space-y-3">

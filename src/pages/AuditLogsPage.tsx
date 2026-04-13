@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
+import { canManageRole } from "@/hooks/useAuth";
 import { supabaseCrm } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, ClipboardList, Loader2, RefreshCw } from "lucide-react";
@@ -52,7 +53,7 @@ export function AuditLogsPage() {
     ? sessionStorage.getItem("support_selected_tenant_id")
     : tenantId;
 
-  const canAccess = role === "admin" || isSupport;
+  const canAccess = canManageRole(role, isSupport);
 
   const fetchLogs = async () => {
     if (!effectiveTenantId) return;

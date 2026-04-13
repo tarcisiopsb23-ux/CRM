@@ -20,12 +20,15 @@ function parseJwtPayload(token: string): Record<string, any> {
 }
 
 // Roles da agência (Maestr.ia) que têm acesso ao CRM sem vínculo com tenant
-// O hook JWT normaliza esses roles para 'agency' no JWT do CRM
-// O role 'viewer' do Maestr.ia NÃO tem acesso ao CRM
 const AGENCY_ROLES = ["agency", "support"] as const;
 
 export function isAgencyRole(role: string): boolean {
   return (AGENCY_ROLES as readonly string[]).includes(role);
+}
+
+/** Roles com acesso total de gerenciamento (admin do tenant + owner + suporte da agência) */
+export function canManageRole(role: string, isSupport: boolean): boolean {
+  return isSupport || role === "admin" || role === "owner";
 }
 
 export function useAuth() {
