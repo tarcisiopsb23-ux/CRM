@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Edge Function: provision-tenant
  *
  * Provisionamento completo de um novo tenant no C8 Control.
@@ -38,7 +38,7 @@ import { isValidEmail, isValidUuid } from "../_shared/jwt.ts";
 
 const allowedOrigin = Deno.env.get("APP_URL") ?? "*";
 const corsHeaders = {
-  "Access-Control-Allow-Origin": allowedOrigin,
+  "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-crm-api-key",
 };
 

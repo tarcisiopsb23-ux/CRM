@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Edge Function: ga4-metrics
  *
  * Fetches GA4 Data API metrics for a client.
@@ -17,7 +17,7 @@ import { verifyJwt } from "../_shared/jwt.ts";
 
 const allowedOrigin = Deno.env.get("APP_URL") ?? "*";
 const corsHeaders = {
-  "Access-Control-Allow-Origin": allowedOrigin,
+  "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 

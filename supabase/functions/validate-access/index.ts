@@ -36,7 +36,7 @@ import {
 const allowedOrigin = Deno.env.get("APP_URL") ?? "*";
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": allowedOrigin,
+  "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
@@ -64,7 +64,7 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: "Não autorizado" }, 401);
     }
 
-    const jwtSecret = Deno.env.get("SAAS_JWT_SECRET") ?? "";
+    const jwtSecret = Deno.env.get("SUPABASE_JWT_SECRET") ?? Deno.env.get("SAAS_JWT_SECRET") ?? "";
     let callerPayload: JwtPayload;
     try {
       callerPayload = await verifyJwt(callerToken, jwtSecret);
@@ -74,7 +74,8 @@ Deno.serve(async (req) => {
 
     const callerTenantId = callerPayload.tenant_id ?? null;
     const callerRole = callerPayload.role ?? "member";
-    const isSupport = callerRole === "support";
+    // agency = usuários da agência/suporte no CRM (normalizado pelo custom JWT hook)
+    const isSupport = callerRole === "support" || callerRole === "agency" || callerRole === "owner";
 
     // ── Parse e validação do body ────────────────────────────────────────────
     let body: ValidateAccessRequest;
@@ -99,8 +100,8 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: "Acesso negado" }, 403);
     }
 
-    // Para invite/remove: apenas admin ou suporte
-    if ((action === "invite" || action === "remove") && callerRole !== "admin" && !isSupport) {
+    // Para invite/remove: apenas admin, owner ou suporte
+    if ((action === "invite" || action === "remove") && callerRole !== "admin" && callerRole !== "owner" && !isSupport) {
       return jsonResponse({ error: "Apenas administradores podem convidar ou remover usuários" }, 403);
     }
 

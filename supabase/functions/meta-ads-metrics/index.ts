@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Edge Function: meta-ads-metrics
  *
  * Fetches Meta Ads Insights via Marketing API.
@@ -14,7 +14,7 @@ import { verifyJwt } from "../_shared/jwt.ts";
 
 const allowedOrigin = Deno.env.get("APP_URL") ?? "*";
 const corsHeaders = {
-  "Access-Control-Allow-Origin": allowedOrigin,
+  "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Edge Function: secret-question
  *
  * Gerencia pergunta secreta para recuperação de senha sem e-mail.
@@ -24,7 +24,7 @@ import { extractBearerToken, decodeJwtPayload } from "../_shared/jwt.ts";
 
 const allowedOrigin = Deno.env.get("APP_URL") ?? "*";
 const corsHeaders = {
-  "Access-Control-Allow-Origin": allowedOrigin,
+  "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 

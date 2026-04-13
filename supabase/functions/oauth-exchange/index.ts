@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Edge Function: oauth-exchange
  *
  * Exchanges an OAuth authorization code for access + refresh tokens.
@@ -19,7 +19,7 @@ import { verifyJwt } from "../_shared/jwt.ts";
 
 const allowedOrigin = Deno.env.get("APP_URL") ?? "*";
 const corsHeaders = {
-  "Access-Control-Allow-Origin": allowedOrigin,
+  "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
