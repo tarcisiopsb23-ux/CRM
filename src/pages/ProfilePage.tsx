@@ -491,7 +491,7 @@ export function ProfilePage() {
             )}
 
             {/* Usuários do Tenant */}
-            {role === "admin" && (
+            {(role === "admin" || isSupport) && (
               <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-blue-500">
                 <CardHeader>
                   <CardTitle className="text-white flex items-center gap-2">

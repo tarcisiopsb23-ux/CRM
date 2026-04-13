@@ -82,10 +82,10 @@ export function PublicDashboardPage() {
     () => sessionStorage.getItem("support_selected_tenant_name") ?? undefined
   );
 
-  // Dashboard flags — só aplica defaults após carregar os dados do cliente
-  const dashPerformance: boolean = clientDataLoaded ? (clientData?.metadata?.dashboard_performance ?? true)  : false;
-  const dashAtendimento: boolean = clientDataLoaded ? (clientData?.metadata?.dashboard_atendimento ?? false) : false;
-  const dashCrm: boolean         = clientDataLoaded ? (clientData?.metadata?.dashboard_crm         ?? true)  : false;
+  // Dashboard flags — todos ativos por padrão após carregar
+  const dashPerformance: boolean = clientDataLoaded ? (clientData?.metadata?.dashboard_performance ?? true) : false;
+  const dashAtendimento: boolean = clientDataLoaded ? (clientData?.metadata?.dashboard_atendimento ?? true) : false;
+  const dashCrm: boolean         = clientDataLoaded ? (clientData?.metadata?.dashboard_crm         ?? true) : false;
 
   // Dynamic title
   const activeCount = [dashPerformance, dashAtendimento, dashCrm].filter(Boolean).length;
@@ -131,8 +131,8 @@ export function PublicDashboardPage() {
           metadata: {
             ...(fresh.metadata ?? {}),
             dashboard_performance: fresh.dashboard_performance ?? true,
-            dashboard_atendimento: fresh.dashboard_atendimento ?? false,
-            dashboard_crm: fresh.dashboard_crm ?? false,
+            dashboard_atendimento: fresh.dashboard_atendimento ?? true,
+            dashboard_crm:         fresh.dashboard_crm         ?? true,
           },
         });
       }
@@ -501,9 +501,19 @@ export function PublicDashboardPage() {
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" className="bg-slate-800/50 border-slate-700 hover:bg-slate-800 text-slate-200 gap-2 h-10">
-                    <div className="h-6 w-6 rounded-full bg-[#7C3AED] flex items-center justify-center text-[10px] font-black text-white">
-                      {clientData?.name?.charAt(0)}
-                    </div>
+                    {clientData?.metadata?.avatar_url ? (
+                      <img src={clientData.metadata.avatar_url} alt="Avatar" className="h-6 w-6 rounded-full object-cover" />
+                    ) : (
+                      <div className="h-6 w-6 rounded-full bg-[#7C3AED] flex items-center justify-center text-[10px] font-black text-white">
+                        {(() => {
+                          const name = clientData?.metadata?.display_name || clientData?.name || "";
+                          const parts = name.trim().split(/\s+/);
+                          return parts.length >= 2
+                            ? (parts[0][0] + parts[1][0]).toUpperCase()
+                            : name.slice(0, 2).toUpperCase() || "?";
+                        })()}
+                      </div>
+                    )}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent className="bg-[#1E293B] border-slate-800 text-slate-200 w-56 shadow-2xl" align="end">
