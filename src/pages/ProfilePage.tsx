@@ -65,6 +65,7 @@ export function ProfilePage() {
   const [gtmId, setGtmId] = useState("");
   const [metaPixelId, setMetaPixelId] = useState("");
   const [n8nApiKey, setN8nApiKey] = useState("");
+  const [n8nWebhookUrl, setN8nWebhookUrl] = useState("");
   const [whatsappWebhookUrl, setWhatsappWebhookUrl] = useState("");
   const [integrationsLoading, setIntegrationsLoading] = useState(false);
   const [integrationsError, setIntegrationsError] = useState<string | null>(null);
@@ -112,6 +113,7 @@ export function ProfilePage() {
         setGtmId(meta.gtm_id ?? "");
         setMetaPixelId(meta.meta_pixel_id ?? "");
         setN8nApiKey(meta.n8n_api_key ?? "");
+        setN8nWebhookUrl(meta.n8n_webhook_url ?? "");
         setWhatsappWebhookUrl(meta.whatsapp_webhook_url ?? "");
         setTabPerformance(meta.dashboard_performance !== false);
         setTabAtendimento(meta.dashboard_atendimento !== false);
@@ -309,7 +311,7 @@ export function ProfilePage() {
   );
 
   const handleSaveN8n = () => saveIntegrationFields(
-    { n8n_api_key: n8nApiKey.trim() },
+    { n8n_api_key: n8nApiKey.trim(), n8n_webhook_url: n8nWebhookUrl.trim() },
     setN8nLoading, setN8nError, "Chave n8n salva!"
   );
 
@@ -709,28 +711,46 @@ export function ProfilePage() {
                         <Plug className="h-4 w-4 text-violet-400" />
                         <div>
                           <p className="text-slate-200 font-bold text-sm">Método 2 — Automação n8n</p>
-                          <p className="text-slate-500 text-xs">Recebe leads via webhook do n8n. Os contatos entram direto no CRM sem passar pela lista de pendentes.</p>
+                          <p className="text-slate-500 text-xs">Integração bidirecional com n8n. Recebe e envia leads automaticamente.</p>
                         </div>
                       </div>
+
+                      {/* Webhook do n8n → C8 Control (receber leads) */}
+                      <div className="rounded-lg bg-slate-800/60 border border-slate-700/50 p-3 space-y-1">
+                        <p className="font-bold text-slate-300 text-xs">📥 n8n → C8 Control (receber leads)</p>
+                        <p className="text-slate-500 text-xs">Configure este endpoint no seu workflow n8n como destino HTTP:</p>
+                        <p className="font-mono text-[11px] text-violet-300 break-all select-all">
+                          POST {whatsappWebhookUrl.trim() || "http://seu-vps.com:3001"}/api/webhook/n8n
+                        </p>
+                        <p className="text-slate-600 text-[10px]">Campos obrigatórios: <span className="font-mono text-slate-400">name</span>, <span className="font-mono text-slate-400">phone</span></p>
+                      </div>
+
+                      {/* URL do Workflow n8n (C8 Control → n8n) */}
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
-                          <Label className="text-slate-300 text-xs">Chave de API n8n</Label>
-                          <IntegrationStatusBadge status={integrationStatus(n8nApiKey)} />
+                          <Label className="text-slate-300 text-xs">📤 URL do Webhook n8n (C8 Control → n8n)</Label>
+                          <IntegrationStatusBadge status={integrationStatus(n8nWebhookUrl)} />
                         </div>
+                        <Input type="url" placeholder="https://seu-n8n.com/webhook/xxxxxxxx"
+                          className="bg-slate-900/50 border-slate-700 text-white h-10 font-mono text-sm"
+                          value={n8nWebhookUrl} onChange={(e) => setN8nWebhookUrl(e.target.value)} />
+                        <p className="text-slate-600 text-[10px]">URL do workflow n8n que receberá eventos do C8 Control (ex: lead fechado, status alterado).</p>
+                      </div>
+
+                      {/* Chave de API n8n */}
+                      <div className="space-y-2">
+                        <Label className="text-slate-300 text-xs">Chave de API n8n (autenticação)</Label>
                         <Input type="password" placeholder="••••••••••••••••"
                           className="bg-slate-900/50 border-slate-700 text-white h-10 font-mono text-sm"
                           value={n8nApiKey} onChange={(e) => setN8nApiKey(e.target.value)} />
+                        <p className="text-slate-600 text-[10px]">Enviada no header <span className="font-mono text-slate-400">x-api-key</span> nas requisições ao n8n.</p>
                       </div>
-                      <div className="rounded-lg bg-slate-800/60 border border-slate-700/50 p-3 text-xs text-slate-500 space-y-1">
-                        <p className="font-bold text-slate-400">Endpoint do webhook n8n:</p>
-                        <p className="font-mono text-[11px] text-violet-300 break-all">POST {whatsappWebhookUrl.trim() || "http://seu-vps.com:3001"}/api/webhook/n8n</p>
-                        <p>Campos obrigatórios: <span className="font-mono text-slate-300">name</span>, <span className="font-mono text-slate-300">phone</span></p>
-                      </div>
+
                       {n8nError && <p className="text-xs text-red-400">{n8nError}</p>}
                       <Button type="button" onClick={handleSaveN8n} disabled={n8nLoading}
                         className="w-full bg-emerald-600 hover:bg-emerald-700 h-9 font-bold text-sm">
                         {n8nLoading ? <Loader2 className="h-3 w-3 animate-spin mr-2" /> : null}
-                        Salvar Chave n8n
+                        Salvar Configuração n8n
                       </Button>
                     </div>
                   </div>
