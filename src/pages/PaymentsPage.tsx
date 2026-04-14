@@ -205,7 +205,7 @@ export function PaymentsPage() {
                     className="rounded border-slate-600" />
                   <label htmlFor="set_default" className="text-slate-300 text-sm">Definir como cartão padrão</label>
                 </div>
-                <p className="text-[10px] text-slate-500">🔒 Seus dados são tokenizados no gateway. Nunca armazenamos o número do cartão.</p>
+                <p className="text-[10px] text-slate-500">🔒 Seus dados são criptografados e protegidos. Nunca compartilhamos as informações do seu cartão.</p>
                 <div className="flex gap-3">
                   <Button variant="ghost" onClick={() => setShowAddCard(false)} className="text-slate-400">Cancelar</Button>
                   <Button onClick={handleSaveCard} disabled={savingCard} className="bg-[#7C3AED] hover:bg-[#7C3AED]/90 flex-1">
