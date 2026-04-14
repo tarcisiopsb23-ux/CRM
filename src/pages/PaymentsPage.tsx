@@ -34,6 +34,24 @@ const BRAND_ICON: Record<string, string> = {
   visa: "💳", mastercard: "💳", elo: "💳", amex: "💳", hipercard: "💳",
 };
 
+// Detecta bandeira pelos primeiros dígitos
+function detectBrand(num: string): { name: string; icon: string } | null {
+  const n = num.replace(/\s/g, "");
+  if (/^4/.test(n))                          return { name: "Visa",       icon: "🟦" };
+  if (/^5[1-5]/.test(n) || /^2[2-7]/.test(n)) return { name: "Mastercard", icon: "🔴" };
+  if (/^3[47]/.test(n))                      return { name: "Amex",       icon: "🟩" };
+  if (/^(636368|438935|504175|451416|636297|5067|4576|4011)/.test(n)) return { name: "Elo", icon: "🟡" };
+  if (/^(606282|3841)/.test(n))              return { name: "Hipercard",  icon: "🟥" };
+  if (n.length >= 1)                         return { name: "",           icon: "💳" };
+  return null;
+}
+
+// Formata número do cartão com espaços a cada 4 dígitos
+function formatCardNumber(raw: string): string {
+  const digits = raw.replace(/\D/g, "").slice(0, 16);
+  return digits.replace(/(.{4})/g, "$1 ").trim();
+}
+
 export function PaymentsPage() {
   const navigate = useNavigate();
   const { tenantId, isSupport, loading: authLoading } = useAuth();
@@ -164,10 +182,24 @@ export function PaymentsPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="col-span-2 space-y-1">
                     <Label className="text-slate-300 text-xs">Número do Cartão</Label>
-                    <Input placeholder="0000 0000 0000 0000" maxLength={19}
-                      className="bg-slate-800 border-slate-700 text-white font-mono"
-                      value={cardForm.card_number}
-                      onChange={e => setCardForm(f => ({ ...f, card_number: e.target.value.replace(/\D/g, "").slice(0, 16) }))} />
+                    <div className="relative">
+                      <Input placeholder="0000 0000 0000 0000" maxLength={19}
+                        className="bg-slate-800 border-slate-700 text-white font-mono pr-12"
+                        value={formatCardNumber(cardForm.card_number)}
+                        onChange={e => {
+                          const raw = e.target.value.replace(/\D/g, "").slice(0, 16);
+                          setCardForm(f => ({ ...f, card_number: raw }));
+                        }} />
+                      {(() => {
+                        const brand = detectBrand(cardForm.card_number);
+                        return brand ? (
+                          <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                            <span className="text-lg leading-none">{brand.icon}</span>
+                            {brand.name && <span className="text-[10px] font-bold text-slate-400">{brand.name}</span>}
+                          </div>
+                        ) : null;
+                      })()}
+                    </div>
                   </div>
                   <div className="col-span-2 space-y-1">
                     <Label className="text-slate-300 text-xs">Nome no Cartão</Label>
@@ -217,7 +249,7 @@ export function PaymentsPage() {
                 {cards.map(card => (
                   <div key={card.id} className="flex items-center justify-between rounded-lg bg-slate-900/50 border border-slate-700 px-4 py-3">
                     <div className="flex items-center gap-3">
-                      <span className="text-xl">{BRAND_ICON[card.brand] ?? "💳"}</span>
+                      <span className="text-xl">{detectBrand(card.last4 ?? "")?.icon ?? BRAND_ICON[card.brand] ?? "💳"}</span>
                       <div>
                         <p className="text-white font-bold text-sm capitalize">{card.brand} •••• {card.last4}</p>
                         <p className="text-slate-500 text-xs">{card.holder_name} · {card.exp_month}/{card.exp_year}</p>
