@@ -30,9 +30,20 @@ const METHOD_LABEL: Record<string, string> = {
   debit_card: "Cartão de Débito", manual: "Manual",
 };
 
-const BRAND_ICON: Record<string, string> = {
-  visa: "💳", mastercard: "💳", elo: "💳", amex: "💳", hipercard: "💳",
-};
+// Componente de ícone de bandeira
+function BrandIcon({ brand, className = "h-8 w-auto" }: { brand: string; className?: string }) {
+  const map: Record<string, string> = {
+    visa:       "/brands/icons8-visa.svg",
+    mastercard: "/brands/mastercard-svgrepo-com.svg",
+    amex:       "/brands/amex-svgrepo-com.svg",
+    elo:        "/brands/elo-svgrepo-com.svg",
+    hipercard:  "/brands/hipercard-svgrepo-com.svg",
+    diners:     "/brands/diners-svgrepo-com.svg",
+  };
+  const src = map[brand?.toLowerCase()];
+  if (src) return <img src={src} alt={brand} className={className} />;
+  return <span className="text-xl">💳</span>;
+}
 
 // Detecta bandeira pelos primeiros dígitos
 function detectBrand(num: string): { name: string; icon: string } | null {
@@ -194,8 +205,7 @@ export function PaymentsPage() {
                         const brand = detectBrand(cardForm.card_number);
                         return brand ? (
                           <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                            <span className="text-lg leading-none">{brand.icon}</span>
-                            {brand.name && <span className="text-[10px] font-bold text-slate-400">{brand.name}</span>}
+                            <BrandIcon brand={brand.name.toLowerCase()} className="h-6 w-auto" />
                           </div>
                         ) : null;
                       })()}
@@ -249,7 +259,7 @@ export function PaymentsPage() {
                 {cards.map(card => (
                   <div key={card.id} className="flex items-center justify-between rounded-lg bg-slate-900/50 border border-slate-700 px-4 py-3">
                     <div className="flex items-center gap-3">
-                      <span className="text-xl">{detectBrand(card.last4 ?? "")?.icon ?? BRAND_ICON[card.brand] ?? "💳"}</span>
+                      <BrandIcon brand={card.brand} className="h-8 w-auto" />
                       <div>
                         <p className="text-white font-bold text-sm capitalize">{card.brand} •••• {card.last4}</p>
                         <p className="text-slate-500 text-xs">{card.holder_name} · {card.exp_month}/{card.exp_year}</p>
