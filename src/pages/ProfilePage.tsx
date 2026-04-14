@@ -495,47 +495,62 @@ export function ProfilePage() {
             )}
 
             {/* Usuários do Tenant */}
-            {canManage && (
-              <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-blue-500">
-                <CardHeader>
-                  <CardTitle className="text-white flex items-center gap-2">
-                    <User className="h-5 w-5 text-blue-400" />
-                    Usuários
-                  </CardTitle>
-                  <CardDescription className="text-slate-400 text-xs">
-                    Gerencie quem tem acesso ao dashboard.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button type="button" className="w-full bg-blue-600 hover:bg-blue-700 h-11 font-bold gap-2"
-                    onClick={() => navigate("/dashboard/users")}>
-                    <User className="h-4 w-4" /> Gerenciar Usuários
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
+            <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-blue-500">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2">
+                  <User className="h-5 w-5 text-blue-400" />
+                  Usuários
+                </CardTitle>
+                <CardDescription className="text-slate-400 text-xs">
+                  Gerencie quem tem acesso ao dashboard.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button type="button" className="w-full bg-blue-600 hover:bg-blue-700 h-11 font-bold gap-2"
+                  onClick={() => navigate("/dashboard/users")}>
+                  <User className="h-4 w-4" /> Gerenciar Usuários
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* Faturas e Pagamentos */}
+            <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-emerald-500">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2">
+                  <ClipboardList className="h-5 w-5 text-emerald-400" />
+                  Faturas e Pagamentos
+                </CardTitle>
+                <CardDescription className="text-slate-400 text-xs">
+                  Histórico de cobranças e métodos de pagamento.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button type="button" className="w-full bg-emerald-600 hover:bg-emerald-700 h-11 font-bold gap-2"
+                  onClick={() => navigate("/dashboard/payments")}>
+                  <ClipboardList className="h-4 w-4" /> Ver Faturas
+                </Button>
+              </CardContent>
+            </Card>
 
             {/* Logs de Auditoria */}
-            {canManage && (
-              <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-slate-500">
-                <CardHeader>
-                  <CardTitle className="text-white flex items-center gap-2">
-                    <ClipboardList className="h-5 w-5 text-slate-400" />
-                    Logs de Auditoria
-                  </CardTitle>
-                  <CardDescription className="text-slate-400 text-xs">
-                    Histórico de todas as ações realizadas no dashboard.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button type="button" variant="outline"
-                    className="w-full border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 h-11 font-bold gap-2"
-                    onClick={() => navigate("/dashboard/logs")}>
-                    <ClipboardList className="h-4 w-4" /> Ver Logs de Auditoria
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
+            <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-slate-500">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2">
+                  <ClipboardList className="h-5 w-5 text-slate-400" />
+                  Logs de Auditoria
+                </CardTitle>
+                <CardDescription className="text-slate-400 text-xs">
+                  Histórico de todas as ações realizadas no dashboard.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button type="button" variant="outline"
+                  className="w-full border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 h-11 font-bold gap-2"
+                  onClick={() => navigate("/dashboard/logs")}>
+                  <ClipboardList className="h-4 w-4" /> Ver Logs de Auditoria
+                </Button>
+              </CardContent>
+            </Card>
 
             {/* Abas do Dashboard */}
             <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-violet-500">
