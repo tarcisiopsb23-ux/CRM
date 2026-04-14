@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Lock, Loader2, Plug, RefreshCw, Smartphone, User, Link2, Copy, Check, Info } from "lucide-react";
+import { ArrowLeft, Lock, Loader2, Plug, RefreshCw, Smartphone, User, Link2, Copy, Check, Info, ClipboardList } from "lucide-react";
 import { supabaseCrm } from "@/lib/supabase";
 import { supabaseAuth } from "@/lib/supabase-auth";
 import { useAuth } from "@/hooks/useAuth";
@@ -510,6 +510,28 @@ export function ProfilePage() {
                   <Button type="button" className="w-full bg-blue-600 hover:bg-blue-700 h-11 font-bold gap-2"
                     onClick={() => navigate("/dashboard/users")}>
                     <User className="h-4 w-4" /> Gerenciar Usuários
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Logs de Auditoria */}
+            {canManage && (
+              <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-slate-500">
+                <CardHeader>
+                  <CardTitle className="text-white flex items-center gap-2">
+                    <ClipboardList className="h-5 w-5 text-slate-400" />
+                    Logs de Auditoria
+                  </CardTitle>
+                  <CardDescription className="text-slate-400 text-xs">
+                    Histórico de todas as ações realizadas no dashboard.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Button type="button" variant="outline"
+                    className="w-full border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 h-11 font-bold gap-2"
+                    onClick={() => navigate("/dashboard/logs")}>
+                    <ClipboardList className="h-4 w-4" /> Ver Logs de Auditoria
                   </Button>
                 </CardContent>
               </Card>
