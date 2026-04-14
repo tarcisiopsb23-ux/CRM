@@ -534,6 +534,11 @@ export function PublicDashboardPage() {
                     <span className="text-sm font-bold">Produtos/Serviços</span>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator className="bg-slate-800" />
+                  <DropdownMenuItem className="gap-2 focus:bg-slate-800 cursor-pointer py-3" onClick={() => navigate("/dashboard/payments")}>
+                    <DollarSign className="h-4 w-4 text-emerald-400" />
+                    <span className="text-sm font-bold">Faturas e Pagamentos</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator className="bg-slate-800" />
                   <DropdownMenuItem className="gap-2 focus:bg-slate-800 cursor-pointer py-3" onClick={() => navigate("/dashboard/whatsapp-sync")}>
                     <MessageCircleIcon className="h-4 w-4 text-emerald-400" />
                     <span className="text-sm font-bold">WhatsApp → CRM</span>

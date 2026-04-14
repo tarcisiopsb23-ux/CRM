@@ -13,6 +13,7 @@ import { OAuthCallbackPage } from "@/pages/OAuthCallbackPage";
 import { TenantUsersPage } from "@/pages/TenantUsersPage";
 import { DemoPage } from "@/pages/DemoPage";
 import { AuditLogsPage } from "@/pages/AuditLogsPage";
+import { PaymentsPage } from "@/pages/PaymentsPage";
 import { useAuth } from "@/hooks/useAuth";
 
 const queryClient = new QueryClient();
@@ -47,6 +48,7 @@ export default function App() {
             <Route path="/dashboard/whatsapp-sync" element={<WhatsAppSyncPage />} />
             <Route path="/dashboard/users" element={<TenantUsersPage />} />
             <Route path="/dashboard/logs" element={<AuditLogsPage />} />
+            <Route path="/dashboard/payments" element={<PaymentsPage />} />
           </Route>
 
           {/* CRM standalone */}
