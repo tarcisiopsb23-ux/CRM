@@ -163,14 +163,6 @@ export function PaymentsPage() {
                 <p className="text-sm font-bold text-white">Novo Cartão</p>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="col-span-2 space-y-1">
-                    <Label className="text-slate-300 text-xs">Gateway</Label>
-                    <select value={cardForm.gateway} onChange={e => setCardForm(f => ({ ...f, gateway: e.target.value }))}
-                      className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-2 text-sm">
-                      <option value="asaas">Asaas</option>
-                      <option value="stripe">Stripe</option>
-                    </select>
-                  </div>
-                  <div className="col-span-2 space-y-1">
                     <Label className="text-slate-300 text-xs">Número do Cartão</Label>
                     <Input placeholder="0000 0000 0000 0000" maxLength={19}
                       className="bg-slate-800 border-slate-700 text-white font-mono"
@@ -228,7 +220,7 @@ export function PaymentsPage() {
                       <span className="text-xl">{BRAND_ICON[card.brand] ?? "💳"}</span>
                       <div>
                         <p className="text-white font-bold text-sm capitalize">{card.brand} •••• {card.last4}</p>
-                        <p className="text-slate-500 text-xs">{card.holder_name} · {card.exp_month}/{card.exp_year} · {card.gateway}</p>
+                        <p className="text-slate-500 text-xs">{card.holder_name} · {card.exp_month}/{card.exp_year}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
