@@ -44,6 +44,7 @@ export function useClientKPIs(clientId?: string) {
     },
     enabled: !!clientId,
     retry: 1,
+    staleTime: 5 * 60 * 1000,
   });
 
   const create = useMutation({
@@ -94,6 +95,7 @@ export function useClientKPIHistory(clientId?: string) {
     },
     enabled: !!clientId,
     retry: 1,
+    staleTime: 5 * 60 * 1000,
   });
 
   const upsert = useMutation({

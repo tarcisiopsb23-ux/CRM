@@ -45,6 +45,7 @@ export function useClientReports(
       return data || [];
     },
     enabled: !!clientId && !!dateRange,
+    staleTime: 5 * 60 * 1000, // 5 min cache
   });
 
   const dailyMetricsQuery = useQuery<DailyMetrics[]>({
@@ -62,6 +63,7 @@ export function useClientReports(
       return data || [];
     },
     enabled: !!clientId && !!dateRange,
+    staleTime: 5 * 60 * 1000, // 5 min cache
   });
 
   return { campaignDataQuery, dailyMetricsQuery };

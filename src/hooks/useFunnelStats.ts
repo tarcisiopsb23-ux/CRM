@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+﻿import { useQuery } from "@tanstack/react-query";
 import { supabaseCrm } from "@/lib/supabase";
 
 export interface CrmFunnelStats {
@@ -51,6 +51,7 @@ export function useFunnelStats(
       };
     },
     enabled: !!tenantId && !!dateRange,
+    staleTime: 5 * 60 * 1000, // 5 min cache
   });
 }
 

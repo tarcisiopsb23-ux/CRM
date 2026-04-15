@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+﻿import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 
 export interface AdClickSession {
@@ -88,5 +88,6 @@ export function useAdClickSessions(
       return { totalClicks, uniqueCampaigns, byCampaign, bySource, byDay, conversionRate };
     },
     enabled: !!clientId && !!dateRange,
+    staleTime: 5 * 60 * 1000, // 5 min cache
   });
 }

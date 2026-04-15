@@ -1,9 +1,9 @@
 ﻿/**
  * supabase.ts
  *
- * Auth e dados agora estão no mesmo projeto Supabase (CRM).
- * supabaseCrm e supabase são o mesmo cliente — sem injeção manual de JWT.
- * O Supabase JS gerencia a sessão e envia o Authorization header automaticamente.
+ * Cliente único do Supabase — auth e dados no mesmo projeto.
+ * supabaseAuth e supabaseCrm são o MESMO objeto para evitar
+ * múltiplas instâncias GoTrueClient (que causam conflito de sessão).
  */
 import { createClient } from "@supabase/supabase-js";
 
@@ -14,7 +14,8 @@ if (!supabaseUrl || !supabaseKey) {
   console.error("ERRO: Variáveis de ambiente do Supabase não encontradas!");
 }
 
-export const supabaseCrm = createClient(
+// Cliente único compartilhado por toda a aplicação
+const _client = createClient(
   supabaseUrl || "",
   supabaseKey || "",
   {
@@ -27,5 +28,6 @@ export const supabaseCrm = createClient(
   }
 );
 
-// Alias para compatibilidade com código legado que importa `supabase`
-export const supabase = supabaseCrm;
+export const supabaseCrm  = _client;
+export const supabase     = _client; // alias legado
+export const supabaseAuth = _client; // alias — mesmo cliente, sem duplicação
