@@ -70,13 +70,18 @@ Deno.serve(async (req) => {
 
   // ── Parse do body ──────────────────────────────────────────────────────────
   let body: {
+    action?:        string;  // 'provision' (default) | 'sync-client'
     tenant_name:    string;
     admin_email:    string;
     admin_password?: string;
     company?:       string;
     slug?:          string;
     is_support?:    boolean;
-    tenant_id?:     string; // para criar usuário em tenant já existente
+    tenant_id?:     string;
+    // Campos extras do cliente para sync-client
+    phone?:         string;
+    address?:       string;
+    favicon_url?:   string;
   };
 
   try {
@@ -91,13 +96,59 @@ Deno.serve(async (req) => {
   const isSupport = (body as any).is_support === true;
   // tenant_id existente: pula criação do tenant, só cria o usuário
   const existingTenantId = (body as any).tenant_id?.trim() ?? null;
-
-  if (!admin_email?.trim() || !isValidEmail(admin_email.trim())) {
-    return jsonResponse({ error: "admin_email inválido" }, 400);
-  }
+  // action: sync-client apenas cria/atualiza o registro em clients sem criar usuário
+  const action = (body as any).action ?? "provision";
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL") ?? "",
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+  );
+
+  // ── action: sync-client — cria/atualiza clients para tenant já existente ──
+  if (action === "sync-client") {
+    if (!existingTenantId) {
+      return jsonResponse({ error: "tenant_id é obrigatório para sync-client" }, 400);
+    }
+    if (!tenant_name?.trim()) {
+      return jsonResponse({ error: "tenant_name é obrigatório para sync-client" }, 400);
+    }
+
+    const { data: existing } = await supabase
+      .from("clients")
+      .select("id")
+      .eq("tenant_id", existingTenantId)
+      .maybeSingle();
+
+    if (existing) {
+      // Atualizar registro existente
+      await supabase.from("clients").update({
+        name:        tenant_name.trim(),
+        company:     company?.trim() ?? null,
+        favicon_url: (body as any).favicon_url ?? null,
+      }).eq("tenant_id", existingTenantId);
+      return jsonResponse({ tenant_id: existingTenantId, action: "updated", message: "Cliente atualizado." });
+    } else {
+      // Criar novo registro com o tenant_id fornecido
+      const dashSlug = slug?.trim() || generateSlug(tenant_name.trim());
+      const { error: insertErr } = await supabase.from("clients").insert({
+        id:             existingTenantId,
+        name:           tenant_name.trim(),
+        company:        company?.trim() ?? null,
+        tenant_id:      existingTenantId,
+        dashboard_slug: dashSlug,
+        favicon_url:    (body as any).favicon_url ?? null,
+        metadata: {
+          dashboard_performance: true,
+          dashboard_atendimento: true,
+          dashboard_crm:         true,
+        },
+      });
+      if (insertErr) {
+        return jsonResponse({ error: `Erro ao criar cliente: ${insertErr.message}` }, 500);
+      }
+      return jsonResponse({ tenant_id: existingTenantId, action: "created", message: "Cliente criado no C8 Control." }, 201);
+    }
+  }
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
   );
 
