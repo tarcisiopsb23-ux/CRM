@@ -254,9 +254,10 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 async function checkLimit(
   crmClient: SupabaseClient,
-  saasClient: SupabaseClient,
+  _saasClient: SupabaseClient,
   tenant_id: string
 ): Promise<LimitResult> {
+  // Contar usuários ativos do tenant
   const { count: currentUsers, error: countErr } = await crmClient
     .from("tenant_users")
     .select("*", { count: "exact", head: true })
@@ -264,15 +265,15 @@ async function checkLimit(
 
   if (countErr) throw new Error(`Erro ao contar usuários: ${countErr.message}`);
 
-  const { data: sub } = await saasClient
-    .from("tenant_subscriptions")
-    .select("status, plans(name, max_users)")
+  // Ler limite do cache local (sincronizado do Maestr.ia via tenant-status)
+  const { data: cache } = await crmClient
+    .from("tenant_config_cache")
+    .select("max_users, plan_name")
     .eq("tenant_id", tenant_id)
-    .eq("status", "active")
-    .single();
+    .maybeSingle();
 
-  const maxUsers: number = (sub as any)?.plans?.max_users ?? 3;
-  const planName: string = (sub as any)?.plans?.name ?? "Starter";
+  const maxUsers: number = cache?.max_users ?? 3;
+  const planName: string = cache?.plan_name ?? "Starter";
   const current = currentUsers ?? 0;
 
   return {
