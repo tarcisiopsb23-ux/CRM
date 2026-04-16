@@ -117,7 +117,14 @@ export function PublicDashboardPage() {
   }, [authLoading, session, navigate]);
 
   // Fetch client metadata from CRM_DB using RLS (tenant_id from JWT)
-  const effectiveTenantId = isSupport ? selectedTenantId : tenantId;
+  // Suporte com tenant_id próprio (novo modelo): usa tenantId diretamente
+  // Suporte sem tenant_id (modelo antigo): usa selectedTenantId do TenantSelector
+  const isSupportWithTenant = isSupport && !!tenantId;
+  const effectiveTenantId = isSupportWithTenant
+    ? tenantId
+    : isSupport
+      ? selectedTenantId
+      : tenantId;
   useEffect(() => {
     if (!effectiveTenantId) return;
     const fetchClientData = async () => {
@@ -418,8 +425,9 @@ export function PublicDashboardPage() {
     </div>
   );
 
-  // Suporte sem tenant selecionado — mostrar seletor em tela cheia antes do dashboard
-  if (isSupport && !selectedTenantId) {
+  // Suporte sem tenant_id (modelo antigo) — mostrar seletor de tenant
+  // Suporte com tenant_id (novo modelo do Maestr.IA) — vai direto para o dashboard
+  if (isSupport && !tenantId && !selectedTenantId) {
     return (
       <TenantSelector
         onSelect={(id, name) => {
@@ -427,7 +435,6 @@ export function PublicDashboardPage() {
           setSelectedTenantName(name);
           sessionStorage.setItem("support_selected_tenant_id", id);
           sessionStorage.setItem("support_selected_tenant_name", name);
-          // Registrar acesso de suporte no audit log
           void supabaseCrm.from("audit_logs").insert({
             tenant_id:  id,
             user_id:    session?.user?.id ?? "unknown",
@@ -463,11 +470,11 @@ export function PublicDashboardPage() {
             <ContractExpiryBanner contractEnd={tenantStatus.contractEnd} />
           )}
 
-          {/* -- SUPORTE: banner permanente após seleção -- */}
-          {isSupport && selectedTenantId && (
+          {/* -- SUPORTE: banner permanente -- */}
+          {isSupport && (
             <SupportBanner
-              tenantName={selectedTenantName}
-              onChangeTenant={() => {
+              tenantName={isSupportWithTenant ? (clientData?.name ?? undefined) : selectedTenantName}
+              onChangeTenant={isSupportWithTenant ? undefined : () => {
                 setSelectedTenantId(null);
                 setSelectedTenantName(undefined);
                 setClientData(null);

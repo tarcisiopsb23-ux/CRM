@@ -100,9 +100,13 @@ export function useAuth() {
       session.user.user_metadata?.tenant_id ??
       null;
 
-    // isSupport: verdadeiro se role for da agência OU se não tiver tenant_id
-    // (usuário de suporte criado pelo Maestr.IA não tem tenant_id)
-    const resolvedIsSupport = isAgencyRole(role) || (tenantId === null && role !== "member");
+    // isSupport: verdadeiro se:
+    // 1. Role for da agência (agency/support) — modelo antigo sem tenant_id
+    // 2. E-mail terminar com @agenciac8.com.br — novo modelo com tenant_id específico
+    // 3. tenant_id === null e role não for member — fallback sem hook JWT
+    const email = session.user.email ?? "";
+    const isSupportEmail = email.toLowerCase().endsWith("@agenciac8.com.br");
+    const resolvedIsSupport = isAgencyRole(role) || isSupportEmail || (tenantId === null && role !== "member");
 
     setState({
       session,

@@ -85,6 +85,9 @@ Deno.serve(async (req) => {
 
   const { tenant_name, admin_email, admin_password, company, slug } = body;
 
+  // Suporte: is_support=true cria usuário de suporte vinculado ao tenant
+  const isSupport = (body as any).is_support === true;
+
   if (!tenant_name?.trim()) {
     return jsonResponse({ error: "tenant_name é obrigatório" }, 400);
   }
@@ -140,8 +143,7 @@ Deno.serve(async (req) => {
     email_confirm: true,
     user_metadata: {
       tenant_id:             tenantId,
-      role:                  "admin",
-      // Se senha temporária fornecida, forçar troca no primeiro acesso
+      role:                  isSupport ? "agency" : "admin",
       force_password_change: admin_password?.trim() ? true : false,
     },
   };
