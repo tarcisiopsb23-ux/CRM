@@ -149,10 +149,12 @@ Deno.serve(async (req) => {
       return jsonResponse({ tenant_id: existingTenantId, action: "created", message: "Cliente criado no C8 Control." }, 201);
     }
   }
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-  );
 
   // ── Se tenant_id existente fornecido: pular criação do tenant ─────────────
+  if (!admin_email?.trim() || !isValidEmail(admin_email.trim())) {
+    return jsonResponse({ error: "admin_email inválido" }, 400);
+  }
+
   if (existingTenantId) {
     // Verificar que o tenant existe
     const { data: existingClient } = await supabase
