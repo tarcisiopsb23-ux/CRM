@@ -24,9 +24,27 @@ export function useTenantUsers(tenantId?: string) {
         .eq("tenant_id", tenantId)
         .order("created_at", { ascending: true });
       if (error) throw error;
+
+      // Se a tabela estiver vazia, incluir o usuário atual como admin
+      // (caso o provision-tenant não tenha inserido em tenant_users)
+      if ((data ?? []).length === 0) {
+        const { data: { session } } = await supabaseAuth.auth.getSession();
+        if (session?.user) {
+          return [{
+            id:         session.user.id,
+            user_id:    session.user.id,
+            tenant_id:  tenantId,
+            role:       "admin",
+            email:      session.user.email,
+            created_at: session.user.created_at,
+          }];
+        }
+      }
+
       return data ?? [];
     },
     enabled: !!tenantId,
+    staleTime: 5 * 60 * 1000,
   });
 
   const limitQuery = useQuery({

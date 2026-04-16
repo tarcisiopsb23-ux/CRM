@@ -241,13 +241,25 @@ async function checkLimit(
   _saasClient: SupabaseClient,
   tenant_id: string
 ): Promise<LimitResult> {
-  // Contar usuários ativos do tenant
-  const { count: currentUsers, error: countErr } = await crmClient
+  // Contar usuários em tenant_users
+  const { count: tuCount, error: countErr } = await crmClient
     .from("tenant_users")
     .select("*", { count: "exact", head: true })
     .eq("tenant_id", tenant_id);
 
   if (countErr) throw new Error(`Erro ao contar usuários: ${countErr.message}`);
+
+  // Se tenant_users estiver vazio, verificar auth.users pelo user_metadata.tenant_id
+  // (usuário principal pode não estar em tenant_users)
+  let current = tuCount ?? 0;
+  if (current === 0) {
+    const { data: authList } = await crmClient.auth.admin.listUsers({ perPage: 1000 });
+    const authCount = (authList?.users ?? []).filter((u: any) => {
+      const meta = u.user_metadata ?? {};
+      return meta.tenant_id === tenant_id;
+    }).length;
+    current = authCount;
+  }
 
   // Ler limite do cache local (sincronizado do Maestr.ia via tenant-status)
   const { data: cache } = await crmClient
@@ -258,7 +270,6 @@ async function checkLimit(
 
   const maxUsers: number = cache?.max_users ?? 3;
   const planName: string = cache?.plan_name ?? "Starter";
-  const current = currentUsers ?? 0;
 
   return {
     allowed: current < maxUsers,
