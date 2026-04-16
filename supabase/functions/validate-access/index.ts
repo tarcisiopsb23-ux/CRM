@@ -256,7 +256,9 @@ async function checkLimit(
     const { data: authList } = await crmClient.auth.admin.listUsers({ perPage: 1000 });
     const authCount = (authList?.users ?? []).filter((u: any) => {
       const meta = u.user_metadata ?? {};
-      return meta.tenant_id === tenant_id;
+      // Não contar usuários de suporte da agência
+      return meta.tenant_id === tenant_id
+        && !u.email?.toLowerCase().endsWith("@agenciac8.com.br");
     }).length;
     current = authCount;
   }

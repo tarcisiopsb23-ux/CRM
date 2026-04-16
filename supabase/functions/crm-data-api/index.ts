@@ -71,12 +71,19 @@ Deno.serve(async (req) => {
     //    (usuário principal criado antes da tabela existir, ou em migração)
     const extraFromAuth = (authList?.users ?? []).filter((u: any) => {
       const meta = u.user_metadata ?? {};
-      return meta.tenant_id === tenantId && !tuIds.has(u.id);
+      return meta.tenant_id === tenantId
+        && !tuIds.has(u.id)
+        && !u.email?.toLowerCase().endsWith("@agenciac8.com.br");
     });
 
     const users = [
-      // Usuários de tenant_users
-      ...(tuRows ?? []).map((u: any) => {
+      // Usuários de tenant_users — excluindo suporte da agência
+      ...(tuRows ?? [])
+        .filter((u: any) => {
+          const a = authMap.get(u.user_id) as any;
+          return !a?.email?.toLowerCase().endsWith("@agenciac8.com.br");
+        })
+        .map((u: any) => {
         const a = authMap.get(u.user_id) as any;
         return {
           id:             u.user_id,

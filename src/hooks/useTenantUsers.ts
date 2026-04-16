@@ -25,11 +25,16 @@ export function useTenantUsers(tenantId?: string) {
         .order("created_at", { ascending: true });
       if (error) throw error;
 
-      // Se a tabela estiver vazia, incluir o usuário atual como admin
+      // Filtrar usuários de suporte da agência (domínio @agenciac8.com.br)
+      const filtered = (data ?? []).filter((u: any) =>
+        !u.email?.toLowerCase().endsWith("@agenciac8.com.br")
+      );
+
+      // Se a tabela estiver vazia após filtro, incluir o usuário atual como admin
       // (caso o provision-tenant não tenha inserido em tenant_users)
-      if ((data ?? []).length === 0) {
+      if (filtered.length === 0) {
         const { data: { session } } = await supabaseAuth.auth.getSession();
-        if (session?.user) {
+        if (session?.user && !session.user.email?.toLowerCase().endsWith("@agenciac8.com.br")) {
           return [{
             id:         session.user.id,
             user_id:    session.user.id,
@@ -41,7 +46,7 @@ export function useTenantUsers(tenantId?: string) {
         }
       }
 
-      return data ?? [];
+      return filtered;
     },
     enabled: !!tenantId,
     staleTime: 5 * 60 * 1000,
