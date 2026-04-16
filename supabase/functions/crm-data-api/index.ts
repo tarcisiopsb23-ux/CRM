@@ -3,13 +3,12 @@
  *
  * API segura para o Maestr.IA consultar dados do C8 Control.
  * Autenticação: header x-crm-api-key
- * CORS: Access-Control-Allow-Origin: * (chamada direta do browser do Maestr.IA)
  *
  * Endpoints (GET via query string):
- *   ?action=users&tenant_id=<uuid>
- *   ?action=user_count&tenant_id=<uuid>
- *   ?action=audit_logs&tenant_id=<uuid>
- *   ?action=all_tenants_summary
+ *   ?action=users&tenant_id=<uuid>          — todos os usuários do tenant (admin + convidados)
+ *   ?action=user_count&tenant_id=<uuid>     — contagem atual vs limite do plano
+ *   ?action=audit_logs&tenant_id=<uuid>     — logs de auditoria
+ *   ?action=all_tenants_summary             — resumo de todos os tenants
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -28,12 +27,8 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 Deno.serve(async (req) => {
-  // Responder ao preflight CORS com 200
-  if (req.method === "OPTIONS") {
-    return new Response(null, { status: 200, headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return new Response(null, { status: 200, headers: corsHeaders });
 
-  // Autenticar via CRM_API_KEY
   const apiKey = req.headers.get("x-crm-api-key");
   if (!apiKey || apiKey !== Deno.env.get("CRM_API_KEY")) {
     return jsonResponse({ error: "Não autorizado" }, 401);
@@ -52,39 +47,65 @@ Deno.serve(async (req) => {
 
   if (!action) return jsonResponse({ error: "action é obrigatório" }, 400);
 
-  // ── users ─────────────────────────────────────────────────────────────────
-  // Formato esperado pelo Maestr.IA:
-  // { users: [{ id, email, name, role, active, last_access_at, created_at }] }
+  // ── users: todos os usuários do tenant (admin + convidados) ───────────────
   if (action === "users") {
     if (!tenantId) return jsonResponse({ error: "tenant_id é obrigatório" }, 400);
 
-    const { data: tuRows, error } = await supabase
+    // 1. Buscar registros de tenant_users
+    const { data: tuRows, error: tuErr } = await supabase
       .from("tenant_users")
       .select("user_id, role, created_at")
       .eq("tenant_id", tenantId)
       .order("created_at", { ascending: true });
 
-    if (error) return jsonResponse({ error: error.message }, 500);
+    if (tuErr) return jsonResponse({ error: tuErr.message }, 500);
 
-    const users = [];
-    for (const u of tuRows ?? []) {
-      const { data: authData } = await supabase.auth.admin.getUserById(u.user_id);
-      const authUser = authData?.user;
-      users.push({
-        id:             u.user_id,
-        email:          authUser?.email ?? null,
-        name:           authUser?.user_metadata?.name ?? authUser?.email ?? null,
-        role:           u.role,
-        active:         authUser?.banned_until == null,
-        last_access_at: authUser?.last_sign_in_at ?? null,
+    // 2. Buscar todos os usuários do auth de uma vez (mais eficiente que getUserById em loop)
+    const { data: authList } = await supabase.auth.admin.listUsers({ perPage: 1000 });
+    const authMap = new Map((authList?.users ?? []).map((u: any) => [u.id, u]));
+
+    // 3. IDs já em tenant_users
+    const tuIds = new Set((tuRows ?? []).map((u: any) => u.user_id));
+
+    // 4. Usuários com tenant_id no user_metadata mas não em tenant_users
+    //    (usuário principal criado antes da tabela existir, ou em migração)
+    const extraFromAuth = (authList?.users ?? []).filter((u: any) => {
+      const meta = u.user_metadata ?? {};
+      return meta.tenant_id === tenantId && !tuIds.has(u.id);
+    });
+
+    const users = [
+      // Usuários de tenant_users
+      ...(tuRows ?? []).map((u: any) => {
+        const a = authMap.get(u.user_id) as any;
+        return {
+          id:             u.user_id,
+          email:          a?.email ?? null,
+          name:           a?.user_metadata?.name ?? a?.email ?? null,
+          role:           u.role,
+          active:         a?.banned_until == null,
+          last_access_at: a?.last_sign_in_at ?? null,
+          created_at:     u.created_at,
+          source:         "tenant_users",
+        };
+      }),
+      // Usuários encontrados via auth.users mas não em tenant_users
+      ...extraFromAuth.map((u: any) => ({
+        id:             u.id,
+        email:          u.email ?? null,
+        name:           u.user_metadata?.name ?? u.email ?? null,
+        role:           u.user_metadata?.role ?? "admin",
+        active:         u.banned_until == null,
+        last_access_at: u.last_sign_in_at ?? null,
         created_at:     u.created_at,
-      });
-    }
+        source:         "auth_metadata",
+      })),
+    ];
 
-    return jsonResponse({ users, count: users.length });
+    return jsonResponse({ tenant_id: tenantId, users, count: users.length });
   }
 
-  // ── user_count ────────────────────────────────────────────────────────────
+  // ── user_count: contagem atual vs limite ──────────────────────────────────
   if (action === "user_count") {
     if (!tenantId) return jsonResponse({ error: "tenant_id é obrigatório" }, 400);
 
@@ -110,7 +131,7 @@ Deno.serve(async (req) => {
     });
   }
 
-  // ── audit_logs ────────────────────────────────────────────────────────────
+  // ── audit_logs: logs de auditoria do tenant ───────────────────────────────
   if (action === "audit_logs") {
     if (!tenantId) return jsonResponse({ error: "tenant_id é obrigatório" }, 400);
 
@@ -126,12 +147,10 @@ Deno.serve(async (req) => {
     const { data, error } = await query;
     if (error) return jsonResponse({ error: error.message }, 500);
 
-    return jsonResponse({ logs: data ?? [], count: (data ?? []).length });
+    return jsonResponse({ tenant_id: tenantId, logs: data ?? [], count: (data ?? []).length });
   }
 
-  // ── all_tenants_summary ───────────────────────────────────────────────────
-  // Formato esperado pelo Maestr.IA:
-  // { tenants: [{ tenant_id, active_users, total_users }] }
+  // ── all_tenants_summary: resumo de todos os tenants ───────────────────────
   if (action === "all_tenants_summary") {
     const { data: clients, error } = await supabase
       .from("clients")
@@ -156,8 +175,8 @@ Deno.serve(async (req) => {
       tenants.push({
         tenant_id:    c.tenant_id,
         name:         c.name,
-        active_users: total ?? 0,          // usuários ativos (cadastrados)
-        total_users:  cache?.max_users ?? 3, // limite do plano
+        active_users: total ?? 0,
+        max_users:    cache?.max_users ?? 3,
         plan_name:    cache?.plan_name ?? "Starter",
         status:       cache?.status ?? "ativo",
       });
