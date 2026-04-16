@@ -28,7 +28,7 @@ export function isAgencyRole(role: string): boolean {
 
 /** Roles com acesso total de gerenciamento (admin do tenant + owner + suporte da agência) */
 export function canManageRole(role: string, isSupport: boolean): boolean {
-  return isSupport || role === "admin" || role === "owner";
+  return isSupport || role === "admin" || role === "owner" || role === "agency";
 }
 
 export function useAuth() {
@@ -93,12 +93,16 @@ export function useAuth() {
       session.user.user_metadata?.tenant_id ??
       null;
 
+    // isSupport: verdadeiro se role for da agência OU se não tiver tenant_id
+    // (usuário de suporte criado pelo Maestr.IA não tem tenant_id)
+    const resolvedIsSupport = isAgencyRole(role) || (tenantId === null && role !== "member");
+
     setState({
       session,
       user: session.user,
       tenantId,
       role,
-      isSupport: isAgencyRole(role),
+      isSupport: resolvedIsSupport,
       loading: false,
     });
   }
