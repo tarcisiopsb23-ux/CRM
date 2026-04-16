@@ -106,15 +106,14 @@ Deno.serve(async (req) => {
     }
 
     // ── Clientes Supabase ────────────────────────────────────────────────────
+    // crmClient usa service role — acesso total ao banco do C8 Control
     const crmClient: SupabaseClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
 
-    const saasClient: SupabaseClient = createClient(
-      Deno.env.get("SAAS_URL") ?? "",
-      Deno.env.get("SAAS_SERVICE_ROLE_KEY") ?? ""
-    );
+    // saasClient mantido para compatibilidade mas não é mais usado para criar usuários
+    const saasClient: SupabaseClient = crmClient;
 
     // ── check-limit ──────────────────────────────────────────────────────────
     if (action === "check-limit") {
@@ -139,50 +138,42 @@ Deno.serve(async (req) => {
         }, 403);
       }
 
-      const saasUrl = Deno.env.get("SAAS_URL") ?? "";
-      const saasServiceKey = Deno.env.get("SAAS_SERVICE_ROLE_KEY") ?? "";
-
-      const createRes = await fetch(`${saasUrl}/auth/v1/admin/users`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${saasServiceKey}`,
-          "apikey": saasServiceKey,
+      // Criar usuário no banco do C8 Control (mesmo banco — SUPABASE_URL)
+      const { data: newUser, error: createErr } = await crmClient.auth.admin.createUser({
+        email,
+        email_confirm: true,
+        user_metadata: {
+          tenant_id,
+          role:                  "member",
+          force_password_change: true, // força troca de senha no primeiro acesso
         },
-        body: JSON.stringify({
-          email,
-          email_confirm: true,
-          user_metadata: { tenant_id, role: "member" },
-        }),
       });
 
-      const createData = await createRes.json();
-
-      if (!createRes.ok || createData.error) {
-        const errMsg = createData.error?.message ?? createData.msg ?? "Erro ao criar usuário";
-        return jsonResponse({ allowed: false, error: errMsg }, 400);
+      if (createErr || !newUser?.user) {
+        const isDuplicate = createErr?.message?.toLowerCase().includes("already registered")
+          || createErr?.message?.toLowerCase().includes("already exists");
+        return jsonResponse({
+          allowed: false,
+          error: isDuplicate
+            ? `E-mail '${email}' já está cadastrado no C8 Control.`
+            : `Erro ao criar usuário: ${createErr?.message ?? "desconhecido"}`,
+        }, isDuplicate ? 409 : 400);
       }
 
-      const newUserId = createData.id ?? createData.user?.id;
-      if (!newUserId) {
-        return jsonResponse({ allowed: false, error: "Usuário criado mas ID não retornado" }, 500);
-      }
+      const newUserId = newUser.user.id;
 
       const { error: insertErr } = await crmClient
         .from("tenant_users")
         .insert({ user_id: newUserId, tenant_id, role: "member" });
 
       if (insertErr) {
-        // Rollback: remover usuário do SaaS se o insert falhou
-        await fetch(`${saasUrl}/auth/v1/admin/users/${newUserId}`, {
-          method: "DELETE",
-          headers: { "Authorization": `Bearer ${saasServiceKey}`, "apikey": saasServiceKey },
-        });
+        // Rollback: remover usuário criado
+        await crmClient.auth.admin.deleteUser(newUserId);
         console.error("[validate-access] insert tenant_users error:", insertErr.message);
         return jsonResponse({ allowed: false, error: "Erro ao registrar usuário. Tente novamente." }, 500);
       }
 
-      return jsonResponse({ success: true, user_id: newUserId });
+      return jsonResponse({ success: true, user_id: newUserId, email });
     }
 
     // ── remove ───────────────────────────────────────────────────────────────
@@ -219,17 +210,10 @@ Deno.serve(async (req) => {
         return jsonResponse({ error: "Erro ao remover usuário. Tente novamente." }, 500);
       }
 
-      // Revogar acesso no SaaS Auth (somente após confirmar que pertencia ao tenant)
-      const saasUrl = Deno.env.get("SAAS_URL") ?? "";
-      const saasServiceKey = Deno.env.get("SAAS_SERVICE_ROLE_KEY") ?? "";
-
-      const revokeRes = await fetch(`${saasUrl}/auth/v1/admin/users/${user_id}`, {
-        method: "DELETE",
-        headers: { "Authorization": `Bearer ${saasServiceKey}`, "apikey": saasServiceKey },
-      });
-
-      if (!revokeRes.ok) {
-        console.warn(`[validate-access] Usuário ${user_id} removido do CRM mas falhou ao revogar no SaaS: ${revokeRes.status}`);
+      // Revogar acesso no banco do C8 Control
+      const { error: revokeErr } = await crmClient.auth.admin.deleteUser(user_id);
+      if (revokeErr) {
+        console.warn(`[validate-access] Usuário ${user_id} removido do tenant_users mas falhou ao deletar do auth: ${revokeErr.message}`);
       }
 
       return jsonResponse({ success: true });
