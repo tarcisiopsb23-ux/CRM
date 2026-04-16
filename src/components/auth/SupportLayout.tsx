@@ -97,18 +97,25 @@ export function SupportLayout({ children }: Props) {
     const effectiveTenantId =
       tenantId ??
       session?.user?.user_metadata?.tenant_id ??
+      sessionStorage.getItem("support_selected_tenant_id") ??
       null;
 
-    if (!effectiveTenantId) return;
+    if (!effectiveTenantId) {
+      // Sem tenant_id — mostrar e-mail do suporte como identificação
+      setClientName(session?.user?.email ?? "Suporte");
+      return;
+    }
 
+    // Buscar nome do cliente — tenta por tenant_id e por id (fallback)
     supabaseCrm
       .from("clients")
       .select("name, metadata")
-      .eq("tenant_id", effectiveTenantId)
+      .or(`tenant_id.eq.${effectiveTenantId},id.eq.${effectiveTenantId}`)
       .maybeSingle()
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) console.warn("[SupportLayout] erro ao buscar cliente:", error.message);
         const name = data?.metadata?.display_name || data?.name;
-        setClientName(name ?? undefined);
+        setClientName(name ?? `Tenant: ${effectiveTenantId.slice(0, 8)}…`);
       });
   }, [isSupport, tenantId, session]);
 
