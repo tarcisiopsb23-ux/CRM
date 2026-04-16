@@ -75,6 +75,8 @@ Deno.serve(async (req) => {
     admin_password?: string;
     company?:       string;
     slug?:          string;
+    is_support?:    boolean;
+    tenant_id?:     string; // para criar usuário em tenant já existente
   };
 
   try {
@@ -87,10 +89,9 @@ Deno.serve(async (req) => {
 
   // Suporte: is_support=true cria usuário de suporte vinculado ao tenant
   const isSupport = (body as any).is_support === true;
+  // tenant_id existente: pula criação do tenant, só cria o usuário
+  const existingTenantId = (body as any).tenant_id?.trim() ?? null;
 
-  if (!tenant_name?.trim()) {
-    return jsonResponse({ error: "tenant_name é obrigatório" }, 400);
-  }
   if (!admin_email?.trim() || !isValidEmail(admin_email.trim())) {
     return jsonResponse({ error: "admin_email inválido" }, 400);
   }
@@ -99,6 +100,60 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_URL") ?? "",
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
   );
+
+  // ── Se tenant_id existente fornecido: pular criação do tenant ─────────────
+  if (existingTenantId) {
+    // Verificar que o tenant existe
+    const { data: existingClient } = await supabase
+      .from("clients")
+      .select("id, name")
+      .eq("tenant_id", existingTenantId)
+      .maybeSingle();
+
+    if (!existingClient) {
+      return jsonResponse({ error: `Tenant '${existingTenantId}' não encontrado no C8 Control.` }, 404);
+    }
+
+    // Criar apenas o usuário
+    const { data: userData, error: userErr } = await supabase.auth.admin.createUser({
+      email:         admin_email.trim(),
+      email_confirm: true,
+      password:      admin_password?.trim() || undefined,
+      user_metadata: {
+        tenant_id:             existingTenantId,
+        role:                  isSupport ? "agency" : "member",
+        force_password_change: admin_password?.trim() ? true : false,
+      },
+    } as any);
+
+    if (userErr || !userData?.user) {
+      const isDuplicate = userErr?.message?.toLowerCase().includes("already registered");
+      return jsonResponse({
+        error: isDuplicate
+          ? `E-mail '${admin_email.trim()}' já está cadastrado.`
+          : `Erro ao criar usuário: ${userErr?.message ?? "desconhecido"}`,
+      }, isDuplicate ? 409 : 500);
+    }
+
+    // Registrar em tenant_users se não for suporte
+    if (!isSupport) {
+      await supabase.from("tenant_users").insert({
+        user_id: userData.user.id, tenant_id: existingTenantId, role: "member",
+      });
+    }
+
+    return jsonResponse({
+      tenant_id: existingTenantId,
+      user_id:   userData.user.id,
+      email:     admin_email.trim(),
+      message:   `Usuário criado e vinculado ao tenant existente.`,
+    }, 201);
+  }
+
+  // ── Criação de novo tenant ─────────────────────────────────────────────────
+  if (!tenant_name?.trim()) {
+    return jsonResponse({ error: "tenant_name é obrigatório para criar novo tenant" }, 400);
+  }
 
   // ── Passo 1: Criar o tenant em `clients` ──────────────────────────────────
   const dashboardSlug = slug?.trim() || generateSlug(tenant_name.trim());
