@@ -50,8 +50,7 @@ export function TenantUsersPage() {
         <div className="text-center space-y-3">
           <p className="text-slate-400 text-lg font-bold">Acesso restrito a administradores.</p>
           <Button
-            variant="outline"
-            className="border-slate-700 text-slate-300"
+            className="bg-[#7C3AED] hover:bg-[#7C3AED]/90 text-white font-bold"
             onClick={() => navigate("/dashboard")}
           >
             Voltar ao Dashboard

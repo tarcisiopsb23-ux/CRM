@@ -506,7 +506,7 @@ export function ProfilePage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Button type="button" className="w-full bg-blue-600 hover:bg-blue-700 h-11 font-bold gap-2"
+                <Button type="button" className="w-full bg-[#7C3AED] hover:bg-[#7C3AED]/90 h-11 font-bold gap-2"
                   onClick={() => navigate("/dashboard/users")}>
                   <User className="h-4 w-4" /> Gerenciar Usuários
                 </Button>
@@ -514,10 +514,10 @@ export function ProfilePage() {
             </Card>
 
             {/* Faturas e Pagamentos */}
-            <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-emerald-500">
+            <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-[#7C3AED]">
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
-                  <ClipboardList className="h-5 w-5 text-emerald-400" />
+                  <ClipboardList className="h-5 w-5 text-[#7C3AED]" />
                   Faturas e Pagamentos
                 </CardTitle>
                 <CardDescription className="text-slate-400 text-xs">
@@ -525,7 +525,7 @@ export function ProfilePage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Button type="button" className="w-full bg-emerald-600 hover:bg-emerald-700 h-11 font-bold gap-2"
+                <Button type="button" className="w-full bg-[#7C3AED] hover:bg-[#7C3AED]/90 h-11 font-bold gap-2"
                   onClick={() => navigate("/dashboard/payments")}>
                   <ClipboardList className="h-4 w-4" /> Ver Faturas
                 </Button>
@@ -533,10 +533,10 @@ export function ProfilePage() {
             </Card>
 
             {/* Logs de Auditoria */}
-            <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-slate-500">
+            <Card className="bg-[#1E293B] border-slate-800 shadow-2xl border-t-4 border-t-[#7C3AED]">
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
-                  <ClipboardList className="h-5 w-5 text-slate-400" />
+                  <ClipboardList className="h-5 w-5 text-[#7C3AED]" />
                   Logs de Auditoria
                 </CardTitle>
                 <CardDescription className="text-slate-400 text-xs">
@@ -544,8 +544,7 @@ export function ProfilePage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Button type="button" variant="outline"
-                  className="w-full border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 h-11 font-bold gap-2"
+                <Button type="button" className="w-full bg-[#7C3AED] hover:bg-[#7C3AED]/90 h-11 font-bold gap-2"
                   onClick={() => navigate("/dashboard/logs")}>
                   <ClipboardList className="h-4 w-4" /> Ver Logs de Auditoria
                 </Button>

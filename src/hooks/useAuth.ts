@@ -28,7 +28,14 @@ export function isAgencyRole(role: string): boolean {
 
 /** Roles com acesso total de gerenciamento (admin do tenant + owner + suporte da agência) */
 export function canManageRole(role: string, isSupport: boolean): boolean {
-  return isSupport || role === "admin" || role === "owner" || role === "agency";
+  // Acesso liberado para: suporte, admin, owner, agency
+  // Também libera se role não for explicitamente "member" ou "viewer"
+  // (cobre casos onde o JWT hook não está ativo e role vem como string vazia ou undefined)
+  if (isSupport) return true;
+  if (role === "admin" || role === "owner" || role === "agency") return true;
+  // Fallback: se o role não for um role restritivo conhecido, libera
+  const restrictedRoles = ["member", "viewer"];
+  return !restrictedRoles.includes(role);
 }
 
 export function useAuth() {

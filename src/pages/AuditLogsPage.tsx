@@ -93,7 +93,7 @@ export function AuditLogsPage() {
     <div className="flex items-center justify-center min-h-screen bg-[#0F172A]">
       <div className="text-center space-y-3">
         <p className="text-slate-400 text-lg font-bold">Acesso restrito.</p>
-        <Button variant="outline" className="border-slate-700 text-slate-300" onClick={() => navigate("/dashboard")}>
+        <Button className="bg-[#7C3AED] hover:bg-[#7C3AED]/90 text-white font-bold" onClick={() => navigate("/dashboard")}>
           Voltar ao Dashboard
         </Button>
       </div>
