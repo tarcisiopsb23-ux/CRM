@@ -119,35 +119,32 @@ Deno.serve(async (req) => {
       .eq("tenant_id", existingTenantId)
       .maybeSingle();
 
-    if (existing) {
-      // Atualizar registro existente
-      await supabase.from("clients").update({
-        name:        tenant_name.trim(),
-        company:     company?.trim() ?? null,
-        favicon_url: (body as any).favicon_url ?? null,
-      }).eq("tenant_id", existingTenantId);
-      return jsonResponse({ tenant_id: existingTenantId, action: "updated", message: "Cliente atualizado." });
-    } else {
-      // Criar novo registro com o tenant_id fornecido
-      const dashSlug = slug?.trim() || generateSlug(tenant_name.trim());
-      const { error: insertErr } = await supabase.from("clients").insert({
-        id:             existingTenantId,
-        name:           tenant_name.trim(),
-        company:        company?.trim() ?? null,
-        tenant_id:      existingTenantId,
-        dashboard_slug: dashSlug,
-        favicon_url:    (body as any).favicon_url ?? null,
-        metadata: {
-          dashboard_performance: true,
-          dashboard_atendimento: true,
-          dashboard_crm:         true,
-        },
-      });
-      if (insertErr) {
-        return jsonResponse({ error: `Erro ao criar cliente: ${insertErr.message}` }, 500);
-      }
-      return jsonResponse({ tenant_id: existingTenantId, action: "created", message: "Cliente criado no C8 Control." }, 201);
+    // Upsert — cria se não existe, atualiza se já existe (onConflict: id)
+    const dashSlug = slug?.trim() || generateSlug(tenant_name.trim());
+    const { error: upsertErr } = await supabase.from("clients").upsert({
+      id:             existingTenantId,
+      name:           tenant_name.trim(),
+      company:        company?.trim() ?? null,
+      tenant_id:      existingTenantId,
+      dashboard_slug: dashSlug,
+      favicon_url:    (body as any).favicon_url ?? null,
+      metadata: {
+        dashboard_performance: true,
+        dashboard_atendimento: true,
+        dashboard_crm:         true,
+      },
+    }, { onConflict: "id" });
+
+    if (upsertErr) {
+      return jsonResponse({ error: `Erro ao sincronizar cliente: ${upsertErr.message}` }, 500);
     }
+
+    const wasExisting = !!existing;
+    return jsonResponse({
+      tenant_id: existingTenantId,
+      action:    wasExisting ? "updated" : "created",
+      message:   wasExisting ? "Cliente atualizado no C8 Control." : "Cliente criado no C8 Control.",
+    }, wasExisting ? 200 : 201);
   }
 
   // ── Se tenant_id existente fornecido: pular criação do tenant ─────────────
