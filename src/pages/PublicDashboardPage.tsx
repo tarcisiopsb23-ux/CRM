@@ -470,20 +470,6 @@ export function PublicDashboardPage() {
             <ContractExpiryBanner contractEnd={tenantStatus.contractEnd} />
           )}
 
-          {/* -- SUPORTE: banner permanente -- */}
-          {isSupport && (
-            <SupportBanner
-              tenantName={isSupportWithTenant ? (clientData?.name ?? undefined) : selectedTenantName}
-              onChangeTenant={isSupportWithTenant ? undefined : () => {
-                setSelectedTenantId(null);
-                setSelectedTenantName(undefined);
-                setClientData(null);
-                sessionStorage.removeItem("support_selected_tenant_id");
-                sessionStorage.removeItem("support_selected_tenant_name");
-              }}
-            />
-          )}
-
           {/* -- HEADER -- */}
           <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-slate-800 pb-8">
             <div className="space-y-1">

@@ -14,6 +14,7 @@ import { TenantUsersPage } from "@/pages/TenantUsersPage";
 import { DemoPage } from "@/pages/DemoPage";
 import { AuditLogsPage } from "@/pages/AuditLogsPage";
 import { PaymentsPage } from "@/pages/PaymentsPage";
+import { SupportLayout } from "@/components/auth/SupportLayout";
 import { useAuth } from "@/hooks/useAuth";
 
 const queryClient = new QueryClient();
@@ -41,14 +42,14 @@ export default function App() {
 
           {/* Rotas protegidas */}
           <Route element={<ProtectedRoute />}>
-            <Route path="/dashboard" element={<PublicDashboardPage />} />
-            <Route path="/dashboard/profile" element={<ProfilePage />} />
-            <Route path="/dashboard/import" element={<CsvImportPage />} />
-            <Route path="/dashboard/catalog" element={<CatalogPage />} />
-            <Route path="/dashboard/whatsapp-sync" element={<WhatsAppSyncPage />} />
-            <Route path="/dashboard/users" element={<TenantUsersPage />} />
-            <Route path="/dashboard/logs" element={<AuditLogsPage />} />
-            <Route path="/dashboard/payments" element={<PaymentsPage />} />
+            <Route path="/dashboard" element={<SupportLayout><PublicDashboardPage /></SupportLayout>} />
+            <Route path="/dashboard/profile" element={<SupportLayout><ProfilePage /></SupportLayout>} />
+            <Route path="/dashboard/import" element={<SupportLayout><CsvImportPage /></SupportLayout>} />
+            <Route path="/dashboard/catalog" element={<SupportLayout><CatalogPage /></SupportLayout>} />
+            <Route path="/dashboard/whatsapp-sync" element={<SupportLayout><WhatsAppSyncPage /></SupportLayout>} />
+            <Route path="/dashboard/users" element={<SupportLayout><TenantUsersPage /></SupportLayout>} />
+            <Route path="/dashboard/logs" element={<SupportLayout><AuditLogsPage /></SupportLayout>} />
+            <Route path="/dashboard/payments" element={<SupportLayout><PaymentsPage /></SupportLayout>} />
           </Route>
 
           {/* CRM standalone */}
