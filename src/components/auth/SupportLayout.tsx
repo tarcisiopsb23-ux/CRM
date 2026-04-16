@@ -24,14 +24,17 @@ export function SupportBannerBar({ clientName }: { clientName?: string }) {
   return (
     <div
       style={{
-        background: "rgba(249,115,22,0.07)",
-        borderBottom: "1px solid rgba(249,115,22,0.2)",
+        background: "#0F172A",
+        borderBottom: "1px solid rgba(249,115,22,0.3)",
         position: "sticky",
         top: 0,
         zIndex: 100,
       }}
     >
-      <div className="flex items-center justify-between gap-3 px-5 py-2">
+      <div
+        style={{ background: "rgba(249,115,22,0.08)" }}
+        className="flex items-center justify-between gap-3 px-5 py-2"
+      >
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-sm shrink-0">🛠️</span>
           <p className="text-[11px] font-black uppercase tracking-wide text-orange-400 truncate">
@@ -62,7 +65,7 @@ export function SupportBannerBar({ clientName }: { clientName?: string }) {
       {expanded && (
         <div
           className="px-5 py-2.5 space-y-1"
-          style={{ borderTop: "1px solid rgba(249,115,22,0.12)" }}
+          style={{ borderTop: "1px solid rgba(249,115,22,0.15)", background: "rgba(249,115,22,0.05)" }}
         >
           <div className="flex items-center gap-1.5 mb-1.5">
             <AlertTriangle className="h-3 w-3 text-orange-400 shrink-0" />
