@@ -87,18 +87,30 @@ interface Props {
 }
 
 export function SupportLayout({ children }: Props) {
-  const { isSupport, tenantId } = useAuth();
+  const { isSupport, tenantId, session } = useAuth();
   const [clientName, setClientName] = useState<string | undefined>(undefined);
 
   useEffect(() => {
-    if (!isSupport || !tenantId) return;
+    if (!isSupport) return;
+
+    // Tentar obter tenant_id de múltiplas fontes
+    const effectiveTenantId =
+      tenantId ??
+      session?.user?.user_metadata?.tenant_id ??
+      null;
+
+    if (!effectiveTenantId) return;
+
     supabaseCrm
       .from("clients")
-      .select("name")
-      .eq("tenant_id", tenantId)
+      .select("name, metadata")
+      .eq("tenant_id", effectiveTenantId)
       .maybeSingle()
-      .then(({ data }) => setClientName(data?.name ?? undefined));
-  }, [isSupport, tenantId]);
+      .then(({ data }) => {
+        const name = data?.metadata?.display_name || data?.name;
+        setClientName(name ?? undefined);
+      });
+  }, [isSupport, tenantId, session]);
 
   if (!isSupport) return <>{children}</>;
 
