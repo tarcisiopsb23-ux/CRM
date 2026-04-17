@@ -145,7 +145,6 @@ export function PublicDashboardPage() {
             dashboard_performance: meta.dashboard_performance ?? true,
             dashboard_atendimento: meta.dashboard_atendimento ?? true,
             dashboard_crm:         meta.dashboard_crm         ?? true,
-            dashboard_crm:         fresh.dashboard_crm         ?? true,
           },
         });
       }
