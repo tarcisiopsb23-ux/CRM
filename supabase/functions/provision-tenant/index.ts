@@ -199,11 +199,18 @@ Deno.serve(async (req) => {
       .select("user_id")
       .eq("tenant_id", tenantId);
 
-    await supabase.from("tenant_users").delete().eq("tenant_id", tenantId);
+    // Deletar de tenant_users
+    const { error: tuDeleteErr } = await supabase
+      .from("tenant_users").delete().eq("tenant_id", tenantId);
+
+    if (tuDeleteErr) {
+      console.error("[provision-tenant] Erro ao remover tenant_users:", tuDeleteErr.message);
+    }
 
     const deletedUsers: string[] = [];
     const skippedUsers: string[] = [];
     for (const tu of tenantUsers ?? []) {
+      // Verificar se o usuário pertence a outro tenant (não deletado acima)
       const { count } = await supabase
         .from("tenant_users")
         .select("*", { count: "exact", head: true })

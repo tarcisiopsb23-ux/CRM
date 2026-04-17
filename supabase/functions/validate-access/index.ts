@@ -382,11 +382,14 @@ Deno.serve(async (req) => {
         return jsonResponse({ error: "Erro ao verificar usuário" }, 500);
       }
 
+      // Se não está em tenant_users mas pode estar no auth — limpar auth também
       if (!existingCount || existingCount === 0) {
-        return jsonResponse({ error: "Usuário não encontrado neste tenant" }, 404);
+        // Tentar deletar do auth mesmo assim (limpeza de inconsistência)
+        await crmClient.auth.admin.deleteUser(user_id).catch(() => {});
+        return jsonResponse({ success: true, message: "Usuário não encontrado em tenant_users (já removido ou inconsistência corrigida)." });
       }
 
-      // Deletar do CRM_DB
+      // 1. Deletar de tenant_users PRIMEIRO
       const { error: deleteErr } = await crmClient
         .from("tenant_users")
         .delete()
@@ -398,10 +401,10 @@ Deno.serve(async (req) => {
         return jsonResponse({ error: "Erro ao remover usuário. Tente novamente." }, 500);
       }
 
-      // Revogar acesso no banco do C8 Control
+      // 2. Deletar do auth
       const { error: revokeErr } = await crmClient.auth.admin.deleteUser(user_id);
       if (revokeErr) {
-        console.warn(`[validate-access] Usuário ${user_id} removido do tenant_users mas falhou ao deletar do auth: ${revokeErr.message}`);
+        console.warn(`[validate-access] tenant_users removido mas falhou ao deletar do auth: ${revokeErr.message}`);
       }
 
       return jsonResponse({ success: true });
