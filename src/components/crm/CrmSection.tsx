@@ -6,6 +6,7 @@ import {
 } from "@dnd-kit/core";
 import { supabase } from "@/lib/supabase";
 import { fireConversionEvents } from "@/lib/conversionEvents";
+import { fireN8nWebhook } from "@/lib/n8nWebhook";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -41,7 +42,13 @@ type ImportReport = { total: number; success: number; skipped: { row: number; re
 
 interface CrmSectionProps {
   clientId: string;
-  clientMetadata?: { gtm_id?: string | null; meta_pixel_id?: string | null; whatsapp_webhook_url?: string | null };
+  clientMetadata?: {
+    gtm_id?: string | null;
+    meta_pixel_id?: string | null;
+    whatsapp_webhook_url?: string | null;
+    n8n_webhook_url?: string | null;
+    n8n_api_key?: string | null;
+  };
 }
 
 interface CrmStats {
@@ -129,12 +136,30 @@ export function CrmSection({ clientId: _clientId, clientMetadata }: CrmSectionPr
   useEffect(() => { fetchLeads(); }, []);
 
   const handleSave = async (form: Omit<Lead, "id" | "created_at">) => {
+    const n8nUrl = clientMetadata?.n8n_webhook_url ?? "";
+    const n8nKey = clientMetadata?.n8n_api_key ?? "";
+
     if (editing) {
+      const prevStatus = editing.status;
       const { error } = await supabase.from("crm_leads").update(form).eq("id", editing.id);
       if (error) { toast.error("Erro ao atualizar"); return; }
       toast.success("Lead atualizado");
       log({ action: `Lead editado: ${form.name}`, category: "lead", entity_type: "lead", entity_id: editing.id, details: { status: form.status, origin: form.origin } });
       if (form.status === "fechado" && clientMetadata) fireConversionEvents(clientMetadata);
+      // Disparar webhook n8n se status mudou
+      if (form.status !== prevStatus) {
+        void fireN8nWebhook(n8nUrl, n8nKey, {
+          event:       form.status === "fechado" ? "lead.closed" : "lead.status_changed",
+          lead_id:     editing.id,
+          lead_name:   form.name,
+          status:      form.status,
+          prev_status: prevStatus,
+          phone:       form.phone ?? null,
+          origin:      form.origin ?? null,
+          tenant_id:   _clientId,
+          timestamp:   new Date().toISOString(),
+        });
+      }
     } else {
       const { data: inserted, error } = await supabase
         .from("crm_leads").insert(form).select("id, status, created_at").single();
@@ -145,6 +170,17 @@ export function CrmSection({ clientId: _clientId, clientMetadata }: CrmSectionPr
         await supabase.from("crm_lead_stage_history").insert({
           lead_id: inserted.id, stage: inserted.status,
           entered_at: inserted.created_at, implicit: false,
+        });
+        // Disparar webhook n8n para lead criado
+        void fireN8nWebhook(n8nUrl, n8nKey, {
+          event:     "lead.created",
+          lead_id:   inserted.id,
+          lead_name: form.name,
+          status:    inserted.status,
+          phone:     form.phone ?? null,
+          origin:    form.origin ?? null,
+          tenant_id: _clientId,
+          timestamp: inserted.created_at,
         });
       }
       if (form.status === "fechado" && clientMetadata) fireConversionEvents(clientMetadata);
@@ -175,11 +211,28 @@ export function CrmSection({ clientId: _clientId, clientMetadata }: CrmSectionPr
     const newStatus = COLUMNS.find((c) => c.id === over.id)?.id;
     if (!newStatus || newStatus === leads.find((l) => l.id === active.id)?.status) return;
     const movedLead = leads.find((l) => l.id === active.id);
+    const prevStatus = movedLead?.status;
     setLeads((prev) => prev.map((l) => l.id === active.id ? { ...l, status: newStatus } : l));
     const { error } = await supabase.from("crm_leads").update({ status: newStatus }).eq("id", String(active.id));
     if (!error) {
-      log({ action: `Lead movido para "${newStatus}": ${movedLead?.name ?? active.id}`, category: "crm", entity_type: "lead", entity_id: String(active.id), details: { from: movedLead?.status, to: newStatus } });
+      log({ action: `Lead movido para "${newStatus}": ${movedLead?.name ?? active.id}`, category: "crm", entity_type: "lead", entity_id: String(active.id), details: { from: prevStatus, to: newStatus } });
       if (newStatus === "fechado" && clientMetadata) fireConversionEvents(clientMetadata);
+      // Disparar webhook n8n
+      void fireN8nWebhook(
+        clientMetadata?.n8n_webhook_url ?? "",
+        clientMetadata?.n8n_api_key ?? "",
+        {
+          event:       newStatus === "fechado" ? "lead.closed" : "lead.status_changed",
+          lead_id:     String(active.id),
+          lead_name:   movedLead?.name ?? "",
+          status:      newStatus,
+          prev_status: prevStatus,
+          phone:       movedLead?.phone ?? null,
+          origin:      movedLead?.origin ?? null,
+          tenant_id:   _clientId,
+          timestamp:   new Date().toISOString(),
+        }
+      );
     }
     fetchLeads();
   };

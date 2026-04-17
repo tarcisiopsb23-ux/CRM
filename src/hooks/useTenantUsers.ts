@@ -18,35 +18,15 @@ export function useTenantUsers(tenantId?: string) {
     queryKey: ["tenant_users", tenantId],
     queryFn: async () => {
       if (!tenantId) return [];
-      const { data, error } = await supabaseCrm
-        .from("tenant_users")
-        .select("*")
-        .eq("tenant_id", tenantId)
-        .order("created_at", { ascending: true });
-      if (error) throw error;
-
-      // Filtrar usuários de suporte da agência (domínio @agenciac8.com.br)
-      const filtered = (data ?? []).filter((u: any) =>
-        !u.email?.toLowerCase().endsWith("@agenciac8.com.br")
-      );
-
-      // Se a tabela estiver vazia após filtro, incluir o usuário atual como admin
-      // (caso o provision-tenant não tenha inserido em tenant_users)
-      if (filtered.length === 0) {
-        const { data: { session } } = await supabaseAuth.auth.getSession();
-        if (session?.user && !session.user.email?.toLowerCase().endsWith("@agenciac8.com.br")) {
-          return [{
-            id:         session.user.id,
-            user_id:    session.user.id,
-            tenant_id:  tenantId,
-            role:       "admin",
-            email:      session.user.email,
-            created_at: session.user.created_at,
-          }];
-        }
-      }
-
-      return filtered;
+      const accessToken = await getAccessToken();
+      const res = await fetch(VALIDATE_ACCESS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ action: "list-users", tenant_id: tenantId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Erro ao buscar usuários");
+      return data.users ?? [];
     },
     enabled: !!tenantId,
     staleTime: 5 * 60 * 1000,
@@ -114,6 +94,23 @@ export function useTenantUsers(tenantId?: string) {
     },
   });
 
+  const resendInvite = useMutation({
+    mutationFn: async (userId: string) => {
+      const accessToken = await getAccessToken();
+      const res = await fetch(VALIDATE_ACCESS_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ action: "resend-invite", tenant_id: tenantId, user_id: userId }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error ?? "Erro ao reenviar convite");
+      return data;
+    },
+  });
+
   return {
     users: usersQuery.data ?? [],
     currentCount: limitQuery.data?.current_users ?? 0,
@@ -122,5 +119,6 @@ export function useTenantUsers(tenantId?: string) {
     isLoading: usersQuery.isLoading,
     inviteUser,
     removeUser,
+    resendInvite,
   };
 }

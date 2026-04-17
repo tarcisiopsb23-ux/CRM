@@ -8,6 +8,7 @@ import { ArrowLeft, ClipboardList, Loader2, RefreshCw } from "lucide-react";
 import { format, subDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
+import { SupportBannerSection } from "@/components/auth/SupportBannerSection";
 
 interface AuditLog {
   id: string;
@@ -105,6 +106,8 @@ export function AuditLogsPage() {
   return (
     <div className="min-h-screen bg-[#0F172A] text-slate-100 p-4 md:p-8">
       <div className="max-w-6xl mx-auto space-y-6">
+
+        <SupportBannerSection />
 
         {/* Header */}
         <div className="flex items-center gap-3">

@@ -1,28 +1,36 @@
 -- RPC para buscar cliente CRM pelo dashboard_slug
+-- Adaptada para C8 Control: usa apenas a tabela clients (sem crm_client_plans)
+
+-- Drop da versão antiga (assinatura diferente)
+DROP FUNCTION IF EXISTS public.get_crm_client_by_slug(TEXT);
+
 CREATE OR REPLACE FUNCTION public.get_crm_client_by_slug(p_slug TEXT)
 RETURNS TABLE (
-    client_id UUID,
-    organization_id UUID,
-    name TEXT,
-    logo_url TEXT,
-    c8_control_enabled BOOLEAN,
-    subscription_status TEXT
+  client_id          UUID,
+  name               TEXT,
+  favicon_url        TEXT,
+  c8_control_enabled BOOLEAN,
+  client_status      TEXT,
+  plan_name          TEXT,
+  max_users          INTEGER,
+  contract_end       DATE
 )
 LANGUAGE sql
 SECURITY DEFINER
 SET search_path = public
 AS $$
-    SELECT
-        c.id,
-        c.organization_id,
-        c.name,
-        c.metadata->>'logo_url',
-        c.c8_control_enabled,
-        COALESCE(p.subscription_status, 'cancelado')
-    FROM clients c
-    LEFT JOIN crm_client_plans p ON p.client_id = c.id
-    WHERE LOWER(TRIM(c.dashboard_slug)) = LOWER(TRIM(p_slug))
-    LIMIT 1;
+  SELECT
+    c.id,
+    c.name,
+    c.favicon_url,
+    c.c8_control_enabled,
+    c.client_status::TEXT,
+    c.plan_name,
+    c.max_users,
+    c.contract_end
+  FROM clients c
+  WHERE LOWER(TRIM(c.dashboard_slug)) = LOWER(TRIM(p_slug))
+  LIMIT 1;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.get_crm_client_by_slug TO anon, authenticated;

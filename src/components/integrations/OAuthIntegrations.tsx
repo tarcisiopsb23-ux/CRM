@@ -1,14 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/lib/supabase";
+import { supabaseCrm } from "@/lib/supabase";
 import { initiateGoogleOAuth, initiateMetaOAuth, isGoogleConfigured, isMetaConfigured } from "@/lib/oauth";
 import { useOAuthTokens } from "@/hooks/useOAuthTokens";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, CheckCircle2, XCircle, ExternalLink } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, ExternalLink, Settings2 } from "lucide-react";
 
 interface Props {
-  clientId: string;
+  clientId: string | null;
 }
 
 function ConnectButton({ onClick, disabled, children }: {
@@ -32,22 +32,72 @@ function DisconnectButton({ onClick, disabled }: { onClick: () => void; disabled
 }
 
 export function OAuthIntegrations({ clientId }: Props) {
-  const { googleToken, metaToken, updateConfig, disconnect } = useOAuthTokens(clientId);
-  const [ga4Id, setGa4Id] = useState(googleToken?.ga4_property_id ?? "");
-  const [gadsId, setGadsId] = useState(googleToken?.gads_customer_id ?? "");
+  const { googleToken, metaToken, updateConfig, disconnect } = useOAuthTokens(clientId ?? undefined);
+
+  // IDs de configuração OAuth — por tenant, salvos no metadata
+  const [googleClientId, setGoogleClientId] = useState("");
+  const [metaAppId, setMetaAppId]           = useState("");
+  const [savingOAuthConfig, setSavingOAuthConfig] = useState(false);
+  const [showOAuthConfig, setShowOAuthConfig]     = useState(false);
+
+  // IDs de conta para leitura de dados
+  const [ga4Id, setGa4Id]               = useState(googleToken?.ga4_property_id ?? "");
+  const [gadsId, setGadsId]             = useState(googleToken?.gads_customer_id ?? "");
   const [metaAccountId, setMetaAccountId] = useState(metaToken?.meta_ad_account_id ?? "");
   const [savingGoogle, setSavingGoogle] = useState(false);
-  const [savingMeta, setSavingMeta] = useState(false);
+  const [savingMeta, setSavingMeta]     = useState(false);
+
+  // Carregar google_client_id e meta_app_id do metadata do tenant
+  useEffect(() => {
+    if (!clientId) return;
+    supabaseCrm
+      .from("clients")
+      .select("metadata")
+      .eq("tenant_id", clientId)
+      .maybeSingle()
+      .then(({ data }) => {
+        const meta = data?.metadata ?? {};
+        setGoogleClientId(meta.google_client_id ?? "");
+        setMetaAppId(meta.meta_app_id ?? "");
+      });
+  }, [clientId]);
 
   const googleConnected = !!googleToken;
-  const metaConnected = !!metaToken;
+  const metaConnected   = !!metaToken;
+
+  const googleReady = isGoogleConfigured(googleClientId);
+  const metaReady   = isMetaConfigured(metaAppId);
+
+  // Salvar google_client_id e meta_app_id no metadata do tenant
+  const handleSaveOAuthConfig = async () => {
+    if (!clientId) return;
+    setSavingOAuthConfig(true);
+    try {
+      const { data: existing } = await supabaseCrm
+        .from("clients").select("metadata").eq("tenant_id", clientId).single();
+      const merged = {
+        ...(existing?.metadata ?? {}),
+        google_client_id: googleClientId.trim() || null,
+        meta_app_id:      metaAppId.trim()      || null,
+      };
+      const { error } = await supabaseCrm
+        .from("clients").update({ metadata: merged }).eq("tenant_id", clientId);
+      if (error) throw error;
+      toast.success("Configuração OAuth salva!");
+      setShowOAuthConfig(false);
+    } catch {
+      toast.error("Erro ao salvar configuração OAuth.");
+    } finally {
+      setSavingOAuthConfig(false);
+    }
+  };
 
   const handleSaveGoogleConfig = async () => {
     setSavingGoogle(true);
     try {
       await updateConfig.mutateAsync({
-        provider: "google",
-        ga4_property_id: ga4Id.trim() || undefined,
+        provider:         "google",
+        ga4_property_id:  ga4Id.trim()  || undefined,
         gads_customer_id: gadsId.trim() || undefined,
       });
       toast.success("Configuração do Google salva!");
@@ -62,7 +112,7 @@ export function OAuthIntegrations({ clientId }: Props) {
     setSavingMeta(true);
     try {
       await updateConfig.mutateAsync({
-        provider: "meta",
+        provider:           "meta",
         meta_ad_account_id: metaAccountId.trim() || undefined,
       });
       toast.success("Configuração do Meta salva!");
@@ -82,8 +132,89 @@ export function OAuthIntegrations({ clientId }: Props) {
     }
   };
 
+  const handleConnectGoogle = () => {
+    try {
+      initiateGoogleOAuth(clientId ?? "", googleClientId || undefined);
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+  };
+
+  const handleConnectMeta = () => {
+    try {
+      initiateMetaOAuth(clientId ?? "", metaAppId || undefined);
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+  };
+
   return (
     <div className="space-y-4">
+
+      {/* Configuração dos App IDs — expansível */}
+      <div className="rounded-lg border border-slate-700/60 bg-slate-800/30 p-3">
+        <button
+          type="button"
+          onClick={() => setShowOAuthConfig(v => !v)}
+          className="w-full flex items-center justify-between text-left"
+        >
+          <div className="flex items-center gap-2">
+            <Settings2 className="h-4 w-4 text-slate-400" />
+            <span className="text-xs font-bold text-slate-300">Configurar App IDs (Google & Meta)</span>
+          </div>
+          <span className="text-[10px] text-slate-500">{showOAuthConfig ? "▲ Recolher" : "▼ Expandir"}</span>
+        </button>
+
+        {showOAuthConfig && (
+          <div className="mt-3 space-y-3 border-t border-slate-700/50 pt-3">
+            <p className="text-[11px] text-slate-500">
+              Insira os IDs do seu app no Google Cloud Console e Meta for Developers.
+              Cada cliente configura o seu próprio — não é necessário alterar o .env.
+            </p>
+            <div className="space-y-2">
+              <Label className="text-slate-400 text-xs">Google Client ID</Label>
+              <Input
+                placeholder="000000000000-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.apps.googleusercontent.com"
+                className="bg-slate-900/50 border-slate-700 text-white h-9 font-mono text-xs"
+                value={googleClientId}
+                onChange={e => setGoogleClientId(e.target.value)}
+              />
+              <p className="text-[10px] text-slate-600">
+                Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client IDs
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-slate-400 text-xs">Meta App ID</Label>
+              <Input
+                placeholder="1234567890123456"
+                className="bg-slate-900/50 border-slate-700 text-white h-9 font-mono text-xs"
+                value={metaAppId}
+                onChange={e => setMetaAppId(e.target.value)}
+              />
+              <p className="text-[10px] text-slate-600">
+                Meta for Developers → Meus Apps → ID do Aplicativo
+              </p>
+            </div>
+            <div className="rounded-lg bg-slate-900/60 border border-slate-700/50 p-2 space-y-1">
+              <p className="text-[10px] font-bold text-slate-400">URI de redirecionamento autorizado:</p>
+              <p className="text-[10px] font-mono text-violet-300 break-all select-all">
+                {window.location.origin}/oauth/callback
+              </p>
+              <p className="text-[10px] text-slate-600">Adicione este URI no console do Google e do Meta.</p>
+            </div>
+            <button
+              type="button"
+              onClick={handleSaveOAuthConfig}
+              disabled={savingOAuthConfig}
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-xs font-bold transition-colors disabled:opacity-50"
+            >
+              {savingOAuthConfig ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+              Salvar App IDs
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Google */}
       <div className="rounded-lg border border-slate-700 bg-slate-900/40 p-4 space-y-3">
         <div className="flex items-center justify-between">
@@ -107,14 +238,14 @@ export function OAuthIntegrations({ clientId }: Props) {
           </div>
         </div>
 
-        {!isGoogleConfigured() && (
-          <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-3 text-xs text-amber-400">
-            Configure <code className="font-mono">VITE_GOOGLE_CLIENT_ID</code> no .env para habilitar a conexão com Google.
+        {!googleReady && (
+          <div className="rounded-lg bg-slate-800/60 border border-slate-700/50 p-3 text-xs text-slate-400">
+            Configure o <span className="font-bold text-slate-300">Google Client ID</span> acima para habilitar a conexão.
           </div>
         )}
 
         {!googleConnected ? (
-          <ConnectButton onClick={() => initiateGoogleOAuth(clientId)} disabled={!isGoogleConfigured()}>
+          <ConnectButton onClick={handleConnectGoogle} disabled={!googleReady}>
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/></svg>
             Conectar com Google
           </ConnectButton>
@@ -126,14 +257,14 @@ export function OAuthIntegrations({ clientId }: Props) {
                 <Input value={ga4Id} onChange={e => setGa4Id(e.target.value)}
                   placeholder="properties/123456789"
                   className="bg-slate-900/50 border-slate-700 text-white h-9 font-mono text-xs" />
-                <p className="text-[10px] text-slate-600">Encontre em GA4 → Admin → Property Settings</p>
+                <p className="text-[10px] text-slate-600">GA4 → Admin → Property Settings</p>
               </div>
               <div className="space-y-1">
                 <Label className="text-slate-400 text-xs">Google Ads Customer ID</Label>
                 <Input value={gadsId} onChange={e => setGadsId(e.target.value)}
                   placeholder="123-456-7890"
                   className="bg-slate-900/50 border-slate-700 text-white h-9 font-mono text-xs" />
-                <p className="text-[10px] text-slate-600">Encontre no Google Ads → canto superior direito</p>
+                <p className="text-[10px] text-slate-600">Google Ads → canto superior direito</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -168,14 +299,14 @@ export function OAuthIntegrations({ clientId }: Props) {
           </div>
         </div>
 
-        {!isMetaConfigured() && (
-          <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-3 text-xs text-amber-400">
-            Configure <code className="font-mono">VITE_META_APP_ID</code> no .env para habilitar a conexão com Meta.
+        {!metaReady && (
+          <div className="rounded-lg bg-slate-800/60 border border-slate-700/50 p-3 text-xs text-slate-400">
+            Configure o <span className="font-bold text-slate-300">Meta App ID</span> acima para habilitar a conexão.
           </div>
         )}
 
         {!metaConnected ? (
-          <ConnectButton onClick={() => initiateMetaOAuth(clientId)} disabled={!isMetaConfigured()}>
+          <ConnectButton onClick={handleConnectMeta} disabled={!metaReady}>
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
             Conectar com Meta
           </ConnectButton>
@@ -187,7 +318,7 @@ export function OAuthIntegrations({ clientId }: Props) {
                 placeholder="act_123456789"
                 className="bg-slate-900/50 border-slate-700 text-white h-9 font-mono text-xs" />
               <p className="text-[10px] text-slate-600">
-                Encontre no Meta Ads Manager → canto superior esquerdo (formato: act_XXXXXXXXX)
+                Meta Ads Manager → canto superior esquerdo (formato: act_XXXXXXXXX)
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -202,7 +333,7 @@ export function OAuthIntegrations({ clientId }: Props) {
         )}
       </div>
 
-      {/* Info sobre Edge Functions */}
+      {/* Info */}
       <div className="rounded-lg border border-slate-700/50 bg-slate-800/30 p-3 text-xs text-slate-500 space-y-1">
         <p className="font-bold text-slate-400">Como funciona:</p>
         <p>• Os tokens OAuth são armazenados com segurança no banco de dados</p>

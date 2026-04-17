@@ -22,6 +22,7 @@ import {
 import { parseCsvFile } from "@/lib/csvParser";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
+import { SupportBannerSection } from "@/components/auth/SupportBannerSection";
 
 type AuthSession = {
   client_id: string;
@@ -176,6 +177,8 @@ export function CsvImportPage() {
   return (
     <div className="min-h-screen bg-[#0F172A] text-slate-100 p-4 md:p-8">
       <div className="max-w-4xl mx-auto space-y-6">
+
+        <SupportBannerSection />
 
         {/* Header */}
         <div className="flex items-center gap-3">

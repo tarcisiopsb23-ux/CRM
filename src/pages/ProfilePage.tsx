@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Lock, Loader2, Plug, RefreshCw, Smartphone, User, Link2, Copy, Check, Info, ClipboardList } from "lucide-react";
+import { ArrowLeft, Lock, Loader2, Plug, RefreshCw, Smartphone, User, Link2, Copy, Check, Info, ClipboardList, Eye, EyeOff } from "lucide-react";
 import { supabaseCrm } from "@/lib/supabase";
 import { supabaseAuth } from "@/lib/supabase-auth";
 import { useAuth } from "@/hooks/useAuth";
@@ -17,6 +17,8 @@ import { KpiHistoryTable } from "@/components/kpi/KpiHistoryTable";
 import { QRCodeSVG } from "qrcode.react";
 import { SecretQuestionForm } from "@/components/auth/SecretQuestionForm";
 import { useAuditLog } from "@/hooks/useAuditLog";
+import { SupportBannerSection } from "@/components/auth/SupportBannerSection";
+import { generateApiKey } from "@/lib/n8nWebhook";
 
 type AuthSession = {
   client_id: string;
@@ -44,8 +46,8 @@ export function ProfilePage() {
 
   // clientId: para suporte usa o tenant selecionado, para usuário normal usa tenantId do JWT
   const clientId = isSupport
-    ? (sessionStorage.getItem("support_selected_tenant_id") ?? "")
-    : (tenantId ?? "");
+    ? (sessionStorage.getItem("support_selected_tenant_id") || tenantId || null)
+    : (tenantId || null);
 
   const userEmail = session?.user?.email ?? "";
 
@@ -77,6 +79,8 @@ export function ProfilePage() {
   const [waUrlError, setWaUrlError] = useState<string | null>(null);
   const [n8nLoading, setN8nLoading] = useState(false);
   const [n8nError, setN8nError] = useState<string | null>(null);
+  const [copiedKey, setCopiedKey] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
   const [whatsappStatus, setWhatsappStatus] = useState<IntegrationStatus>("inativo");
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [qrLoading, setQrLoading] = useState(false);
@@ -116,13 +120,22 @@ export function ProfilePage() {
         setMetaPixelId(meta.meta_pixel_id ?? "");
         setN8nApiKey(meta.n8n_api_key ?? "");
         setN8nWebhookUrl(meta.n8n_webhook_url ?? "");
+        // Gerar chave automaticamente se não existir
+        if (!meta.n8n_api_key) {
+          const newKey = generateApiKey();
+          setN8nApiKey(newKey);
+          // Salvar automaticamente a chave gerada
+          supabaseCrm.from("clients").update({
+            metadata: { ...meta, n8n_api_key: newKey },
+          }).eq("tenant_id", clientId ?? "").then(() => {});
+        }
         setWhatsappWebhookUrl(meta.whatsapp_webhook_url ?? "");
         setTabPerformance(meta.dashboard_performance !== false);
         setTabAtendimento(meta.dashboard_atendimento !== false);
         setTabCrm(meta.dashboard_crm !== false);
-        setDisplayName(meta.display_name ?? "");
+        setDisplayName(meta.display_name ?? data?.name ?? "");
         setAvatarUrl(meta.avatar_url ?? null);
-        setClientName(meta.display_name || data?.name || "");
+        setClientName(data?.name ?? "");
 
         const webhookUrl: string = meta.whatsapp_webhook_url ?? "";
         if (webhookUrl.trim()) {
@@ -181,14 +194,22 @@ export function ProfilePage() {
     setDisplayNameLoading(true);
     try {
       const { data: existing } = await supabaseCrm
-        .from("clients").select("metadata").eq("tenant_id", clientId).single();
-      const merged = { ...(existing?.metadata ?? {}), display_name: displayName.trim() };
+        .from("clients").select("name, metadata").eq("tenant_id", clientId).single();
+      // Salvar null quando vazio — o fallback será clients.name
+      const trimmed = displayName.trim();
+      const merged = {
+        ...(existing?.metadata ?? {}),
+        display_name: trimmed || null,
+      };
       const { error } = await supabaseCrm
         .from("clients").update({ metadata: merged }).eq("tenant_id", clientId);
       if (error) throw error;
-      setClientName(displayName.trim() || clientName);
+      // Se vazio, volta para o nome do cliente como exibição
+      const effectiveName = trimmed || existing?.name || "";
+      setClientName(existing?.name ?? "");
+      setDisplayName(effectiveName);
       toast.success("Nome de exibição atualizado!");
-      log({ action: "Nome de exibição atualizado", category: "config", details: { display_name: displayName.trim() } });
+      log({ action: "Nome de exibição atualizado", category: "config", details: { display_name: trimmed || null } });
     } catch {
       toast.error("Erro ao salvar nome de exibição.");
     } finally {
@@ -314,8 +335,25 @@ export function ProfilePage() {
 
   const handleSaveN8n = () => saveIntegrationFields(
     { n8n_api_key: n8nApiKey.trim(), n8n_webhook_url: n8nWebhookUrl.trim() },
-    setN8nLoading, setN8nError, "Chave n8n salva!"
+    setN8nLoading, setN8nError, "Configuração n8n salva!"
   );
+
+  const handleCopyApiKey = () => {
+    if (!n8nApiKey) return;
+    navigator.clipboard.writeText(n8nApiKey);
+    setCopiedKey(true);
+    setTimeout(() => setCopiedKey(false), 2000);
+  };
+
+  const handleRegenerateApiKey = async () => {
+    if (!confirm("Gerar uma nova chave irá invalidar a chave atual. Confirmar?")) return;
+    const newKey = generateApiKey();
+    setN8nApiKey(newKey);
+    await saveIntegrationFields(
+      { n8n_api_key: newKey, n8n_webhook_url: n8nWebhookUrl.trim() },
+      setN8nLoading, setN8nError, "Nova chave gerada e salva!"
+    );
+  };
 
   const integrationStatus = (value: string): IntegrationStatus =>
     value.trim() !== "" ? "conectado" : "inativo";
@@ -349,9 +387,25 @@ export function ProfilePage() {
 
   if (!session) return null;
 
+  if (!canManage) return (
+    <div className="flex items-center justify-center min-h-screen bg-[#0F172A]">
+      <div className="text-center space-y-3">
+        <p className="text-slate-400 text-lg font-bold">Acesso restrito a administradores.</p>
+        <Button
+          className="bg-[#7C3AED] hover:bg-[#7C3AED]/90 text-white font-bold"
+          onClick={() => navigate("/dashboard")}
+        >
+          Voltar ao Dashboard
+        </Button>
+      </div>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-[#0F172A] text-slate-100 p-4 md:p-8">
       <div className="max-w-5xl mx-auto space-y-6">
+
+        <SupportBannerSection />
 
         {/* Header */}
         <div className="flex items-center gap-3">
@@ -421,10 +475,9 @@ export function ProfilePage() {
                 {/* Nome de exibição */}
                 <div className="space-y-2">
                   <Label className="text-slate-300">Nome de Exibição</Label>
-                  <Input type="text" placeholder="Ex: Empresa XYZ"
+                  <Input type="text" placeholder={clientName || "Nome de exibição"}
                     className="bg-slate-900/50 border-slate-700 text-white h-11"
                     value={displayName} onChange={e => setDisplayName(e.target.value)} />
-                  <p className="text-xs text-slate-500">Se vazio, usa o nome do cadastro vindo do Maestr.IA.</p>
                 </div>
                 <Button type="button" className="w-full bg-slate-600 hover:bg-slate-500 h-11 font-bold"
                   disabled={displayNameLoading} onClick={handleSaveDisplayName}>
@@ -642,6 +695,8 @@ export function ProfilePage() {
               </CardHeader>
               <CardContent className="flex-1 overflow-x-hidden overflow-y-auto">
                 <form onSubmit={handleSaveIntegrations} className="space-y-5">
+                  {/* Conteúdo completo para admin, owner e convidados com permissão */}
+                  {canManage && (<>
                   {/* Google + Meta OAuth */}
                   <div className="space-y-2">
                     <p className="text-xs font-black uppercase tracking-widest text-slate-500">Google Analytics & Ads / Meta Ads</p>
@@ -681,32 +736,46 @@ export function ProfilePage() {
                       Salvar GTM e Meta Pixel
                     </Button>
                   </div>
-                  {/* Separador WhatsApp */}
-                  <div className="border-t border-slate-700 pt-4">
-                    <p className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">Integração WhatsApp</p>
-                    <p className="text-xs text-slate-500 mb-4">Você pode ativar um ou ambos os métodos simultaneamente.</p>
+                  </>)}
 
-                    {/* Método 1: QR Code */}
+                  {/* Separador WhatsApp — visível para todos */}
+                  <div className={canManage ? "border-t border-slate-700 pt-4" : ""}>
+                    {canManage && (
+                      <p className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">Integração WhatsApp</p>
+                    )}
+                    {canManage && (
+                      <p className="text-xs text-slate-500 mb-4">Você pode ativar um ou ambos os métodos simultaneamente.</p>
+                    )}
+
+                    {/* Método 1: QR Code — visível para todos */}
                     <div className="rounded-lg border border-slate-700 bg-slate-900/40 p-4 space-y-3 mb-3">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <Smartphone className="h-4 w-4 text-emerald-400" />
                           <div>
-                            <p className="text-slate-200 font-bold text-sm">Método 1 — QR Code</p>
+                            <p className="text-slate-200 font-bold text-sm">
+                              {role === "owner" ? "Método 1 — QR Code" : "WhatsApp — QR Code"}
+                            </p>
                             <p className="text-slate-500 text-xs">Conecta via whatsapp-web.js no seu servidor. Habilita a lista de pendentes para conversão de leads.</p>
                           </div>
                         </div>
                         <IntegrationStatusBadge status={whatsappStatus} />
                       </div>
-                      <div className="space-y-2">
-                        <Label className="text-slate-300 text-xs">URL do Backend (Node.js / VPS)</Label>
-                        <Input type="url" placeholder="https://wa.seudominio.com"
-                          className="bg-slate-900/50 border-slate-700 text-white h-10 font-mono text-sm"
-                          value={whatsappWebhookUrl} onChange={(e) => setWhatsappWebhookUrl(e.target.value)} />
-                        {whatsappWebhookUrl.trim().startsWith('http://') && window.location.protocol === 'https:' && (
-                          <p className="text-xs text-amber-400 mt-1">⚠️ Use HTTPS — o dashboard roda em HTTPS e não pode chamar URLs HTTP. Configure a URL pública com HTTPS.</p>
-                        )}
-                      </div>
+
+                      {/* Campo URL — apenas para owner */}
+                      {role === "owner" && (
+                        <div className="space-y-2">
+                          <Label className="text-slate-300 text-xs">URL do Backend (Node.js / VPS)</Label>
+                          <Input type="url" placeholder="https://wa.seudominio.com"
+                            className="bg-slate-900/50 border-slate-700 text-white h-10 font-mono text-sm"
+                            value={whatsappWebhookUrl} onChange={(e) => setWhatsappWebhookUrl(e.target.value)} />
+                          {whatsappWebhookUrl.trim().startsWith('http://') && window.location.protocol === 'https:' && (
+                            <p className="text-xs text-amber-400 mt-1">⚠️ Use HTTPS — o dashboard roda em HTTPS e não pode chamar URLs HTTP. Configure a URL pública com HTTPS.</p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* QR Code — sempre visível se URL configurada */}
                       {whatsappWebhookUrl.trim() && (
                         <div className="space-y-3">
                           <div className="flex items-center justify-between">
@@ -735,15 +804,20 @@ export function ProfilePage() {
                           )}
                         </div>
                       )}
-                      {waUrlError && <p className="text-xs text-red-400">{waUrlError}</p>}
-                      <Button type="button" onClick={handleSaveWaUrl} disabled={waUrlLoading}
-                        className="w-full bg-emerald-600 hover:bg-emerald-700 h-9 font-bold text-sm">
-                        {waUrlLoading ? <Loader2 className="h-3 w-3 animate-spin mr-2" /> : null}
-                        Salvar URL do WhatsApp
-                      </Button>
+
+                      {/* Botão salvar URL — apenas para owner */}
+                      {role === "owner" && (<>
+                        {waUrlError && <p className="text-xs text-red-400">{waUrlError}</p>}
+                        <Button type="button" onClick={handleSaveWaUrl} disabled={waUrlLoading}
+                          className="w-full bg-emerald-600 hover:bg-emerald-700 h-9 font-bold text-sm">
+                          {waUrlLoading ? <Loader2 className="h-3 w-3 animate-spin mr-2" /> : null}
+                          Salvar URL do WhatsApp
+                        </Button>
+                      </>)}
                     </div>
 
-                    {/* Método 2: n8n */}
+                    {/* Método 2: n8n — apenas para owner */}
+                    {role === "owner" && (
                     <div className="rounded-lg border border-slate-700 bg-slate-900/40 p-4 space-y-3">
                       <div className="flex items-center gap-2">
                         <Plug className="h-4 w-4 text-violet-400" />
@@ -777,11 +851,48 @@ export function ProfilePage() {
 
                       {/* Chave de API n8n */}
                       <div className="space-y-2">
-                        <Label className="text-slate-300 text-xs">Chave de API n8n (autenticação)</Label>
-                        <Input type="password" placeholder="••••••••••••••••"
-                          className="bg-slate-900/50 border-slate-700 text-white h-10 font-mono text-sm"
-                          value={n8nApiKey} onChange={(e) => setN8nApiKey(e.target.value)} />
-                        <p className="text-slate-600 text-[10px]">Enviada no header <span className="font-mono text-slate-400">x-api-key</span> nas requisições ao n8n.</p>
+                        <div className="flex items-center justify-between">
+                          <Label className="text-slate-300 text-xs">Chave de API n8n (autenticação)</Label>
+                          <button
+                            type="button"
+                            onClick={handleRegenerateApiKey}
+                            disabled={n8nLoading}
+                            className="flex items-center gap-1 text-[10px] font-bold text-slate-400 hover:text-orange-400 transition-colors"
+                            title="Gerar nova chave (invalida a atual)"
+                          >
+                            <RefreshCw className="h-3 w-3" /> Regenerar
+                          </button>
+                        </div>
+                        <div className="flex gap-2">
+                          <div className="relative flex-1">
+                            <Input
+                              type={showApiKey ? "text" : "password"}
+                              readOnly
+                              className="bg-slate-900/50 border-slate-700 text-emerald-300 h-10 font-mono text-xs pr-10 select-all cursor-text"
+                              value={n8nApiKey}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowApiKey(v => !v)}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                              title={showApiKey ? "Ocultar chave" : "Visualizar chave"}
+                            >
+                              {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </button>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleCopyApiKey}
+                            className="shrink-0 h-10 w-10 flex items-center justify-center rounded-md bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
+                            title="Copiar chave"
+                          >
+                            {copiedKey ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
+                          </button>
+                        </div>
+                        <p className="text-slate-600 text-[10px]">
+                          Enviada no header <span className="font-mono text-slate-400">x-api-key</span> nas requisições ao n8n.
+                          Gerada automaticamente — copie e configure no seu workflow n8n.
+                        </p>
                       </div>
 
                       {n8nError && <p className="text-xs text-red-400">{n8nError}</p>}
@@ -791,10 +902,13 @@ export function ProfilePage() {
                         Salvar Configuração n8n
                       </Button>
                     </div>
+                    )}
                   </div>
+
                   {integrationsError && <p className="text-sm text-red-400 font-medium">{integrationsError}</p>}
 
-                  {/* Gerador de Link de Anúncio */}
+                  {/* Gerador de Link de Anúncio — para admin e owner */}
+                  {canManage && (
                   <div className="border-t border-slate-700 pt-5 space-y-4">
                     <div className="flex items-center gap-2">
                       <Link2 className="h-4 w-4 text-emerald-400" />
@@ -877,6 +991,7 @@ export function ProfilePage() {
                       <p className="text-xs text-slate-600 text-center py-1">Preencha o número para gerar o link.</p>
                     )}
                   </div>
+                  )}
                 </form>
               </CardContent>
             </Card>

@@ -15,9 +15,10 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, Mail, Trash2, Users } from "lucide-react";
+import { ArrowLeft, Loader2, Mail, Trash2, Users, RefreshCw } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { SupportBannerSection } from "@/components/auth/SupportBannerSection";
 
 export function TenantUsersPage() {
   const navigate = useNavigate();
@@ -29,7 +30,7 @@ export function TenantUsersPage() {
     ? (sessionStorage.getItem("support_selected_tenant_id") ?? tenantId ?? undefined)
     : (tenantId ?? undefined);
 
-  const { users, currentCount, maxUsers, planName, isLoading, inviteUser, removeUser } =
+  const { users, currentCount, maxUsers, planName, isLoading, inviteUser, removeUser, resendInvite } =
     useTenantUsers(effectiveTenantId);
 
   const [inviteEmail, setInviteEmail] = useState("");
@@ -89,9 +90,20 @@ export function TenantUsersPage() {
     }
   };
 
+  const handleResendInvite = async (userId: string, email?: string) => {
+    try {
+      await resendInvite.mutateAsync(userId);
+      toast.success(`Nova senha gerada e enviada para ${email ?? "o usuário"}.`);
+    } catch (err: any) {
+      toast.error(err?.message ?? "Erro ao reenviar convite.");
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#0F172A] text-slate-100 p-4 md:p-8">
       <div className="max-w-3xl mx-auto space-y-8">
+
+        <SupportBannerSection />
 
         {/* Header */}
         <div className="flex items-center gap-4">
@@ -145,8 +157,9 @@ export function TenantUsersPage() {
             </div>
             <Button
               type="submit"
-              className="bg-[#7C3AED] hover:bg-[#7C3AED]/90 h-11 px-6 font-bold"
+              className="bg-[#7C3AED] hover:bg-[#7C3AED]/90 h-11 px-6 font-bold disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={atLimit || inviting || !inviteEmail.trim()}
+              title={atLimit ? `Limite de ${maxUsers} usuários atingido` : undefined}
             >
               {inviting ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -186,40 +199,55 @@ export function TenantUsersPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/50">
-                {users.map((u: any) => (
-                  <tr key={u.id} className="hover:bg-slate-800/30 transition-colors">
-                    <td className="px-6 py-4 text-sm text-slate-200 font-medium">
-                      {u.email ?? u.user_id}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span
-                        className={`text-xs font-bold px-2 py-1 rounded-md ${
-                          u.role === "admin"
-                            ? "bg-[#7C3AED]/20 text-[#a78bfa]"
-                            : "bg-slate-700 text-slate-300"
-                        }`}
-                      >
-                        {u.role === "admin" ? "Admin" : "Membro"}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-xs text-slate-400">
-                      {u.created_at
-                        ? format(new Date(u.created_at), "dd/MM/yyyy", { locale: ptBR })
-                        : "—"}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <button
-                        onClick={() =>
-                          setRemoveTarget({ id: u.user_id, email: u.email })
-                        }
-                        className="text-slate-500 hover:text-red-400 transition-colors"
-                        title="Remover usuário"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {users.map((u: any) => {
+                  const displayName = u.email ?? u.user_id;
+                  const roleBadge: Record<string, { label: string; cls: string }> = {
+                    admin:  { label: "Admin",  cls: "bg-[#7C3AED]/20 text-[#a78bfa]" },
+                    owner:  { label: "Owner",  cls: "bg-amber-500/20 text-amber-400" },
+                    member: { label: "Membro", cls: "bg-slate-700 text-slate-300" },
+                  };
+                  const badge = roleBadge[u.role] ?? { label: u.role, cls: "bg-slate-700 text-slate-300" };
+
+                  return (
+                    <tr key={u.id} className="hover:bg-slate-800/30 transition-colors">
+                      <td className="px-6 py-4 text-sm text-slate-200 font-medium">
+                        {displayName}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`text-xs font-bold px-2 py-1 rounded-md ${badge.cls}`}>
+                          {badge.label}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-xs text-slate-400">
+                        {u.created_at
+                          ? format(new Date(u.created_at), "dd/MM/yyyy", { locale: ptBR })
+                          : "—"}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => handleResendInvite(u.user_id, u.email)}
+                            disabled={resendInvite.isPending}
+                            className="text-slate-500 hover:text-violet-400 transition-colors"
+                            title="Gerar nova senha e reenviar convite"
+                          >
+                            {resendInvite.isPending
+                              ? <Loader2 className="h-4 w-4 animate-spin" />
+                              : <RefreshCw className="h-4 w-4" />
+                            }
+                          </button>
+                          <button
+                            onClick={() => setRemoveTarget({ id: u.user_id, email: u.email })}
+                            className="text-slate-500 hover:text-red-400 transition-colors"
+                            title="Remover usuário"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}

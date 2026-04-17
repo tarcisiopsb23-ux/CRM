@@ -87,12 +87,17 @@ export function useAuth() {
     }
 
     // Prioridade: custom claims do JWT > user_metadata do JWT > user_metadata do objeto session
-    // O terceiro fallback garante funcionamento mesmo sem o hook configurado
-    const role =
+    // app_role é o novo claim (role da aplicação, sem conflito com database role do Postgres)
+    // role é mantido como fallback para tokens em cache antes da migration 20260516000003
+    const appRole =
+      payload.app_role ??
       payload.role ??
       payload.user_metadata?.role ??
       session.user.user_metadata?.role ??
       "member";
+
+    // role é sempre "authenticated" após migration 003 — usar app_role para lógica da app
+    const role = appRole;
 
     const tenantId =
       payload.tenant_id ??

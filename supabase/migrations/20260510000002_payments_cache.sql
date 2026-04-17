@@ -43,6 +43,7 @@ CREATE INDEX IF NOT EXISTS idx_payments_cache_maestria   ON public.payments_cach
 -- RLS: cada tenant vê apenas suas faturas; agência vê todas
 ALTER TABLE public.payments_cache ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "payments_cache_tenant_isolation" ON public.payments_cache;
 CREATE POLICY "payments_cache_tenant_isolation" ON public.payments_cache
   FOR SELECT USING (
     tenant_id = (auth.jwt() ->> 'tenant_id')::UUID
@@ -71,6 +72,7 @@ CREATE INDEX IF NOT EXISTS idx_payment_cards_tenant_id ON public.payment_cards (
 
 ALTER TABLE public.payment_cards ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "payment_cards_tenant_isolation" ON public.payment_cards;
 CREATE POLICY "payment_cards_tenant_isolation" ON public.payment_cards
   FOR ALL USING (
     tenant_id = (auth.jwt() ->> 'tenant_id')::UUID

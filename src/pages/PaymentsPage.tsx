@@ -13,6 +13,7 @@ import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
+import { SupportBannerSection } from "@/components/auth/SupportBannerSection";
 
 const PAYMENT_CARD_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/payment-card`;
 
@@ -143,6 +144,8 @@ export function PaymentsPage() {
   return (
     <div className="min-h-screen bg-[#0F172A] text-slate-100 p-4 md:p-8">
       <div className="max-w-5xl mx-auto space-y-8">
+
+        <SupportBannerSection />
 
         {/* Header */}
         <div className="flex items-center gap-3">

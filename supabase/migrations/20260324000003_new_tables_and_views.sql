@@ -89,6 +89,8 @@ CREATE INDEX IF NOT EXISTS idx_lead_followups_is_done      ON lead_followups (is
 
 -- View: lead_campaign_roi (CRM x Performance)
 -- LEFT JOIN garante que leads sem campanha aparecem com campos de campanha NULL.
+DROP VIEW IF EXISTS lead_roi_by_origin CASCADE;
+DROP VIEW IF EXISTS lead_campaign_roi CASCADE;
 CREATE OR REPLACE VIEW lead_campaign_roi AS
 SELECT
   l.id              AS lead_id,

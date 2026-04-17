@@ -40,10 +40,20 @@ WHERE status NOT IN (
 -- Remover o DEFAULT TEXT antes de converter o tipo (obrigatorio no PostgreSQL)
 ALTER TABLE crm_leads ALTER COLUMN status DROP DEFAULT;
 
--- Converter status de TEXT para lead_status_enum
-ALTER TABLE crm_leads
-  ALTER COLUMN status TYPE lead_status_enum
-  USING status::lead_status_enum;
+-- Dropar trigger que bloqueia o ALTER COLUMN TYPE (recriado abaixo)
+DROP TRIGGER IF EXISTS set_updated_at     ON crm_leads;
+DROP TRIGGER IF EXISTS trg_lead_updated_at ON crm_leads;
+
+-- Converter status de TEXT para lead_status_enum (se ainda não for enum)
+DO $$
+BEGIN
+  IF (SELECT data_type FROM information_schema.columns
+      WHERE table_name = 'crm_leads' AND column_name = 'status') = 'text' THEN
+    ALTER TABLE crm_leads
+      ALTER COLUMN status TYPE lead_status_enum
+      USING status::lead_status_enum;
+  END IF;
+END $$;
 
 -- Recriar o DEFAULT agora com o tipo correto
 ALTER TABLE crm_leads ALTER COLUMN status SET DEFAULT 'novo';

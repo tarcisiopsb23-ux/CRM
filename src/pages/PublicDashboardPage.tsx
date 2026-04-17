@@ -1,8 +1,8 @@
 ﻿import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
-import { SupportBanner } from "@/components/auth/SupportBanner";
 import { TenantSelector } from "@/components/auth/TenantSelector";
+import { SupportBannerBar } from "@/components/auth/SupportLayout";
 import { ContractExpiryBanner } from "@/components/ContractExpiryBanner";
 import { useTenantStatus } from "@/hooks/useTenantStatus";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -126,21 +126,25 @@ export function PublicDashboardPage() {
       ? selectedTenantId
       : tenantId;
   useEffect(() => {
-    if (!effectiveTenantId) return;
+    if (!effectiveTenantId || effectiveTenantId === "") return;
     const fetchClientData = async () => {
-      const { data: clients } = await supabaseCrm
+      const { data: clients, error } = await supabaseCrm
         .from("clients")
-        .select("id, name, favicon_url, metadata, dashboard_performance, dashboard_atendimento, dashboard_crm")
+        .select("id, name, company, favicon_url, metadata")
         .eq("tenant_id", effectiveTenantId)
         .limit(1);
+      if (error) console.warn("[Dashboard] erro ao buscar clientData:", error.message);
       if (clients && clients.length > 0) {
         const fresh = clients[0];
+        const meta = fresh.metadata ?? {};
         setClientData({
           ...fresh,
+          company: fresh.company ?? null,
           metadata: {
-            ...(fresh.metadata ?? {}),
-            dashboard_performance: fresh.dashboard_performance ?? true,
-            dashboard_atendimento: fresh.dashboard_atendimento ?? true,
+            ...meta,
+            dashboard_performance: meta.dashboard_performance ?? true,
+            dashboard_atendimento: meta.dashboard_atendimento ?? true,
+            dashboard_crm:         meta.dashboard_crm         ?? true,
             dashboard_crm:         fresh.dashboard_crm         ?? true,
           },
         });
@@ -470,25 +474,32 @@ export function PublicDashboardPage() {
             <ContractExpiryBanner contractEnd={tenantStatus.contractEnd} />
           )}
 
+          {/* -- BANNER DE SUPORTE (seção exclusiva, acima do header) -- */}
+          {isSupport && (
+            <SupportBannerBar />
+          )}
+
           {/* -- HEADER -- */}
-          <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-slate-800 pb-8">
-            <div className="space-y-1">
-              <div className="flex items-center gap-3">
-                {clientData?.metadata?.avatar_url ? (
-                  <img src={clientData.metadata.avatar_url} alt="Logo" className="h-10 w-10 rounded-xl shadow-lg object-cover" />
-                ) : (
-                  <img src={clientData?.favicon_url ?? "/favicon.png"} alt="Logo" className="h-10 w-10 rounded-xl shadow-lg object-contain" />
-                )}
-                <div>
-                  <h1 className="text-3xl font-black tracking-tight text-white uppercase">{dashboardTitle}</h1>
-                  <p className="text-slate-300 font-bold text-sm">
+          <header className="flex items-center justify-between gap-4 border-b border-slate-800 pb-8">
+            {/* Logo + título */}
+            <div className="flex items-center gap-3 min-w-0">
+              {clientData?.metadata?.avatar_url ? (
+                <img src={clientData.metadata.avatar_url} alt="Logo" className="h-10 w-10 rounded-xl shadow-lg object-cover shrink-0" />
+              ) : (
+                <img src={clientData?.favicon_url ?? "/favicon.png"} alt="Logo" className="h-10 w-10 rounded-xl shadow-lg object-contain shrink-0" />
+              )}
+              <div className="min-w-0">
+                <h1 className="text-3xl font-black tracking-tight text-white uppercase">{dashboardTitle}</h1>
+                {(clientData?.metadata?.display_name || clientData?.company || clientData?.name) && (
+                  <p className="text-slate-300 font-bold text-sm truncate">
                     {clientData?.metadata?.display_name || clientData?.company || clientData?.name}
                   </p>
-                </div>
+                )}
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-4">
+            {/* Filtros + perfil — agrupados no canto direito */}
+            <div className="flex items-center gap-2 shrink-0">
               {/* Filtro de período */}
               <PeriodDropdown dateRange={dateRange} onChange={setDateRange} />
 

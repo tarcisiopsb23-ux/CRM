@@ -16,7 +16,7 @@ const SUPPORT_RULES = [
 ];
 
 export function SupportBanner({ tenantName, onChangeTenant }: Props) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const navigate = useNavigate();
 
   return (
