@@ -4,6 +4,11 @@ import { useOrganization } from "@/hooks/useOrganization";
 import { useSuppliers } from "@/hooks/useSuppliers";
 import { supabase } from "@/lib/supabase";
 import { useIntegration, getDriveFoldersFromOrganizationSettings, useOrganizationSettings } from "@/hooks/useSettings";
+import { DriveFolderButton } from "@/components/shared/DriveFolderButton";
+import { DriveFolderStatusAlert } from "@/components/shared/DriveFolderStatusAlert";
+import { useDriveFolder } from "@/hooks/useDriveFolder";
+import { PinAuthDialog } from "@/components/shared/PinAuthDialog";
+import { usePinConfirm } from "@/hooks/usePinConfirm";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -23,12 +28,12 @@ import { Switch } from "@/components/ui/switch";
 import { fetchAddressByCep } from "@/lib/viacep";
 import { toast } from "sonner";
 import { DocumentsCard } from "@/components/documents/DocumentsCard";
+import { DRIVE_AUTO_FOLDERS } from "@/constants/driveAutoFolders";
 import type { Supplier, SupplierExpense } from "@/types/crm";
-import { formatBRL, formatCpfCnpj, formatPhoneBR } from "@/lib/formatters";
+import { formatBRL, formatCpfCnpj, formatPhoneBR, formatEntityCode } from "@/lib/formatters";
 import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import type { N8nConfig } from "@/types/settings";
-import { createDriveFolder } from "@/lib/driveDocuments";
+import { useN8nConfig } from "@/hooks/useN8nConfig";
 
 const SUPPLIER_CATEGORIES = [
   "Serviços Terceirizados",
@@ -49,11 +54,12 @@ const SUPPLIER_CATEGORIES = [
 
 export default function SuppliersPage() {
   const organizationId = useOrganization();
+  const { pinProps, requirePin } = usePinConfirm();
   const { data: suppliers = [], isLoading, create, update, remove, deactivate, activate } = useSuppliers(organizationId);
+  const { autoCreateFolder } = useDriveFolder(organizationId);
   const orgSettings = useOrganizationSettings(organizationId);
   const driveFolders = useMemo(() => getDriveFoldersFromOrganizationSettings(orgSettings.data), [orgSettings.data]);
-  const { data: n8nIntegration } = useIntegration(organizationId, "n8n");
-  const n8nConfig = (n8nIntegration as { config?: N8nConfig } | null)?.config;
+  const n8nConfig = useN8nConfig(organizationId);
   const [modalOpen, setModalOpen] = useState(false);
   const [searchingCep, setSearchingCep] = useState(false);
   const [editing, setEditing] = useState<Supplier | null>(null);
@@ -68,6 +74,9 @@ export default function SuppliersPage() {
     address_city: "",
     address_state: "",
     address_zip: "",
+    address_number: "",
+    address_complement: "",
+    address_neighborhood: "",
     service_category: "",
     pix: "",
   });
@@ -131,6 +140,9 @@ export default function SuppliersPage() {
       address_city: s.address_city ?? "",
       address_state: s.address_state ?? "",
       address_zip: s.address_zip ?? "",
+      address_number: (s as any).address_number ?? "",
+      address_complement: (s as any).address_complement ?? "",
+      address_neighborhood: (s as any).address_neighborhood ?? "",
       service_category: s.service_category ?? "Outros",
       pix: s.pix ?? "",
     });
@@ -146,7 +158,8 @@ export default function SuppliersPage() {
         if (address) {
           setForm({
             ...form,
-            address_street: `${address.logradouro}${address.bairro ? `, ${address.bairro}` : ""}`,
+            address_street: address.logradouro || form.address_street,
+            address_neighborhood: address.bairro || (form as any).address_neighborhood,
             address_city: address.localidade,
             address_state: address.uf,
             address_zip: address.cep,
@@ -171,29 +184,8 @@ export default function SuppliersPage() {
         await update.mutateAsync({ ...form, id: editing.id } as Partial<Supplier> & { id: string });
       } else {
         const created = await create.mutateAsync({ ...form, name: form.name! });
-        const parentFolderId = driveFolders.suppliers?.trim() || "";
-        const currentMeta = (created.metadata ?? {}) as Record<string, unknown>;
-        const existingFolder = String((currentMeta.drive_folder ?? currentMeta.drive_folder_url ?? "") as string).trim();
-        if (!existingFolder && parentFolderId && n8nConfig) {
-          try {
-            const folder = await createDriveFolder({
-              config: n8nConfig,
-              parentFolderId,
-              name: created.name.trim(),
-            });
-            const updatedSupplier = await update.mutateAsync({
-              id: created.id,
-              metadata: { ...currentMeta, drive_folder: folder.id },
-            });
-            setViewing(updatedSupplier);
-          } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : "Erro ao criar pasta no Drive";
-            toast.error(msg);
-            setViewing(created);
-          }
-        } else {
-          setViewing(created);
-        }
+        autoCreateFolder("supplier", { id: created.id, name: created.name, company: created.name }, ["suppliers", organizationId]);
+        setViewing(created);
       }
       setModalOpen(false);
     } catch (err) {
@@ -224,6 +216,15 @@ export default function SuppliersPage() {
         </Button>
       </div>
 
+      <DriveFolderStatusAlert
+        organizationId={organizationId!}
+        module="supplier"
+        table="suppliers"
+        queryKey="suppliers"
+        records={suppliers.map((s) => ({ id: s.id, name: s.name, folder_id: s.folder_id, metadata: s.metadata, is_active: (s as any).is_active }))}
+        canEdit
+      />
+
       {viewing ? (
         <Card>
           <CardHeader className="flex flex-row items-start justify-between gap-3">
@@ -238,6 +239,18 @@ export default function SuppliersPage() {
               <Button size="sm" variant="outline" onClick={() => openEdit(viewing)}>
                 <Pencil className="h-4 w-4 mr-1" /> Alterar
               </Button>
+              <DriveFolderButton
+                organizationId={organizationId!}
+                module="supplier"
+                record={{ id: viewing.id, name: viewing.name }}
+                folderId={viewing.folder_id ?? null}
+                folderUrl={viewing.folder_url ?? null}
+                onFolderSaved={async (fId, fUrl) => {
+                  const updated = await update.mutateAsync({ id: viewing.id, folder_id: fId, folder_url: fUrl ?? null });
+                  setViewing(updated);
+                }}
+                onFolderCreated={() => {}}
+              />
               {/* Toggle ativo/inativo */}
               <div className="flex items-center gap-2">
                 <Switch
@@ -247,9 +260,11 @@ export default function SuppliersPage() {
                       activate.mutate(viewing!.id);
                       setViewing(null);
                     } else {
-                      if (!window.confirm(`Desativar "${viewing!.name}"? Nenhum dado será apagado.`)) return;
-                      deactivate.mutate(viewing!.id);
-                      setViewing(null);
+                      requirePin(
+                        "Desativar fornecedor",
+                        `Desativar "${viewing!.name}"? Nenhum dado será apagado.`,
+                        async () => { deactivate.mutate(viewing!.id); setViewing(null); }
+                      );
                     }
                   }}
                 />
@@ -283,6 +298,10 @@ export default function SuppliersPage() {
                   <div className="flex items-center justify-between rounded border p-3">
                     <span className="text-muted-foreground">CPF/CNPJ</span>
                     <span className="font-medium">{viewing.document ? formatCpfCnpj(viewing.document) : "—"}</span>
+                  </div>
+                  <div className="flex items-center justify-between rounded border p-3">
+                    <span className="text-muted-foreground">Código</span>
+                    <span className="font-mono font-medium">{formatEntityCode("FOR", viewing.code)}</span>
                   </div>
                   <div className="flex items-center justify-between rounded border p-3">
                     <span className="text-muted-foreground">Telefone</span>
@@ -358,20 +377,25 @@ export default function SuppliersPage() {
                 <DocumentsCard
                   title="Documentos"
                   variant="folders"
-                  folderValue={(() => {
+                  folderId={viewing.folder_id ?? (() => {
+                    const meta = (viewing.metadata ?? {}) as Record<string, unknown>;
+                    return String(meta.drive_folder_id ?? meta.drive_folder ?? "").trim() || null;
+                  })()}
+                  folderValue={viewing.folder_url ?? (() => {
                     const meta = (viewing.metadata ?? {}) as Record<string, unknown>;
                     const raw = (meta.drive_folder ?? meta.drive_folder_url ?? meta.folder ?? meta.pasta ?? "") as string;
-                    const v = String(raw ?? "").trim();
-                    return v || null;
+                    return String(raw ?? "").trim() || null;
                   })()}
                   canEdit
                   allowCreateFolder
+                  autoFolderNames={[...DRIVE_AUTO_FOLDERS.supplier]}
                   createFolderParentValue={driveFolders.suppliers}
                   createFolderName={(viewing.name || "Fornecedor").trim()}
                   onSetFolderValue={async (next) => {
-                    const current = (viewing.metadata ?? {}) as Record<string, unknown>;
-                    const updatedSupplier = await update.mutateAsync({ id: viewing.id, metadata: { ...current, drive_folder: next || null } });
-                    setViewing(updatedSupplier);
+                    const folderId = next.match(/^[a-zA-Z0-9_-]{10,}$/) && !next.includes("http") ? next : (next.match(/\/folders\/([a-zA-Z0-9_-]+)/)?.[1] ?? next);
+                    const folderUrl = next.startsWith("http") ? next : `https://drive.google.com/drive/folders/${folderId}`;
+                    const updated = await update.mutateAsync({ id: viewing.id, folder_id: folderId, folder_url: folderUrl });
+                    setViewing(updated);
                   }}
                 />
               </TabsContent>
@@ -418,7 +442,10 @@ export default function SuppliersPage() {
                     onClick={() => setViewing(s)}
                   >
                     <div className="min-w-0">
-                      <p className="font-medium truncate">{s.name}</p>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs text-muted-foreground">{formatEntityCode("FOR", s.code)}</span>
+                        <p className="font-medium truncate">{s.name}</p>
+                      </div>
                       <p className="text-sm text-muted-foreground truncate">
                         {s.service_category && `${s.service_category} • `}
                         {s.email || s.phone || "—"}
@@ -453,7 +480,11 @@ export default function SuppliersPage() {
                         className="text-destructive"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (window.confirm(`Desativar "${s.name}"?`)) deactivate.mutate(s.id);
+                          if (window.confirm(`Desativar "${s.name}"?`)) requirePin(
+                            "Desativar fornecedor",
+                            `Desativar "${s.name}"? Nenhum dado será apagado.`,
+                            async () => { deactivate.mutate(s.id); }
+                          );
                         }}
                         aria-label="Desativar"
                       >
@@ -469,7 +500,7 @@ export default function SuppliersPage() {
       )}
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="w-[75vw] max-w-[75vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editing ? "Editar fornecedor" : "Novo fornecedor"}</DialogTitle>
           </DialogHeader>
@@ -483,7 +514,7 @@ export default function SuppliersPage() {
                 required
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-4 items-end">
               <div>
                 <Label>CPF/CNPJ</Label>
                 <Input
@@ -531,16 +562,8 @@ export default function SuppliersPage() {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2">
-                <Label>Endereço</Label>
-                <Input
-                  value={form.address_street ?? ""}
-                  onChange={(e) => setForm({ ...form, address_street: e.target.value })}
-                  placeholder="Rua, número, bairro"
-                />
-              </div>
-              <div>
+            <div className="grid grid-cols-2 gap-4 items-end">
+              <div className="col-span-2 w-[40%]">
                 <Label>CEP</Label>
                 <div className="relative">
                   <Input
@@ -553,6 +576,7 @@ export default function SuppliersPage() {
                       }
                     }}
                     placeholder="00000-000"
+                    maxLength={9}
                   />
                   {searchingCep && (
                     <div className="absolute right-2 top-1/2 -translate-y-1/2">
@@ -560,6 +584,38 @@ export default function SuppliersPage() {
                     </div>
                   )}
                 </div>
+              </div>
+              <div className="col-span-2">
+                <Label>Rua / Av.</Label>
+                <Input
+                  value={form.address_street ?? ""}
+                  onChange={(e) => setForm({ ...form, address_street: e.target.value })}
+                  placeholder="Nome da rua ou avenida"
+                />
+              </div>
+              <div className="w-[40%]">
+                <Label>Número</Label>
+                <Input
+                  value={(form as any).address_number ?? ""}
+                  onChange={(e) => setForm({ ...form, address_number: e.target.value } as any)}
+                  placeholder="Nº"
+                />
+              </div>
+              <div>
+                <Label>Complemento</Label>
+                <Input
+                  value={(form as any).address_complement ?? ""}
+                  onChange={(e) => setForm({ ...form, address_complement: e.target.value } as any)}
+                  placeholder="Apto, sala, bloco..."
+                />
+              </div>
+              <div>
+                <Label>Bairro</Label>
+                <Input
+                  value={(form as any).address_neighborhood ?? ""}
+                  onChange={(e) => setForm({ ...form, address_neighborhood: e.target.value } as any)}
+                  placeholder="Bairro"
+                />
               </div>
               <div>
                 <Label>Cidade</Label>
@@ -571,11 +627,17 @@ export default function SuppliersPage() {
               </div>
               <div>
                 <Label>Estado</Label>
-                <Input
+                <Select
                   value={form.address_state ?? ""}
-                  onChange={(e) => setForm({ ...form, address_state: e.target.value })}
-                  placeholder="UF"
-                />
+                  onValueChange={(v) => setForm({ ...form, address_state: v })}
+                >
+                  <SelectTrigger><SelectValue placeholder="UF" /></SelectTrigger>
+                  <SelectContent>
+                    {["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"].map((uf) => (
+                      <SelectItem key={uf} value={uf}>{uf}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <DialogFooter>
@@ -590,6 +652,7 @@ export default function SuppliersPage() {
           </form>
         </DialogContent>
       </Dialog>
+      <PinAuthDialog {...pinProps} />
     </div>
   );
 }

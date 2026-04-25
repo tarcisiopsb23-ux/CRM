@@ -82,8 +82,14 @@ export function AdIntegrationDialog({
         id: existingIntegration?.id,
         platform,
         account_id: accountId.trim(),
-        access_token: accessToken.trim() || undefined,
-        refresh_token: refreshToken.trim() || undefined,
+        // Google: access_token é gerado automaticamente pelo n8n via refresh_token
+        access_token: platform === 'google'
+          ? (existingIntegration?.access_token ?? null)
+          : (accessToken.trim() || null),
+        // Sempre envia refresh_token: novo valor se preenchido, existente se não preenchido, null se novo cadastro sem valor
+        refresh_token: refreshToken.trim()
+          ? refreshToken.trim()
+          : (existingIntegration?.refresh_token ?? null),
         settings
       });
       toast.success(`Integração com ${platform === 'meta' ? 'Meta' : 'Google'} Ads salva com sucesso!`);
@@ -182,7 +188,9 @@ export function AdIntegrationDialog({
                     onChange={(e) => setRefreshToken(e.target.value)}
                     placeholder="1//..."
                   />
-                  <p className="text-[10px] text-muted-foreground italic">Necessário para renovar o acesso automaticamente.</p>
+                  <p className="text-[10px] text-muted-foreground italic">
+                    Necessário para renovar o acesso automaticamente. O access token é gerado automaticamente pelo sistema a cada sincronização.
+                  </p>
                 </div>
               </>
             )}

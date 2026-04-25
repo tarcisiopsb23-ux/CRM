@@ -7,6 +7,14 @@ export default defineConfig({
     host: "::",
     port: 8080,
     hmr: { overlay: false },
+    proxy: {
+      // Proxy para evitar CORS em desenvolvimento local com o n8n
+      "/n8n-proxy": {
+        target: process.env.VITE_N8N_BASE_URL || "https://ia-n8n.whlwlh.easypanel.host",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/n8n-proxy/, ""),
+      },
+    },
   },
   plugins: [react()],
   resolve: {

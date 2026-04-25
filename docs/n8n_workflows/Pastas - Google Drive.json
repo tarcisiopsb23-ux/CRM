@@ -1,0 +1,1388 @@
+{
+  "name": "Google Drive - Pastas e Documentos",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "drive-folder-client",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "83bf9eb9-bb7d-4753-8259-27fb87bb1621",
+      "name": "Webhook - Novo Cliente",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        240
+      ],
+      "webhookId": "83bf9eb9-bb7d-4753-8259-27fb87bb1621"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "drive-folder-supplier",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "edc1e851-9774-496c-99c9-457116958eb5",
+      "name": "Webhook - Novo Fornecedor",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        448
+      ],
+      "webhookId": "edc1e851-9774-496c-99c9-457116958eb5"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "drive-folder-project",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "e42ccd5e-ba85-4c38-9689-7c8bb7d7927b",
+      "name": "Webhook - Novo Projeto",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        640
+      ],
+      "webhookId": "e42ccd5e-ba85-4c38-9689-7c8bb7d7927b"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "drive-folder-employee",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "d54163c3-bbee-4f24-ae52-7b24a2195422",
+      "name": "Webhook - Novo Colaborador",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        848
+      ],
+      "webhookId": "d54163c3-bbee-4f24-ae52-7b24a2195422"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "drive-folder-manual",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "ab0067a0-81b0-47a0-909d-2ddb865ced45",
+      "name": "Webhook - Acao Manual",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        1040
+      ],
+      "webhookId": "ab0067a0-81b0-47a0-909d-2ddb865ced45"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\nconst body = item.json.body || item.json;\nconst query = item.json.query || {};\nconst action = body.action || item.json.action || query.action || 'create';\nconst module = body.module || item.json.module || null;\nconst record = body.record || item.json.record || {};\nconst folderId = body.folderId || item.json.folderId || query.folderId || body.existing_folder_id || null;\nconst parentFolderId = body.parentFolderId || item.json.parentFolderId || folderId || null;\nconst folderName = body.name || item.json.name || body.subfolder || record.company || record.name || record.title || record.full_name || (module||'item')+'-'+(record.id||'novo');\nconst newName = body.new_name || item.json.new_name || null;\nconst existingFolderId = body.existing_folder_id || item.json.existing_folder_id || folderId || null;\nconst rootFolderId = body.root_folder_id || item.json.root_folder_id || null;\nconst shareEmail = body.email || item.json.email || null;\nconst shareRole = body.role || item.json.role || 'reader';\nconst revokeEmail = body.email || item.json.email || null;\nconst fileId = body.fileId || item.json.fileId || null;\nconst permissionId = body.permissionId || item.json.permissionId || null;\nconst binary = item.binary || {};\nreturn [{ json: { action, module, record_id: record.id||null, nome: folderName, folderId, parentFolderId, existingFolderId, newName, rootFolderId, shareEmail, shareRole, revokeEmail, fileId, permissionId }, binary }];"
+      },
+      "id": "normalize-payload",
+      "name": "Normalizar Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "r0",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "create",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Criar Pasta"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "r1",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "create_subfolder",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Criar Sub-Pasta"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "r2",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "rename",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Renomear"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "r3",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "delete",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Excluir"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "r4",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "documents.folders.list",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Listar Pastas"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "r5",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "documents.list",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Listar Arquivos"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "r6",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "documents.folders.create",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Criar Subpasta Doc"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "r7",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "documents.upload",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Upload"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "r8",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "share_access",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Compartilhar"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "r9",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "revoke_access",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Revogar"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "r11",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "delete_subfolder",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Excluir Subpasta"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "r12",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "delete_file",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Excluir Arquivo"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "027fb29c-3f26-41ba-ad74-47325b3faff9",
+      "name": "Roteador de Acao",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        480,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "name": "={{ $json.nome }}",
+        "driveId": {
+          "__rl": true,
+          "value": "My Drive",
+          "mode": "list",
+          "cachedResultName": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $json.rootFolderId }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "652c46d1-a3f5-45b9-97f8-ca689a2ce491",
+      "name": "Criar Pasta Raiz",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        800,
+        200
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "diPzs7TWD1Fa5lUn",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const folderId = $input.first().json.id;\nconst norm = $('Normalizar Payload').first().json;\nconst module = norm.module;\nconst subs = { client: ['Contratos','Documentos','Relatorios','Comunicacoes','Notas Fiscais'], supplier: ['Contratos','Notas Fiscais','Documentos'], project: ['Briefing','Entregas','Aprovacoes','Arquivos'], employee: ['Documentos Pessoais','Contratos','Avaliacoes'] };\nconst subfolders = (module && subs[module]) || [];\nreturn subfolders.map(name => ({ json: { parent_id: folderId, name, module, record_id: norm.record_id } }));"
+      },
+      "id": "81e7e662-6c5e-44fb-9d8c-70d15dcd26dc",
+      "name": "Preparar Subpastas Padrao",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1080,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "name": "={{ $json.name }}",
+        "driveId": {
+          "__rl": true,
+          "value": "My Drive",
+          "mode": "list",
+          "cachedResultName": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $json.parent_id }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "aeeaf981-02bd-4282-add4-0f10fd720288",
+      "name": "Criar sub-pastas",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1360,
+        80
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "diPzs7TWD1Fa5lUn",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const folder = $('Criar Pasta Raiz').first().json;\nconst norm = $('Normalizar Payload').first().json;\nif (!folder.id) return [{ json: { skip: true } }];\nconst tableMap = { client: 'clients', supplier: 'suppliers', project: 'projects', employee: 'profiles' };\nconst table = norm.module && tableMap[norm.module];\nreturn [{ json: { table, record_id: norm.record_id, folder_id: folder.id, folder_url: 'https://drive.google.com/drive/folders/' + folder.id } }];"
+      },
+      "id": "deccdd36-846a-47c6-b5c6-32f160b6c523",
+      "name": "Preparar Salvar ID da Pasta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1080,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "={{ $json.table }}",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.record_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "folder_id",
+              "fieldValue": "={{ $json.folder_id }}"
+            },
+            {
+              "fieldId": "folder_url",
+              "fieldValue": "={{ $json.folder_url }}"
+            }
+          ]
+        }
+      },
+      "id": "40c54e9e-c3d0-4cba-8acb-82718c31431d",
+      "name": "Salva Pasta Maestria",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1360,
+        320
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "yDtu96eQqnPXpyAM",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "name": "={{ $('Normalizar Payload').first().json.nome }}",
+        "driveId": {
+          "__rl": true,
+          "value": "My Drive",
+          "mode": "list",
+          "cachedResultName": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $('Normalizar Payload').first().json.existingFolderId }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "criar-subpasta-manual",
+      "name": "Criar Sub-Pasta Manual",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        800,
+        480
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "diPzs7TWD1Fa5lUn",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://www.googleapis.com/drive/v3/files/{{ $('Normalizar Payload').first().json.existingFolderId }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $('Normalizar Payload').first().json.newName }) }}",
+        "options": {}
+      },
+      "id": "renomear-pasta",
+      "name": "Renomear Pasta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        800,
+        640
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "diPzs7TWD1Fa5lUn",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "operation": "deleteFolder",
+        "folderNoRootId": {
+          "__rl": true,
+          "value": "={{ $('Normalizar Payload').first().json.existingFolderId }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "excluir-pasta",
+      "name": "Excluir Pasta",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        800,
+        800
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "diPzs7TWD1Fa5lUn",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.googleapis.com/drive/v3/files",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ \"'\" + $('Normalizar Payload').first().json.folderId + \"' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false\" }}"
+            },
+            {
+              "name": "fields",
+              "value": "files(id,name,mimeType,webViewLink,modifiedTime)"
+            },
+            {
+              "name": "orderBy",
+              "value": "name"
+            },
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "listar-pastas",
+      "name": "Listar Pastas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        800,
+        960
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "diPzs7TWD1Fa5lUn",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.googleapis.com/drive/v3/files",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ \"'\" + $('Normalizar Payload').first().json.folderId + \"' in parents and mimeType!='application/vnd.google-apps.folder' and trashed=false\" }}"
+            },
+            {
+              "name": "fields",
+              "value": "files(id,name,mimeType,webViewLink,modifiedTime,size)"
+            },
+            {
+              "name": "orderBy",
+              "value": "name"
+            },
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "listar-arquivos",
+      "name": "Listar Arquivos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        800,
+        1120
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "diPzs7TWD1Fa5lUn",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "name": "={{ $('Normalizar Payload').first().json.nome }}",
+        "driveId": {
+          "__rl": true,
+          "value": "My Drive",
+          "mode": "list",
+          "cachedResultName": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $('Normalizar Payload').first().json.parentFolderId }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "criar-subpasta-doc",
+      "name": "Criar Subpasta (Documentos)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        800,
+        1280
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "diPzs7TWD1Fa5lUn",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "driveId": {
+          "__rl": true,
+          "value": "My Drive",
+          "mode": "list",
+          "cachedResultName": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $('Normalizar Payload').first().json.folderId }}",
+          "mode": "id"
+        },
+        "name": "={{ $binary.file?.fileName || $binary.data?.fileName || 'arquivo' }}",
+        "inputDataFieldName": "file",
+        "options": {}
+      },
+      "id": "upload-arquivo",
+      "name": "Upload Arquivo",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        800,
+        1440
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "diPzs7TWD1Fa5lUn",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://www.googleapis.com/drive/v3/files/{{ $('Normalizar Payload').first().json.fileId || $('Normalizar Payload').first().json.existingFolderId }}/permissions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ role: $('Normalizar Payload').first().json.shareRole || 'reader', type: 'user', emailAddress: $('Normalizar Payload').first().json.shareEmail }) }}",
+        "options": {}
+      },
+      "id": "compartilhar-pasta",
+      "name": "Compartilhar Pasta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        800,
+        1600
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "diPzs7TWD1Fa5lUn",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const norm = $('Normalizar Payload').first().json;\n// Usa folderId com fallback para existingFolderId\nconst folderId = norm.folderId || norm.existingFolderId || null;\nconst email = norm.revokeEmail;\nconst permissionId = norm.permissionId || null;\nif (!folderId) throw new Error('folderId nao informado para revogar acesso');\nreturn [{ json: { folderId, email, permissionId } }];"
+      },
+      "id": "preparar-revogar",
+      "name": "Preparar Revogar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        1760
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            {
+              "id": "c0",
+              "leftValue": "={{ $json.permissionId }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "empty", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-permission-id",
+      "name": "Tem permissionId?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1040, 1760]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://www.googleapis.com/drive/v3/files/{{ $('Preparar Revogar').first().json.folderId }}/permissions?fields=permissions(id,emailAddress)",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "options": {}
+      },
+      "id": "buscar-permissoes",
+      "name": "Buscar Permissoes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1280,
+        1680
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "diPzs7TWD1Fa5lUn",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const prep = $('Preparar Revogar').first().json;\nconst email = prep.email;\nconst folderId = prep.folderId;\n// Se permissionId já veio direto no payload, usa ele sem precisar buscar\nif (prep.permissionId) {\n  return [{ json: { folderId, permissionId: prep.permissionId, email } }];\n}\nconst permissions = $input.first().json.permissions || [];\nconst perm = permissions.find(p => p.emailAddress === email);\nif (!perm) throw new Error('Permissao nao encontrada para ' + email + ' na pasta ' + folderId);\nreturn [{ json: { folderId, permissionId: perm.id, email } }];"
+      },
+      "id": "encontrar-permissao",
+      "name": "Encontrar Permissao",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        1680
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prep = $('Preparar Revogar').first().json;\nreturn [{ json: { folderId: prep.folderId, permissionId: prep.permissionId, email: prep.email } }];"
+      },
+      "id": "usar-permission-id-direto",
+      "name": "Usar permissionId Direto",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        1840
+      ]
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "=https://www.googleapis.com/drive/v3/files/{{ $json.folderId }}/permissions/{{ $json.permissionId }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "options": {}
+      },
+      "id": "revogar-acesso",
+      "name": "Revogar Acesso",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1520,
+        1760
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "diPzs7TWD1Fa5lUn",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ (() => {\n  const norm = $('Normalizar Payload').first().json;\n  const action = norm.action;\n\n  if (action === 'documents.folders.list') {\n    // Google Drive API returns { files: [...] } — extract and return as folders\n    const raw = $input.first().json;\n    const items = (raw.files || raw.folders || (Array.isArray(raw) ? raw : [])).map(i => ({\n      id: i.id, name: i.name, mimeType: i.mimeType, url: i.webViewLink, modifiedTime: i.modifiedTime\n    }));\n    return JSON.stringify({ folders: items });\n  }\n\n  if (action === 'documents.list') {\n    const raw = $input.first().json;\n    const items = (raw.files || (Array.isArray(raw) ? raw : [])).map(i => ({\n      id: i.id, name: i.name, mimeType: i.mimeType, url: i.webViewLink, modifiedTime: i.modifiedTime, size: i.size\n    }));\n    return JSON.stringify({ files: items });\n  }\n\n  if (action === 'documents.folders.create') {\n    const f = $input.first().json;\n    return JSON.stringify({ id: f.id, name: f.name, url: f.webViewLink });\n  }\n\n  if (action === 'create') {\n    const f = $input.first().json;\n    return JSON.stringify({ success: true, folder_id: f.id || null, folder_url: f.id ? 'https://drive.google.com/drive/folders/' + f.id : null });\n  }\n\n  return JSON.stringify({ success: true });\n})() }}",
+        "options": {}
+      },
+      "id": "7df37ff2-ffbd-4367-a3ba-d826671f8ee6",
+      "name": "Resposta",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1640,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "operation": "deleteFolder",
+        "folderNoRootId": {
+          "__rl": true,
+          "value": "={{ $('Normalizar Payload').first().json.folderId }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "excluir-subpasta",
+      "name": "Excluir Subpasta",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        800,
+        1920
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "diPzs7TWD1Fa5lUn",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "=https://www.googleapis.com/drive/v3/files/{{ $('Normalizar Payload').first().json.fileId }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "options": {}
+      },
+      "id": "excluir-arquivo",
+      "name": "Excluir Arquivo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        800,
+        2080
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "diPzs7TWD1Fa5lUn",
+          "name": "Google Drive account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Novo Cliente": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Novo Fornecedor": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Novo Projeto": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Novo Colaborador": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Acao Manual": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar Payload": {
+      "main": [
+        [
+          {
+            "node": "Roteador de Acao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Roteador de Acao": {
+      "main": [
+        [
+          {
+            "node": "Criar Pasta Raiz",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Criar Sub-Pasta Manual",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Renomear Pasta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Excluir Pasta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Listar Pastas",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Listar Arquivos",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Criar Subpasta (Documentos)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Upload Arquivo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compartilhar Pasta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preparar Revogar",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Excluir Subpasta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Excluir Arquivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Criar Pasta Raiz": {
+      "main": [
+        [
+          {
+            "node": "Preparar Subpastas Padrao",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Preparar Salvar ID da Pasta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Subpastas Padrao": {
+      "main": [
+        [
+          {
+            "node": "Criar sub-pastas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Criar sub-pastas": {
+      "main": [
+        [
+          {
+            "node": "Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Salvar ID da Pasta": {
+      "main": [
+        [
+          {
+            "node": "Salva Pasta Maestria",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Salva Pasta Maestria": {
+      "main": [
+        [
+          {
+            "node": "Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Criar Sub-Pasta Manual": {
+      "main": [
+        [
+          {
+            "node": "Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Renomear Pasta": {
+      "main": [
+        [
+          {
+            "node": "Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Excluir Pasta": {
+      "main": [
+        [
+          {
+            "node": "Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Listar Pastas": {
+      "main": [
+        [
+          {
+            "node": "Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Listar Arquivos": {
+      "main": [
+        [
+          {
+            "node": "Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Criar Subpasta (Documentos)": {
+      "main": [
+        [
+          {
+            "node": "Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Arquivo": {
+      "main": [
+        [
+          {
+            "node": "Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compartilhar Pasta": {
+      "main": [
+        [
+          {
+            "node": "Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Revogar": {
+      "main": [
+        [
+          {
+            "node": "Tem permissionId?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tem permissionId?": {
+      "main": [
+        [
+          {
+            "node": "Buscar Permissoes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Usar permissionId Direto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Permissoes": {
+      "main": [
+        [
+          {
+            "node": "Encontrar Permissao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Encontrar Permissao": {
+      "main": [
+        [
+          {
+            "node": "Revogar Acesso",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Usar permissionId Direto": {
+      "main": [
+        [
+          {
+            "node": "Revogar Acesso",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Revogar Acesso": {
+      "main": [
+        [
+          {
+            "node": "Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Excluir Subpasta": {
+      "main": [
+        [
+          {
+            "node": "Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Excluir Arquivo": {
+      "main": [
+        [
+          {
+            "node": "Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveExecutionProgress": false,
+    "availableInMCP": false
+  },
+  "versionId": "c8maestria-drive-v1-stable-00000000000",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "2578bc35b6bdc499db10723a4b7f8f3a18d5bc2bb18bff2484fc584b5c1bf2ee"
+  },
+  "id": "ky6ZnBsDYAP8UidqfDm6a",
+  "tags": []
+}

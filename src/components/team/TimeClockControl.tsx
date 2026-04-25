@@ -27,12 +27,13 @@ import { Shield } from "lucide-react";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "@/components/ui/sonner";
+import { PinAuthDialog } from "@/components/shared/PinAuthDialog";
 
 const TYPE_OPTIONS: Array<{ value: RepPPunchType; label: string }> = [
   { value: "entrada", label: "Entrada" },
-  { value: "saida_intervalo", label: "Saída para intervalo" },
+  { value: "saida_intervalo", label: "Sa�da para intervalo" },
   { value: "retorno_intervalo", label: "Retorno do intervalo" },
-  { value: "saida_final", label: "Saída final" },
+  { value: "saida_final", label: "Sa�da final" },
 ];
 
 function fmtDateTime(iso: string) {
@@ -47,7 +48,7 @@ function fmtDateTime(iso: string) {
 function shortHash(h?: string | null) {
   if (!h) return "-";
   if (h.length <= 14) return h;
-  return `${h.slice(0, 8)}…${h.slice(-6)}`;
+  return `${h.slice(0, 8)}�${h.slice(-6)}`;
 }
 
 type RepPWeeklyRow = {
@@ -80,7 +81,7 @@ export function TimeClockControl() {
 
   const { canView: canEditTimeclock, isAdminOrOwner: isAdmin } = usePermissionForScope("team", "timeclock_edit");
 
-  // Excluir owners e admins das listas de ponto — eles são isentos
+  // Excluir owners e admins das listas de ponto � eles s�o isentos
   const timeclockProfiles = useMemo(
     () => profiles.filter((p) => p.role !== "owner" && p.role !== "admin"),
     [profiles]
@@ -183,8 +184,8 @@ export function TimeClockControl() {
   const submitCreate = async () => {
     try {
       if (!createForm.userId) throw new Error("Selecione um colaborador");
-      if (!createForm.date || !createForm.time) throw new Error("Informe data e horário");
-      if (!createForm.justification.trim()) throw new Error("Justificativa obrigatória");
+      if (!createForm.date || !createForm.time) throw new Error("Informe data e hor�rio");
+      if (!createForm.justification.trim()) throw new Error("Justificativa obrigat�ria");
       const occurredAtIso = new Date(`${createForm.date}T${createForm.time}:00`).toISOString();
       await createPunch.mutateAsync({
         userId: createForm.userId,
@@ -192,7 +193,7 @@ export function TimeClockControl() {
         type: createForm.type,
         justification: createForm.justification,
       });
-      toast.success("Registro incluído");
+      toast.success("Registro inclu�do");
       setCreateOpen(false);
       setCreateForm((p) => ({ ...p, justification: "" }));
     } catch (e: unknown) {
@@ -205,16 +206,18 @@ export function TimeClockControl() {
   const voidPunch = useRepPAdminVoidPunch();
   const submitVoid = async () => {
     if (!selected) return;
-    try {
-      if (!voidJust.trim()) throw new Error("Justificativa obrigatória");
-      await voidPunch.mutateAsync({ punchId: selected.id, justification: voidJust });
-      toast.success("Registro anulado");
-      setVoidOpen(false);
-      setVoidJust("");
-      setSelected((s) => (s ? { ...s, status: "anulado" } : s));
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Erro ao anular registro");
-    }
+    if (!voidJust.trim()) { toast.error("Justificativa obrigatoria"); return; }
+    requirePin(
+      "Anular registro de ponto",
+      "Digite seu PIN de 8 digitos para confirmar o cancelamento.",
+      async () => {
+        await voidPunch.mutateAsync({ punchId: selected.id, justification: voidJust });
+        toast.success("Registro anulado");
+        setVoidOpen(false);
+        setVoidJust("");
+        setSelected((s) => (s ? { ...s, status: "anulado" } : s));
+      }
+    );
   };
 
   const [correctOpen, setCorrectOpen] = useState(false);
@@ -225,21 +228,23 @@ export function TimeClockControl() {
   const correctPunch = useRepPAdminCorrectPunch();
   const submitCorrect = async () => {
     if (!selected) return;
-    try {
-      if (!correctForm.justification.trim()) throw new Error("Justificativa obrigatória");
-      const newOccurredAtIso = new Date(`${correctForm.date}T${correctForm.time}:00`).toISOString();
-      await correctPunch.mutateAsync({
-        punchId: selected.id,
-        newOccurredAtIso,
-        newType: correctForm.type,
-        justification: correctForm.justification,
-      });
-      toast.success("Correção registrada");
-      setCorrectOpen(false);
-      setCorrectForm((p) => ({ ...p, justification: "" }));
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Erro ao corrigir registro");
-    }
+    if (!correctForm.justification.trim()) { toast.error("Justificativa obrigatoria"); return; }
+    requirePin(
+      "Corrigir registro de ponto",
+      "Digite seu PIN de 8 digitos para confirmar a correcao.",
+      async () => {
+        const newOccurredAtIso = new Date(`${correctForm.date}T${correctForm.time}:00`).toISOString();
+        await correctPunch.mutateAsync({
+          punchId: selected.id,
+          newOccurredAtIso,
+          newType: correctForm.type,
+          justification: correctForm.justification,
+        });
+        toast.success("Correcao registrada");
+        setCorrectOpen(false);
+        setCorrectForm((p) => ({ ...p, justification: "" }));
+      }
+    );
   };
 
   const [authOpen, setAuthOpen] = useState(false);
@@ -250,19 +255,21 @@ export function TimeClockControl() {
   }));
   const authorize = useRepPAdminAuthorizeReentry();
   const submitAuth = async () => {
-    try {
-      if (!authForm.userId) throw new Error("Selecione um colaborador");
-      if (!authForm.justification.trim()) throw new Error("Justificativa obrigatória");
-      await authorize.mutateAsync({ userId: authForm.userId, forDate: authForm.forDate, justification: authForm.justification });
-      toast.success("Autorização registrada");
-      setAuthOpen(false);
-      setAuthForm((p) => ({ ...p, justification: "" }));
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Erro ao autorizar nova entrada");
-    }
+    if (!authForm.userId) { toast.error("Selecione um colaborador"); return; }
+    if (!authForm.justification.trim()) { toast.error("Justificativa obrigatoria"); return; }
+    requirePin(
+      "Autorizar nova entrada",
+      "Digite seu PIN de 8 digitos para confirmar a autorizacao.",
+      async () => {
+        await authorize.mutateAsync({ userId: authForm.userId, forDate: authForm.forDate, justification: authForm.justification });
+        toast.success("Autorizacao registrada");
+        setAuthOpen(false);
+        setAuthForm((p) => ({ ...p, justification: "" }));
+      }
+    );
   };
 
-  // ── Autorizar limite (intervalo tardio / retorno tardio) ──────────────────
+  // -- Autorizar limite (intervalo tardio / retorno tardio) ------------------
   const [limitOpen, setLimitOpen] = useState(false);
   const [limitForm, setLimitForm] = useState<{
     userId: string;
@@ -277,24 +284,27 @@ export function TimeClockControl() {
   });
   const authorizeLimit = useRepPAdminAuthorizeLimit();
   const submitLimit = async () => {
-    try {
-      if (!limitForm.userId) throw new Error("Selecione um colaborador");
-      if (!limitForm.justification.trim()) throw new Error("Justificativa obrigatória");
-      await authorizeLimit.mutateAsync({
-        userId: limitForm.userId,
-        forDate: limitForm.forDate,
-        authType: limitForm.authType,
-        justification: limitForm.justification,
-      });
-      toast.success("Autorização concedida — colaborador tem 5 minutos para registrar");
-      setLimitOpen(false);
-      setLimitForm((p) => ({ ...p, justification: "" }));
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Erro ao autorizar");
-    }
+    if (!limitForm.userId) { toast.error("Selecione um colaborador"); return; }
+    if (!limitForm.justification.trim()) { toast.error("Justificativa obrigatoria"); return; }
+    requirePin(
+      "Autorizar entrada/saida fora do horario",
+      "Digite seu PIN de 8 digitos para confirmar a autorizacao.",
+      async () => {
+        await authorizeLimit.mutateAsync({
+          userId: limitForm.userId,
+          forDate: limitForm.forDate,
+          authType: limitForm.authType,
+          justification: limitForm.justification,
+        });
+        toast.success("Autorizacao concedida - colaborador tem 5 minutos para registrar");
+        setLimitOpen(false);
+        setLimitForm((p) => ({ ...p, justification: "" }));
+      }
+    );
   };
 
-  // ── Relatório de Auditoria ────────────────────────────────────────────────
+
+  // -- Relat�rio de Auditoria ------------------------------------------------
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditFrom, setAuditFrom] = useState(() => format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), "yyyy-MM-dd"));
   const [auditTo, setAuditTo] = useState(() => format(new Date(), "yyyy-MM-dd"));
@@ -310,7 +320,7 @@ export function TimeClockControl() {
 
   const exportAuditCSV = useCallback(() => {
     const rows = auditPunches.data ?? [];
-    if (!rows.length) { toast.error("Nenhum registro no período selecionado"); return; }
+    if (!rows.length) { toast.error("Nenhum registro no per�odo selecionado"); return; }
     const header = ["id", "colaborador", "data", "hora", "tipo", "status", "origem", "ip", "prev_hash", "integrity_hash"];
     const lines = rows.map((r) => {
       const dt = fmtDateTime(r.occurred_at);
@@ -337,10 +347,10 @@ export function TimeClockControl() {
     a.download = `auditoria_ponto_${auditFrom}_${auditTo}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    toast.success("Relatório exportado com sucesso");
+    toast.success("Relat�rio exportado com sucesso");
   }, [auditPunches.data, auditFrom, auditTo, profileNameById]);
 
-  // ── Autorizar hora extra ──────────────────────────────────────────────────
+  // -- Autorizar hora extra --------------------------------------------------
   const [overtimeOpen, setOvertimeOpen] = useState(false);  const [overtimeForm, setOvertimeForm] = useState<{
     userId: string;
     forDate: string;
@@ -352,40 +362,54 @@ export function TimeClockControl() {
     authorizedMinutes: 60,
     justification: "",
   });
-  const submitOvertime = async () => {
-    try {
-      if (!overtimeForm.userId) throw new Error("Selecione um colaborador");
-      if (!overtimeForm.justification.trim()) throw new Error("Justificativa obrigatória");
-      if (overtimeForm.authorizedMinutes <= 0) throw new Error("Informe a quantidade de minutos autorizados");
-      await authorizeLimit.mutateAsync({
-        userId: overtimeForm.userId,
-        forDate: overtimeForm.forDate,
-        authType: "overtime",
-        justification: overtimeForm.justification,
-        authorizedMinutes: overtimeForm.authorizedMinutes,
-      });
-      toast.success(`Hora extra autorizada: ${overtimeForm.authorizedMinutes} min — colaborador tem 5 minutos para registrar saída`);
-      setOvertimeOpen(false);
-      setOvertimeForm((p) => ({ ...p, justification: "" }));
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Erro ao autorizar hora extra");
-    }
+  // PIN auth state
+  const [pinOpen, setPinOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<(() => Promise<void>) | null>(null);
+  const [pinTitle, setPinTitle] = useState("Autorizar acao");
+  const [pinDescription, setPinDescription] = useState("Digite seu PIN de 8 digitos para confirmar.");
+
+  const requirePin = (title: string, description: string, action: () => Promise<void>) => {
+    setPinTitle(title);
+    setPinDescription(description);
+    setPendingAction(() => action);
+    setPinOpen(true);
   };
 
+  const submitOvertime = async () => {
+    if (!overtimeForm.userId) { toast.error("Selecione um colaborador"); return; }
+    if (!overtimeForm.justification.trim()) { toast.error("Justificativa obrigatoria"); return; }
+    if (overtimeForm.authorizedMinutes <= 0) { toast.error("Informe a quantidade de minutos autorizados"); return; }
+    requirePin(
+      "Autorizar hora extra",
+      "Digite seu PIN de 8 digitos para confirmar a autorizacao.",
+      async () => {
+        await authorizeLimit.mutateAsync({
+          userId: overtimeForm.userId,
+          forDate: overtimeForm.forDate,
+          authType: "overtime",
+          justification: overtimeForm.justification,
+          authorizedMinutes: overtimeForm.authorizedMinutes,
+        });
+        toast.success(`Hora extra autorizada: ${overtimeForm.authorizedMinutes} min - colaborador tem 5 minutos para registrar saida`);
+        setOvertimeOpen(false);
+        setOvertimeForm((p) => ({ ...p, justification: "" }));
+      }
+    );
+  };
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="font-display text-xl font-bold text-foreground">Controle de Ponto</h2>
-          <p className="text-sm text-muted-foreground">Registros imutáveis com histórico e rastreabilidade.</p>
+          <p className="text-sm text-muted-foreground">Registros imut�veis com hist�rico e rastreabilidade.</p>
         </div>
         {isAdmin && (
           <div className="flex gap-2 flex-wrap justify-end">
             <Button variant="outline" onClick={() => setAuditOpen(true)}>
-              <Shield className="h-4 w-4 mr-1" /> Relatório de Auditoria
+              <Shield className="h-4 w-4 mr-1" /> Relat�rio de Auditoria
             </Button>
             <Button variant="outline" onClick={() => setLimitOpen(true)}>
-              Autorizar entrada fora do horário
+              Autorizar entrada fora do hor�rio
             </Button>
             <Button variant="outline" onClick={() => setOvertimeOpen(true)}>
               Autorizar hora extra
@@ -527,7 +551,7 @@ export function TimeClockControl() {
                 <TableHead>Tipo</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Origem</TableHead>
-                <TableHead className="text-right">Ações</TableHead>
+                <TableHead className="text-right">A��es</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -644,7 +668,7 @@ export function TimeClockControl() {
 
               <Card>
                 <CardHeader>
-                  <p className="text-sm font-medium">Histórico de alterações</p>
+                  <p className="text-sm font-medium">Hist�rico de altera��es</p>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {selectedActions.isLoading ? (
@@ -663,8 +687,8 @@ export function TimeClockControl() {
                     </div>
                   ) : (
                     <Alert>
-                      <AlertTitle>Sem alterações</AlertTitle>
-                      <AlertDescription>Este registro não possui ações administrativas.</AlertDescription>
+                      <AlertTitle>Sem altera��es</AlertTitle>
+                      <AlertDescription>Este registro n�o possui a��es administrativas.</AlertDescription>
                     </Alert>
                   )}
                 </CardContent>
@@ -701,7 +725,7 @@ export function TimeClockControl() {
                 <Input type="date" value={createForm.date} onChange={(e) => setCreateForm((p) => ({ ...p, date: e.target.value }))} />
               </div>
               <div className="space-y-1">
-                <Label>Horário</Label>
+                <Label>Hor�rio</Label>
                 <Input type="time" value={createForm.time} onChange={(e) => setCreateForm((p) => ({ ...p, time: e.target.value }))} />
               </div>
             </div>
@@ -725,7 +749,7 @@ export function TimeClockControl() {
               <Input
                 value={createForm.justification}
                 onChange={(e) => setCreateForm((p) => ({ ...p, justification: e.target.value }))}
-                placeholder="Obrigatória para inclusão/alteração administrativa"
+                placeholder="Obrigat�ria para inclus�o/altera��o administrativa"
               />
             </div>
           </div>
@@ -746,10 +770,10 @@ export function TimeClockControl() {
             <DialogTitle>Anular registro</DialogTitle>
           </DialogHeader>
           <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">A anulação não apaga o registro; cria uma ação administrativa imutável.</p>
+            <p className="text-sm text-muted-foreground">A anula��o n�o apaga o registro; cria uma a��o administrativa imut�vel.</p>
             <div className="space-y-1">
               <Label>Justificativa</Label>
-              <Input value={voidJust} onChange={(e) => setVoidJust(e.target.value)} placeholder="Obrigatória" />
+              <Input value={voidJust} onChange={(e) => setVoidJust(e.target.value)} placeholder="Obrigat�ria" />
             </div>
           </div>
           <DialogFooter>
@@ -775,7 +799,7 @@ export function TimeClockControl() {
                 <Input type="date" value={correctForm.date} onChange={(e) => setCorrectForm((p) => ({ ...p, date: e.target.value }))} />
               </div>
               <div className="space-y-1">
-                <Label>Horário</Label>
+                <Label>Hor�rio</Label>
                 <Input type="time" value={correctForm.time} onChange={(e) => setCorrectForm((p) => ({ ...p, time: e.target.value }))} />
               </div>
             </div>
@@ -851,14 +875,14 @@ export function TimeClockControl() {
         </DialogContent>
       </Dialog>
 
-      {/* Dialog: Autorizar entrada fora do horário */}
+      {/* Dialog: Autorizar entrada fora do hor�rio */}
       <Dialog open={limitOpen} onOpenChange={setLimitOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Autorizar entrada fora do horário</DialogTitle>
+            <DialogTitle>Autorizar entrada fora do hor�rio</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Concede ao colaborador 5 minutos para registrar a marcação fora do limite permitido.
+            Concede ao colaborador 5 minutos para registrar a marca��o fora do limite permitido.
           </p>
           <div className="space-y-3">
             <div className="space-y-1">
@@ -877,15 +901,15 @@ export function TimeClockControl() {
               <Input type="date" value={limitForm.forDate} onChange={(e) => setLimitForm((p) => ({ ...p, forDate: e.target.value }))} />
             </div>
             <div className="space-y-1">
-              <Label>Tipo de autorização</Label>
+              <Label>Tipo de autoriza��o</Label>
               <Select
                 value={limitForm.authType}
                 onValueChange={(v) => setLimitForm((p) => ({ ...p, authType: v as "late_break" | "late_return" }))}
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="late_break">Saída para intervalo após 6h30</SelectItem>
-                  <SelectItem value="late_return">Retorno do intervalo após 2h</SelectItem>
+                  <SelectItem value="late_break">Sa�da para intervalo ap�s 6h30</SelectItem>
+                  <SelectItem value="late_return">Retorno do intervalo ap�s 2h</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -894,7 +918,7 @@ export function TimeClockControl() {
               <Input
                 value={limitForm.justification}
                 onChange={(e) => setLimitForm((p) => ({ ...p, justification: e.target.value }))}
-                placeholder="Obrigatória"
+                placeholder="Obrigat�ria"
               />
             </div>
           </div>
@@ -909,16 +933,16 @@ export function TimeClockControl() {
         </DialogContent>
       </Dialog>
 
-      {/* Dialog: Relatório de Auditoria */}
+      {/* Dialog: Relat�rio de Auditoria */}
       <Dialog open={auditOpen} onOpenChange={setAuditOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Shield className="h-4 w-4" /> Relatório de Auditoria
+              <Shield className="h-4 w-4" /> Relat�rio de Auditoria
             </DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Gera um CSV com todos os campos técnicos dos registros, incluindo hashes de integridade, para fins de auditoria e fiscalização.
+            Gera um CSV com todos os campos t�cnicos dos registros, incluindo hashes de integridade, para fins de auditoria e fiscaliza��o.
           </p>
           <div className="space-y-3">
             <div className="space-y-1">
@@ -946,7 +970,7 @@ export function TimeClockControl() {
             {auditPunches.isLoading && <p className="text-xs text-muted-foreground">Carregando registros...</p>}
             {!auditPunches.isLoading && (
               <p className="text-xs text-muted-foreground">
-                {auditPunches.data?.length ?? 0} registro(s) encontrado(s) no período.
+                {auditPunches.data?.length ?? 0} registro(s) encontrado(s) no per�odo.
               </p>
             )}
           </div>
@@ -965,7 +989,7 @@ export function TimeClockControl() {
             <DialogTitle>Autorizar hora extra</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Permite que o colaborador registre saída após 8h48. Informe quantos minutos extras estão autorizados.
+            Permite que o colaborador registre sa�da ap�s 8h48. Informe quantos minutos extras est�o autorizados.
           </p>
           <div className="space-y-3">
             <div className="space-y-1">
@@ -1003,7 +1027,7 @@ export function TimeClockControl() {
               <Input
                 value={overtimeForm.justification}
                 onChange={(e) => setOvertimeForm((p) => ({ ...p, justification: e.target.value }))}
-                placeholder="Obrigatória"
+                placeholder="Obrigat�ria"
               />
             </div>
           </div>
@@ -1017,6 +1041,13 @@ export function TimeClockControl() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <PinAuthDialog
+        open={pinOpen}
+        onOpenChange={setPinOpen}
+        title={pinTitle}
+        description={pinDescription}
+        onConfirm={async () => { if (pendingAction) await pendingAction(); }}
+      />
     </div>
   );
 }
@@ -1031,4 +1062,10 @@ function StatCard({ label, value, accent }: { label: string; value: string; acce
     </Card>
   );
 }
+
+
+
+
+
+
 

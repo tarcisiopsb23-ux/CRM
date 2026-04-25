@@ -44,6 +44,9 @@ export const MODULES: { id: PermissionModule; label: string }[] = [
   { id: "timeclock", label: "Ponto Eletrônico" },
   { id: "performance", label: "Dashboard de Performance" },
   { id: "integrations", label: "Integrações" },
+  { id: "c8control" as PermissionModule, label: "C8 Control" },
+  { id: "fiscal" as PermissionModule, label: "Fiscal / NFS-e" },
+  { id: "recruitment" as PermissionModule, label: "Recrutamento e Seleção" },
 ];
 
 export interface JobTitleRoleMappingRow {
@@ -118,6 +121,9 @@ const ROUTE_TO_MODULE: Record<string, PermissionModule> = {
   "/timeclock": "timeclock",
   "/performance": "performance",
   "/integrations": "integrations",
+  "/c8control": "c8control" as PermissionModule,
+  "/fiscal": "fiscal" as PermissionModule,
+  "/recruitment": "recruitment" as PermissionModule,
 };
 
 export type PermissionResult = { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean };
@@ -154,6 +160,24 @@ export function baselineFor(role: UserRole, module: PermissionModule | null, sco
 
   // Analytics de Vendas, Dashboard Global, Performance Hub e Integrações: restritivo
   if (module === "sales_analytics" || module === "dashboard" || module === "performance" || module === "integrations") {
+    if (role === "manager") return { canView: true, canCreate: true, canEdit: true, canDelete: false };
+    return { canView: false, canCreate: false, canEdit: false, canDelete: false };
+  }
+
+  // C8 Control: acesso total para manager, fechado para member/viewer por padrão
+  if (module === "c8control") {
+    if (role === "manager") return { canView: true, canCreate: true, canEdit: true, canDelete: true };
+    return { canView: false, canCreate: false, canEdit: false, canDelete: false };
+  }
+
+  // Fiscal / NFS-e: manager pode emitir e editar, mas não excluir; demais roles sem acesso por padrão
+  if (module === ("fiscal" as PermissionModule)) {
+    if (role === "manager") return { canView: true, canCreate: true, canEdit: true, canDelete: false };
+    return { canView: false, canCreate: false, canEdit: false, canDelete: false };
+  }
+
+  // Recrutamento: manager pode ver/criar/editar, mas não excluir; demais roles sem acesso por padrão
+  if (module === ("recruitment" as PermissionModule)) {
     if (role === "manager") return { canView: true, canCreate: true, canEdit: true, canDelete: false };
     return { canView: false, canCreate: false, canEdit: false, canDelete: false };
   }
@@ -952,4 +976,13 @@ export const MODULE_VIEWS: Record<PermissionModule, Array<{ id: string; label: s
     { id: "webhooks", label: "Webhooks" },
     { id: "third_party", label: "Integrações de Terceiros" },
   ],
-};
+  c8control: [
+    { id: "tenants", label: "Tenants" },
+    { id: "payments", label: "Pagamentos" },
+    { id: "dashboard", label: "Dashboard" },
+  ],
+  fiscal: [
+    { id: "invoices", label: "Notas Fiscais" },
+    { id: "emit", label: "Emissão de NFS-e" },
+  ],
+} as Record<PermissionModule, Array<{ id: string; label: string }>>;

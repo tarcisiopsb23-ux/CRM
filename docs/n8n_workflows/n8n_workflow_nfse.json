@@ -1,0 +1,155 @@
+{
+  "name": "Maestr.IA — Fiscal NFS-e (Notaas)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "nfse-automation",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-nfse",
+      "name": "Webhook — NFS-e",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "nfse-automation-webhook"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "a1", "name": "_supabase_url", "value": "={{ $env.SUPABASE_URL }}", "type": "string" },
+            { "id": "a2", "name": "_service_key",  "value": "={{ $env.SUPABASE_SERVICE_KEY }}", "type": "string" }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "inject-credentials",
+      "name": "Injetar Credenciais",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.item.json.body || $input.item.json;\nconst supabaseUrl = $input.item.json._supabase_url;\nconst serviceKey  = $input.item.json._service_key;\nconst invoiceId   = body.invoice_id || null;\nconst orgId       = body.organization_id || null;\nconst action      = body._action || 'emit';\n\nif (!supabaseUrl || !serviceKey) throw new Error('Variaveis SUPABASE_URL e SUPABASE_SERVICE_KEY nao configuradas');\nif (!orgId)     throw new Error('organization_id obrigatorio');\nif (!invoiceId) throw new Error('invoice_id obrigatorio');\n\nconst sbH = { 'apikey': serviceKey, 'Authorization': 'Bearer ' + serviceKey };\n\nconst invRes = await fetch(\n  supabaseUrl + '/rest/v1/invoices?id=eq.' + invoiceId + '&select=*',\n  { headers: sbH }\n);\nif (!invRes.ok) throw new Error('Erro ao buscar invoice: ' + invRes.status);\nconst invArr = await invRes.json();\nconst invoice = Array.isArray(invArr) ? invArr[0] : invArr;\nif (!invoice || !invoice.id) throw new Error('Invoice nao encontrado: ' + invoiceId);\n\nconst allowed = ['processando', 'pendente', 'rejeitada', 'aguardando'];\nif (!allowed.includes(invoice.status)) {\n  throw new Error('Invoice com status ' + invoice.status + ' nao pode ser emitido');\n}\n\nconst clientRes = await fetch(\n  supabaseUrl + '/rest/v1/clients?id=eq.' + invoice.client_id + '&select=id,name,company,document,email,address_street,address_number,address_complement,address_neighborhood,address_city,address_state,address_zip,folder_id',\n  { headers: sbH }\n);\nif (!clientRes.ok) throw new Error('Erro ao buscar cliente: ' + clientRes.status);\nconst clientArr = await clientRes.json();\nconst client = Array.isArray(clientArr) ? clientArr[0] : clientArr;\nif (!client || !client.id) throw new Error('Cliente nao encontrado');\n\nconst configRes = await fetch(\n  supabaseUrl + '/rest/v1/organization_integrations?organization_id=eq.' + (invoice.organization_id || orgId) + '&integration_type=eq.notaas&select=config',\n  { headers: sbH }\n);\nif (!configRes.ok) throw new Error('Erro ao buscar config Notaas: ' + configRes.status);\nconst configArr = await configRes.json();\nconst config = Array.isArray(configArr) ? (configArr[0] && configArr[0].config ? configArr[0].config : {}) : {};\nif (!config.api_key) throw new Error('API Key da Notaas nao configurada');\n\nconst codigoServico = (invoice.codigo_servico || config.codigo_servico_padrao || '').replace(/\\D/g, '');\nconst descricaoServico = invoice.descricao_servico || config.descricao_servico_padrao || 'Prestacao de servicos';\nconst aliquotaIss = invoice.aliquota_iss != null ? invoice.aliquota_iss : (config.aliquota_iss_padrao || 5);\nif (!codigoServico) throw new Error('Codigo de servico nao configurado');\n\nconst docDigits = (client.document || '').replace(/\\D/g, '');\nconst tomador = {};\nif (docDigits.length === 11) tomador.cpf = docDigits;\nelse tomador.cnpj = docDigits;\ntomador.nome = client.company || client.name;\ntomador.email = client.email || null;\ntomador.endereco = {\n  logradouro: client.address_street || '',\n  numero: client.address_number || '',\n  complemento: client.address_complement || '',\n  bairro: client.address_neighborhood || '',\n  cidade: client.address_city || '',\n  uf: client.address_state || '',\n  cep: client.address_zip || ''\n};\n\nconst baseUrl = config.sandbox_mode === true\n  ? 'https://sandbox.notaas.com.br'\n  : 'https://platform.notaas.com.br';\n\nreturn [{ json: {\n  _supabase_url:  supabaseUrl,\n  _service_key:   serviceKey,\n  _base_url:      baseUrl,\n  _api_key:       config.api_key,\n  _folder_id:     client.folder_id || null,\n  _client_name:   (client.company || client.name || '').replace(/[^a-zA-Z0-9 ]/g, '').trim(),\n  invoice_id:     invoice.id,\n  organization_id: invoice.organization_id,\n  client_id:      invoice.client_id,\n  payment_id:     invoice.payment_id,\n  notaas_id:      invoice.notaas_id || null,\n  action,\n  notaas_payload: {\n    tomador,\n    servico: { codigo: codigoServico, descricao: descricaoServico },\n    valores: { total: invoice.valor_servico, aliquotaIss },\n    competencia: invoice.competencia\n  }\n}}];"
+      },
+      "id": "preparar-dados",
+      "name": "Preparar Dados",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json._base_url }}/api/v1/emitir",
+        "requestMethod": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key",    "value": "={{ $json._api_key }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "User-Agent",   "value": "MaestrIA-n8n/1.0" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify($json.notaas_payload) }}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "chamar-api-notaas",
+      "name": "Chamar API Notaas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Preparar Dados').item.json._base_url }}/api/v1/invoices/{{ $json.invoiceId }}/status",
+        "requestMethod": "GET",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key",    "value": "={{ $('Preparar Dados').item.json._api_key }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "options": { "timeout": 15000 }
+      },
+      "id": "consultar-notas",
+      "name": "Consultar Notas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Recebe o status da nota consultada na Notaas e monta o PATCH para o Supabase\nconst notaasData = $input.item.json;\nconst prev       = $('Preparar Dados').item.json;\nconst emitData   = $('Chamar API Notaas').item.json;\n\n// Status retornado pela Notaas: issued | queued | processing | error | cancelled\nconst notaasStatus = notaasData.status || (emitData.queued ? 'queued' : 'error');\n\nconst statusMap = {\n  issued:     'emitida',\n  queued:     'aguardando',\n  processing: 'processando',\n  error:      'rejeitada',\n  cancelled:  'cancelada'\n};\nconst internalStatus = statusMap[notaasStatus] || 'rejeitada';\n\n// Dados da nota (prioriza Consultar Notas, fallback para Chamar API)\nconst notaasId  = notaasData.invoiceId  || emitData.invoiceId  || prev.notaas_id || null;\nconst numero    = notaasData.numeroNfe  || emitData.numeroNfe  || null;\nconst pdfUrl    = notaasData.pdfUrl     || emitData.pdfUrl     || null;\nconst xmlUrl    = notaasData.xmlUrl     || emitData.xmlUrl     || null;\nconst chNFSe    = notaasData.chNFSe    || emitData.chNFSe     || null;\nconst emittedAt = notaasData.emittedAt  || emitData.emittedAt  || (internalStatus === 'emitida' ? new Date().toISOString() : null);\nconst erroMsg   = internalStatus === 'rejeitada'\n  ? (notaasData.message || notaasData.error || emitData.message || emitData.error || 'Erro na emissao pela Notaas')\n  : null;\n\n// Monta o patch\nconst patch = { status: internalStatus };\nif (internalStatus === 'emitida') {\n  patch.notaas_id       = notaasId;\n  patch.notaas_protocol = chNFSe;\n  patch.numero          = numero;\n  patch.pdf_url         = pdfUrl;\n  patch.xml_url         = xmlUrl;\n  patch.emitida_em      = emittedAt;\n  patch.erro_mensagem   = null;\n} else if (internalStatus === 'aguardando' || internalStatus === 'processando') {\n  patch.notaas_id     = notaasId;\n  patch.erro_mensagem = null;\n} else {\n  patch.erro_mensagem = erroMsg;\n}\n\nreturn [{ json: {\n  _supabase_url:   prev._supabase_url,\n  _service_key:    prev._service_key,\n  invoice_id:      prev.invoice_id,\n  organization_id: prev.organization_id,\n  client_id:       prev.client_id,\n  payment_id:      prev.payment_id,\n  notaas_status:   notaasStatus,\n  internal_status: internalStatus,\n  patch\n}}];"
+      },
+      "id": "preparar-patch",
+      "name": "Preparar PATCH",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json._supabase_url }}/rest/v1/invoices?id=eq.{{ $json.invoice_id }}",
+        "requestMethod": "PATCH",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $json._service_key }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $json._service_key }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify($json.patch) }}"
+      },
+      "id": "update-status-invoice",
+      "name": "Update Status Invoice Emitida",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Lê o invoice atualizado retornado pelo Supabase (return=representation)\nconst input = $input.item.json;\nconst invoice = Array.isArray(input) ? input[0] : input;\n\nconst success = invoice.status === 'emitida';\nconst isError = invoice.status === 'rejeitada';\n\nreturn [{ json: {\n  success,\n  invoice_id:      invoice.id,\n  organization_id: invoice.organization_id,\n  client_id:       invoice.client_id,\n  payment_id:      invoice.payment_id,\n  status:          invoice.status,\n  notaas_id:       invoice.notaas_id    || null,\n  numero:          invoice.numero       || null,\n  pdf_url:         invoice.pdf_url      || null,\n  emitida_em:      invoice.emitida_em   || null,\n  erro_mensagem:   isError ? (invoice.erro_mensagem || 'Nota rejeitada') : null\n}}];"
+      },
+      "id": "consolidar-resposta",
+      "name": "Consolidar Resposta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}"
+      },
+      "id": "resposta-1",
+      "name": "Resposta 1",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2000, 300]
+    }
+  ],
+  "connections": {
+    "Webhook — NFS-e":          { "main": [[{ "node": "Injetar Credenciais",       "type": "main", "index": 0 }]] },
+    "Injetar Credenciais":      { "main": [[{ "node": "Preparar Dados",            "type": "main", "index": 0 }]] },
+    "Preparar Dados":           { "main": [[{ "node": "Chamar API Notaas",         "type": "main", "index": 0 }]] },
+    "Chamar API Notaas":        { "main": [[{ "node": "Consultar Notas",           "type": "main", "index": 0 }]] },
+    "Consultar Notas":          { "main": [[{ "node": "Preparar PATCH",            "type": "main", "index": 0 }]] },
+    "Preparar PATCH":           { "main": [[{ "node": "Update Status Invoice Emitida", "type": "main", "index": 0 }]] },
+    "Update Status Invoice Emitida": { "main": [[{ "node": "Consolidar Resposta", "type": "main", "index": 0 }]] },
+    "Consolidar Resposta":      { "main": [[{ "node": "Resposta 1",               "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "versionId": "4.2.0"
+}

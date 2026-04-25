@@ -32,6 +32,7 @@ import { AvaliacaoForm } from "@/components/avaliacao360/AvaliacaoForm";
 import { useEmployeeEvaluations } from "@/hooks/useEmployeeEvaluations";
 import { useCommissionEntries } from "@/hooks/useCommissionEntries";
 import { useGoals } from "@/hooks/useGoalsCRUD";
+import { ManagerPinSection } from "@/components/profile/ManagerPinSection";
 
 const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -436,6 +437,8 @@ export default function MyProfilePage() {
               <Field label="Conta"         value={str("bank_account")} />
             </CardContent>
           </Card>
+
+          <ManagerPinSection />
         </div>
       )}
 

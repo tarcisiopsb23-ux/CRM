@@ -18,6 +18,11 @@ import {
   History,
   Share2,
   CircleUserRound,
+  Package,
+  Truck,
+  FileText,
+  ShieldCheck,
+  BriefcaseBusiness,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -26,6 +31,7 @@ import { cn } from "@/lib/utils";
 import { useModulePermission } from "@/hooks/usePermissions";
 import { useOrganization, useOrganizationData } from "@/hooks/useOrganization";
 import { useAuth } from "@/contexts/AuthContext";
+import { usePendingAuthorizations } from "@/hooks/usePendingAuthorizations";
 
 const navItems: {
   title: string;
@@ -37,13 +43,17 @@ const navItems: {
   { title: "CRM", url: "/kanban", icon: Kanban, module: "kanban" },
   { title: "Analytics Vendas", url: "/sales-analytics", icon: BarChart3, module: "sales_analytics" },
   { title: "Clientes", url: "/clients", icon: UserCheck, module: "clients" },
+  { title: "C8 Control", url: "/c8control", icon: Package, module: "c8control" },
+  { title: "Fornecedores", url: "/suppliers", icon: Truck, module: "clients" },
   { title: "Financeiro", url: "/financial", icon: DollarSign, module: "financial" },
+  { title: "Fiscal / NFS-e", url: "/fiscal", icon: FileText, module: "fiscal" },
   { title: "Agenda", url: "/agenda", icon: Calendar, module: "agenda" },
   { title: "Projetos", url: "/projects", icon: FolderKanban, module: "projects" },
   { title: "Metas", url: "/goals", icon: Target, module: "goals" },
   { title: "WhatsApp", url: "/whatsapp", icon: MessageCircle, module: "whatsapp" },
   { title: "Reuniões IA", url: "/meetings", icon: Sparkles, module: "meetings" },
   { title: "Gestão de Pessoas", url: "/team", icon: UsersRound, module: "team" },
+  { title: "Recrutamento", url: "/recruitment", icon: BriefcaseBusiness, module: "recruitment" },
   { title: "Campanhas", url: "/campaign-reports", icon: Megaphone, module: "campaigns" },
   { title: "Relatórios", url: "/reports", icon: FileBarChart, module: "reports" },
   { title: "Auditoria", url: "/audit", icon: History, module: "audit" },
@@ -57,6 +67,7 @@ export function AppSidebar() {
   const orgId = useOrganization();
   const { data: orgData } = useOrganizationData(orgId);
   const { profile } = useAuth();
+  const { pending } = usePendingAuthorizations();
   const isAdminOrOwner = profile?.role === "admin" || profile?.role === "owner";
 
   const { canView: canViewDashboard } = useModulePermission("dashboard");
@@ -75,6 +86,9 @@ export function AppSidebar() {
   const { canView: canViewCampaigns } = useModulePermission("campaigns");
   const { canView: canViewAudit } = useModulePermission("audit");
   const { canView: canViewIntegrations } = useModulePermission("integrations");
+  const { canView: canViewC8Control } = useModulePermission("c8control" as any);
+  const { canView: canViewFiscal } = useModulePermission("fiscal" as any);
+  const { canView: canViewRecruitment } = useModulePermission("recruitment" as any);
 
   const canViewByModule: Record<string, boolean> = {
     dashboard: canViewDashboard,
@@ -93,6 +107,9 @@ export function AppSidebar() {
     campaigns: canViewCampaigns,
     audit: canViewAudit,
     integrations: canViewIntegrations,
+    c8control: canViewC8Control,
+    fiscal: canViewFiscal,
+    recruitment: canViewRecruitment,
   };
 
   const visibleItems = navItems.filter((item) => {
@@ -145,6 +162,11 @@ export function AppSidebar() {
             >
               <item.icon className="h-5 w-5 shrink-0" />
               {!collapsed && <span>{item.title}</span>}
+              {!collapsed && item.url === "/authorizations" && pending.length > 0 && (
+                <span className="ml-auto bg-amber-500 text-white text-xs rounded-full px-1.5 py-0.5 leading-none">
+                  {pending.length}
+                </span>
+              )}
             </NavLink>
           );
         })}

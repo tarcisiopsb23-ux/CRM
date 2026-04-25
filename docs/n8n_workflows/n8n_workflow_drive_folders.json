@@ -1,0 +1,381 @@
+{
+  "name": "Google Drive — Pastas Automáticas + Documentos (Clientes / Fornecedores / Projetos / Colaboradores)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "drive-folder-client",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-client",
+      "name": "Webhook — Novo Cliente",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 200],
+      "webhookId": "drive-folder-client"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "drive-folder-supplier",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-supplier",
+      "name": "Webhook — Novo Fornecedor",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 400],
+      "webhookId": "drive-folder-supplier"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "drive-folder-project",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-project",
+      "name": "Webhook — Novo Projeto",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 600],
+      "webhookId": "drive-folder-project"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "drive-folder-employee",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-employee",
+      "name": "Webhook — Novo Colaborador",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 800],
+      "webhookId": "drive-folder-employee"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "drive-folder-manual",
+        "responseMode": "responseNode",
+        "options": { "allowedOrigins": "*" }
+      },
+      "id": "webhook-manual",
+      "name": "Webhook — Ação Manual",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 1000],
+      "webhookId": "drive-folder-manual",
+      "_comment": "Recebe GET e POST. GET: action via query string (documents.list, documents.folders.list). POST: action no body (create, rename, delete, create_subfolder, documents.folders.create, documents.upload)."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalizar payload de qualquer webhook\nconst item = $input.item.json;\nconst body = item.body || item;\nconst query = item.query || {};\n\n// Ação: body tem prioridade, depois query\nconst action = body.action || query.action || 'create';\n\n// folderId: usado para listar/upload dentro de uma pasta específica\nconst folderId = body.folderId || query.folderId || null;\n\n// Campos para criação/gerenciamento de pastas\nconst module = body.module || null;\nconst record = body.record || {};\nconst subfolder = body.subfolder || null;\nconst existing_folder_id = body.existing_folder_id || folderId || null;\nconst parentFolderId = body.parentFolderId || null;\nconst folderName = body.name || null;\n\n// Pasta raiz por módulo (para criação automática)\nconst rootFolderMap = {\n  client:   $env.DRIVE_FOLDER_CLIENTS,\n  supplier: $env.DRIVE_FOLDER_SUPPLIERS,\n  project:  $env.DRIVE_FOLDER_PROJECTS,\n  employee: $env.DRIVE_FOLDER_EMPLOYEES,\n};\nconst rootFolderId = (module && rootFolderMap[module]) || $env.DRIVE_FOLDER_ROOT;\n\n// Nome base do registro\nconst baseName = record.company || record.name || record.title || record.full_name || (module ? `${module}-${record.id}` : 'Nova Pasta');\n\n// Código numérico — formata como \"1 - Nome\" se disponível\nconst code = record.code != null ? record.code : null;\nconst autoFolderName = code != null ? `${code} - ${baseName}` : baseName;\n\nreturn [{ json: {\n  action,\n  folderId,\n  module,\n  record_id: record.id || null,\n  folder_name: folderName || autoFolderName,\n  root_folder_id: rootFolderId,\n  subfolder_name: subfolder,\n  existing_folder_id,\n  parent_folder_id: parentFolderId || existing_folder_id || rootFolderId,\n  new_name: body.new_name || null,\n}}];"
+      },
+      "id": "normalize",
+      "name": "Normalizar Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 600]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": { "options": { "caseSensitive": false }, "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "documents.folders.list", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "list_folders"
+            },
+            {
+              "conditions": { "options": { "caseSensitive": false }, "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "documents.list", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "list_files"
+            },
+            {
+              "conditions": { "options": { "caseSensitive": false }, "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "documents.folders.create", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "create_subfolder_doc"
+            },
+            {
+              "conditions": { "options": { "caseSensitive": false }, "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "documents.upload", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "upload"
+            },
+            {
+              "conditions": { "options": { "caseSensitive": false }, "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "create", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "create_folder"
+            },
+            {
+              "conditions": { "options": { "caseSensitive": false }, "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "rename", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "rename"
+            },
+            {
+              "conditions": { "options": { "caseSensitive": false }, "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "delete", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "delete"
+            },
+            {
+              "conditions": { "options": { "caseSensitive": false }, "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "create_subfolder", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "create_subfolder"
+            }
+          ]
+        }
+      },
+      "id": "route-action",
+      "name": "Roteador de Ação",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [720, 600]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "driveId": { "mode": "id", "value": "={{ $json.folderId }}" },
+        "folderId": { "mode": "id", "value": "={{ $json.folderId }}" },
+        "queryFilters": { "filters": [{ "field": "mimeType", "operator": "is", "value": "application/vnd.google-apps.folder" }] },
+        "options": { "fields": "id,name,mimeType,webViewLink,modifiedTime" }
+      },
+      "id": "drive-list-folders",
+      "name": "Drive — Listar Subpastas",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [960, 200],
+      "credentials": { "googleDriveOAuth2Api": { "id": "GOOGLE_CRED_ID", "name": "Google Drive OAuth2" } }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "driveId": { "mode": "id", "value": "={{ $json.folderId }}" },
+        "folderId": { "mode": "id", "value": "={{ $json.folderId }}" },
+        "queryFilters": { "filters": [{ "field": "mimeType", "operator": "isNot", "value": "application/vnd.google-apps.folder" }] },
+        "options": { "fields": "id,name,mimeType,webViewLink,modifiedTime,size" }
+      },
+      "id": "drive-list-files",
+      "name": "Drive — Listar Arquivos",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [960, 380],
+      "credentials": { "googleDriveOAuth2Api": { "id": "GOOGLE_CRED_ID", "name": "Google Drive OAuth2" } }
+    },
+    {
+      "parameters": {
+        "operation": "createFolder",
+        "name": "={{ $json.folder_name }}",
+        "driveId": { "mode": "id", "value": "={{ $json.parent_folder_id }}" },
+        "folderId": { "mode": "id", "value": "={{ $json.parent_folder_id }}" }
+      },
+      "id": "drive-create-subfolder-doc",
+      "name": "Drive — Criar Subpasta (Documentos)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [960, 560],
+      "credentials": { "googleDriveOAuth2Api": { "id": "GOOGLE_CRED_ID", "name": "Google Drive OAuth2" } }
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "name": "={{ $binary.file?.fileName }}",
+        "driveId": { "mode": "id", "value": "={{ $json.folderId }}" },
+        "folderId": { "mode": "id", "value": "={{ $json.folderId }}" },
+        "inputDataFieldName": "file"
+      },
+      "id": "drive-upload",
+      "name": "Drive — Upload Arquivo",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [960, 740],
+      "credentials": { "googleDriveOAuth2Api": { "id": "GOOGLE_CRED_ID", "name": "Google Drive OAuth2" } }
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/drive/v3/files",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $json.folder_name, mimeType: 'application/vnd.google-apps.folder', parents: [$json.root_folder_id] }) }}"
+      },
+      "id": "create-folder",
+      "name": "Drive — Criar Pasta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [960, 920]
+    },
+    {
+      "parameters": {
+        "jsCode": "const folderId = $input.item.json.id;\nconst module = $('Normalizar Payload').item.json.module;\nconst record_id = $('Normalizar Payload').item.json.record_id;\n\nconst defaultSubfolders = {\n  client:   ['Contratos', 'Documentos', 'Relatórios', 'Comunicações'],\n  supplier: ['Contratos', 'Notas Fiscais', 'Documentos'],\n  project:  ['Briefing', 'Entregas', 'Aprovações', 'Arquivos'],\n  employee: ['Documentos Pessoais', 'Contratos', 'Avaliações'],\n};\n\nconst subfolders = (module && defaultSubfolders[module]) || [];\nreturn subfolders.map(name => ({ json: { parent_id: folderId, name, module, record_id } }));"
+      },
+      "id": "prepare-subfolders",
+      "name": "Preparar Subpastas Padrão",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1180, 860]
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/drive/v3/files",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $json.name, mimeType: 'application/vnd.google-apps.folder', parents: [$json.parent_id] }) }}"
+      },
+      "id": "create-default-subfolder",
+      "name": "Drive — Criar Subpasta Padrão",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1400, 860]
+    },
+    {
+      "parameters": {
+        "jsCode": "const folder = $('Drive — Criar Pasta').item.json;\nconst norm = $('Normalizar Payload').item.json;\nif (!folder.id) return [{ json: { skip: true } }];\nconst tableMap = { client: 'clients', supplier: 'suppliers', project: 'projects', employee: 'profiles' };\nconst table = norm.module && tableMap[norm.module];\nreturn [{ json: {\n  table,\n  record_id: norm.record_id,\n  folder_id: folder.id,\n  folder_url: `https://drive.google.com/drive/folders/${folder.id}`\n}}];"
+      },
+      "id": "prepare-save",
+      "name": "Preparar Salvar ID da Pasta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1180, 1020]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/{{ $json.table }}?id=eq.{{ $json.record_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ folder_id: $json.folder_id, folder_url: $json.folder_url }) }}"
+      },
+      "id": "save-folder-id",
+      "name": "Salvar ID da Pasta no Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1400, 1020]
+    },
+    {
+      "parameters": {
+        "url": "=https://www.googleapis.com/drive/v3/files/{{ $json.existing_folder_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "requestMethod": "PATCH",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $json.new_name }) }}"
+      },
+      "id": "rename-folder",
+      "name": "Drive — Renomear Pasta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [960, 1100]
+    },
+    {
+      "parameters": {
+        "url": "=https://www.googleapis.com/drive/v3/files/{{ $json.existing_folder_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "requestMethod": "DELETE"
+      },
+      "id": "delete-folder",
+      "name": "Drive — Excluir Pasta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [960, 1260]
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/drive/v3/files",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $json.subfolder_name, mimeType: 'application/vnd.google-apps.folder', parents: [$json.existing_folder_id || $json.root_folder_id] }) }}"
+      },
+      "id": "create-manual-subfolder",
+      "name": "Drive — Criar Subpasta Manual",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [960, 1420]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{\n  const norm = $('Normalizar Payload').first().json;\n  const action = norm.action;\n\n  if (action === 'documents.folders.list') {\n    const items = $input.all().map(i => ({\n      id: i.json.id,\n      name: i.json.name,\n      mimeType: i.json.mimeType,\n      url: i.json.webViewLink,\n      modifiedTime: i.json.modifiedTime\n    }));\n    return JSON.stringify({ folders: items });\n  }\n\n  if (action === 'documents.list') {\n    const items = $input.all().map(i => ({\n      id: i.json.id,\n      name: i.json.name,\n      mimeType: i.json.mimeType,\n      url: i.json.webViewLink,\n      modifiedTime: i.json.modifiedTime,\n      size: i.json.size\n    }));\n    return JSON.stringify({ files: items });\n  }\n\n  if (action === 'documents.folders.create') {\n    const f = $input.first().json;\n    return JSON.stringify({ id: f.id, name: f.name, url: f.webViewLink });\n  }\n\n  if (action === 'create') {\n    const f = $input.first().json;\n    return JSON.stringify({ success: true, folder_id: f.id || null, folder_url: f.id ? `https://drive.google.com/drive/folders/${f.id}` : null });\n  }\n\n  return JSON.stringify({ success: true });\n}}"
+      },
+      "id": "respond",
+      "name": "Resposta",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1620, 700]
+    }
+  ],
+  "connections": {
+    "Webhook — Novo Cliente":     { "main": [[{ "node": "Normalizar Payload", "type": "main", "index": 0 }]] },
+    "Webhook — Novo Fornecedor":  { "main": [[{ "node": "Normalizar Payload", "type": "main", "index": 0 }]] },
+    "Webhook — Novo Projeto":     { "main": [[{ "node": "Normalizar Payload", "type": "main", "index": 0 }]] },
+    "Webhook — Novo Colaborador": { "main": [[{ "node": "Normalizar Payload", "type": "main", "index": 0 }]] },
+    "Webhook — Ação Manual":      { "main": [[{ "node": "Normalizar Payload", "type": "main", "index": 0 }]] },
+    "Normalizar Payload": { "main": [[{ "node": "Roteador de Ação", "type": "main", "index": 0 }]] },
+    "Roteador de Ação": {
+      "main": [
+        [{ "node": "Drive — Listar Subpastas",          "type": "main", "index": 0 }],
+        [{ "node": "Drive — Listar Arquivos",            "type": "main", "index": 0 }],
+        [{ "node": "Drive — Criar Subpasta (Documentos)","type": "main", "index": 0 }],
+        [{ "node": "Drive — Upload Arquivo",             "type": "main", "index": 0 }],
+        [{ "node": "Drive — Criar Pasta",                "type": "main", "index": 0 }],
+        [{ "node": "Drive — Renomear Pasta",             "type": "main", "index": 0 }],
+        [{ "node": "Drive — Excluir Pasta",              "type": "main", "index": 0 }],
+        [{ "node": "Drive — Criar Subpasta Manual",      "type": "main", "index": 0 }]
+      ]
+    },
+    "Drive — Listar Subpastas":           { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] },
+    "Drive — Listar Arquivos":            { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] },
+    "Drive — Criar Subpasta (Documentos)":{ "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] },
+    "Drive — Upload Arquivo":             { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] },
+    "Drive — Criar Pasta": {
+      "main": [[
+        { "node": "Preparar Subpastas Padrão",    "type": "main", "index": 0 },
+        { "node": "Preparar Salvar ID da Pasta",  "type": "main", "index": 0 }
+      ]]
+    },
+    "Preparar Subpastas Padrão":       { "main": [[{ "node": "Drive — Criar Subpasta Padrão",  "type": "main", "index": 0 }]] },
+    "Drive — Criar Subpasta Padrão":   { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] },
+    "Preparar Salvar ID da Pasta":     { "main": [[{ "node": "Salvar ID da Pasta no Supabase", "type": "main", "index": 0 }]] },
+    "Salvar ID da Pasta no Supabase":  { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] },
+    "Drive — Renomear Pasta":          { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] },
+    "Drive — Excluir Pasta":           { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] },
+    "Drive — Criar Subpasta Manual":   { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "_readme": {
+    "description": "Workflow unificado para gerenciamento de pastas e documentos no Google Drive. O webhook 'drive-folder-manual' aceita GET e POST e roteia por 'action'.",
+    "env_vars": [
+      "DRIVE_FOLDER_CLIENTS   — ID da pasta raiz de Clientes no Google Drive",
+      "DRIVE_FOLDER_SUPPLIERS — ID da pasta raiz de Fornecedores",
+      "DRIVE_FOLDER_PROJECTS  — ID da pasta raiz de Projetos",
+      "DRIVE_FOLDER_EMPLOYEES — ID da pasta raiz de Colaboradores",
+      "DRIVE_FOLDER_ROOT      — Pasta raiz fallback",
+      "SUPABASE_URL",
+      "SUPABASE_SERVICE_KEY"
+    ],
+    "webhook_urls": {
+      "client":   "{N8N_URL}/webhook/drive-folder-client",
+      "supplier": "{N8N_URL}/webhook/drive-folder-supplier",
+      "project":  "{N8N_URL}/webhook/drive-folder-project",
+      "employee": "{N8N_URL}/webhook/drive-folder-employee",
+      "manual":   "{N8N_URL}/webhook/drive-folder-manual"
+    },
+    "actions": {
+      "documents.folders.list":   "GET/POST { action, folderId } → lista subpastas de uma pasta",
+      "documents.list":           "GET/POST { action, folderId } → lista arquivos de uma pasta",
+      "documents.folders.create": "POST { action, parentFolderId, name } → cria subpasta",
+      "documents.upload":         "POST multipart { action, folderId, file } → faz upload de arquivo",
+      "create":                   "POST { action, module, record: { id, name } } → cria pasta raiz do registro",
+      "rename":                   "POST { action, existing_folder_id, new_name } → renomeia pasta",
+      "delete":                   "POST { action, existing_folder_id } → exclui pasta",
+      "create_subfolder":         "POST { action, existing_folder_id, subfolder } → cria subpasta manual"
+    }
+  }
+}

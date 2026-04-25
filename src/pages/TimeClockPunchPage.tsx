@@ -1,19 +1,15 @@
 import { useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
-import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRegisterPunch, useTimeClockState, type RepPPunchType } from "@/hooks/useTimeClock";
 import { usePermissionForScope } from "@/hooks/usePermissions";
 import { usePostPunchRedirect } from "@/hooks/usePostPunchRedirect";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { PinAuthDialog } from "@/components/shared/PinAuthDialog";
 import { toast } from "@/components/ui/sonner";
 import { format } from "date-fns";
-
 import { LogOut } from "lucide-react";
 
 const LABEL_BY_TYPE: Record<RepPPunchType, string> = {
@@ -33,10 +29,8 @@ export function TimeClockPunchPage() {
   const postPunchRedirect = usePostPunchRedirect();
 
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [password, setPassword] = useState("");
   const [selectedType, setSelectedType] = useState<RepPPunchType>("entrada");
   const [lateBreakAck, setLateBreakAck] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
 
   const data = state.data;
   const todayLabel = format(data?.today_date ? new Date(data.today_date) : new Date(), "dd/MM/yyyy");
@@ -93,31 +87,13 @@ export function TimeClockPunchPage() {
 
     setSelectedType(type);
     setLateBreakAck(false);
-    setPassword("");
-    setAuthError(null);
     setDialogOpen(true);
   };
 
-  const confirmPassword = async () => {
-    if (!profile?.email) throw new Error("Usuário sem e-mail");
-    const { error } = await supabase.auth.signInWithPassword({
-      email: profile.email,
-      password,
-    });
-    if (error) throw error;
-  };
-
-  const handleSubmit = async () => {
+  const handlePinConfirm = async () => {
     try {
-      setAuthError(null);
-      if (!password.trim()) {
-        setAuthError("Informe sua senha para confirmar a marcação.");
-        return;
-      }
-      await confirmPassword();
       await register.mutateAsync({ type: selectedType, ackLateBreak: lateBreakAck });
       setDialogOpen(false);
-      setPassword("");
       setLateBreakAck(false);
       toast.success(`Marcação registrada: ${LABEL_BY_TYPE[selectedType]}`);
 
@@ -125,16 +101,13 @@ export function TimeClockPunchPage() {
         navigate("/timeclock/locked", { replace: true });
         return;
       }
-
       navigate(postPunchRedirect, { replace: true });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Erro ao registrar ponto";
       if (message.toLowerCase().includes("6h30") || message.toLowerCase().includes("confirma")) {
-        setAuthError("Intervalo após 6h30. Confirme novamente para prosseguir.");
         setLateBreakAck(true);
-        return;
       }
-      setAuthError(message);
+      throw err;
     }
   };
 
@@ -230,47 +203,14 @@ export function TimeClockPunchPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Confirmar marcação</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-2">
-            <div className="text-sm">
-              <p className="font-medium">{LABEL_BY_TYPE[selectedType]}</p>
-              <p className="text-xs text-muted-foreground">
-                Confirme com sua senha do sistema para registrar.
-              </p>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="password">Senha</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
-              />
-            </div>
-            {authError && (
-              <Alert variant="destructive">
-                <AlertTitle>Não foi possível registrar</AlertTitle>
-                <AlertDescription>{authError}</AlertDescription>
-              </Alert>
-            )}
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={register.isPending}>
-              Cancelar
-            </Button>
-            <Button onClick={handleSubmit} disabled={register.isPending}>
-              {register.isPending ? "Registrando..." : "Confirmar"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <PinAuthDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        title="Confirmar marcação"
+        description={`${LABEL_BY_TYPE[selectedType]} — digite seu PIN de 8 dígitos para registrar.`}
+        onConfirm={handlePinConfirm}
+        loading={register.isPending}
+      />
     </div>
   );
 }

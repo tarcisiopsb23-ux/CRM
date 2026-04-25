@@ -4,7 +4,10 @@ export type IntegrationType =
   | "n8n"
   | "whatsapp"
   | "google_calendar"
-  | "resend";
+  | "resend"
+  | "c8control"
+  | "notaas"
+  | "recruitment";
 
 export interface ResendConfig {
   apiKey?: string;
@@ -36,9 +39,23 @@ export interface N8nConfig {
   leadWebhookUrl?: string;
   clientWebhookUrl?: string;
   financialWebhookUrl?: string;
+  asaasWebhookUrl?: string;       // Asaas → n8n (receber eventos de pagamento)
   marketingWebhookUrl?: string;
   notificationsWebhookUrl?: string;
   calendarWebhookUrl?: string;
+  // Google Drive — criação automática de pastas
+  driveFolderClientWebhookUrl?: string;
+  driveFolderSupplierWebhookUrl?: string;
+  driveFolderProjectWebhookUrl?: string;
+  driveFolderEmployeeWebhookUrl?: string;
+  // Google Drive — ações manuais (renomear, excluir, criar subpasta) e documentos (listar, upload)
+  driveFolderManualWebhookUrl?: string;
+  // ClickUp — integração com terceirizados
+  clickupWebhookUrl?: string;       // Maestria → ClickUp (criar/atualizar/deletar tasks)
+  clickupSyncWebhookUrl?: string;   // ClickUp → Maestria (polling manual — dispara o workflow de sync)
+  clickupMembersWebhookUrl?: string; // Participantes ClickUp (convidar/remover)
+  // Ads — sincronização de campanhas (Meta Ads + Google Ads)
+  adsWebhookUrl?: string;           // Webhook n8n para sync de campanhas de todos os clientes
 }
 
 export interface WhatsAppConfig {
@@ -60,7 +77,9 @@ export type IntegrationConfig =
   | N8nConfig
   | WhatsAppConfig
   | GoogleCalendarConfig
-  | ResendConfig;
+  | ResendConfig
+  | import("@/types/fiscal").NotaasConfig
+  | import("@/types/recruitment").RecruitmentConfig;
 
 export interface OrganizationIntegration {
   id: string;

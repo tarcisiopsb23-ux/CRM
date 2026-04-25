@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { toJson } from "@/lib/supabase-utils";
+import { dispatchWebhook } from "@/lib/webhookDispatcher";
 import type { Lead, EtapaKanban } from "@/types/database";
 import type { TablesInsert } from "@/types/supabase";
 
@@ -168,6 +169,7 @@ export function useLeadsKanban(
         .update({ etapa_kanban: etapaKanban, stage_id: etapaKanban })
         .eq("id", leadId);
       if (updateError) throw updateError;
+      dispatchWebhook(organizationId!, "lead.stage_changed", { id: leadId, etapa_kanban: etapaKanban });
       await fetchLeads();
     },
     [fetchLeads]
@@ -200,6 +202,7 @@ export function useLeadsKanban(
         .single();
       if (insertError) throw insertError;
       fetchLeads();
+      dispatchWebhook(organizationId, "lead.created", data);
       return data as unknown as Lead;
     },
     [organizationId, fetchLeads]

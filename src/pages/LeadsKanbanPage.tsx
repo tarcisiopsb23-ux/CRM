@@ -7,6 +7,7 @@ import { useProfiles } from "@/hooks/useProfiles";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -14,6 +15,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { PinAuthDialog } from "@/components/shared/PinAuthDialog";
+import { usePinConfirm } from "@/hooks/usePinConfirm";
 import { Switch } from "@/components/ui/switch";
 import { ChevronDown, ChevronUp, Flame, CheckCircle2, Plus, Loader2, Upload, LayoutList, Kanban as KanbanIcon, Search } from "lucide-react";
 import { fetchAddressByCep } from "@/lib/viacep";
@@ -24,6 +27,7 @@ import type { Lead, EtapaKanban, LeadWithResponsavel } from "@/types/database";
 
 export function LeadsKanbanPage() {
   const organizationId = useOrganization();
+  const { pinProps, requirePin } = usePinConfirm();
   const { leads, loading, error, updateEtapaKanban, createLead, updateLead, removeLead, importLeadsMapped } =
     useLeadsKanban(organizationId);
   const { data: profiles = [] } = useProfiles(organizationId);
@@ -382,7 +386,11 @@ export function LeadsKanbanPage() {
                 });
               }}
               onDelete={(id) => {
-                if (window.confirm("Excluir este lead?")) removeLead(id);
+                requirePin(
+                  "Excluir lead",
+                  "Esta ação não pode ser desfeita. Digite seu PIN para confirmar.",
+                  async () => { removeLead(id); }
+                );
               }}
               onEtapaChange={handleEtapaChange}
             />
@@ -571,8 +579,11 @@ export function LeadsKanbanPage() {
           setModalOpen(false);
         }}
         onDelete={(id) => {
-          if (window.confirm("Excluir este lead?")) removeLead(id);
-          setModalOpen(false);
+          requirePin(
+            "Excluir lead",
+            "Esta ação não pode ser desfeita. Digite seu PIN para confirmar.",
+            async () => { removeLead(id); setModalOpen(false); }
+          );
         }}
       />
 
@@ -755,10 +766,9 @@ export function LeadsKanbanPage() {
                   </div>
                   <div className="space-y-2">
                     <Label>Valor (R$)</Label>
-                    <Input
-                      type="number"
+                    <CurrencyInput
                       value={preQualLeadForm.value}
-                      onChange={(e) => setPreQualLeadForm({ ...preQualLeadForm, value: e.target.value })}
+                      onChange={(v) => setPreQualLeadForm({ ...preQualLeadForm, value: v })}
                     />
                   </div>
                   <div className="space-y-2">
@@ -1257,7 +1267,7 @@ export function LeadsKanbanPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label>Valor (R$)</Label>
-                  <Input type="number" value={editForm.value} onChange={(e) => setEditForm({ ...editForm, value: e.target.value })} />
+                  <CurrencyInput value={editForm.value} onChange={(v) => setEditForm({ ...editForm, value: v })} />
                 </div>
                 <div>
                   <Label>Prioridade</Label>
@@ -1640,6 +1650,7 @@ export function LeadsKanbanPage() {
           )}
         </DialogContent>
       </Dialog>
+      <PinAuthDialog {...pinProps} />
     </div>
   );
 }

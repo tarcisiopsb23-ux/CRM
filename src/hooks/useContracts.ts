@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { toJson } from "@/lib/supabase-utils";
+import { dispatchWebhook } from "@/lib/webhookDispatcher";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/supabase";
 import { addMonths, format } from "date-fns";
@@ -204,6 +205,7 @@ export function useCreateContract(organizationId: string | undefined) {
     onSuccess: (c) => {
       qc.invalidateQueries({ queryKey: ["contracts", organizationId, c.client_id] });
       qc.invalidateQueries({ queryKey: ["payments", organizationId] });
+      if (organizationId) dispatchWebhook(organizationId, "contract.created", c);
     },
   });
 }
@@ -261,6 +263,7 @@ export function useSuspendContract(organizationId: string | undefined) {
       qc.invalidateQueries({ queryKey: ["contracts", organizationId, vars.client_id] });
       qc.invalidateQueries({ queryKey: ["contracts", "metrics", organizationId] });
       qc.invalidateQueries({ queryKey: ["payments", "metrics", organizationId] });
+      if (organizationId) dispatchWebhook(organizationId, "contract.suspended", { id: vars.id, client_id: vars.client_id });
     },
   });
 }
@@ -291,6 +294,7 @@ export function useReactivateContract(organizationId: string | undefined) {
       qc.invalidateQueries({ queryKey: ["contracts", organizationId, vars.client_id] });
       qc.invalidateQueries({ queryKey: ["contracts", "metrics", organizationId] });
       qc.invalidateQueries({ queryKey: ["payments", "metrics", organizationId] });
+      if (organizationId) dispatchWebhook(organizationId, "contract.reactivated", { id: vars.id, client_id: vars.client_id });
     },
   });
 }
@@ -323,6 +327,7 @@ export function useEndContract(organizationId: string | undefined, profileId: st
     onSuccess: (_c, vars) => {
       qc.invalidateQueries({ queryKey: ["contracts", organizationId, vars.client_id] });
       qc.invalidateQueries({ queryKey: ["payments", organizationId] });
+      if (organizationId) dispatchWebhook(organizationId, "contract.ended", { id: vars.id, client_id: vars.client_id });
     },
   });
 }
@@ -368,5 +373,140 @@ export function useSetDashboardReference(organizationId: string | undefined) {
       if (error) throw error;
     },
     onSuccess: (_c, vars) => qc.invalidateQueries({ queryKey: ["contracts", organizationId, vars.clientId] }),
+  });
+}
+
+/**
+ * useContractsWithC8 — combines regular contracts with the C8 Control plan
+ * for a given client, so the Clients module contracts tab shows both.
+ */
+export function useContractsWithC8(
+  organizationId: string | undefined,
+  clientId: string | undefined
+) {
+  const supabaseUntyped = supabase as unknown as SupabaseClient;
+
+  return useQuery({
+    queryKey: ["contracts_with_c8", organizationId, clientId],
+    queryFn: async (): Promise<ContractRow[]> => {
+      if (!organizationId || !clientId) return [];
+
+      // 1. Regular contracts
+      const { data: contractsData, error: contractsError } = await supabaseUntyped
+        .from("contracts")
+        .select("*")
+        .eq("organization_id", organizationId)
+        .eq("client_id", clientId)
+        .order("start_date", { ascending: false });
+      if (contractsError) throw contractsError;
+
+      const contracts: ContractRow[] = ((contractsData ?? []) as unknown as Array<Record<string, unknown>>).map((r) => ({
+        id: String(r.id),
+        organization_id: String(r.organization_id),
+        client_id: String(r.client_id),
+        responsible_id: (r.responsible_id as string | null) ?? null,
+        title: String(r.title ?? ""),
+        description: (r.description as string | null) ?? null,
+        value: Number(r.value ?? 0),
+        status: asContractStatus((r.status as string | null) ?? null),
+        start_date: String(r.start_date),
+        end_date: (r.end_date as string | null) ?? null,
+        billing_cycle: (r.billing_cycle as string | null) ?? null,
+        service_contracted: (r.service_contracted as string | null) ?? null,
+        periodicity: (r.periodicity as ContractRow["periodicity"]) ?? null,
+        contract_date: (r.contract_date as string | null) ?? null,
+        duration_months: r.duration_months ? Number(r.duration_months) : null,
+        first_payment_value: r.first_payment_value ? Number(r.first_payment_value) : null,
+        first_payment_due_date: (r.first_payment_due_date as string | null) ?? null,
+        first_payment_method: (r.first_payment_method as string | null) ?? null,
+        first_payment_installments: r.first_payment_installments ? Number(r.first_payment_installments) : null,
+        first_payment_fees: r.first_payment_fees ? Number(r.first_payment_fees) : null,
+        first_payment_split: (r.first_payment_split as boolean | null) ?? null,
+        first_payment_second_due_date: (r.first_payment_second_due_date as string | null) ?? null,
+        recurring_due_date: (r.recurring_due_date as string | null) ?? null,
+        ended_at: (r.ended_at as string | null) ?? null,
+        ended_reason: (r.ended_reason as string | null) ?? null,
+        ended_by: (r.ended_by as string | null) ?? null,
+        metadata: (r.metadata as Record<string, unknown> | null) ?? null,
+        created_at: (r.created_at as string | null) ?? null,
+        updated_at: (r.updated_at as string | null) ?? null,
+        is_dashboard_reference: (r.is_dashboard_reference as boolean | null) ?? false,
+      }));
+
+      // 2. C8 Control plan — only if not already covered by a contract
+      const hasC8Contract = contracts.some(
+        (c) => c.service_contracted === "C8 Control CRM"
+      );
+
+      if (!hasC8Contract) {
+        const { data: plan } = await supabaseUntyped
+          .from("crm_client_plans")
+          .select("*")
+          .eq("client_id", clientId)
+          .maybeSingle();
+
+        if (plan) {
+          const p = plan as Record<string, unknown>;
+          const statusMap: Record<string, ContractStatus> = {
+            ativo: "ativo",
+            suspenso: "suspenso",
+            bloqueado: "suspenso",
+            cancelado: "encerrado",
+          };
+
+          const planValue = Number(p.plan_value ?? 0);
+          const contractStart = (p.contract_start as string) ?? null;
+          const contractEnd = (p.contract_end as string) ?? null;
+
+          // Calculate duration in months from start/end dates
+          const durationMonths = contractStart && contractEnd
+            ? Math.max(1, Math.round(
+                (new Date(contractEnd).getTime() - new Date(contractStart).getTime()) /
+                (1000 * 60 * 60 * 24 * 30.44)
+              ))
+            : null;
+
+          // Total value = monthly value × duration (for the total column)
+          const totalValue = durationMonths ? planValue * durationMonths : planValue;
+
+          const c8Contract: ContractRow = {
+            id: `c8_${clientId}`,
+            organization_id: organizationId,
+            client_id: clientId,
+            responsible_id: null,
+            title: `C8 Control CRM — ${p.plan_name ?? "Starter"}`,
+            description: (p.notes as string | null) ?? null,
+            value: totalValue,
+            status: statusMap[(p.subscription_status as string) ?? "ativo"] ?? "ativo",
+            start_date: contractStart ?? toIsoDate(new Date()),
+            end_date: contractEnd,
+            billing_cycle: "mensal",
+            service_contracted: "C8 Control CRM",
+            periodicity: "mensal",
+            contract_date: contractStart,
+            duration_months: durationMonths,
+            first_payment_value: planValue,
+            first_payment_due_date: contractStart,
+            first_payment_method: "boleto",
+            first_payment_installments: 1,
+            first_payment_fees: 0,
+            first_payment_split: false,
+            first_payment_second_due_date: null,
+            recurring_due_date: null,
+            ended_at: null,
+            ended_reason: null,
+            ended_by: null,
+            metadata: { source: "c8_control", plan_name: p.plan_name, max_users: p.max_users, monthly_value: planValue },
+            created_at: null,
+            updated_at: null,
+            is_dashboard_reference: false,
+          };
+          contracts.push(c8Contract);
+        }
+      }
+
+      return contracts;
+    },
+    enabled: !!organizationId && !!clientId,
   });
 }

@@ -1,0 +1,231 @@
+{
+  "name": "Maestr.IA — Google Calendar Participantes",
+  "_readme": {
+    "descricao": "Gerencia participantes de eventos no Google Calendar. Se action=create usa 'add', se action=update usa 'replace'. Chamado pelo workflow principal após criar/atualizar evento.",
+    "webhook_url": "{N8N_URL}/webhook/gcal-participantes",
+    "payload_esperado": {
+      "action": "create | update",
+      "gcal_event_id": "ID do evento no Google Calendar",
+      "attendees": ["email1@exemplo.com", "email2@exemplo.com"]
+    }
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gcal-participantes",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-participantes",
+      "name": "Webhook — Participantes",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [-800, 0],
+      "webhookId": "gcal-participantes"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.item.json.body || $input.item.json;\n\nconst action = body.action || 'create';\nconst gcalEventId = body.gcal_event_id || '';\nconst attendees = body.attendees || [];\n\n// Valida\nif (!gcalEventId) return [{ json: { skip: true, reason: 'gcal_event_id ausente' } }];\nif (!Array.isArray(attendees) || attendees.length === 0) return [{ json: { skip: true, reason: 'sem participantes' } }];\n\n// Normaliza lista: aceita strings ou objetos { email }\nconst emailList = attendees.map(a => typeof a === 'string' ? a.trim().toLowerCase() : (a.email || '').trim().toLowerCase()).filter(e => e.includes('@'));\n\nif (emailList.length === 0) return [{ json: { skip: true, reason: 'nenhum e-mail válido' } }];\n\n// Monta payload para a API do Google Calendar (PATCH)\n// sendUpdates: 'all' envia convite por e-mail para os participantes\nconst attendeesPayload = emailList.map(email => ({ email }));\n\n// action=create → adiciona sem remover existentes (add)\n// action=update → substitui lista completa (replace)\nconst patchMode = action === 'update' ? 'replace' : 'add';\n\nreturn [{ json: {\n  skip: false,\n  gcal_event_id: gcalEventId,\n  action,\n  patch_mode: patchMode,\n  attendees_payload: attendeesPayload,\n  attendees_count: emailList.length\n}}];"
+      },
+      "id": "parse-participantes",
+      "name": "Parsear Participantes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-560, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{ $json.skip }}", "value2": true }]
+        }
+      },
+      "id": "skip-check",
+      "name": "Dados válidos?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [-320, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, reason: $json.reason }) }}"
+      },
+      "id": "respond-skip",
+      "name": "Resposta — Skip",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [-100, -160]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [{ "value1": "={{ $json.patch_mode }}", "rightValue": "add", "operator": { "type": "string", "operation": "equals" } }]
+        }
+      },
+      "id": "route-mode",
+      "name": "Add ou Replace?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [-100, 160]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Modo ADD: busca participantes existentes e mescla com os novos\n// Precisamos fazer GET no evento primeiro para não perder participantes já cadastrados\nconst d = $input.item.json;\nreturn [{ json: {\n  gcal_event_id: d.gcal_event_id,\n  attendees_payload: d.attendees_payload,\n  patch_mode: 'add'\n}}];"
+      },
+      "id": "prepare-add",
+      "name": "Preparar ADD",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [160, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Modo REPLACE: usa apenas os novos participantes, substituindo todos\nconst d = $input.item.json;\nreturn [{ json: {\n  gcal_event_id: d.gcal_event_id,\n  attendees_payload: d.attendees_payload,\n  patch_mode: 'replace'\n}}];"
+      },
+      "id": "prepare-replace",
+      "name": "Preparar REPLACE",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [160, 320]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "calendar": { "__rl": true, "value": "agenciac8br@gmail.com", "mode": "list", "cachedResultName": "agenciac8br@gmail.com" },
+        "eventId": "={{ $json.gcal_event_id }}"
+      },
+      "id": "get-event",
+      "name": "Buscar Evento Atual",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [400, 0],
+      "credentials": {
+        "googleCalendarOAuth2Api": { "id": "OfBO2Gs03PqPAkQJ", "name": "Google Calendar - Agência" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mescla participantes existentes com os novos (sem duplicatas)\nconst existing = ($input.item.json.attendees || []).map(a => a.email?.toLowerCase()).filter(Boolean);\nconst newOnes = $('Preparar ADD').item.json.attendees_payload.map(a => a.email?.toLowerCase()).filter(Boolean);\n\nconst merged = [...new Set([...existing, ...newOnes])].map(email => ({ email }));\n\nreturn [{ json: {\n  gcal_event_id: $('Preparar ADD').item.json.gcal_event_id,\n  final_attendees: merged\n}}];"
+      },
+      "id": "merge-attendees",
+      "name": "Mesclar Participantes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [640, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// REPLACE: usa diretamente os novos participantes\nconst d = $input.item.json;\nreturn [{ json: {\n  gcal_event_id: d.gcal_event_id,\n  final_attendees: d.attendees_payload\n}}];"
+      },
+      "id": "prepare-final-replace",
+      "name": "Preparar Final REPLACE",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 320]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "calendar": { "__rl": true, "value": "agenciac8br@gmail.com", "mode": "list", "cachedResultName": "agenciac8br@gmail.com" },
+        "eventId": "={{ $json.gcal_event_id }}",
+        "updateFields": {
+          "attendees": "={{ $json.final_attendees }}",
+          "sendUpdates": "all"
+        }
+      },
+      "id": "patch-add",
+      "name": "PATCH — Adicionar Participantes",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [880, 0],
+      "credentials": {
+        "googleCalendarOAuth2Api": { "id": "OfBO2Gs03PqPAkQJ", "name": "Google Calendar - Agência" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "calendar": { "__rl": true, "value": "agenciac8br@gmail.com", "mode": "list", "cachedResultName": "agenciac8br@gmail.com" },
+        "eventId": "={{ $json.gcal_event_id }}",
+        "updateFields": {
+          "attendees": "={{ $json.final_attendees }}",
+          "sendUpdates": "all"
+        }
+      },
+      "id": "patch-replace",
+      "name": "PATCH — Substituir Participantes",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [640, 320],
+      "credentials": {
+        "googleCalendarOAuth2Api": { "id": "OfBO2Gs03PqPAkQJ", "name": "Google Calendar - Agência" }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, mode: 'add', attendees_count: $json.attendees?.length ?? 0 }) }}"
+      },
+      "id": "respond-add",
+      "name": "Resposta — ADD",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, mode: 'replace', attendees_count: $json.attendees?.length ?? 0 }) }}"
+      },
+      "id": "respond-replace",
+      "name": "Resposta — REPLACE",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [880, 320]
+    }
+  ],
+  "connections": {
+    "Webhook — Participantes": {
+      "main": [[{ "node": "Parsear Participantes", "type": "main", "index": 0 }]]
+    },
+    "Parsear Participantes": {
+      "main": [[{ "node": "Dados válidos?", "type": "main", "index": 0 }]]
+    },
+    "Dados válidos?": {
+      "main": [
+        [{ "node": "Resposta — Skip", "type": "main", "index": 0 }],
+        [{ "node": "Add ou Replace?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Add ou Replace?": {
+      "main": [
+        [{ "node": "Preparar ADD", "type": "main", "index": 0 }],
+        [{ "node": "Preparar REPLACE", "type": "main", "index": 0 }]
+      ]
+    },
+    "Preparar ADD": {
+      "main": [[{ "node": "Buscar Evento Atual", "type": "main", "index": 0 }]]
+    },
+    "Buscar Evento Atual": {
+      "main": [[{ "node": "Mesclar Participantes", "type": "main", "index": 0 }]]
+    },
+    "Mesclar Participantes": {
+      "main": [[{ "node": "PATCH — Adicionar Participantes", "type": "main", "index": 0 }]]
+    },
+    "PATCH — Adicionar Participantes": {
+      "main": [[{ "node": "Resposta — ADD", "type": "main", "index": 0 }]]
+    },
+    "Preparar REPLACE": {
+      "main": [[{ "node": "Preparar Final REPLACE", "type": "main", "index": 0 }]]
+    },
+    "Preparar Final REPLACE": {
+      "main": [[{ "node": "PATCH — Substituir Participantes", "type": "main", "index": 0 }]]
+    },
+    "PATCH — Substituir Participantes": {
+      "main": [[{ "node": "Resposta — REPLACE", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" }
+}

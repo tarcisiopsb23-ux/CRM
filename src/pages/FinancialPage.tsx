@@ -16,8 +16,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useSearchParams } from "react-router-dom";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useSearchParams, Link } from "react-router-dom";
 import SuppliersPage from "@/pages/SuppliersPage";
+import { SupplierExpensesView } from "@/components/suppliers/SupplierExpensesView";
+import { C8ControlFinancialTab } from "@/components/financial/C8ControlFinancialTab";
 import {
   Dialog,
   DialogContent,
@@ -27,6 +30,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -36,10 +40,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Check, Plus, UserPlus, Trash2, Calendar, Eye, Pencil } from "lucide-react";
+import { Loader2, Check, Plus, UserPlus, Trash2, Calendar, Eye, Pencil, Info } from "lucide-react";
 import { eachDayOfInterval, endOfMonth, format, isWithinInterval, parseISO, startOfMonth, subMonths, addMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
+import { PinAuthDialog } from "@/components/shared/PinAuthDialog";
+import { usePinConfirm } from "@/hooks/usePinConfirm";
 import {
   PeriodOption,
   PERIOD_LABELS,
@@ -96,6 +102,7 @@ const safeFormat = (date: string | Date | null | undefined, formatStr: string, o
 
 export default function FinancialPage() {
   const organizationId = useOrganization();
+  const { pinProps, requirePin } = usePinConfirm();
   const clientsQuery = useClients(organizationId);
   const suppliersQuery = useSuppliers(organizationId);
   const { data: clients = [] } = clientsQuery;
@@ -131,6 +138,7 @@ export default function FinancialPage() {
         "contracts",
         "dre",
         "reports",
+        "c8control",
       ]),
     []
   );
@@ -146,7 +154,8 @@ export default function FinancialPage() {
     | "payroll"
     | "contracts"
     | "dre"
-    | "reports";
+    | "reports"
+    | "c8control";
 
   const setSection = (nextSection: typeof section) => {
     const next = new URLSearchParams(searchParams);
@@ -1172,6 +1181,7 @@ export default function FinancialPage() {
           <TabsTrigger value="contracts">Contratos</TabsTrigger>
           <TabsTrigger value="dre">DRE</TabsTrigger>
           <TabsTrigger value="reports">Relatórios</TabsTrigger>
+          <TabsTrigger value="c8control">C8 Control</TabsTrigger>
         </TabsList>
 
         {!scopePermission.canView ? (
@@ -1669,7 +1679,11 @@ export default function FinancialPage() {
                               size="icon"
                               variant="ghost"
                               className="text-destructive"
-                              onClick={() => window.confirm("Excluir esta conta a receber?") && payments.remove.mutate(p.id)}
+                              onClick={() => requirePin(
+                                "Excluir conta a receber",
+                                "Esta ação não pode ser desfeita. Digite seu PIN para confirmar.",
+                                async () => { payments.remove.mutate(p.id); }
+                              )}
                               disabled={payments.remove?.isPending}
                               aria-label="Excluir"
                             >
@@ -1740,7 +1754,11 @@ export default function FinancialPage() {
                               size="icon"
                               variant="ghost"
                               className="text-destructive"
-                              onClick={() => window.confirm("Excluir esta despesa?") && expenses.remove.mutate(e.id)}
+                              onClick={() => requirePin(
+                                "Excluir despesa",
+                                "Esta ação não pode ser desfeita. Digite seu PIN para confirmar.",
+                                async () => { expenses.remove.mutate(e.id); }
+                              )}
                               disabled={expenses.remove?.isPending}
                               aria-label="Excluir"
                             >
@@ -1758,45 +1776,22 @@ export default function FinancialPage() {
         </TabsContent>
 
         <TabsContent value="suppliers" className="space-y-6">
+          <Alert className="border-yellow-400 bg-yellow-50 text-yellow-900 dark:bg-yellow-950 dark:text-yellow-100 dark:border-yellow-600">
+            <Info className="h-4 w-4 !text-yellow-600 dark:!text-yellow-400" />
+            <AlertTitle>Módulo movido</AlertTitle>
+            <AlertDescription>
+              O módulo de Fornecedores foi movido para o menu lateral. Acesse diretamente em{" "}
+              <Link to="/suppliers" className="font-medium underline underline-offset-2 hover:text-yellow-700 dark:hover:text-yellow-300">
+                /suppliers
+              </Link>
+              .
+            </AlertDescription>
+          </Alert>
           <SuppliersPage />
         </TabsContent>
 
         <TabsContent value="expenses" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Despesas</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Fornecedor</TableHead>
-                    <TableHead>Categoria</TableHead>
-                    <TableHead>Descrição</TableHead>
-                    <TableHead>Vencimento</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Valor</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(expenses.data ?? []).map((e) => {
-                    const supplierName = (e as { suppliers?: { name?: string | null } | null }).suppliers?.name ?? "-";
-                    const category = (e as { suppliers?: { service_category?: string | null } | null }).suppliers?.service_category ?? "Outros";
-                    return (
-                      <TableRow key={e.id}>
-                        <TableCell className="font-medium">{supplierName}</TableCell>
-                        <TableCell>{category}</TableCell>
-                        <TableCell>{e.description}</TableCell>
-                        <TableCell>{format(parseISO(e.due_date), "dd/MM/yyyy", { locale: ptBR })}</TableCell>
-                        <TableCell className="capitalize">{e.status}</TableCell>
-                        <TableCell className="text-right font-semibold text-red-500">{formatCurrency(e.value)}</TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+          {organizationId && <SupplierExpensesView organizationId={organizationId} />}
         </TabsContent>
 
         <TabsContent value="payroll" className="space-y-4">
@@ -2307,6 +2302,10 @@ export default function FinancialPage() {
             </Card>
           </div>
         </TabsContent>
+
+        <TabsContent value="c8control" className="mt-4">
+          {organizationId && <C8ControlFinancialTab organizationId={organizationId} />}
+        </TabsContent>
           </>
         )}
       </Tabs>
@@ -2368,11 +2367,9 @@ export default function FinancialPage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Valor (R$) *</Label>
-                <Input
-                  type="text"
+                <CurrencyInput
                   value={formReceber.value}
-                  onChange={(e) => setFormReceber({ ...formReceber, value: e.target.value })}
-                  placeholder="0,00"
+                  onChange={(v) => setFormReceber({ ...formReceber, value: v })}
                   required
                 />
               </div>
@@ -2529,11 +2526,9 @@ export default function FinancialPage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Valor (R$) *</Label>
-                <Input
-                  type="text"
+                <CurrencyInput
                   value={formPagar.value}
-                  onChange={(e) => setFormPagar({ ...formPagar, value: e.target.value })}
-                  placeholder="0,00"
+                  onChange={(v) => setFormPagar({ ...formPagar, value: v })}
                   required
                 />
               </div>
@@ -2665,7 +2660,7 @@ export default function FinancialPage() {
             </div>
             <div className="space-y-1">
               <Label>Valor (R$)</Label>
-              <Input type="number" step="0.01" value={editForm.value} onChange={(e) => setEditForm({ ...editForm, value: e.target.value })} />
+              <CurrencyInput value={editForm.value} onChange={(v) => setEditForm({ ...editForm, value: v })} />
             </div>
             <div className="space-y-1">
               <Label>Data de vencimento</Label>
@@ -2704,14 +2699,9 @@ export default function FinancialPage() {
           <div className="space-y-4 py-2">
             <div className="space-y-1">
               <Label>Valor recebido (R$)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                min="0.01"
-                max={receivePaymentTotal}
+              <CurrencyInput
                 value={receiveValue}
-                onChange={(e) => setReceiveValue(e.target.value)}
-                placeholder={String(receivePaymentTotal)}
+                onChange={(v) => setReceiveValue(v)}
               />
               {parseFloat(receiveValue) < receivePaymentTotal && parseFloat(receiveValue) > 0 && (
                 <p className="text-xs text-amber-600 mt-1">
@@ -2769,6 +2759,7 @@ export default function FinancialPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <PinAuthDialog {...pinProps} />
     </div>
   );
 }

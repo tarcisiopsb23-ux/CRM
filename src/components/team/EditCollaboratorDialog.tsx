@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -276,7 +277,7 @@ export function EditCollaboratorDialog({ open, onClose, profile }: Props) {
                   </SelectContent>
                 </Select>
               </div>
-              <F label="Salário Base (R$)" value={extraForm.base_salary} onChange={(v) => setExtraForm((f) => ({ ...f, base_salary: v }))} type="number" />
+              <F label="Salário Base (R$)" value={extraForm.base_salary} onChange={(v) => setExtraForm((f) => ({ ...f, base_salary: v }))} type="currency" />
               <F label="Data de Admissão" value={extraForm.hire_date} onChange={(v) => setExtraForm((f) => ({ ...f, hire_date: v }))} type="date" />
               <div className="flex items-center gap-2 pt-6">
                 <Switch checked={form.is_active} onCheckedChange={(v) => setForm((f) => ({ ...f, is_active: v }))} id="active-dialog" />
@@ -307,7 +308,11 @@ function F({ label, value, onChange, type = "text", required }: {
   return (
     <div className="space-y-1">
       <Label>{label}</Label>
-      <Input type={type} value={value} onChange={(e) => onChange(e.target.value)} required={required} />
+      {type === "currency" ? (
+        <CurrencyInput value={value} onChange={onChange} />
+      ) : (
+        <Input type={type} value={value} onChange={(e) => onChange(e.target.value)} required={required} />
+      )}
     </div>
   );
 }

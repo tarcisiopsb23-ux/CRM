@@ -2,6 +2,18 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { ClientIntegration, ClientKPI, CampaignData, DailyMetrics } from "@/types/hub_performance";
 
+async function getAdsWebhookUrl(organizationId: string): Promise<string | null> {
+  const { data } = await supabase
+    .from("organization_integrations")
+    .select("config")
+    .eq("organization_id", organizationId)
+    .eq("integration_type", "n8n")
+    .maybeSingle();
+  return (data?.config as Record<string, string> | null)?.adsWebhookUrl
+    ?? import.meta.env.VITE_N8N_WEBHOOK_SYNC_ADS
+    ?? null;
+}
+
 // Hook para gerenciar integrações de clientes
 export function useClientIntegrations(organizationId?: string, clientId?: string) {
   const qc = useQueryClient();
@@ -24,7 +36,12 @@ export function useClientIntegrations(organizationId?: string, clientId?: string
   const upsert = useMutation({
     mutationFn: async (integration: Partial<ClientIntegration>) => {
       if (!organizationId || !clientId) throw new Error("Faltando ID da organização ou cliente");
-      const { data, error } = await supabase.from("client_integrations").upsert({ ...integration, organization_id: organizationId, client_id: clientId }).select();
+      // Remove apenas campos undefined — null é enviado explicitamente para limpar valores
+      const payload = Object.fromEntries(
+        Object.entries({ ...integration, organization_id: organizationId, client_id: clientId })
+          .filter(([, v]) => v !== undefined)
+      );
+      const { data, error } = await supabase.from("client_integrations").upsert(payload).select();
       if (error) throw error;
       return data;
     },
@@ -43,7 +60,102 @@ export function useClientIntegrations(organizationId?: string, clientId?: string
     },
   });
 
-  return { ...query, upsert, remove };
+  // Trigger manual sync via n8n webhook
+  const triggerSync = useMutation({
+    mutationFn: async (integrationId?: string) => {
+      const n8nWebhookUrl = organizationId ? await getAdsWebhookUrl(organizationId) : null;
+      if (!n8nWebhookUrl) throw new Error("Webhook de sync de Ads não configurado. Acesse Configurações → n8n → Ads.");
+
+      // Mark as syncing — limpa erro anterior
+      if (integrationId) {
+        await supabase.from("client_integrations")
+          .update({ sync_status: "syncing", sync_error: null })
+          .eq("id", integrationId);
+      }
+
+      const res = await fetch(n8nWebhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ organization_id: organizationId, client_id: clientId, integration_id: integrationId }),
+      });
+      if (!res.ok) throw new Error(`Sync falhou: ${res.statusText}`);
+      // Retorna o integrationId para uso no onSuccess/onError
+      return integrationId;
+    },
+    onSuccess: (integrationId) => {
+      if (!integrationId) return;
+
+      // Polling a cada 5s por até 120s — para quando o n8n gravar success/error
+      // Não grava erro no banco: deixa o n8n ser a única fonte de verdade do status
+      let elapsed = 0;
+      const INTERVAL = 5_000;
+      const MAX_WAIT = 120_000;
+
+      const interval = setInterval(async () => {
+        elapsed += INTERVAL;
+
+        const { data } = await supabase
+          .from("client_integrations")
+          .select("sync_status, sync_error, last_sync_at")
+          .eq("id", integrationId)
+          .single();
+
+        const status = data?.sync_status;
+
+        // Para o polling assim que o n8n atualizar (success ou error real)
+        if (status === "success" || status === "error") {
+          clearInterval(interval);
+          qc.invalidateQueries({ queryKey: ["client_integrations", organizationId, clientId] });
+          qc.invalidateQueries({ queryKey: ["campaign_data", organizationId, clientId], exact: false });
+          qc.invalidateQueries({ queryKey: ["daily_metrics", organizationId, clientId], exact: false });
+          return;
+        }
+
+        // Timeout: apenas invalida queries para mostrar o estado atual do banco
+        if (elapsed >= MAX_WAIT) {
+          clearInterval(interval);
+          // Força reset para error se ainda estiver syncing após timeout
+          await supabase
+            .from("client_integrations")
+            .update({ sync_status: "error", sync_error: "Timeout: o workflow não respondeu a tempo." })
+            .eq("id", integrationId)
+            .eq("sync_status", "syncing"); // só atualiza se ainda estiver syncing
+          qc.invalidateQueries({ queryKey: ["client_integrations", organizationId, clientId] });
+        }
+      }, INTERVAL);
+    },
+    onError: async (_, integrationId) => {
+      // Se o fetch falhou antes de chegar no n8n, reseta o status imediatamente
+      if (integrationId) {
+        await supabase
+          .from("client_integrations")
+          .update({ sync_status: "error", sync_error: "Falha ao chamar o webhook de sync." })
+          .eq("id", integrationId);
+        qc.invalidateQueries({ queryKey: ["client_integrations", organizationId, clientId] });
+      }
+    },
+  });
+
+  return { ...query, upsert, remove, triggerSync };
+}
+
+// Hook para buscar todas as integrações da organização (usado na IntegrationsPage)
+export function useAllClientIntegrations(organizationId?: string) {
+  return useQuery({
+    queryKey: ["all_client_integrations", organizationId],
+    queryFn: async () => {
+      if (!organizationId) return [];
+      const { data, error } = await supabase
+        .from("client_integrations")
+        .select("*, clients(id, name, company)")
+        .eq("organization_id", organizationId)
+        .order("last_sync_at", { ascending: false, nullsFirst: true });
+      if (error) throw error;
+      return (data || []) as Array<ClientIntegration & { clients: { id: string; name: string; company: string | null } }>;
+    },
+    enabled: !!organizationId,
+    refetchInterval: 30_000, // refresh every 30s to catch sync status updates
+  });
 }
 
 // Hook para gerenciar KPIs manuais de clientes

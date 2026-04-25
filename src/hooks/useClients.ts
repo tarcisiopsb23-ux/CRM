@@ -1,8 +1,41 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { toJson } from "@/lib/supabase-utils";
+import { dispatchWebhook } from "@/lib/webhookDispatcher";
+import { fireN8nWebhook } from "@/lib/n8nWebhook";
 import type { Client } from "@/types/crm";
+import type { N8nConfig } from "@/types/settings";
+
+/** Busca a config do n8n da organização (fire-and-forget safe) */
+async function getN8nConfig(organizationId: string): Promise<N8nConfig | null> {
+  try {
+    const { data } = await supabase
+      .from("organization_integrations")
+      .select("config")
+      .eq("organization_id", organizationId)
+      .eq("integration_type", "n8n")
+      .maybeSingle();
+    return (data?.config ?? null) as N8nConfig | null;
+  } catch {
+    return null;
+  }
+}
+
+/** Dispara o webhook de novo cliente no n8n — onboarding (Asaas, e-mail, WhatsApp) */
+async function fireNewClientWebhook(organizationId: string, client: Client): Promise<void> {
+  const config = await getN8nConfig(organizationId);
+  const url = config?.clientWebhookUrl?.trim();
+  if (!url) return;
+  try {
+    await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...client, organization_id: organizationId }),
+    });
+  } catch {
+    // fire-and-forget
+  }
+}
 
 export function useClients(organizationId: string | undefined) {
   const qc = useQueryClient();
@@ -18,7 +51,7 @@ export function useClients(organizationId: string | undefined) {
           .from("clients_with_contracts" as any) // View criada na migração 002
           .select("*")
           .eq("organization_id", organizationId)
-          .order("name");
+          .order("code", { ascending: true, nullsFirst: false });
           
         if (!error) return (data ?? []) as unknown as (Client & { contract_status?: string; contract_start?: string; contract_end?: string })[];
         
@@ -27,7 +60,7 @@ export function useClients(organizationId: string | undefined) {
           .from("clients")
           .select("*")
           .eq("organization_id", organizationId)
-          .order("name");
+          .order("code", { ascending: true, nullsFirst: false });
           
         if (fallbackError) throw fallbackError;
         return (fallbackData ?? []) as Client[];
@@ -51,7 +84,14 @@ export function useClients(organizationId: string | undefined) {
       if (error) throw error;
       return data as Client;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["clients", organizationId] }),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["clients", organizationId] });
+      if (organizationId) {
+        dispatchWebhook(organizationId, "client.created", data);
+        void fireNewClientWebhook(organizationId, data);
+        void fireN8nWebhook(organizationId, "clients", "create", data as unknown as Record<string, unknown>);
+      }
+    },
   });
 
   const update = useMutation({
@@ -62,7 +102,13 @@ export function useClients(organizationId: string | undefined) {
       if (error) throw error;
       return data as Client;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["clients", organizationId] }),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["clients", organizationId] });
+      if (organizationId) {
+        dispatchWebhook(organizationId, "client.updated", data);
+        void fireN8nWebhook(organizationId, "clients", "update", data as unknown as Record<string, unknown>);
+      }
+    },
   });
 
   const deactivate = useMutation({
@@ -84,9 +130,10 @@ export function useClients(organizationId: string | undefined) {
       if (error) throw new Error(`Erro ao desativar cliente: ${error.message}`);
       if (!data || data.length === 0) throw new Error("Cliente não encontrado ou sem permissão para desativar");
     },
-    onSuccess: async () => {
+    onSuccess: async (_data, id) => {
       await qc.invalidateQueries({ queryKey: ["clients", organizationId] });
       qc.invalidateQueries({ queryKey: ["payments", organizationId] });
+      if (organizationId) dispatchWebhook(organizationId, "client.deactivated", { id });
     },
     onError: (err) => console.error("[useClients] deactivate error:", err),
   });
@@ -105,8 +152,24 @@ export function useClients(organizationId: string | undefined) {
     onError: (err) => console.error("[useClients] activate error:", err),
   });
 
+  const hardDelete = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("clients")
+        .delete()
+        .eq("id", id);
+      if (error) throw new Error(`Erro ao excluir cliente: ${error.message}`);
+    },
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: ["clients", organizationId] });
+      qc.invalidateQueries({ queryKey: ["payments", organizationId] });
+      if (organizationId) dispatchWebhook(organizationId, "client.deleted", { id });
+    },
+    onError: (err) => console.error("[useClients] hardDelete error:", err),
+  });
+
   // Mantido por compatibilidade
   const remove = deactivate;
 
-  return { ...query, create, update, remove, deactivate, activate };
+  return { ...query, create, update, remove, deactivate, activate, hardDelete };
 }

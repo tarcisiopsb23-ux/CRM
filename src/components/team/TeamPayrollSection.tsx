@@ -3,6 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -219,7 +220,7 @@ export function TeamPayrollSection() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label>Valor</Label>
-                <Input type="number" value={extraForm.value} onChange={(e) => setExtraForm({ ...extraForm, value: e.target.value })} />
+                <CurrencyInput value={extraForm.value} onChange={(v) => setExtraForm({ ...extraForm, value: v })} />
               </div>
               <div>
                 <Label>Data</Label>

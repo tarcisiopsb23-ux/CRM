@@ -158,14 +158,14 @@ export function LeadDetailsModal({
             <span className="font-medium text-gray-500">Nicho</span>
             <div className="mt-1">
               <Select
-                value={fields.nicho}
-                onValueChange={(v) => setFields({ ...fields, nicho: v })}
+                value={fields.nicho || "__none__"}
+                onValueChange={(v) => setFields({ ...fields, nicho: v === "__none__" ? "" : v })}
               >
                 <SelectTrigger className="h-8 text-xs">
                   <SelectValue placeholder="Selecionar nicho" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">—</SelectItem>
+                  <SelectItem value="__none__">—</SelectItem>
                   {NICHO_OPTIONS.map((n) => (
                     <SelectItem key={n} value={n}>{n}</SelectItem>
                   ))}
@@ -187,14 +187,14 @@ export function LeadDetailsModal({
             <span className="font-medium text-gray-500">Origem</span>
             <div className="mt-1">
               <Select
-                value={fields.source}
-                onValueChange={(v) => setFields({ ...fields, source: v })}
+                value={fields.source || "__none__"}
+                onValueChange={(v) => setFields({ ...fields, source: v === "__none__" ? "" : v })}
               >
                 <SelectTrigger className="h-8 text-xs">
                   <SelectValue placeholder="Selecionar origem" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">—</SelectItem>
+                  <SelectItem value="__none__">—</SelectItem>
                   {ORIGEM_OPTIONS.map((o) => (
                     <SelectItem key={o} value={o}>{o}</SelectItem>
                   ))}
@@ -223,12 +223,12 @@ export function LeadDetailsModal({
               {canEditTeam && (
                 <div className="space-y-1">
                   <Label className="text-xs">Equipe</Label>
-                  <Select value={fields.team_id} onValueChange={(v) => setFields({ ...fields, team_id: v })}>
+                  <Select value={fields.team_id || "__none__"} onValueChange={(v) => setFields({ ...fields, team_id: v === "__none__" ? "" : v })}>
                     <SelectTrigger className="h-8 text-xs">
                       <SelectValue placeholder="Selecionar equipe" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Nenhuma</SelectItem>
+                      <SelectItem value="__none__">Nenhuma</SelectItem>
                       {teams.map((t) => (
                         <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
                       ))}
@@ -243,12 +243,12 @@ export function LeadDetailsModal({
                   {!fields.team_id ? (
                     <p className="text-xs text-muted-foreground">Selecione uma equipe primeiro</p>
                   ) : (
-                    <Select value={fields.sdr_id} onValueChange={(v) => setFields({ ...fields, sdr_id: v })}>
+                    <Select value={fields.sdr_id || "__none__"} onValueChange={(v) => setFields({ ...fields, sdr_id: v === "__none__" ? "" : v })}>
                       <SelectTrigger className="h-8 text-xs">
                         <SelectValue placeholder="Selecionar SDR" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">Nenhum</SelectItem>
+                        <SelectItem value="__none__">Nenhum</SelectItem>
                         {activeProfiles.map((p) => (
                           <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>
                         ))}
@@ -264,12 +264,12 @@ export function LeadDetailsModal({
                   {!fields.team_id ? (
                     <p className="text-xs text-muted-foreground">Selecione uma equipe primeiro</p>
                   ) : (
-                    <Select value={fields.closer_id} onValueChange={(v) => setFields({ ...fields, closer_id: v })}>
+                    <Select value={fields.closer_id || "__none__"} onValueChange={(v) => setFields({ ...fields, closer_id: v === "__none__" ? "" : v })}>
                       <SelectTrigger className="h-8 text-xs">
                         <SelectValue placeholder="Selecionar Closer" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">Nenhum</SelectItem>
+                        <SelectItem value="__none__">Nenhum</SelectItem>
                         {activeProfiles.map((p) => (
                           <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>
                         ))}

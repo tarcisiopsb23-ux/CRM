@@ -1,20 +1,85 @@
 import { useClientIntegrations } from "@/hooks/useHubPerformance";
 import { useOrganizationData } from "@/hooks/useOrganization";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import { Loader2, Trash2, Globe, Lock, Copy, Check, ExternalLink, Mail, RefreshCcw, BarChart3, MessageCircle } from "lucide-react";
+import { Loader2, Trash2, Globe, Lock, Copy, Check, ExternalLink, Mail, RefreshCcw, BarChart3, MessageCircle, AlertCircle, CheckCircle2, Clock } from "lucide-react";
 import { AdIntegrationDialog } from "@/components/integrations/AdIntegrationDialog";
 import { supabase } from "@/lib/supabase";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { sendEmail } from "@/lib/email-service";
+import { formatDistanceToNow } from "date-fns";
+import { ptBR } from "date-fns/locale";
+
+function SyncStatusBadge({ status, lastSyncAt, records, error }: { status?: string | null; lastSyncAt?: string | null; records?: number | null; error?: string | null }) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (!status || status === 'pending') {
+    return <Badge className="bg-slate-100 text-slate-500 text-xs">Nunca sincronizado</Badge>;
+  }
+  if (status === 'syncing') {
+    return <Badge className="bg-blue-100 text-blue-700 text-xs flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Sincronizando...</Badge>;
+  }
+  if (status === 'error') {
+    return (
+      <div className="flex flex-col gap-0.5">
+        <Badge className="bg-red-100 text-red-700 text-xs flex items-center gap-1 w-fit">
+          <AlertCircle className="h-3 w-3" />Erro na sync
+        </Badge>
+        {error && (
+          <div className="max-w-[260px]">
+            <p
+              onClick={() => setExpanded(v => !v)}
+              className={`text-[10px] text-red-500 cursor-pointer ${expanded ? 'whitespace-normal break-words' : 'truncate'}`}
+            >
+              {error}
+            </p>
+          </div>
+        )}
+      </div>
+    );
+  }
+  if (status === 'success' && lastSyncAt) {
+    return (
+      <div className="flex flex-col gap-0.5">
+        <Badge className="bg-emerald-100 text-emerald-700 text-xs flex items-center gap-1 w-fit">
+          <CheckCircle2 className="h-3 w-3" />
+          {formatDistanceToNow(new Date(lastSyncAt), { addSuffix: true, locale: ptBR })}
+        </Badge>
+        {records != null && records > 0 && (
+          <span className="text-[10px] text-muted-foreground">{records} registros</span>
+        )}
+      </div>
+    );
+  }
+  return null;
+}
 
 export function ClientIntegrationsTab({ organizationId, clientId }: { organizationId: string, clientId: string }) {
-  const { data: integrations = [], isLoading, remove } = useClientIntegrations(organizationId, clientId);
+  const { data: integrations = [], isLoading, remove, triggerSync } = useClientIntegrations(organizationId, clientId);
   const { data: organization } = useOrganizationData(organizationId);
   const [modalOpen, setModalOpen] = useState(false);
   const [platform, setPlatform] = useState<'meta' | 'google' | null>(null);
+
+  // Reset sync_status preso em 'syncing' — acontece quando o workflow falhou e o usuário recarregou a página
+  useEffect(() => {
+    const staleIntegrations = (integrations as any[]).filter(i => {
+      if (i.sync_status !== 'syncing') return false;
+      if (!i.updated_at) return true;
+      const updatedAt = new Date(i.updated_at).getTime();
+      const twoMinutesAgo = Date.now() - 2 * 60 * 1000;
+      return updatedAt < twoMinutesAgo; // preso há mais de 2 minutos
+    });
+    if (staleIntegrations.length === 0) return;
+    staleIntegrations.forEach(async (i: any) => {
+      await supabase
+        .from("client_integrations")
+        .update({ sync_status: "error", sync_error: "Sync interrompido — tente novamente." })
+        .eq("id", i.id);
+    });
+  }, [integrations]);
   
   // Dashboard Externo
   const [slug, setSlug] = useState("");
@@ -25,6 +90,7 @@ export function ClientIntegrationsTab({ organizationId, clientId }: { organizati
   const [copied, setCopied] = useState(false);
   const [dashPerformance, setDashPerformance] = useState(true);
   const [dashAtendimento, setDashAtendimento] = useState(false);
+  const [c8ControlEnabled, setC8ControlEnabled] = useState(false);
 
   useEffect(() => {
     const fetchClient = async () => {
@@ -49,6 +115,7 @@ export function ClientIntegrationsTab({ organizationId, clientId }: { organizati
         setEmail(data.email || "");
         setDashPerformance((data.metadata as any)?.dashboard_performance ?? true);
         setDashAtendimento((data.metadata as any)?.dashboard_atendimento ?? false);
+        setC8ControlEnabled(!!(data as any).c8_control_enabled);
       }
     };
     fetchClient();
@@ -356,20 +423,48 @@ export function ClientIntegrationsTab({ organizationId, clientId }: { organizati
                 <p className="text-sm text-slate-500">
                   {metaIntegration ? `ID: ${metaIntegration.account_id}` : "Não conectado"}
                 </p>
+                {metaIntegration && (
+                  <div className="mt-1">
+                    <SyncStatusBadge
+                      status={metaIntegration.sync_status}
+                      lastSyncAt={metaIntegration.last_sync_at}
+                      records={metaIntegration.last_sync_records}
+                      error={metaIntegration.sync_error}
+                    />
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-2">
               {metaIntegration && (
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className="text-slate-400 hover:text-red-500"
-                  onClick={() => handleDelete(metaIntegration.id, 'Meta Ads')}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                <>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-blue-600 hover:text-blue-700 gap-1"
+                    disabled={triggerSync.isPending || metaIntegration.sync_status === 'syncing'}
+                    onClick={() => {
+                      triggerSync.mutate(metaIntegration.id, {
+                        onSuccess: () => toast.success("Sincronização iniciada!"),
+                        onError: (e) => toast.error(`Erro: ${(e as Error).message}`),
+                      });
+                    }}
+                    title="Sincronizar agora"
+                  >
+                    {triggerSync.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5" />}
+                    Sync
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-slate-400 hover:text-red-500"
+                    onClick={() => handleDelete(metaIntegration.id, 'Meta Ads')}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </>
               )}
-              <Button 
+              <Button
                 variant={metaIntegration ? "outline" : "default"}
                 size="sm"
                 onClick={() => handleOpenConnect('meta')}
@@ -388,20 +483,48 @@ export function ClientIntegrationsTab({ organizationId, clientId }: { organizati
                 <p className="text-sm text-slate-500">
                   {googleIntegration ? `ID: ${googleIntegration.account_id}` : "Não conectado"}
                 </p>
+                {googleIntegration && (
+                  <div className="mt-1">
+                    <SyncStatusBadge
+                      status={googleIntegration.sync_status}
+                      lastSyncAt={googleIntegration.last_sync_at}
+                      records={googleIntegration.last_sync_records}
+                      error={googleIntegration.sync_error}
+                    />
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-2">
               {googleIntegration && (
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className="text-slate-400 hover:text-red-500"
-                  onClick={() => handleDelete(googleIntegration.id, 'Google Ads')}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                <>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-amber-600 hover:text-amber-700 gap-1"
+                    disabled={triggerSync.isPending || googleIntegration.sync_status === 'syncing'}
+                    onClick={() => {
+                      triggerSync.mutate(googleIntegration.id, {
+                        onSuccess: () => toast.success("Sincronização iniciada!"),
+                        onError: (e) => toast.error(`Erro: ${(e as Error).message}`),
+                      });
+                    }}
+                    title="Sincronizar agora"
+                  >
+                    {triggerSync.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5" />}
+                    Sync
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-slate-400 hover:text-red-500"
+                    onClick={() => handleDelete(googleIntegration.id, 'Google Ads')}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </>
               )}
-              <Button 
+              <Button
                 variant={googleIntegration ? "outline" : "default"}
                 size="sm"
                 onClick={() => handleOpenConnect('google')}

@@ -1,0 +1,198 @@
+{
+  "name": "Maestr.ia ↔ Asaas (Pagamentos)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "asaas",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-asaas",
+      "name": "Webhook — Asaas",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 400],
+      "webhookId": "asaas",
+      "_comment": "Registrar esta URL no Asaas: Configurações → Integrações → Webhooks"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "maestria-to-asaas",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-maestria",
+      "name": "Webhook — Maestr.ia (Novo Pagamento)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 600],
+      "webhookId": "maestria-to-asaas",
+      "_comment": "Configurar como financialWebhookUrl nas configurações do n8n no Maestr.ia"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parsear evento vindo do Asaas\nconst body = $input.item.json;\nconst event = body.event; // PAYMENT_RECEIVED, PAYMENT_OVERDUE, PAYMENT_DELETED, etc.\nconst payment = body.payment;\n\nif (!payment || !event) return [{ json: { skip: true } }];\n\n// Map Asaas status → Maestr.ia status\nconst statusMap = {\n  PENDING: 'pendente',\n  RECEIVED: 'pago',\n  CONFIRMED: 'pago',\n  OVERDUE: 'atrasado',\n  REFUNDED: 'reembolsado',\n  RECEIVED_IN_CASH: 'pago',\n  REFUND_REQUESTED: 'pendente',\n  CHARGEBACK_REQUESTED: 'pendente',\n  CHARGEBACK_DISPUTE: 'pendente',\n  AWAITING_CHARGEBACK_REVERSAL: 'pendente',\n  DUNNING_REQUESTED: 'atrasado',\n  DUNNING_RECEIVED: 'pago',\n  AWAITING_RISK_ANALYSIS: 'pendente',\n};\n\nreturn [{ json: {\n  event,\n  asaas_id: payment.id,\n  asaas_customer_id: payment.customer,\n  value: payment.value,\n  net_value: payment.netValue,\n  due_date: payment.dueDate,\n  payment_date: payment.paymentDate,\n  status: statusMap[payment.status] || 'pendente',\n  description: payment.description,\n  billing_type: payment.billingType,\n  invoice_url: payment.invoiceUrl,\n  bank_slip_url: payment.bankSlipUrl,\n  external_reference: payment.externalReference, // Maestr.ia payment ID\n}}];"
+      },
+      "id": "parse-asaas",
+      "name": "Parsear Evento Asaas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{ $json.skip }}", "value2": true }]
+        }
+      },
+      "id": "skip-check",
+      "name": "Skip?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 400]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/payments?id=eq.{{ $json.external_reference }}&select=id,status,client_id",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
+          ]
+        }
+      },
+      "id": "find-payment",
+      "name": "Buscar Pagamento no Maestr.ia",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payments = $('Buscar Pagamento no Maestr.ia').item.json;\nconst parsed = $('Parsear Evento Asaas').item.json;\n\nif (!Array.isArray(payments) || payments.length === 0) {\n  return [{ json: { skip: true, reason: 'payment not found: ' + parsed.external_reference } }];\n}\n\nconst p = payments[0];\nconst updatePayload = {\n  status: parsed.status,\n  ...(parsed.payment_date ? { paid_at: new Date(parsed.payment_date).toISOString() } : {}),\n  metadata: { asaas_id: parsed.asaas_id, invoice_url: parsed.invoice_url, bank_slip_url: parsed.bank_slip_url }\n};\n\nreturn [{ json: { payment_id: p.id, client_id: p.client_id, update: updatePayload, event: parsed.event } }];"
+      },
+      "id": "prepare-update",
+      "name": "Preparar Atualização",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 400]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/payments?id=eq.{{ $json.payment_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify($json.update) }}"
+      },
+      "id": "update-payment",
+      "name": "Atualizar Pagamento no Maestr.ia",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1340, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Maestr.ia → Asaas: criar cobrança quando novo pagamento pendente\nconst body = $input.item.json.body || $input.item.json;\nconst payment = body.payment;\nconst client = body.client;\n\nif (!payment || !client) return [{ json: { skip: true } }];\n\n// Map billing method\nconst billingMap = { boleto: 'BOLETO', pix: 'PIX', cartao: 'CREDIT_CARD', dinheiro: 'CASH' };\n\nreturn [{ json: {\n  customer: client.asaas_customer_id, // precisa estar cadastrado no Asaas\n  billingType: billingMap[payment.payment_method] || 'BOLETO',\n  value: payment.value,\n  dueDate: payment.due_date,\n  description: payment.description,\n  externalReference: payment.id, // ID do Maestr.ia para rastrear\n  postalService: false\n}}];"
+      },
+      "id": "prepare-asaas-charge",
+      "name": "Preparar Cobrança Asaas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 600]
+    },
+    {
+      "parameters": {
+        "url": "https://api.asaas.com/v3/payments",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "access_token", "value": "={{ $env.ASAAS_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "id": "create-asaas-charge",
+      "name": "Criar Cobrança no Asaas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [680, 600]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/payments?id=eq.{{ $('Preparar Cobrança Asaas').item.json.externalReference }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ metadata: { asaas_id: $json.id, invoice_url: $json.invoiceUrl, bank_slip_url: $json.bankSlipUrl, pix_qr_code: $json.pixQrCode } }) }}"
+      },
+      "id": "save-asaas-id",
+      "name": "Salvar ID Asaas no Maestr.ia",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 600]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true }) }}"
+      },
+      "id": "respond",
+      "name": "Resposta",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1560, 500]
+    }
+  ],
+  "connections": {
+    "Webhook — Asaas": { "main": [[{ "node": "Parsear Evento Asaas", "type": "main", "index": 0 }]] },
+    "Parsear Evento Asaas": { "main": [[{ "node": "Skip?", "type": "main", "index": 0 }]] },
+    "Skip?": {
+      "main": [
+        [{ "node": "Resposta", "type": "main", "index": 0 }],
+        [{ "node": "Buscar Pagamento no Maestr.ia", "type": "main", "index": 0 }]
+      ]
+    },
+    "Buscar Pagamento no Maestr.ia": { "main": [[{ "node": "Preparar Atualização", "type": "main", "index": 0 }]] },
+    "Preparar Atualização": { "main": [[{ "node": "Atualizar Pagamento no Maestr.ia", "type": "main", "index": 0 }]] },
+    "Atualizar Pagamento no Maestr.ia": { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] },
+    "Webhook — Maestr.ia (Novo Pagamento)": { "main": [[{ "node": "Preparar Cobrança Asaas", "type": "main", "index": 0 }]] },
+    "Preparar Cobrança Asaas": { "main": [[{ "node": "Criar Cobrança no Asaas", "type": "main", "index": 0 }]] },
+    "Criar Cobrança no Asaas": { "main": [[{ "node": "Salvar ID Asaas no Maestr.ia", "type": "main", "index": 0 }]] },
+    "Salvar ID Asaas no Maestr.ia": { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "_readme": {
+    "env_vars": [
+      "ASAAS_API_KEY — Chave de API do Asaas (Configurações → Integrações → API)",
+      "SUPABASE_URL", "SUPABASE_SERVICE_KEY"
+    ],
+    "asaas_webhook_setup": "No Asaas: Configurações → Integrações → Webhooks → adicionar URL do webhook 'asaas' com eventos: PAYMENT_RECEIVED, PAYMENT_OVERDUE, PAYMENT_CONFIRMED",
+    "maestria_webhook": "Configurar 'Webhook URL: Asaas' nas configurações do n8n no Maestr.ia com a URL do webhook 'maestria-to-asaas'",
+    "flow": [
+      "Maestr.ia cria pagamento → dispara webhook → n8n cria cobrança no Asaas → salva asaas_id no metadata do pagamento",
+      "Asaas confirma pagamento → dispara webhook → n8n atualiza status no Maestr.ia para 'pago'"
+    ]
+  }
+}

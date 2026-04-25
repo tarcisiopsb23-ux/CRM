@@ -8,9 +8,11 @@ import { Label } from "@/components/ui/label";
 import type { TeamRow } from "@/hooks/useTeams";
 import type { TeamMemberRow } from "@/hooks/useTeams";
 import type { ProfileRow } from "@/hooks/useProfiles";
-import { Plus, Pencil, Trash2, UserPlus, UserMinus } from "lucide-react";
-
+import { MessageSquare, MessageSquarePlus, Plus, Pencil, Trash2, UserPlus, UserMinus } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { supabase } from "@/lib/supabase";
+import { useChatContext } from "@/contexts/ChatContext";
+import { toast } from "sonner";
 
 interface Props {
   teams: TeamRow[];
@@ -27,6 +29,50 @@ interface Props {
   canDelete?: boolean;
   canManageMembers?: boolean;
 }
+
+// ── Team Chat Button ─────────────────────────────────────────────────────────
+function TeamChatButton({ teamId, teamName }: { teamId: string; teamName: string }) {
+  const chat = useChatContext();
+  const [loading, setLoading] = useState(false);
+  const [localConvId, setLocalConvId] = useState<string | null>(null);
+
+  const handleCreate = async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.rpc("create_team_chat_group", { p_team_id: teamId });
+      if (error) throw error;
+      const convId = data as string;
+      setLocalConvId(convId);
+      toast.success("Grupo de chat da equipe criado!");
+      chat.openConversationById(convId);
+    } catch (err) {
+      toast.error("Erro ao criar grupo de chat");
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOpen = () => {
+    if (localConvId) chat.openConversationById(localConvId);
+  };
+
+  if (localConvId) {
+    return (
+      <Button variant="ghost" size="icon" title="Abrir chat da equipe" onClick={handleOpen}>
+        <MessageSquare className="h-4 w-4 text-primary" />
+      </Button>
+    );
+  }
+
+  return (
+    <Button variant="ghost" size="icon" title="Criar grupo de chat" onClick={handleCreate} disabled={loading}>
+      <MessageSquarePlus className="h-4 w-4" />
+    </Button>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export function TeamListSupabase({
   teams,
@@ -145,6 +191,7 @@ export function TeamListSupabase({
                     </div>
                   </div>
                   <div className="flex gap-1">
+                    <TeamChatButton teamId={team.id} teamName={team.name} />
                     <Button variant="ghost" size="icon" onClick={() => openEdit(team)} disabled={!allowEdit}>
                       <Pencil className="h-4 w-4" />
                     </Button>

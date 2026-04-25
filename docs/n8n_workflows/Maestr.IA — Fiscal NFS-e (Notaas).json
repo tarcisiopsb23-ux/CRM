@@ -1,0 +1,1407 @@
+{
+  "name": "Maestr.IA — Fiscal NFS-e (Notaas)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "nfse-automation",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "4cd8f2fd-86f0-4cd3-9b29-6916349f1db0",
+      "name": "Webhook — NFS-e1",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -3408,
+        1360
+      ],
+      "webhookId": "nfse-automation-webhook"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "clients",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "keyValue": "={{ $json.client_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -2320,
+        1120
+      ],
+      "id": "8d981d1d-e7b1-4018-9e78-d2ecbbaf8305",
+      "name": "Buscar Cliente1",
+      "credentials": {
+        "supabaseApi": {
+          "id": "yDtu96eQqnPXpyAM",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "organization_integrations",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "organization_id",
+              "keyValue": "={{ $json.organization_id }}"
+            },
+            {
+              "keyName": "integration_type",
+              "keyValue": "notaas"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -2320,
+        1616
+      ],
+      "id": "11573060-a92b-45d0-a808-96d3b71baa37",
+      "name": "Buscar Config Notaas1",
+      "alwaysOutputData": false,
+      "credentials": {
+        "supabaseApi": {
+          "id": "yDtu96eQqnPXpyAM",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -1920,
+        1344
+      ],
+      "id": "9db681a8-c4f4-4079-90b1-89a8ef206d2c",
+      "name": "Merge1"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "invoices",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "keyValue": "={{ $json.invoice_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -2976,
+        1360
+      ],
+      "id": "57b8ab0d-fdc8-460a-8084-4ab9ae0375a6",
+      "name": "Buscar Invoice1",
+      "credentials": {
+        "supabaseApi": {
+          "id": "yDtu96eQqnPXpyAM",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nlet client = null;\nlet config = {};\nlet invoiceRow = null;\n\nfor (const item of items) {\n  const json = item?.json;\n  if (!json) continue;\n  if (json.integration_type === 'notaas' || (json.config && json.config.api_key !== undefined)) {\n    config = json.config ?? {};\n  } else if (json.type === 'nfse' || json.valor_servico !== undefined) {\n    invoiceRow = json;\n  } else if (json.document !== undefined || json.address_city !== undefined) {\n    client = json;\n  }\n}\n\nif (!client) client = items[0]?.json;\nif (!config.api_key && items[2]?.json?.config) config = items[2].json.config;\n\nconst invoiceId    = invoiceRow?.id            || null;\nconst paymentId    = invoiceRow?.payment_id    || null;\nconst valor        = invoiceRow?.valor_servico || 0;\nconst competencia  = invoiceRow?.competencia   || null;\nconst dueDate      = invoiceRow?.due_date      || null;\nconst notaasId     = invoiceRow?.notaas_id !== undefined ? invoiceRow.notaas_id : null;\nconst codigoSaved  = invoiceRow?.codigo_servico    ? invoiceRow.codigo_servico.replace(/\\D/g, '') : null;\nconst descSaved    = invoiceRow?.descricao_servico || null;\nconst aliqSaved    = invoiceRow?.aliquota_iss      ?? null;\nconst serviceType  = null;\nconst action       = 'emit';\n\nif (!client?.id) throw new Error('Cliente não encontrado');\nif (!config.api_key) throw new Error('API Key da Notaas não configurada');\n\n// CPF (11 dígitos) ou CNPJ (14 dígitos) — campos separados, nunca os dois juntos\nconst docDigits = (client.document || '').replace(/\\D/g, '');\nconst isCpf  = docDigits.length === 11;\nconst isCnpj = docDigits.length === 14;\n\nlet codigoServico, descricaoServico, aliquotaIss;\nif (codigoSaved) {\n  codigoServico    = codigoSaved;\n  descricaoServico = descSaved || config.descricao_servico_padrao || 'Prestação de serviços';\n  aliquotaIss      = aliqSaved != null ? aliqSaved : (config.aliquota_iss_padrao ?? 5);\n} else {\n  const mappings = config.codigos_servico_por_tipo_contrato ?? {};\n  const mapping  = serviceType ? mappings[serviceType] : null;\n  if (mapping && typeof mapping === 'object') {\n    codigoServico    = (mapping.codigo    || config.codigo_servico_padrao    || '').replace(/\\D/g, '');\n    descricaoServico = mapping.descricao || config.descricao_servico_padrao || 'Prestação de serviços';\n    aliquotaIss      = mapping.aliquota  != null ? mapping.aliquota : (config.aliquota_iss_padrao ?? 5);\n  } else if (mapping && typeof mapping === 'string') {\n    codigoServico    = mapping.replace(/\\D/g, '');\n    descricaoServico = config.descricao_servico_padrao || 'Prestação de serviços';\n    aliquotaIss      = config.aliquota_iss_padrao ?? 5;\n  } else {\n    codigoServico    = (config.codigo_servico_padrao || '').replace(/\\D/g, '');\n    descricaoServico = config.descricao_servico_padrao || 'Prestação de serviços';\n    aliquotaIss      = config.aliquota_iss_padrao ?? 5;\n  }\n}\n\nif (!codigoServico) throw new Error('Código de serviço não configurado');\n\nconst endereco = {\n  logradouro:  client.address_street       || '',\n  numero:      client.address_number       || '',\n  complemento: client.address_complement   || '',\n  bairro:      client.address_neighborhood || '',\n  cidade:      client.address_city         || '',\n  uf:          client.address_state        || '',\n  cep:         client.address_zip          || ''\n};\n\n// Monta tomador com cpf OU cnpj primeiro (ordem importa para o schema XML da NFS-e)\nconst tomador = {};\nif (isCpf)       tomador.cpf  = docDigits;\nelse if (isCnpj) tomador.cnpj = docDigits;\ntomador.nome     = client.company || client.name;\ntomador.email    = client.email   || null;\ntomador.endereco = endereco;\n\nconst baseUrl = config.sandbox_mode === true\n  ? 'https://sandbox.notaas.com.br'\n  : 'https://platform.notaas.com.br';\n\nreturn [{ json: {\n  invoice_id:        invoiceId,\n  payment_id:        paymentId,\n  notaas_id:         notaasId,\n  action,\n  valor_servico:     valor,\n  aliquota_iss:      aliquotaIss,\n  codigo_servico:    codigoServico,\n  descricao_servico: descricaoServico,\n  competencia,\n  due_date:          dueDate,\n  notaas_payload: {\n    tomador,\n    servico:    { codigo: codigoServico, descricao: descricaoServico },\n    valores:    { total: valor, aliquotaIss },\n    competencia\n  },\n  api_key:  config.api_key,\n  base_url: baseUrl\n}}];\n"
+      },
+      "id": "7e59b40e-9155-46e1-aee8-9b89f0a3a8a6",
+      "name": "Verificar Nota Existente na Notaas1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1712,
+        1360
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.notaas_id }}",
+              "rightValue": true,
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              },
+              "id": "5cf2c35f-5e34-4f20-9d0a-46df420e8911"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "497853b4-bd44-472a-8b35-612e8c8cdd1a",
+      "name": "Nota já existe na Notaas?1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1472,
+        1360
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({\n  success: true,\n  invoice_id: $('Verificar Nota Existente na Notaas1').item.json.invoice_id,\n  status: 'autorizada',\n  numero: $('Verificar Nota Existente na Notaas1').item.json.numero,\n  pdf_url: $('Verificar Nota Existente na Notaas1').item.json.pdf_url,\n  source: 'notaas_existing'\n}) }}",
+        "options": {}
+      },
+      "id": "4b81db5c-bb40-4df2-ad2c-833de4f3fbb9",
+      "name": "Resposta — Já Autorizada1",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        -912,
+        1152
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.base_url }}/api/v1/emitir",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $json.api_key }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "User-Agent",
+              "value": "MaestrIA-n8n/1.0"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.notaas_payload) }}\n",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "78cff54f-399a-4c85-ba5f-1a939be4ed75",
+      "name": "Chamar API Notaas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -1136,
+        1376
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({\n  success: true,\n  invoice_id: $('Verificar Resposta Notaas').item.json.invoice_id,\n  status: 'emitida',\n  numero: $('Verificar Resposta Notaas').item.json.numero\n}) }}",
+        "options": {}
+      },
+      "id": "5dd8f304-e5ea-4253-bd1e-057291360438",
+      "name": "Resposta — Sucesso",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        592,
+        912
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normaliza o payload e detecta o tipo de ação\nconst body = $input.item.json.body || $input.item.json;\nconst invoiceId    = body.invoice_id    || null;\nconst notaas_id    = body.notaas_id   || null;\nconst pdf_url    = body.pdf_url   || null;\nconst emitida_em    = body.emitida_em   || null;\nconst erro_mensagem    = body.erro_mensagem   || null;\nconst paymentId    = body.payment_id    || null;\nconst clientId     = body.client_id     || null;\nconst orgId        = body.organization_id;\nconst valor        = parseFloat(body.valor) || 0;\nconst paidAt       = body.paid_at || new Date().toISOString();\nconst serviceType  = body.service_contracted || null;\nconst contractId   = body.contract_id || null;\nconst action       = body._action || 'emit';\n\nif (!orgId) throw new Error('organization_id é obrigatório');\nif (!invoiceId) throw new Error('invoice_id é obrigatório — o Maestr.IA deve criar o invoice antes de acionar este webhook');\n\n// Deriva competência (YYYY-MM) a partir de paid_at\nconst d = new Date(paidAt);\nconst competencia = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;\n\nreturn [{ json: {\n  invoice_id:     invoiceId,\n  payment_id:     paymentId,\n  client_id:      clientId,\n  organization_id: orgId,\n  valor,\n  paid_at:        paidAt,\n  service_type:   serviceType,\n  contract_id:    contractId,\n  competencia,\n  action,\n    notaas_id,       // ← adicionado\n  pdf_url,         // ← adicionado\n  emitida_em,      // ← adicionado\n  erro_mensagem    // ← adicionado\n}}];"
+      },
+      "id": "3d4cc199-f7d9-4915-8f0b-90fed8e69c00",
+      "name": "Parsear Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3216,
+        1360
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Valida que o invoice existe e está em estado emissível\nconst arr = $input.item.json;\nconst invoice = Array.isArray(arr) ? arr[0] : arr;\n\nif (!invoice?.id) {\n  throw new Error(`Invoice não encontrado: ${$('Parsear Payload').item.json.invoice_id}`);\n}\n\nconst parsed = $('Parsear Payload').item.json;\nconst action = parsed.action || 'emit';\n\n// check_or_emit: aceita qualquer status exceto autorizada/cancelada\n// emit/sync: aceita processando, pendente, rejeitada\nconst emissiveStatuses = action === 'check_or_emit'\n  ? ['processando', 'pendente', 'rejeitada']\n  : ['processando', 'pendente', 'rejeitada'];\n\nif (!emissiveStatuses.includes(invoice.status)) {\n  throw new Error(`Invoice ${invoice.id} está com status '${invoice.status}' — não pode ser (re)emitido`);\n}\n\nconst clientId   = invoice.client_id   || parsed.client_id;\nconst orgId      = invoice.organization_id || parsed.organization_id;\nconst serviceType = parsed.service_type;\n\nreturn [{ json: {\n  invoice_id:      invoice.id,\n  invoice_status:  invoice.status,\n  notaas_id:       invoice.notaas_id || null,\n  client_id:       clientId,\n  organization_id: orgId,\n  valor:           invoice.valor_servico || parsed.valor,\n  competencia:     invoice.competencia  || parsed.competencia,\n  service_type:    serviceType,\n  contract_id:     invoice.contract_id  || parsed.contract_id,\n  action,\n  codigo_servico_saved:    invoice.codigo_servico,\n  descricao_servico_saved: invoice.descricao_servico,\n  aliquota_iss_saved:      invoice.aliquota_iss\n}}];"
+      },
+      "id": "9c4bcf7a-02c4-4cc3-9787-5ae114062692",
+      "name": "Validar Invoice1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2736,
+        1360
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "8f4657c2-6980-4038-b54e-564f552aece2",
+      "name": "A cada 15 minutos",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -3408,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "_supabase_url",
+              "value": "={{ $env.SUPABASE_URL }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "_service_key",
+              "value": "={{ $env.SUPABASE_SERVICE_KEY }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fa2b957b-925a-47d7-a49d-38920e7bd0cc",
+      "name": "Injetar Credenciais",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -3184,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.item.json;\nconst supabaseUrl = input._supabase_url;\nconst serviceKey = input._service_key;\n\nif (!supabaseUrl || !serviceKey) {\n  throw new Error('Variaveis SUPABASE_URL e SUPABASE_SERVICE_KEY nao configuradas');\n}\n\nconst sbH = {\n  'apikey': serviceKey,\n  'Authorization': 'Bearer ' + serviceKey,\n  'Content-Type': 'application/json'\n};\n\n// Busca notas em processando há mais de 10 minutos\nconst cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();\nconst invRes = await fetch(\n  supabaseUrl + '/rest/v1/invoices?status=eq.processando&updated_at=lt.' + cutoff + '&select=id,organization_id,client_id,contract_id,payment_id,valor_servico,aliquota_iss,codigo_servico,descricao_servico,competencia,notaas_id,notaas_protocol,numero,pdf_url,xml_url,emitida_em,erro_mensagem&limit=50',\n  { headers: sbH }\n);\nif (!invRes.ok) throw new Error('Erro ao buscar invoices: ' + invRes.status);\nconst invoices = await invRes.json();\n\nif (!Array.isArray(invoices) || invoices.length === 0) {\n  return [{ json: { checked: 0, message: 'Nenhuma nota em processamento para verificar' } }];\n}\n\nconst results = [];\n\nfor (const invoice of invoices) {\n  const orgId = invoice.organization_id;\n\n  // Busca config Notaas da organização\n  const configRes = await fetch(\n    supabaseUrl + '/rest/v1/organization_integrations?organization_id=eq.' + orgId + '&integration_type=eq.notaas&select=config',\n    { headers: sbH }\n  );\n  if (!configRes.ok) {\n    results.push({ id: invoice.id, result: 'skip', reason: 'config_error' });\n    continue;\n  }\n  const configArr = await configRes.json();\n  const config = Array.isArray(configArr) ? (configArr[0] && configArr[0].config ? configArr[0].config : {}) : {};\n\n  if (!config.api_key) {\n    results.push({ id: invoice.id, result: 'skip', reason: 'no_api_key' });\n    continue;\n  }\n\n  const baseUrl = config.sandbox_mode === true\n    ? 'https://sandbox.notaas.com.br'\n    : 'https://platform.notaas.com.br';\n\n  // Se tem notaas_id, consulta o status na Notaas\n  if (invoice.notaas_id) {\n    try {\n      const checkRes = await fetch(baseUrl + '/api/v1/notas/' + invoice.notaas_id, {\n        headers: { 'x-api-key': config.api_key, 'Content-Type': 'application/json' },\n        signal: AbortSignal.timeout(15000)\n      });\n\n      if (checkRes.ok) {\n        const nota = await checkRes.json();\n        if (nota && (nota.id || nota.numero)) {\n          // Nota autorizada na Notaas\n          await fetch(supabaseUrl + '/rest/v1/invoices?id=eq.' + invoice.id, {\n            method: 'PATCH',\n            headers: Object.assign({}, sbH, { 'Prefer': 'return=minimal' }),\n            body: JSON.stringify({\n              status: 'autorizada',\n              notaas_id: nota.id || invoice.notaas_id,\n              notaas_protocol: nota.protocol || null,\n              numero: nota.numero || null,\n              pdf_url: nota.pdf_url || null,\n              xml_url: nota.xml_url || null,\n              emitida_em: nota.emitida_em || new Date().toISOString(),\n              erro_mensagem: null\n            })\n          });\n          results.push({ id: invoice.id, result: 'autorizada', numero: nota.numero });\n          continue;\n        }\n      } else if (checkRes.status === 404) {\n        // Nota não encontrada na Notaas — marca como rejeitada\n        await fetch(supabaseUrl + '/rest/v1/invoices?id=eq.' + invoice.id, {\n          method: 'PATCH',\n          headers: Object.assign({}, sbH, { 'Prefer': 'return=minimal' }),\n          body: JSON.stringify({\n            status: 'rejeitada',\n            erro_mensagem: 'Nota não encontrada na Notaas após verificação automática'\n          })\n        });\n        results.push({ id: invoice.id, result: 'rejeitada', reason: 'not_found_in_notaas' });\n        continue;\n      } else {\n        const errBody = await checkRes.json().catch(function() { return {}; });\n        const errMsg = errBody.message || errBody.error || ('Erro HTTP ' + checkRes.status);\n        await fetch(supabaseUrl + '/rest/v1/invoices?id=eq.' + invoice.id, {\n          method: 'PATCH',\n          headers: Object.assign({}, sbH, { 'Prefer': 'return=minimal' }),\n          body: JSON.stringify({ status: 'rejeitada', erro_mensagem: errMsg })\n        });\n        results.push({ id: invoice.id, result: 'rejeitada', reason: errMsg });\n        continue;\n      }\n    } catch (e) {\n      // Timeout ou erro de rede — deixa em processando para próxima verificação\n      results.push({ id: invoice.id, result: 'skip', reason: 'network_error: ' + e.message });\n      continue;\n    }\n  }\n\n  // Sem notaas_id — nota nunca chegou à Notaas, tenta emitir agora\n  // Busca dados do cliente\n  const clientRes = await fetch(\n    supabaseUrl + '/rest/v1/clients?id=eq.' + invoice.client_id + '&select=id,name,company,document,email,address_street,address_number,address_complement,address_neighborhood,address_city,address_state,address_zip',\n    { headers: sbH }\n  );\n  if (!clientRes.ok) {\n    results.push({ id: invoice.id, result: 'skip', reason: 'client_fetch_error' });\n    continue;\n  }\n  const clientArr = await clientRes.json();\n  const client = Array.isArray(clientArr) ? clientArr[0] : clientArr;\n  if (!client || !client.id) {\n    results.push({ id: invoice.id, result: 'skip', reason: 'client_not_found' });\n    continue;\n  }\n\n  const codigoServico = invoice.codigo_servico || config.codigo_servico_padrao || '';\n  const descricaoServico = invoice.descricao_servico || config.descricao_servico_padrao || 'Prestacao de servicos';\n  const aliquotaIss = invoice.aliquota_iss != null ? invoice.aliquota_iss : (config.aliquota_iss_padrao || 5);\n\n  if (!codigoServico) {\n    await fetch(supabaseUrl + '/rest/v1/invoices?id=eq.' + invoice.id, {\n      method: 'PATCH',\n      headers: Object.assign({}, sbH, { 'Prefer': 'return=minimal' }),\n      body: JSON.stringify({ status: 'rejeitada', erro_mensagem: 'Codigo de servico nao configurado' })\n    });\n    results.push({ id: invoice.id, result: 'rejeitada', reason: 'no_codigo_servico' });\n    continue;\n  }\n\n  const notaasPayload = {\n    tomador: {\n      cnpj: client.document,\n      nome: client.company || client.name,\n      email: client.email || null,\n      endereco: {\n        logradouro: client.address_street || '',\n        numero: client.address_number || '',\n        complemento: client.address_complement || '',\n        bairro: client.address_neighborhood || '',\n        cidade: client.address_city || '',\n        uf: client.address_state || '',\n        cep: client.address_zip || ''\n      }\n    },\n    servico: { codigo: codigoServico, descricao: descricaoServico },\n    valores: { total: invoice.valor_servico, aliquotaIss },\n    competencia: invoice.competencia\n  };\n\n  try {\n    const emitRes = await fetch(baseUrl + '/api/v1/emitir', {\n      method: 'POST',\n      headers: { 'x-api-key': config.api_key, 'Content-Type': 'application/json', 'User-Agent': 'MaestrIA-n8n-check/1.0' },\n      body: JSON.stringify(notaasPayload),\n      signal: AbortSignal.timeout(30000)\n    });\n    const emitBody = await emitRes.json().catch(function() { return {}; });\n    const externalId = emitBody.id || emitBody.notaas_id || emitBody.nota_id || emitBody.uuid || null;\n    const numero = emitBody.numero || emitBody.number || null;\n\n    if (emitRes.ok && (externalId || numero)) {\n      await fetch(supabaseUrl + '/rest/v1/invoices?id=eq.' + invoice.id, {\n        method: 'PATCH',\n        headers: Object.assign({}, sbH, { 'Prefer': 'return=minimal' }),\n        body: JSON.stringify({\n          status: 'autorizada',\n          notaas_id: externalId,\n          notaas_protocol: emitBody.protocol || null,\n          numero,\n          pdf_url: emitBody.pdf_url || emitBody.pdfUrl || null,\n          xml_url: emitBody.xml_url || emitBody.xmlUrl || null,\n          emitida_em: emitBody.emitida_em || new Date().toISOString(),\n          erro_mensagem: null\n        })\n      });\n      results.push({ id: invoice.id, result: 'autorizada', numero });\n    } else {\n      const msg = emitBody.message || emitBody.error || emitBody.msg || ('Erro HTTP ' + emitRes.status);\n      await fetch(supabaseUrl + '/rest/v1/invoices?id=eq.' + invoice.id, {\n        method: 'PATCH',\n        headers: Object.assign({}, sbH, { 'Prefer': 'return=minimal' }),\n        body: JSON.stringify({ status: 'rejeitada', erro_mensagem: typeof msg === 'string' ? msg : JSON.stringify(msg) })\n      });\n      results.push({ id: invoice.id, result: 'rejeitada', reason: msg });\n    }\n  } catch (e) {\n    results.push({ id: invoice.id, result: 'skip', reason: 'emit_error: ' + e.message });\n  }\n}\n\nreturn [{ json: { checked: invoices.length, results } }];"
+      },
+      "id": "069d3f94-fca8-4c2b-95c2-d2cc16057649",
+      "name": "Verificar Notas em Processamento",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2976,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "nfse-pdf",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "11e41bf2-6650-400b-8a73-538c628418aa",
+      "name": "Webhook — PDF NFS-e",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -3408,
+        768
+      ],
+      "webhookId": "nfse-pdf-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.item.json;\nconst body = input.body || input;\nconst supabaseUrl  = input._supabase_url;\nconst serviceKey   = input._service_key;\nconst googleToken  = input._google_token;\n\nconst invoiceId    = body.invoice_id;\nconst orgId        = body.organization_id;\nconst notaasId     = body.notaas_id;\nconst numero       = body.numero;\nconst clientId     = body.client_id;\nconst competencia  = body.competencia;\nconst valor        = body.valor_servico;\n\nif (!invoiceId || !orgId) throw new Error('invoice_id e organization_id sao obrigatorios');\nif (!supabaseUrl || !serviceKey) throw new Error('Variaveis SUPABASE_URL e SUPABASE_SERVICE_KEY nao configuradas');\nif (!googleToken) throw new Error('Variavel GOOGLE_ACCESS_TOKEN nao configurada');\n\nconst sbH = {\n  'apikey': serviceKey,\n  'Authorization': 'Bearer ' + serviceKey,\n  'Content-Type': 'application/json'\n};\n\n// 1. Busca o invoice para obter pdf_url e config da Notaas\nconst invRes = await fetch(\n  supabaseUrl + '/rest/v1/invoices?id=eq.' + invoiceId + '&select=id,status,notaas_id,pdf_url,numero,client_id,organization_id,competencia,valor_servico',\n  { headers: sbH }\n);\nif (!invRes.ok) throw new Error('Erro ao buscar invoice: ' + invRes.status);\nconst invArr = await invRes.json();\nconst invoice = Array.isArray(invArr) ? invArr[0] : invArr;\nif (!invoice || !invoice.id) throw new Error('Invoice nao encontrado: ' + invoiceId);\nif (invoice.status !== 'autorizada') throw new Error('Invoice nao esta autorizada (status: ' + invoice.status + ')');\n\n// 2. Busca config Notaas para obter api_key e base_url\nconst configRes = await fetch(\n  supabaseUrl + '/rest/v1/organization_integrations?organization_id=eq.' + (invoice.organization_id || orgId) + '&integration_type=eq.notaas&select=config',\n  { headers: sbH }\n);\nif (!configRes.ok) throw new Error('Erro ao buscar config Notaas: ' + configRes.status);\nconst configArr = await configRes.json();\nconst config = Array.isArray(configArr) ? (configArr[0] && configArr[0].config ? configArr[0].config : {}) : {};\nif (!config.api_key) throw new Error('API Key da Notaas nao configurada');\n\nconst baseUrl = config.sandbox_mode === true\n  ? 'https://sandbox.notaas.com.br'\n  : 'https://platform.notaas.com.br';\n\n// 3. Determina a URL do PDF\n// Prioridade: pdf_url salvo no invoice > buscar na Notaas pelo notaas_id\nlet pdfUrl = invoice.pdf_url || null;\nconst effectiveNotaasId = invoice.notaas_id || notaasId;\n\nif (!pdfUrl && effectiveNotaasId) {\n  try {\n    const notaRes = await fetch(baseUrl + '/api/v1/notas/' + effectiveNotaasId, {\n      headers: { 'x-api-key': config.api_key, 'Content-Type': 'application/json' },\n      signal: AbortSignal.timeout(15000)\n    });\n    if (notaRes.ok) {\n      const nota = await notaRes.json();\n      pdfUrl = nota.pdf_url || nota.pdfUrl || nota.link_pdf || null;\n      if (pdfUrl) {\n        await fetch(supabaseUrl + '/rest/v1/invoices?id=eq.' + invoiceId, {\n          method: 'PATCH',\n          headers: Object.assign({}, sbH, { 'Prefer': 'return=minimal' }),\n          body: JSON.stringify({ pdf_url: pdfUrl })\n        });\n      }\n    }\n  } catch (e) { /* continua sem pdf_url */ }\n}\n\nif (!pdfUrl) throw new Error('URL do PDF nao disponivel para esta nota. Tente novamente mais tarde.');\n\n// 4. Busca folder_id do cliente\nconst effectiveClientId = invoice.client_id || clientId;\nconst clientRes = await fetch(\n  supabaseUrl + '/rest/v1/clients?id=eq.' + effectiveClientId + '&select=folder_id,name,company',\n  { headers: sbH }\n);\nif (!clientRes.ok) throw new Error('Erro ao buscar cliente: ' + clientRes.status);\nconst clientArr = await clientRes.json();\nconst client = Array.isArray(clientArr) ? clientArr[0] : clientArr;\nif (!client) throw new Error('Cliente nao encontrado: ' + effectiveClientId);\n\nconst folderId = client.folder_id;\nif (!folderId) throw new Error('Cliente nao possui pasta no Google Drive configurada. Configure o folder_id do cliente.');\n\n// 5. Baixa o PDF da Notaas\nconst pdfRes = await fetch(pdfUrl, {\n  headers: { 'x-api-key': config.api_key },\n  signal: AbortSignal.timeout(60000)\n});\nif (!pdfRes.ok) throw new Error('Erro ao baixar PDF da Notaas: ' + pdfRes.status);\nconst pdfBuffer = await pdfRes.arrayBuffer();\nconst pdfBase64 = Buffer.from(pdfBuffer).toString('base64');\n\n// 6. Monta nome do arquivo\nconst effectiveNumero = invoice.numero || numero || effectiveNotaasId || invoiceId;\nconst effectiveCompetencia = (invoice.competencia || competencia || '').replace('-', '_');\nconst clientName = (client.company || client.name || 'cliente').replace(/[^a-zA-Z0-9 ]/g, '').trim().slice(0, 40);\nconst fileName = 'NFS-e_' + effectiveNumero + '_' + effectiveCompetencia + '_' + clientName + '.pdf';\n\n// 7. Upload para o Google Drive via multipart\nconst boundary = 'nfse_pdf_boundary_271828';\nconst metadata = JSON.stringify({\n  name: fileName,\n  parents: [folderId],\n  mimeType: 'application/pdf',\n  description: 'NFS-e ' + effectiveNumero + ' — ' + clientName\n});\nconst multipartBody = '--' + boundary + '\\r\\nContent-Type: application/json; charset=UTF-8\\r\\n\\r\\n' +\n  metadata + '\\r\\n--' + boundary + '\\r\\nContent-Type: application/pdf\\r\\nContent-Transfer-Encoding: base64\\r\\n\\r\\n' +\n  pdfBase64 + '\\r\\n--' + boundary + '--';\n\nconst driveRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {\n  method: 'POST',\n  headers: {\n    'Authorization': 'Bearer ' + googleToken,\n    'Content-Type': 'multipart/related; boundary=' + boundary\n  },\n  body: multipartBody,\n  signal: AbortSignal.timeout(120000)\n});\n\nif (!driveRes.ok) {\n  const driveErr = await driveRes.json().catch(function() { return {}; });\n  throw new Error('Erro ao fazer upload no Google Drive: ' + (driveErr.error && driveErr.error.message ? driveErr.error.message : driveRes.status));\n}\n\nconst driveData = await driveRes.json();\nconst driveFileId = driveData.id;\nconst driveFileUrl = 'https://drive.google.com/file/d/' + driveFileId + '/view';\n\n// 8. Atualiza o invoice com o link do Drive\nawait fetch(supabaseUrl + '/rest/v1/invoices?id=eq.' + invoiceId, {\n  method: 'PATCH',\n  headers: Object.assign({}, sbH, { 'Prefer': 'return=minimal' }),\n  body: JSON.stringify({\n    pdf_url: pdfUrl,\n    metadata: { drive_pdf_url: driveFileUrl, drive_file_id: driveFileId, drive_file_name: fileName }\n  })\n});\n\nreturn [{ json: {\n  success: true,\n  invoice_id: invoiceId,\n  file_name: fileName,\n  drive_file_url: driveFileUrl,\n  drive_file_id: driveFileId,\n  pdf_url: pdfUrl\n}}];"
+      },
+      "id": "e2b8b55b-8f0a-42c7-b1f2-81a0120d8ddf",
+      "name": "Baixar PDF e Arquivar no Drive",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2960,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "84c4008a-a9d7-4344-b066-b07572826bdf",
+      "name": "Responder",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        -2736,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "_supabase_url",
+              "value": "={{ $env.SUPABASE_URL }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "_service_key",
+              "value": "={{ $env.SUPABASE_SERVICE_KEY }}",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "_google_token",
+              "value": "={{ $env.GOOGLE_ACCESS_TOKEN }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "c46bd571-430c-49cb-9b2c-3a5701cf3e3b",
+      "name": "Injetar Credenciais1",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -3184,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "nfse-check",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "ed372242-9db0-4563-927f-f22acb2b027b",
+      "name": "Webhook — PDF NFS-e1",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -3408,
+        448
+      ],
+      "webhookId": "nfse-pdf-webhook"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "e19769eb-adb1-4b4c-b602-45bea6b4b84c",
+      "name": "Responder check",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        -2752,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "invoices",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "keyValue": "={{ $json.invoice_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -2320,
+        1360
+      ],
+      "id": "b5fbb77f-7272-4b45-b6d6-05a5b4f2d87f",
+      "name": "Buscar Invoice",
+      "credentials": {
+        "supabaseApi": {
+          "id": "yDtu96eQqnPXpyAM",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "invoices",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "emitida"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        320,
+        912
+      ],
+      "id": "857832ba-b105-4936-8e52-24c5a8c29ce5",
+      "name": "Update Status Invoice Emitida",
+      "credentials": {
+        "supabaseApi": {
+          "id": "yDtu96eQqnPXpyAM",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "invoices",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.invoice_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "aguardando"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        320,
+        1136
+      ],
+      "id": "3a18f857-4507-42e2-9f13-06733e332515",
+      "name": "Update Status Invoice Na Fila",
+      "credentials": {
+        "supabaseApi": {
+          "id": "yDtu96eQqnPXpyAM",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({\n  success: true,\n  invoice_id: $('Verificar Resposta Notaas').item.json.invoice_id,\n  status: 'autorizada',\n  numero: $('Verificar Resposta Notaas').item.json.numero\n}) }}",
+        "options": {}
+      },
+      "id": "2ab70fe2-205e-454b-819d-fbc37022c737",
+      "name": "Resposta — Fila",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        592,
+        1136
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "invoices",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.invoice_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "notaas_id",
+              "fieldValue": "={{ $json.notaas_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1136,
+        1152
+      ],
+      "id": "1802e229-31a1-42f3-9ca5-d1af7be815e5",
+      "name": "Atualizar Invoice — Já Emitida",
+      "credentials": {
+        "supabaseApi": {
+          "id": "yDtu96eQqnPXpyAM",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Nota já existe na Notaas?1').item.json.base_url }}/api/v1/invoices/{{ $json.invoiceId }}/status",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $('Nota já existe na Notaas?1').item.json.api_key }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "User-Agent",
+              "value": "MaestrIA-n8n/1.0"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "240f8a00-b4a8-4f9d-97a9-941cd550c2d8",
+      "name": "Consultar Notas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -912,
+        1376
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({\n  success: false,\n  invoice_id: $('Verificar Resposta Notaas').item.json.invoice_id,\n  status: 'rejeitada',\n  error: $('Verificar Resposta Notaas').item.json.erro_mensagem\n}) }}",
+        "options": {}
+      },
+      "id": "47a90521-a31c-4a8e-a712-10fb074d36ea",
+      "name": "Resposta — Processando",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        592,
+        1376
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "invoices",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.invoice_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "rejeitada"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        320,
+        1376
+      ],
+      "id": "e121d6b8-e1e3-489d-8026-b9a2b17dff2d",
+      "name": "Update Status Invoice Processando",
+      "credentials": {
+        "supabaseApi": {
+          "id": "yDtu96eQqnPXpyAM",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "invoices",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.invoice_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "cancelada"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        320,
+        1824
+      ],
+      "id": "c3090c16-2e5e-40f7-8f18-11fd90c8b1d4",
+      "name": "Update Status Invoice Cancelada",
+      "credentials": {
+        "supabaseApi": {
+          "id": "yDtu96eQqnPXpyAM",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({\n  success: false,\n  invoice_id: $('Verificar Resposta Notaas').item.json.invoice_id,\n  status: 'rejeitada',\n  error: $('Verificar Resposta Notaas').item.json.erro_mensagem\n}) }}",
+        "options": {}
+      },
+      "id": "ebdfe5f4-f7a7-45c3-b549-63f09c44b357",
+      "name": "Resposta — Cancelada",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        592,
+        1824
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({\n  success: false,\n  invoice_id: $('Verificar Resposta Notaas').item.json.invoice_id,\n  status: 'rejeitada',\n  error: $('Verificar Resposta Notaas').item.json.erro_mensagem\n}) }}",
+        "options": {}
+      },
+      "id": "9ee3c0e5-5e1e-411b-ba75-e810da9027b2",
+      "name": "Resposta — Rejeitada",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        592,
+        1616
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "invoices",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.invoice_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "rejeitada"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        320,
+        1616
+      ],
+      "id": "701d3ce4-5939-4680-9fc7-4cc908297571",
+      "name": "Update Status Invoice Rejeitada",
+      "credentials": {
+        "supabaseApi": {
+          "id": "yDtu96eQqnPXpyAM",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "issued",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "730293f5-f057-4c1e-ae99-e15f8a67d9ae"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Emitida"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "c23f14ca-5702-416c-9bb8-cb43ed4908d1",
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "queued",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Na Fila"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "2f1a9846-ab07-4208-a6de-28f7f9bd178a",
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "processing",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Processando"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "0a39520e-8b5d-4531-be49-aa05136cf482",
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "error",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Erro"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "2cfa12b8-fb88-43f8-99eb-2759aac22157",
+                    "leftValue": "={{ $json.invoiceId }}",
+                    "rightValue": "Rejeitada",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Cancelada"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -416,
+        1328
+      ],
+      "id": "dc0e3017-062d-4316-95ec-7727c83096a9",
+      "name": "Rotas"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "724b1fbf-a7de-42df-8dec-9e98f4c8cc0a",
+              "name": "id",
+              "value": "={{ $('Verificar Nota Existente na Notaas1').item.json.invoice_id }}",
+              "type": "string"
+            },
+            {
+              "id": "8c86eaea-f74f-4a2b-8bfe-a417164448d6",
+              "name": "tomador_nome",
+              "value": "={{ $('Verificar Nota Existente na Notaas1').item.json.notaas_payload.tomador.nome }}",
+              "type": "string"
+            },
+            {
+              "id": "e1ff1ed4-5511-4705-80aa-b35ed8bce736",
+              "name": "invoiceId",
+              "value": "={{ $json.invoiceId }}",
+              "type": "string"
+            },
+            {
+              "id": "2dc9fd72-6954-4c64-b192-712520bad6ee",
+              "name": "status",
+              "value": "={{ $json.status }}",
+              "type": "string"
+            },
+            {
+              "id": "d34628e2-e2a6-4434-9244-d579fcd60564",
+              "name": "Chave NFSe",
+              "value": "={{ $json.chNFSe }}",
+              "type": "string"
+            },
+            {
+              "id": "2f7ecbc5-b1b8-4d8f-97fd-66d443ba15a0",
+              "name": "Número NFSe",
+              "value": "={{ $json.numeroNfe }}",
+              "type": "string"
+            },
+            {
+              "id": "4f0f13e9-d91e-4fe3-97e5-595669bcb15b",
+              "name": "Data Emissão",
+              "value": "={{ $json.emittedAt }}",
+              "type": "string"
+            },
+            {
+              "id": "da785bb6-b2dc-4a6e-866e-773fe13051e4",
+              "name": "PDF URL",
+              "value": "={{ $json.pdfUrl }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -672,
+        1376
+      ],
+      "id": "c2d294a9-e7eb-4a9d-bc27-fe8483628b7d",
+      "name": "Preparar Dados Maestr.IA"
+    }
+  ],
+  "pinData": {
+    "Webhook — NFS-e1": [
+      {
+        "json": {
+          "headers": {
+            "host": "ia-n8n.whlwlh.easypanel.host",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0",
+            "content-length": "592",
+            "accept": "*/*",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "pt-BR,pt;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6,pt-PT;q=0.5",
+            "content-type": "application/json",
+            "dnt": "1",
+            "origin": "http://localhost:8080",
+            "priority": "u=1, i",
+            "referer": "http://localhost:8080/",
+            "sec-ch-ua": "\"Microsoft Edge\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\"",
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "cross-site",
+            "x-forwarded-for": "167.249.65.36",
+            "x-forwarded-host": "ia-n8n.whlwlh.easypanel.host",
+            "x-forwarded-port": "443",
+            "x-forwarded-proto": "https",
+            "x-forwarded-server": "8d767468e9cc",
+            "x-real-ip": "167.249.65.36"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "invoice_id": "437f45af-c558-46b8-b835-998721395742",
+            "organization_id": "5fb8e8ee-81a6-402b-ab7b-315d1cca6407",
+            "status": "processando",
+            "notaas_id": null,
+            "notaas_protocol": null,
+            "numero": null,
+            "pdf_url": null,
+            "xml_url": null,
+            "emitida_em": null,
+            "erro_mensagem": null,
+            "payment_id": "af185a2e-5957-4b40-8254-93c51fcc48bf",
+            "client_id": "bac833f4-5587-4b0b-8e47-dceada311c90",
+            "contract_id": null,
+            "valor": 750,
+            "paid_at": "2026-04-01",
+            "service_contracted": "17.06.01",
+            "competencia": "2026-04",
+            "aliquota_iss": 6,
+            "codigo_servico": "17.06.01",
+            "descricao_servico": "Prestação de serviços de marketing digital e vendas."
+          },
+          "webhookUrl": "https://ia-n8n.whlwlh.easypanel.host/webhook/nfse-automation",
+          "executionMode": "production"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Webhook — NFS-e1": {
+      "main": [
+        [
+          {
+            "node": "Parsear Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Cliente1": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Config Notaas1": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "Verificar Nota Existente na Notaas1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Invoice1": {
+      "main": [
+        [
+          {
+            "node": "Validar Invoice1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar Nota Existente na Notaas1": {
+      "main": [
+        [
+          {
+            "node": "Nota já existe na Notaas?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nota já existe na Notaas?1": {
+      "main": [
+        [
+          {
+            "node": "Atualizar Invoice — Já Emitida",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Chamar API Notaas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chamar API Notaas": {
+      "main": [
+        [
+          {
+            "node": "Consultar Notas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear Payload": {
+      "main": [
+        [
+          {
+            "node": "Buscar Invoice1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar Invoice1": {
+      "main": [
+        [
+          {
+            "node": "Buscar Cliente1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Buscar Config Notaas1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Buscar Invoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A cada 15 minutos": {
+      "main": [
+        [
+          {
+            "node": "Injetar Credenciais",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Injetar Credenciais": {
+      "main": [
+        [
+          {
+            "node": "Verificar Notas em Processamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook — PDF NFS-e": {
+      "main": [
+        [
+          {
+            "node": "Injetar Credenciais1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Baixar PDF e Arquivar no Drive": {
+      "main": [
+        [
+          {
+            "node": "Responder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Injetar Credenciais1": {
+      "main": [
+        [
+          {
+            "node": "Baixar PDF e Arquivar no Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar Notas em Processamento": {
+      "main": [
+        [
+          {
+            "node": "Responder check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook — PDF NFS-e1": {
+      "main": [
+        [
+          {
+            "node": "Injetar Credenciais",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Invoice": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Responder": {
+      "main": [
+        []
+      ]
+    },
+    "Update Status Invoice Emitida": {
+      "main": [
+        [
+          {
+            "node": "Resposta — Sucesso",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Status Invoice Na Fila": {
+      "main": [
+        [
+          {
+            "node": "Resposta — Fila",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Atualizar Invoice — Já Emitida": {
+      "main": [
+        [
+          {
+            "node": "Resposta — Já Autorizada1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consultar Notas": {
+      "main": [
+        [
+          {
+            "node": "Preparar Dados Maestr.IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Status Invoice Processando": {
+      "main": [
+        [
+          {
+            "node": "Resposta — Processando",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Status Invoice Cancelada": {
+      "main": [
+        [
+          {
+            "node": "Resposta — Cancelada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Status Invoice Rejeitada": {
+      "main": [
+        [
+          {
+            "node": "Resposta — Rejeitada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rotas": {
+      "main": [
+        [
+          {
+            "node": "Update Status Invoice Emitida",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Status Invoice Na Fila",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Status Invoice Processando",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Status Invoice Rejeitada",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Status Invoice Cancelada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Dados Maestr.IA": {
+      "main": [
+        [
+          {
+            "node": "Rotas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "5cf27b17-3e2c-4a9c-9a94-e0f97992c2a4",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "2578bc35b6bdc499db10723a4b7f8f3a18d5bc2bb18bff2484fc584b5c1bf2ee"
+  },
+  "id": "Sq6qG232O-PP_IsK4groA",
+  "tags": []
+}

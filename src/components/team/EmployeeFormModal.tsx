@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -120,7 +121,10 @@ export function EmployeeFormModal({ open, onClose, onSave, employee, teams = [] 
             </Select>
           </div>
 
-          <Field label="Salário base (R$)" value={String(form.baseSalary)} onChange={(v) => set("baseSalary", Number(v))} type="number" />
+          <div>
+            <Label className="text-xs text-muted-foreground">Salário base (R$)</Label>
+            <CurrencyInput value={String(form.baseSalary)} onChange={(v) => set("baseSalary", Number(v) || 0)} />
+          </div>
           <Field label="Fator hora extra" value={String(form.overtimeFactor)} onChange={(v) => set("overtimeFactor", Number(v))} type="number" />
 
           <div className="md:col-span-2">

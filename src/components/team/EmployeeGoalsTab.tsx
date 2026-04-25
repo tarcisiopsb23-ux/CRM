@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -163,8 +164,13 @@ export function EmployeeGoalsTab({ profile }: Props) {
             </div>
             <div className="space-y-1">
               <Label>Valor Alvo</Label>
-              <Input type="number" min={0} value={form.target_value}
-                onChange={(e) => setForm((f) => ({ ...f, target_value: e.target.value }))} />
+              {INDICATORS.find((i) => i.value === form.indicator_value)?.unit === "R$" ? (
+                <CurrencyInput value={form.target_value}
+                  onChange={(v) => setForm((f) => ({ ...f, target_value: v }))} />
+              ) : (
+                <Input type="number" min={0} value={form.target_value}
+                  onChange={(e) => setForm((f) => ({ ...f, target_value: e.target.value }))} />
+              )}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">

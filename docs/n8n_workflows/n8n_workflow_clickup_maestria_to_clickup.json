@@ -1,0 +1,412 @@
+{
+  "name": "Maestr.ia → ClickUp (Terceirizados)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "maestria-to-clickup",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-in",
+      "name": "Webhook — Maestr.ia",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 400],
+      "webhookId": "maestria-to-clickup"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.item.json.body || $input.item.json;\nconst action = body.action;\nconst table  = body.table;\nconst item   = body.item;\n\nif (!item || !action || !table) {\n  return [{ json: { skip: true, reason: 'missing fields' } }];\n}\n\nconst statusMap = {\n  backlog: 'to do', em_andamento: 'in progress', em_revisao: 'in review',\n  concluida: 'complete', bloqueada: 'blocked', ativo: 'in progress',\n  parado: 'blocked', concluido: 'complete',\n};\nconst priorityMap = { urgente: 1, alta: 2, media: 3, baixa: 4 };\n\n// Para projetos: folder_id é onde a Lista será criada\n// Para tasks: clickup_list_id é a Lista onde a Task será criada\nconst folderIdForList = item.metadata?.clickup_folder_id || null;\nconst listIdForTask   = item.clickup_list_id || item.metadata?.clickup_list_id || item.parent_project?.clickup_list_id || null;\n\nreturn [{ json: {\n  action,\n  table,\n  item_id: item.id,\n  clickup_task_id: item.clickup_task_id || null,\n  clickup_list_id: item.clickup_list_id || null,\n  folder_id_for_list: folderIdForList,\n  list_id_for_task: listIdForTask,\n  title: item.title || item.name,\n  description: item.description || '',\n  status: statusMap[item.status] || 'to do',\n  priority: priorityMap[item.priority] || 3,\n  due_date: item.end_date ? new Date(item.end_date).getTime() : null,\n  start_date: item.start_date ? new Date(item.start_date).getTime() : null,\n  tags: ['terceirizado', table],\n  parent_project: item.parent_project || null\n}}];"
+      },
+      "id": "normalize",
+      "name": "Normalizar Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [{ "value1": "={{ $json.skip }}", "value2": "true" }]
+        }
+      },
+      "id": "skip-check",
+      "name": "Verificar Skip",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 400]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "create", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "create"
+            },
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "update", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "update"
+            },
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "delete", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "delete"
+            }
+          ]
+        }
+      },
+      "id": "route-action",
+      "name": "Roteador de Ação",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.table }}", "rightValue": "projects", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "project"
+            },
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.table }}", "rightValue": "tasks", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "task"
+            }
+          ]
+        }
+      },
+      "id": "route-table-create",
+      "name": "Projeto ou Tarefa? (criar)",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [{ "value1": "={{ $json.clickup_task_id }}", "value2": "", "operation": "isNotEmpty" }]
+        }
+      },
+      "id": "check-existing-id-project",
+      "name": "Projeto já tem ID ClickUp?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1340, 80]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [{ "value1": "={{ $json.clickup_task_id }}", "value2": "", "operation": "isNotEmpty" }]
+        }
+      },
+      "id": "check-existing-id-task",
+      "name": "Task já tem ID ClickUp?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1340, 320]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.clickup.com/api/v2/folder/{{ $json.folder_id_for_list }}/list",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "={{ $env.CLICKUP_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $json.title, content: $json.description, status: $json.status, due_date: $json.due_date, due_date_time: true, start_date: $json.start_date, start_date_time: true }) }}"
+      },
+      "id": "clickup-create-list",
+      "name": "ClickUp — Criar Lista (Projeto)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1560, 0],
+      "_comment": "Projeto Maestria = Lista no ClickUp. folder_id_for_list vem de item.metadata.clickup_folder_id"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.clickup.com/api/v2/list/{{ $json.list_id_for_task }}/task",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "={{ $env.CLICKUP_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $json.title, description: $json.description, status: $json.status, priority: $json.priority, due_date: $json.due_date, due_date_time: true, start_date: $json.start_date, start_date_time: true, tags: $json.tags }) }}"
+      },
+      "id": "clickup-create-task",
+      "name": "ClickUp — Criar Task (Tarefa)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1560, 320],
+      "_comment": "Tarefa Maestria = Task no ClickUp. list_id_for_task = clickup_list_id do projeto pai"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.clickup.com/api/v2/list/{{ $json.clickup_task_id }}",
+        "requestMethod": "PUT",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "={{ $env.CLICKUP_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $json.title, content: $json.description, status: $json.status, due_date: $json.due_date, due_date_time: true }) }}"
+      },
+      "id": "clickup-update-list",
+      "name": "ClickUp — Atualizar Lista (Projeto)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1560, 80]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.clickup.com/api/v2/task/{{ $json.clickup_task_id }}",
+        "requestMethod": "PUT",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "={{ $env.CLICKUP_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $json.title, description: $json.description, status: $json.status, priority: $json.priority, due_date: $json.due_date, due_date_time: true }) }}"
+      },
+      "id": "clickup-update-task",
+      "name": "ClickUp — Atualizar Task (Tarefa)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1560, 320]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.table }}", "rightValue": "projects", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "project"
+            },
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.table }}", "rightValue": "tasks", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "task"
+            }
+          ]
+        }
+      },
+      "id": "route-table-update",
+      "name": "Projeto ou Tarefa? (atualizar)",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1120, 480]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [{ "value1": "={{ $json.clickup_task_id }}", "value2": "", "operation": "isNotEmpty" }]
+        }
+      },
+      "id": "check-clickup-id-delete",
+      "name": "Tem ID para excluir?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1120, 700]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.table }}", "rightValue": "projects", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "project"
+            },
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.table }}", "rightValue": "tasks", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "task"
+            }
+          ]
+        }
+      },
+      "id": "route-table-delete",
+      "name": "Projeto ou Tarefa? (excluir)",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1340, 700]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.clickup.com/api/v2/list/{{ $json.clickup_task_id }}",
+        "requestMethod": "DELETE",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "={{ $env.CLICKUP_API_KEY }}" }]
+        }
+      },
+      "id": "clickup-delete-list",
+      "name": "ClickUp — Excluir Lista (Projeto)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1560, 640]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.clickup.com/api/v2/task/{{ $json.clickup_task_id }}",
+        "requestMethod": "DELETE",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "={{ $env.CLICKUP_API_KEY }}" }]
+        }
+      },
+      "id": "clickup-delete-task",
+      "name": "ClickUp — Excluir Task (Tarefa)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1560, 760]
+    },
+    {
+      "parameters": {
+        "jsCode": "const created = $input.item.json;\nconst prev = $('Normalizar Payload').item.json;\n\n// Lista retorna { id }, Task retorna { id }\nconst newId = created?.id || null;\nif (!newId) return [{ json: { skip: true, reason: 'no id returned from ClickUp' } }];\n\nreturn [{ json: {\n  table: prev.table,\n  item_id: prev.item_id,\n  clickup_task_id: newId\n}}];"
+      },
+      "id": "extract-id",
+      "name": "Extrair ID do ClickUp",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 160]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/set_clickup_task_id",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ p_table: $json.table, p_item_id: $json.item_id, p_clickup_id: $json.clickup_task_id }) }}"
+      },
+      "id": "save-id",
+      "name": "Salvar ID no Maestr.ia",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2000, 160]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Normalizar Payload').item.json;\nconsole.log(`[skip] item_id=${prev.item_id} sem clickup_task_id`);\nreturn [{ json: { skipped: true } }];"
+      },
+      "id": "skip-no-id",
+      "name": "Sem ID — Pular",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 860]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true }) }}"
+      },
+      "id": "respond",
+      "name": "Resposta",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2220, 400]
+    }
+  ],
+  "connections": {
+    "Webhook — Maestr.ia": { "main": [[{ "node": "Normalizar Payload", "type": "main", "index": 0 }]] },
+    "Normalizar Payload": { "main": [[{ "node": "Verificar Skip", "type": "main", "index": 0 }]] },
+    "Verificar Skip": {
+      "main": [
+        [{ "node": "Resposta", "type": "main", "index": 0 }],
+        [{ "node": "Roteador de Ação", "type": "main", "index": 0 }]
+      ]
+    },
+    "Roteador de Ação": {
+      "main": [
+        [{ "node": "Projeto ou Tarefa? (criar)", "type": "main", "index": 0 }],
+        [{ "node": "Projeto ou Tarefa? (atualizar)", "type": "main", "index": 0 }],
+        [{ "node": "Tem ID para excluir?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Projeto ou Tarefa? (criar)": {
+      "main": [
+        [{ "node": "Projeto já tem ID ClickUp?", "type": "main", "index": 0 }],
+        [{ "node": "Task já tem ID ClickUp?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Projeto já tem ID ClickUp?": {
+      "main": [
+        [{ "node": "ClickUp — Atualizar Lista (Projeto)", "type": "main", "index": 0 }],
+        [{ "node": "ClickUp — Criar Lista (Projeto)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Task já tem ID ClickUp?": {
+      "main": [
+        [{ "node": "ClickUp — Atualizar Task (Tarefa)", "type": "main", "index": 0 }],
+        [{ "node": "ClickUp — Criar Task (Tarefa)", "type": "main", "index": 0 }]
+      ]
+    },
+    "ClickUp — Criar Lista (Projeto)": { "main": [[{ "node": "Extrair ID do ClickUp", "type": "main", "index": 0 }]] },
+    "ClickUp — Criar Task (Tarefa)": { "main": [[{ "node": "Extrair ID do ClickUp", "type": "main", "index": 0 }]] },
+    "ClickUp — Atualizar Lista (Projeto)": { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] },
+    "ClickUp — Atualizar Task (Tarefa)": { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] },
+    "Extrair ID do ClickUp": { "main": [[{ "node": "Salvar ID no Maestr.ia", "type": "main", "index": 0 }]] },
+    "Salvar ID no Maestr.ia": { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] },
+    "Projeto ou Tarefa? (atualizar)": {
+      "main": [
+        [{ "node": "ClickUp — Atualizar Lista (Projeto)", "type": "main", "index": 0 }],
+        [{ "node": "ClickUp — Atualizar Task (Tarefa)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Tem ID para excluir?": {
+      "main": [
+        [{ "node": "Projeto ou Tarefa? (excluir)", "type": "main", "index": 0 }],
+        [{ "node": "Sem ID — Pular", "type": "main", "index": 0 }]
+      ]
+    },
+    "Projeto ou Tarefa? (excluir)": {
+      "main": [
+        [{ "node": "ClickUp — Excluir Lista (Projeto)", "type": "main", "index": 0 }],
+        [{ "node": "ClickUp — Excluir Task (Tarefa)", "type": "main", "index": 0 }]
+      ]
+    },
+    "ClickUp — Excluir Lista (Projeto)": { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] },
+    "ClickUp — Excluir Task (Tarefa)": { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] },
+    "Sem ID — Pular": { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "_readme": {
+    "env_vars": [
+      "CLICKUP_API_KEY — Personal token do ClickUp (pk_...)",
+      "SUPABASE_URL — URL do Supabase",
+      "SUPABASE_SERVICE_KEY — Service role key"
+    ],
+    "webhook_url": "POST {N8N_URL}/webhook/maestria-to-clickup",
+    "mapping": {
+      "Projeto (Maestria)": "Lista (ClickUp) — usa POST /folder/{folder_id}/list para criar",
+      "Tarefa (Maestria)": "Task (ClickUp) — usa POST /list/{list_id}/task para criar"
+    },
+    "fields": {
+      "folder_id_for_list": "ID do Folder no ClickUp onde a Lista será criada — vem de item.metadata.clickup_folder_id",
+      "list_id_for_task": "ID da Lista no ClickUp onde a Task será criada — vem de item.clickup_list_id ou item.parent_project.clickup_list_id",
+      "clickup_task_id": "ID da Lista (projeto) ou Task (tarefa) já criada no ClickUp — usado para update/delete"
+    },
+    "note": "Para projetos: preencha metadata.clickup_folder_id no cadastro do projeto com o ID do Folder no ClickUp. Para tarefas: o clickup_list_id do projeto pai é usado automaticamente."
+  }
+}

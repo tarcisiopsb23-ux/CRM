@@ -11,12 +11,20 @@ const asUserRole = (s: string | undefined): UserRole | undefined =>
 export interface ProfileRow {
   id: string;
   organization_id: string | null;
+  code?: number | null;
   full_name: string;
   email: string;
   avatar_url: string | null;
   role: string;
   phone: string | null;
   is_active: boolean;
+  address_street?: string | null;
+  address_number?: string | null;
+  address_complement?: string | null;
+  address_neighborhood?: string | null;
+  address_city?: string | null;
+  address_state?: string | null;
+  address_zip?: string | null;
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -25,6 +33,8 @@ export interface ProfileRow {
   bonus_rate_135: number;
   bonus_rate_150: number;
   is_board_member: boolean;
+  folder_id?: string | null;
+  folder_url?: string | null;
 }
 
 export function useProfiles(organizationId: string | undefined) {
@@ -38,7 +48,7 @@ export function useProfiles(organizationId: string | undefined) {
         .from("profiles")
         .select("*")
         .eq("organization_id", organizationId)
-        .order("full_name");
+        .order("code", { ascending: true, nullsFirst: false });
       if (error) throw error;
       return (data ?? []) as unknown as ProfileRow[];
     },

@@ -19,6 +19,8 @@ import { SalesFunnel } from "@/components/ui/sales-funnel";
 import { useFunnelStages } from "@/hooks/useFunnelStages";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { PinAuthDialog } from "@/components/shared/PinAuthDialog";
+import { usePinConfirm } from "@/hooks/usePinConfirm";
 import { Download, FileDown, Users, DollarSign, Target, Kanban, FolderKanban, TrendingUp, AlertTriangle, Megaphone } from "lucide-react";
 import { startOfDay, subDays, startOfYear, endOfDay, isWithinInterval, format, addDays, subMonths, parseISO } from "date-fns";
 import { ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, Legend, BarChart, Bar } from "recharts";
@@ -130,6 +132,7 @@ type RepPCLTComplianceRow = {
 export default function ReportsPage() {
   const orgId = useOrganization();
   const { profile: me } = useAuth();
+  const { pinProps, requirePin } = usePinConfirm();
   const { canView: canViewReports, isAdminOrOwner } = usePermissionForScope("financial", "reports");
   const { canView: canEditTimeclock } = usePermissionForScope("team", "timeclock_edit");
   const { data: teams = [] } = useTeams(orgId);
@@ -357,21 +360,20 @@ export default function ReportsPage() {
     enabled: !!orgId && !!me?.id && canEditTimeclock && reportTemplate === "ponto_eletronico",
   });
 
-  const authorizeOvertime = async (id: string, status: "aprovado" | "rejeitado") => {
-    const { error } = await supabase
-      .from("rep_p_overtime_authorizations")
-      .update({
-        status,
-        authorized_at: new Date().toISOString(),
-        authorized_by: me?.id
-      })
-      .eq("id", id);
-    if (error) {
-      alert("Erro ao atualizar autorização: " + error.message);
-      return;
-    }
-    repPOvertimeRequests.refetch();
-    repPDaily.refetch();
+  const authorizeOvertime = (id: string, status: "aprovado" | "rejeitado") => {
+    const label = status === "aprovado" ? "Autorizar hora extra" : "Rejeitar hora extra";
+    const desc = status === "aprovado"
+      ? "Confirme com seu PIN para autorizar a hora extra."
+      : "Confirme com seu PIN para rejeitar a solicitação.";
+    requirePin(label, desc, async () => {
+      const { error } = await supabase
+        .from("rep_p_overtime_authorizations")
+        .update({ status, authorized_at: new Date().toISOString(), authorized_by: me?.id })
+        .eq("id", id);
+      if (error) { alert("Erro ao atualizar autorização: " + error.message); return; }
+      repPOvertimeRequests.refetch();
+      repPDaily.refetch();
+    });
   };
 
   const filteredPayments = useMemo(() => {
@@ -1468,6 +1470,7 @@ export default function ReportsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <PinAuthDialog {...pinProps} />
     </div>
   );
 }

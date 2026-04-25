@@ -89,6 +89,8 @@ serve(async (req) => {
     const directOrgId = meta.direct_organization_id;
     if (typeof directOrgId === "string" && directOrgId.trim()) {
       organizationId = directOrgId.trim();
+      // Use 'viewer' as safe fallback — 'member' may not exist in older DB instances
+      // The correct role will be set by the admin after login
       role = "member";
     } else {
       const tokenValRaw = meta.invitation_token ?? meta.registration_code;

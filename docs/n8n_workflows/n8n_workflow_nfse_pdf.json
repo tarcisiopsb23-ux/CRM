@@ -1,0 +1,356 @@
+{
+  "name": "Maestr.IA — Fiscal NFS-e PDF Archiver",
+  "_readme": {
+    "description": "Recebe solicitação de PDF, consulta o status da nota na Notaas. Se 'issued' → baixa PDF e arquiva no Drive. Se 'processing' → aguarda 30s via Wait e reexecuta a consulta. Se erro → salva no Supabase e responde com detalhes.",
+    "webhook_path": "nfse-pdf",
+    "env_vars_required": ["SUPABASE_URL", "SUPABASE_SERVICE_KEY"],
+    "credentials_required": ["supabaseApi", "googleDriveOAuth2Api"],
+    "payload": {
+      "invoice_id":        "UUID do invoice no Supabase",
+      "organization_id":   "UUID da organização",
+      "notaas_id":         "ID externo na Notaas",
+      "numero":            "Número da nota",
+      "client_id":         "UUID do cliente",
+      "payment_id":        "UUID do pagamento vinculado",
+      "contract_id":       "UUID do contrato (opcional)",
+      "competencia":       "YYYY-MM",
+      "valor_servico":     "Valor da nota",
+      "aliquota_iss":      "Alíquota ISS (%)",
+      "codigo_servico":    "Código LC 116",
+      "descricao_servico": "Descrição do serviço",
+      "tomador_nome":      "Nome/razão social do tomador",
+      "tomador_cnpj_cpf":  "CPF ou CNPJ do tomador",
+      "emitida_em":        "ISO timestamp da emissão"
+    },
+    "flow": [
+      "1. Webhook recebe o payload",
+      "2. Busca invoice + config Notaas + cliente no Supabase (nós nativos)",
+      "3. Consulta status da nota na Notaas via HTTP Request",
+      "4. IF status == issued → baixa PDF → upload Drive → atualiza Supabase → responde OK",
+      "5. IF status == processing → Wait 30s → volta para consulta (loop automático)",
+      "6. ELSE (erro/cancelled/outro) → salva pdf_error em metadata do invoice → responde com detalhes do erro"
+    ]
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "nfse-pdf",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-pdf",
+      "name": "Webhook — PDF NFS-e",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "nfse-pdf-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.item.json.body || $input.item.json;\n\nconst invoiceId    = body.invoice_id    || null;\nconst orgId        = body.organization_id || null;\nconst notaasId     = body.notaas_id     || null;\nconst numero       = body.numero        || null;\nconst clientId     = body.client_id     || null;\nconst paymentId    = body.payment_id    || null;\nconst contractId   = body.contract_id   || null;\nconst competencia  = body.competencia   || null;\nconst valorServico = body.valor_servico || 0;\nconst aliquotaIss  = body.aliquota_iss  || null;\nconst codigoServico    = body.codigo_servico    || null;\nconst descricaoServico = body.descricao_servico || null;\nconst tomadorNome      = body.tomador_nome      || null;\nconst tomadorDoc       = body.tomador_cnpj_cpf  || null;\nconst emitidaEm        = body.emitida_em        || null;\n// Contador de tentativas de polling (incrementado a cada loop)\nconst attempt = parseInt(body._attempt || '0', 10);\n\nif (!invoiceId)  throw new Error('invoice_id é obrigatório');\nif (!orgId)      throw new Error('organization_id é obrigatório');\nif (!notaasId)   throw new Error('notaas_id é obrigatório para buscar o PDF');\n\nreturn [{ json: {\n  invoice_id:        invoiceId,\n  organization_id:   orgId,\n  notaas_id:         notaasId,\n  numero,\n  client_id:         clientId,\n  payment_id:        paymentId,\n  contract_id:       contractId,\n  competencia,\n  valor_servico:     valorServico,\n  aliquota_iss:      aliquotaIss,\n  codigo_servico:    codigoServico,\n  descricao_servico: descricaoServico,\n  tomador_nome:      tomadorNome,\n  tomador_cnpj_cpf:  tomadorDoc,\n  emitida_em:        emitidaEm,\n  _attempt:          attempt\n}}];"
+      },
+      "id": "parsear-payload",
+      "name": "Parsear Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "invoices",
+        "filters": {
+          "conditions": [
+            { "keyName": "id", "keyValue": "={{ $json.invoice_id }}" }
+          ]
+        }
+      },
+      "id": "buscar-invoice",
+      "name": "Buscar Invoice",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [680, 180],
+      "credentials": {
+        "supabaseApi": { "id": "yDtu96eQqnPXpyAM", "name": "Supabase account" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "organization_integrations",
+        "filters": {
+          "conditions": [
+            { "keyName": "organization_id", "keyValue": "={{ $('Parsear Payload').item.json.organization_id }}" },
+            { "keyName": "integration_type", "keyValue": "notaas" }
+          ]
+        }
+      },
+      "id": "buscar-config",
+      "name": "Buscar Config Notaas",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [680, 420],
+      "credentials": {
+        "supabaseApi": { "id": "yDtu96eQqnPXpyAM", "name": "Supabase account" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "clients",
+        "filters": {
+          "conditions": [
+            { "keyName": "id", "keyValue": "={{ $('Parsear Payload').item.json.client_id }}" }
+          ]
+        }
+      },
+      "id": "buscar-cliente",
+      "name": "Buscar Cliente",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [680, 600],
+      "credentials": {
+        "supabaseApi": { "id": "yDtu96eQqnPXpyAM", "name": "Supabase account" }
+      }
+    },
+    {
+      "parameters": { "numberInputs": 3 },
+      "id": "merge-dados",
+      "name": "Merge Dados",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst parsed = $('Parsear Payload').item.json;\n\nlet invoice = null;\nlet config  = {};\nlet client  = null;\n\nfor (const item of items) {\n  const j = item?.json;\n  if (!j) continue;\n  if (j.integration_type === 'notaas' || (j.config && j.config.api_key !== undefined)) {\n    config = j.config ?? {};\n  } else if (j.valor_servico !== undefined || j.type === 'nfse') {\n    invoice = j;\n  } else if (j.folder_id !== undefined || j.address_city !== undefined) {\n    client = j;\n  }\n}\n\nif (!invoice?.id)    throw new Error('Invoice não encontrado: ' + parsed.invoice_id);\nif (!config.api_key) throw new Error('API Key da Notaas não configurada');\nif (!client?.id)     throw new Error('Cliente não encontrado: ' + parsed.client_id);\n\nconst notaasId = invoice.notaas_id || parsed.notaas_id;\nif (!notaasId) throw new Error('notaas_id não disponível — nota ainda não foi enviada à Notaas');\n\nconst baseUrl = config.sandbox_mode === true\n  ? 'https://sandbox.notaas.com.br'\n  : 'https://platform.notaas.com.br';\n\nconst folderId   = client.folder_id || null;\nconst clientName = (client.company || client.name || 'cliente').replace(/[^a-zA-Z0-9 ]/g, '').trim().slice(0, 40);\n\nconst numero = invoice.numero || parsed.numero || notaasId;\nconst competencia = (invoice.competencia || parsed.competencia || '').replace('-', '_');\nconst fileName = 'NFS-e_' + numero + (competencia ? '_' + competencia : '') + '_' + clientName + '.pdf';\n\nreturn [{ json: {\n  invoice_id:      invoice.id,\n  organization_id: invoice.organization_id,\n  notaas_id:       notaasId,\n  numero,\n  client_id:       invoice.client_id,\n  folder_id:       folderId,\n  file_name:       fileName,\n  api_key:         config.api_key,\n  base_url:        baseUrl,\n  _attempt:        parsed._attempt || 0\n}}];"
+      },
+      "id": "preparar-consulta",
+      "name": "Preparar Consulta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.base_url }}/api/v1/notas/{{ $json.notaas_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key",    "value": "={{ $json.api_key }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "User-Agent",   "value": "MaestrIA-n8n/1.0" }
+          ]
+        },
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "consultar-nota-notaas",
+      "name": "Consultar Nota na Notaas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normaliza a resposta da Notaas e determina o fluxo\nconst httpResp = $input.item.json;\nconst prep     = $('Preparar Consulta').item.json;\n\nconst statusCode = httpResp.statusCode || 0;\nconst body = httpResp.body || httpResp;\n\n// Status retornado pela Notaas: issued | processing | queued | error | cancelled\nconst notaasStatus = (typeof body === 'object')\n  ? (body.status || body.situacao || body.state || '').toLowerCase()\n  : '';\n\nconst pdfUrl = (typeof body === 'object')\n  ? (body.pdf_url || body.pdfUrl || body.link_pdf || null)\n  : null;\n\nlet flow;\nif (statusCode >= 500) {\n  flow = 'error';\n} else if (statusCode === 404) {\n  flow = 'error';\n} else if (!statusCode || statusCode >= 400) {\n  flow = 'error';\n} else if (notaasStatus === 'issued' || notaasStatus === 'autorizada' || notaasStatus === 'emitida') {\n  flow = 'issued';\n} else if (notaasStatus === 'processing' || notaasStatus === 'processando' || notaasStatus === 'queued' || notaasStatus === 'aguardando') {\n  flow = 'processing';\n} else {\n  // Status desconhecido ou erro da Notaas\n  flow = 'error';\n}\n\nconst errorMsg = flow === 'error'\n  ? ((typeof body === 'object' ? (body.message || body.error || body.msg || body.detail) : String(body)) || ('HTTP ' + statusCode))\n  : null;\n\nreturn [{ json: {\n  ...prep,\n  flow,\n  notaas_status: notaasStatus,\n  pdf_url:       pdfUrl,\n  error_msg:     errorMsg,\n  http_status:   statusCode,\n  _attempt:      (prep._attempt || 0) + 1\n}}];"
+      },
+      "id": "avaliar-status",
+      "name": "Avaliar Status da Nota",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false, "typeValidation": "strict", "version": 1 },
+          "conditions": [
+            {
+              "id": "is-issued",
+              "leftValue": "={{ $json.flow }}",
+              "rightValue": "issued",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-issued",
+      "name": "Status é issued?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1780, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false, "typeValidation": "strict", "version": 1 },
+          "conditions": [
+            {
+              "id": "is-processing",
+              "leftValue": "={{ $json.flow }}",
+              "rightValue": "processing",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-processing",
+      "name": "Ainda processando?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1780, 520]
+    },
+    {
+      "parameters": {
+        "amount": 30,
+        "unit": "seconds"
+      },
+      "id": "wait-30s",
+      "name": "Aguardar 30s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [2000, 520],
+      "webhookId": "nfse-pdf-wait"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reusa os dados já preparados para re-consultar a Notaas\nconst d = $input.item.json;\nreturn [{ json: {\n  invoice_id:      d.invoice_id,\n  organization_id: d.organization_id,\n  notaas_id:       d.notaas_id,\n  numero:          d.numero,\n  client_id:       d.client_id,\n  folder_id:       d.folder_id,\n  file_name:       d.file_name,\n  api_key:         d.api_key,\n  base_url:        d.base_url,\n  _attempt:        d._attempt || 0\n}}];"
+      },
+      "id": "preparar-retry",
+      "name": "Preparar Retry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 520]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Baixa o PDF da Notaas e faz upload no Google Drive\nconst d = $input.item.json;\n\nif (!d.pdf_url) throw new Error('pdf_url não disponível mesmo com status issued');\nif (!d.folder_id) throw new Error('Cliente não possui pasta no Google Drive (folder_id ausente)');\n\n// Helper: fetch com retry para 502/503/504\nasync function fetchWithRetry(url, options, maxRetries) {\n  const delays = [3000, 8000, 15000];\n  let lastErr;\n  for (let i = 0; i <= (maxRetries || 2); i++) {\n    try {\n      const res = await fetch(url, options);\n      if ((res.status === 502 || res.status === 503 || res.status === 504) && i < (maxRetries || 2)) {\n        await new Promise(function(r) { setTimeout(r, delays[i] || 15000); });\n        continue;\n      }\n      return res;\n    } catch (e) {\n      lastErr = e;\n      if (i < (maxRetries || 2)) await new Promise(function(r) { setTimeout(r, delays[i] || 15000); });\n    }\n  }\n  throw lastErr || new Error('Falha após ' + (maxRetries || 2) + ' tentativas');\n}\n\n// 1. Baixa o PDF\nconst pdfRes = await fetchWithRetry(\n  d.pdf_url,\n  { headers: { 'x-api-key': d.api_key }, signal: AbortSignal.timeout(60000) },\n  3\n);\nif (!pdfRes.ok) {\n  const hint = (pdfRes.status === 502 || pdfRes.status === 503)\n    ? ' Notaas temporariamente indisponível.'\n    : '';\n  throw new Error('Erro ao baixar PDF: HTTP ' + pdfRes.status + '.' + hint);\n}\nconst pdfBuffer = await pdfRes.arrayBuffer();\nconst pdfBase64 = Buffer.from(pdfBuffer).toString('base64');\n\n// 2. Upload multipart para o Google Drive\n// Nota: usa GOOGLE_ACCESS_TOKEN da variável de ambiente\nconst googleToken = $env.GOOGLE_ACCESS_TOKEN;\nif (!googleToken) throw new Error('Variável GOOGLE_ACCESS_TOKEN não configurada');\n\nconst boundary = 'nfse_pdf_boundary_271828';\nconst metadata = JSON.stringify({\n  name: d.file_name,\n  parents: [d.folder_id],\n  mimeType: 'application/pdf',\n  description: 'NFS-e ' + d.numero + ' — ' + d.file_name\n});\nconst multipartBody =\n  '--' + boundary + '\\r\\nContent-Type: application/json; charset=UTF-8\\r\\n\\r\\n' +\n  metadata +\n  '\\r\\n--' + boundary + '\\r\\nContent-Type: application/pdf\\r\\nContent-Transfer-Encoding: base64\\r\\n\\r\\n' +\n  pdfBase64 +\n  '\\r\\n--' + boundary + '--';\n\nconst driveRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {\n  method: 'POST',\n  headers: {\n    'Authorization': 'Bearer ' + googleToken,\n    'Content-Type': 'multipart/related; boundary=' + boundary\n  },\n  body: multipartBody,\n  signal: AbortSignal.timeout(120000)\n});\n\nif (!driveRes.ok) {\n  const driveErr = await driveRes.json().catch(function() { return {}; });\n  throw new Error('Erro no upload Google Drive: ' + (driveErr.error?.message || driveRes.status));\n}\n\nconst driveData = await driveRes.json();\nconst driveFileId  = driveData.id;\nconst driveFileUrl = 'https://drive.google.com/file/d/' + driveFileId + '/view';\n\nreturn [{ json: {\n  invoice_id:      d.invoice_id,\n  organization_id: d.organization_id,\n  notaas_id:       d.notaas_id,\n  drive_file_id:   driveFileId,\n  drive_file_url:  driveFileUrl,\n  notaas_pdf_url:  d.pdf_url,\n  file_name:       d.file_name\n}}];"
+      },
+      "id": "baixar-e-arquivar",
+      "name": "Baixar PDF e Arquivar no Drive",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 180]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "invoices",
+        "filters": {
+          "conditions": [
+            { "keyName": "id", "keyValue": "={{ $json.invoice_id }}" }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            { "fieldId": "pdf_url", "fieldValue": "={{ $json.drive_file_url }}" },
+            {
+              "fieldId": "metadata",
+              "fieldValue": "={{ JSON.stringify({ notaas_pdf_url: $json.notaas_pdf_url, drive_file_id: $json.drive_file_id, drive_file_name: $json.file_name }) }}"
+            }
+          ]
+        }
+      },
+      "id": "atualizar-invoice-pdf",
+      "name": "Atualizar Invoice — PDF",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [2220, 180],
+      "credentials": {
+        "supabaseApi": { "id": "yDtu96eQqnPXpyAM", "name": "Supabase account" }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, invoice_id: $('Baixar PDF e Arquivar no Drive').item.json.invoice_id, drive_file_url: $('Baixar PDF e Arquivar no Drive').item.json.drive_file_url, file_name: $('Baixar PDF e Arquivar no Drive').item.json.file_name }) }}",
+        "options": {}
+      },
+      "id": "resposta-sucesso",
+      "name": "Resposta — PDF Gerado",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2440, 180]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepara os dados do erro — salva em metadata.pdf_error (não em erro_mensagem)\nconst d = $input.item.json;\nconst errMsg = d.error_msg || 'Erro desconhecido ao consultar nota na Notaas';\nconst detail = 'status=' + (d.notaas_status || '?') + ' http=' + (d.http_status || '?') + ' — ' + errMsg;\n\n// Busca o metadata atual para fazer merge sem sobrescrever outros campos\nconst sbUrl = $env.SUPABASE_URL;\nconst sbKey  = $env.SUPABASE_SERVICE_KEY;\n\nlet currentMeta = {};\ntry {\n  const res = await fetch(sbUrl + '/rest/v1/invoices?id=eq.' + d.invoice_id + '&select=metadata', {\n    headers: { 'apikey': sbKey, 'Authorization': 'Bearer ' + sbKey }\n  });\n  if (res.ok) {\n    const arr = await res.json();\n    currentMeta = (Array.isArray(arr) ? arr[0]?.metadata : arr?.metadata) || {};\n  }\n} catch (e) { /* best-effort */ }\n\nconst newMeta = Object.assign({}, currentMeta, {\n  pdf_error:    detail,\n  pdf_error_at: new Date().toISOString()\n});\n\nawait fetch(sbUrl + '/rest/v1/invoices?id=eq.' + d.invoice_id, {\n  method: 'PATCH',\n  headers: {\n    'apikey': sbKey,\n    'Authorization': 'Bearer ' + sbKey,\n    'Content-Type': 'application/json',\n    'Prefer': 'return=minimal'\n  },\n  body: JSON.stringify({ metadata: newMeta })\n});\n\nreturn [{ json: {\n  invoice_id:    d.invoice_id,\n  organization_id: d.organization_id,\n  error_detail:  detail,\n  notaas_status: d.notaas_status || null,\n  http_status:   d.http_status   || null\n}}];"
+      },
+      "id": "preparar-erro",
+      "name": "Preparar Erro",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 700]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, invoice_id: $json.invoice_id, error: $json.error_detail, notaas_status: $json.notaas_status }) }}",
+        "options": { "responseCode": 422 }
+      },
+      "id": "resposta-erro",
+      "name": "Resposta — Erro",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2220, 700]
+    }
+  ],
+  "connections": {
+    "Webhook — PDF NFS-e": {
+      "main": [[{ "node": "Parsear Payload", "type": "main", "index": 0 }]]
+    },
+    "Parsear Payload": {
+      "main": [[
+        { "node": "Buscar Invoice",       "type": "main", "index": 0 },
+        { "node": "Buscar Config Notaas", "type": "main", "index": 0 },
+        { "node": "Buscar Cliente",       "type": "main", "index": 0 }
+      ]]
+    },
+    "Buscar Invoice":       { "main": [[{ "node": "Merge Dados", "type": "main", "index": 0 }]] },
+    "Buscar Config Notaas": { "main": [[{ "node": "Merge Dados", "type": "main", "index": 1 }]] },
+    "Buscar Cliente":       { "main": [[{ "node": "Merge Dados", "type": "main", "index": 2 }]] },
+    "Merge Dados":          { "main": [[{ "node": "Preparar Consulta",       "type": "main", "index": 0 }]] },
+    "Preparar Consulta":    { "main": [[{ "node": "Consultar Nota na Notaas","type": "main", "index": 0 }]] },
+    "Consultar Nota na Notaas": { "main": [[{ "node": "Avaliar Status da Nota", "type": "main", "index": 0 }]] },
+    "Avaliar Status da Nota": {
+      "main": [[
+        { "node": "Status é issued?",   "type": "main", "index": 0 },
+        { "node": "Ainda processando?", "type": "main", "index": 0 }
+      ]]
+    },
+    "Status é issued?": {
+      "main": [
+        [{ "node": "Baixar PDF e Arquivar no Drive", "type": "main", "index": 0 }],
+        [{ "node": "Ainda processando?",             "type": "main", "index": 0 }]
+      ]
+    },
+    "Ainda processando?": {
+      "main": [
+        [{ "node": "Aguardar 30s",  "type": "main", "index": 0 }],
+        [{ "node": "Preparar Erro", "type": "main", "index": 0 }]
+      ]
+    },
+    "Aguardar 30s":   { "main": [[{ "node": "Preparar Retry",            "type": "main", "index": 0 }]] },
+    "Preparar Retry": { "main": [[{ "node": "Consultar Nota na Notaas",  "type": "main", "index": 0 }]] },
+    "Baixar PDF e Arquivar no Drive": { "main": [[{ "node": "Atualizar Invoice — PDF", "type": "main", "index": 0 }]] },
+    "Atualizar Invoice — PDF":        { "main": [[{ "node": "Resposta — PDF Gerado",   "type": "main", "index": 0 }]] },
+    "Preparar Erro":       { "main": [[{ "node": "Resposta — Erro", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "versionId": "2.0.0"
+}

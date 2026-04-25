@@ -3,6 +3,19 @@ export function onlyDigits(value: string | number | null | undefined): string {
   return String(value).replace(/\D/g, "");
 }
 
+/**
+ * Formata um código numérico de entidade com prefixo e zero-padding.
+ * Ex: formatEntityCode("CLI", 7) → "CLI-0007"
+ *     formatEntityCode("PRJ", null) → "—"
+ */
+export function formatEntityCode(
+  prefix: "CLI" | "PRJ" | "FOR",
+  code: number | null | undefined
+): string {
+  if (code == null) return "—";
+  return `${prefix}-${String(code).padStart(4, "0")}`;
+}
+
 export function formatBRL(value: number | null | undefined): string {
   const n = typeof value === "number" ? value : 0;
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(n);

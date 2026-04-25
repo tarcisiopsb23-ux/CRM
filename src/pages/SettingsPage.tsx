@@ -9,12 +9,15 @@ import {
   ResendSection,
   PermissionsSection,
   HolidaysSection,
+  C8ControlSection,
 } from "@/components/settings";
+import { FiscalSettingsTab } from "@/components/settings/FiscalSettingsTab";
 import { InviteMemberDialog } from "@/components/team/InviteMemberDialog";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Mail, Link as LinkIcon, Sun, Moon, Monitor, Type, Palette, Cloud, UserPlus, FolderOpen, ImagePlus, Loader2, Megaphone } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { useOrganization, useOrganizationData } from "@/hooks/useOrganization";
 import { useUserPreferences } from "@/contexts/UserPreferencesContext";
@@ -29,6 +32,21 @@ import {
   setDriveFoldersInOrganizationSettings,
   useOrganizationSettings,
 } from "@/hooks/useSettings";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -36,15 +54,16 @@ import { Label } from "@/components/ui/label";
 export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { theme, setTheme, fontSize, setFontSize, sidebarColor, setSidebarColor } = useUserPreferences();
-  const validTabs = useMemo(() => new Set(["permissions", "integrations", "general"]), []);
+  const validTabs = useMemo(() => new Set(["permissions", "integrations", "fiscal", "general"]), []);
   const tabParamRaw = searchParams.get("tab");
   const tabParam = tabParamRaw === "api" ? "integrations" : tabParamRaw;
-  const tab = (tabParam && validTabs.has(tabParam) ? tabParam : "permissions") as "permissions" | "integrations" | "general";
+  const tab = (tabParam && validTabs.has(tabParam) ? tabParam : "permissions") as "permissions" | "integrations" | "fiscal" | "general";
 
   const { canView: canViewBranding } = usePermissionForScope("settings", "general");
   const organizationId = useOrganization();
   const orgData = useOrganizationData(organizationId);
   const orgSettings = useOrganizationSettings(organizationId);
+  const qc = useQueryClient();
   const driveFolders = useMemo(
     () => getDriveFoldersFromOrganizationSettings(orgSettings.data),
     [orgSettings.data]
@@ -57,6 +76,7 @@ export function SettingsPage() {
   const [driveClientId, setDriveClientId] = useState(driveApi.clientId ?? "");
   const [driveClientSecret, setDriveClientSecret] = useState(driveApi.clientSecret ?? "");
   const [driveRefreshToken, setDriveRefreshToken] = useState(driveApi.refreshToken ?? "");
+  const [googleDeveloperToken, setGoogleDeveloperToken] = useState(driveApi.googleDeveloperToken ?? "");
 
   const marketingSettings = useMemo(() => {
     const s = (orgData.data as any)?.marketing_settings as any;
@@ -136,6 +156,7 @@ export function SettingsPage() {
     setDriveClientId(driveApi.clientId ?? "");
     setDriveClientSecret(driveApi.clientSecret ?? "");
     setDriveRefreshToken(driveApi.refreshToken ?? "");
+    setGoogleDeveloperToken(driveApi.googleDeveloperToken ?? "");
   }, [driveApi.clientId, driveApi.clientSecret, driveApi.refreshToken]);
 
   const setTab = (next: typeof tab) => {
@@ -157,6 +178,7 @@ export function SettingsPage() {
         <TabsList className="w-full flex flex-wrap justify-start">
           <TabsTrigger value="permissions">Cargos e Permissões</TabsTrigger>
           <TabsTrigger value="integrations">Integrações</TabsTrigger>
+          <TabsTrigger value="fiscal">Fiscal / NFS-e</TabsTrigger>
           <TabsTrigger value="general">Configurações gerais</TabsTrigger>
         </TabsList>
 
@@ -195,12 +217,23 @@ export function SettingsPage() {
                   mask
                   placeholder="••••••••"
                 />
+                <SettingsInput
+                  label="Developer Token (Google Ads)"
+                  value={googleDeveloperToken}
+                  onChange={setGoogleDeveloperToken}
+                  mask
+                  placeholder="••••••••"
+                />
+                <p className="text-[10px] text-slate-400 italic">
+                  Necessário para acessar a API do Google Ads. Obtido no Google Ads Manager → Ferramentas → API Center.
+                </p>
                 <Button
                   onClick={async () => {
                     const nextSettings = setDriveApiInOrganizationSettings(orgSettings.data, {
                       clientId: driveClientId.trim() || null,
                       clientSecret: driveClientSecret.trim() || null,
                       refreshToken: driveRefreshToken.trim() || null,
+                      googleDeveloperToken: googleDeveloperToken.trim() || null,
                     });
                     await orgSettings.update.mutateAsync(nextSettings);
                   }}
@@ -294,6 +327,11 @@ export function SettingsPage() {
           <ResendSection />
           <WhatsAppSection />
           <GoogleCalendarSection />
+          <C8ControlSection />
+        </TabsContent>
+
+        <TabsContent value="fiscal" className="space-y-6">
+          <FiscalSettingsTab />
         </TabsContent>
 
         <TabsContent value="general" className="space-y-6">

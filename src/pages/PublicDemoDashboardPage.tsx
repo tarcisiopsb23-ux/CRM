@@ -225,6 +225,11 @@ export function PublicDemoDashboardPage() {
   const longTerm = useMemo(() => buildDemoLongTerm(), []);
   const campaigns = useMemo(() => buildDemoCampaigns(), []);
   const demoConversation = useMemo(() => buildDemoConversationKpis(), []);
+  const [demoCampaignFilter, setDemoCampaignFilter] = useState<"Todas" | "Meta Ads" | "Google Ads">("Todas");
+  const filteredDemoCampaigns = useMemo(() =>
+    demoCampaignFilter === "Todas" ? campaigns : campaigns.filter(c => c.platform === demoCampaignFilter),
+    [campaigns, demoCampaignFilter]
+  );
 
   const totals = useMemo(() => {
     return daily.reduce(
@@ -418,43 +423,65 @@ export function PublicDemoDashboardPage() {
           </div>
 
           <Card className="bg-[#1E293B] border-slate-800 shadow-2xl">
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
               <CardTitle className="text-xl font-bold text-white">Top Campanhas (Mock)</CardTitle>
-              <InfoTooltip text="Ranking das campanhas com maior volume de resultado no per�odo. Compare efici�ncia entre campanhas e plataformas � identifique quais geram melhor ROAS e menor custo por aquisi��o para direcionar o investimento." />
+              <div className="flex items-center gap-2">
+                {(["Todas", "Meta Ads", "Google Ads"] as const).map(f => (
+                  <button
+                    key={f}
+                    onClick={() => setDemoCampaignFilter(f)}
+                    className={cn(
+                      "px-3 py-1 rounded-full text-[11px] font-bold transition-colors",
+                      demoCampaignFilter === f
+                        ? "bg-white text-slate-900"
+                        : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                    )}
+                  >
+                    {f === "Todas" ? "Todas" : f === "Meta Ads" ? "Meta" : "Google"}
+                  </button>
+                ))}
+                <InfoTooltip text="Ranking das campanhas com maior volume de resultado no período. Compare eficiência entre campanhas e plataformas — identifique quais geram melhor ROAS e menor custo por aquisição para direcionar o investimento." />
+              </div>
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="text-slate-500 text-[10px] uppercase font-black tracking-widest border-b border-slate-800">
-                      <th className="pb-4">Plataforma</th>
-                      <th className="pb-4">Campanha</th>
-                      <th className="pb-4">Invest.</th>
-                      <th className="pb-4 text-center">Leads</th>
-                      <th className="pb-4 text-center">Vendas</th>
-                      <th className="pb-4 text-right">ROAS</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/50">
-                    {campaigns.map((c) => {
-                      const roasCamp = c.spend > 0 ? (c.revenue / c.spend).toFixed(1) : "0.0";
-                      return (
-                        <tr key={c.name} className="text-sm hover:bg-slate-800/30 transition-colors">
-                          <td className="py-4 text-slate-400 font-bold">{c.platform}</td>
-                          <td className="py-4 font-bold text-slate-200">{c.name}</td>
-                          <td className="py-4 text-slate-400">R$ {c.spend.toLocaleString("pt-BR")}</td>
-                          <td className="py-4 text-slate-400 font-bold text-center">{c.leads}</td>
-                          <td className="py-4 text-slate-400 font-bold text-center">{c.sales}</td>
-                          <td className="py-4 text-right">
-                            <span className={cn("font-black px-2 py-1 rounded text-xs", Number(roasCamp) >= 4 ? "bg-emerald-500/10 text-emerald-400" : "bg-orange-500/10 text-orange-400")}>
-                              {roasCamp}x
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                <div className="overflow-y-auto" style={{ maxHeight: "336px" }}>
+                  <table className="w-full text-left border-collapse">
+                    <thead className="sticky top-0 bg-[#1E293B] z-10">
+                      <tr className="text-slate-500 text-[10px] uppercase font-black tracking-widest border-b border-slate-800">
+                        <th className="pb-4 w-24">Plataforma</th>
+                        <th className="pb-4">Campanha</th>
+                        <th className="pb-4 w-32">Invest.</th>
+                        <th className="pb-4 text-center w-20">Leads</th>
+                        <th className="pb-4 text-center w-20">Vendas</th>
+                        <th className="pb-4 text-right w-32">Faturamento</th>
+                        <th className="pb-4 text-right w-20">ROAS</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/50">
+                      {filteredDemoCampaigns.map((c) => {
+                        const roasCamp = c.spend > 0 ? (c.revenue / c.spend).toFixed(1) : "0.0";
+                        return (
+                          <tr key={c.name} className="text-sm hover:bg-slate-800/30 transition-colors">
+                            <td className="py-4 text-slate-400 font-bold w-24">{c.platform}</td>
+                            <td className="py-4 font-bold text-slate-200">{c.name}</td>
+                            <td className="py-4 text-slate-400 w-32">R$ {c.spend.toLocaleString("pt-BR")}</td>
+                            <td className="py-4 text-slate-400 font-bold text-center w-20">{c.leads}</td>
+                            <td className="py-4 text-slate-400 font-bold text-center w-20">{c.sales}</td>
+                            <td className="py-4 text-slate-300 font-bold text-right w-32">
+                              {c.revenue > 0 ? `R$ ${c.revenue.toLocaleString("pt-BR")}` : "—"}
+                            </td>
+                            <td className="py-4 text-right w-20">
+                              <span className={cn("font-black px-2 py-1 rounded text-xs", Number(roasCamp) >= 4 ? "bg-emerald-500/10 text-emerald-400" : "bg-orange-500/10 text-orange-400")}>
+                                {roasCamp}x
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </CardContent>
           </Card>

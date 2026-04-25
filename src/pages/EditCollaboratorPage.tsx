@@ -13,6 +13,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
+import { PercentInput } from "@/components/ui/percent-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -370,11 +372,11 @@ export function EditCollaboratorPage() {
               </div>
               <div className="space-y-2">
                 <Label>Salário Base (R$)</Label>
-                <Input value={extraForm.base_salary} onChange={e => setExtraForm(f => ({ ...f, base_salary: e.target.value }))} />
+                <CurrencyInput value={extraForm.base_salary} onChange={v => setExtraForm(f => ({ ...f, base_salary: v }))} />
               </div>
               <div className="space-y-2">
                 <Label>Comissão (%)</Label>
-                <Input value={extraForm.commission_percent} onChange={e => setExtraForm(f => ({ ...f, commission_percent: e.target.value }))} />
+                <PercentInput value={extraForm.commission_percent} onChange={v => setExtraForm(f => ({ ...f, commission_percent: v }))} />
               </div>
               <div className="space-y-2">
                 <Label>Fator Hora Extra</Label>

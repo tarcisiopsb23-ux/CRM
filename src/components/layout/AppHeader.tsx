@@ -17,11 +17,15 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserPreferences } from "@/contexts/UserPreferencesContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { ChatIcon } from "@/components/chat/ChatIcon";
+import { ChatPanel } from "@/components/chat/ChatPanel";
+import { useChatContext } from "@/contexts/ChatContext";
 
 export function AppHeader() {
   const { profile, signOut } = useAuth();
   const { theme, setTheme, fontSize, setFontSize, sidebarColor, setSidebarColor } = useUserPreferences();
   const navigate = useNavigate();
+  const chat = useChatContext();
 
   const handleSignOut = async () => {
     try {
@@ -46,6 +50,7 @@ export function AppHeader() {
   }, [profile?.avatar_url]);
 
   return (
+    <>
     <header className="flex h-16 shrink-0 items-center justify-between border-b border-border bg-card px-6">
       <div className="flex items-center gap-3 flex-1 max-w-md">
         <Search className="h-4 w-4 text-muted-foreground" />
@@ -58,6 +63,9 @@ export function AppHeader() {
         <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
           <Bell className="h-5 w-5" />
         </Button>
+        {!chat.isOpen && (
+          <ChatIcon unreadCount={chat.totalUnread} onClick={chat.openPanel} />
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="rounded-full overflow-hidden">
@@ -151,5 +159,7 @@ export function AppHeader() {
         </DropdownMenu>
       </div>
     </header>
+    {chat.isOpen && <ChatPanel chat={chat} onClose={chat.closePanel} />}
+    </>
   );
 }

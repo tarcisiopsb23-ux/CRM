@@ -95,14 +95,7 @@ serve(async (req) => {
     }
 
     const hasPassword = typeof password === "string" && password.trim().length >= 6;
-    const noPassword = !password || (typeof password === "string" && password.trim().length === 0);
-
-    if (!noPassword && !hasPassword) {
-      return new Response(
-        JSON.stringify({ error: "Senha deve ter no mínimo 6 caracteres" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    const noPassword = !hasPassword;
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;

@@ -4530,7 +4530,7 @@ export type Database = {
         | "em_atendimento"
         | "encerrada"
         | "aguardando"
-      event_type: "reuniao" | "ligacao" | "entrega" | "lembrete" | "outro"
+      event_type: "reuniao" | "ligacao" | "entrega" | "lembrete" | "outro" | "captacao" | "reuniao_integracao" | "reuniao_planejamento" | "reuniao_periodica" | "apresentacao_proposta"
       goal_indicator:
         | "inadimplencia"
         | "efetivacoes"
@@ -4544,6 +4544,7 @@ export type Database = {
         | "n8n"
         | "whatsapp"
         | "google_calendar"
+        | "notaas"
       lead_ads_level: "sem_anuncios" | "poucos_anuncios" | "muitos_anuncios"
       lead_contact_origin:
         | "indicacao"
@@ -4620,6 +4621,7 @@ export type Database = {
         | "campaigns"
         | "audit"
         | "timeclock"
+        | "c8control"
       registration_type: "prospeccao" | "cliente"
       rep_p_admin_action_type:
         | "criar"
@@ -4790,7 +4792,7 @@ export const Constants = {
         "encerrada",
         "aguardando",
       ],
-      event_type: ["reuniao", "ligacao", "entrega", "lembrete", "outro"],
+      event_type: ["reuniao", "ligacao", "entrega", "lembrete", "outro", "captacao", "reuniao_integracao", "reuniao_planejamento", "reuniao_periodica", "apresentacao_proposta"],
       goal_indicator: [
         "inadimplencia",
         "efetivacoes",
@@ -4805,6 +4807,7 @@ export const Constants = {
         "n8n",
         "whatsapp",
         "google_calendar",
+        "notaas",
       ],
       lead_ads_level: ["sem_anuncios", "poucos_anuncios", "muitos_anuncios"],
       lead_contact_origin: [
@@ -4890,6 +4893,7 @@ export const Constants = {
         "campaigns",
         "audit",
         "timeclock",
+        "c8control",
       ],
       registration_type: ["prospeccao", "cliente"],
       rep_p_admin_action_type: [

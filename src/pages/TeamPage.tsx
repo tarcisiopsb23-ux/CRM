@@ -10,7 +10,7 @@ import { useProfiles } from "@/hooks/useProfiles";
 import { useTeams, useTeamMembers } from "@/hooks/useTeams";
 import { useAuth } from "@/contexts/AuthContext";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Clock, Users, UsersRound, UserPlus, ChevronDown, Calculator, ShieldCheck, Timer, Star } from "lucide-react";
+import { Clock, Users, UsersRound, UserPlus, ChevronDown, Calculator, ShieldCheck, Timer, Star, KeyRound } from "lucide-react";
 import { PayrollManager } from "@/components/team/PayrollManager";
 import { Button } from "@/components/ui/button";
 import { usePermissionForScope } from "@/hooks/usePermissions";
@@ -21,6 +21,8 @@ import { CicloForm } from "@/components/avaliacao360/CicloForm";
 import { CicloDetail } from "@/components/avaliacao360/CicloDetail";
 import type { CicloAvaliacao } from "@/types/avaliacao360";
 import { toast } from "sonner";
+import { ManagerPinAdminDialog } from "@/components/profile/ManagerPinAdminDialog";
+import { DriveFolderButton } from "@/components/shared/DriveFolderButton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -49,6 +51,7 @@ export default function TeamPage() {
   const [limitOpen, setLimitOpen] = useState(false);
   const [overtimeOpen, setOvertimeOpen] = useState(false);
   const [manualPunchOpen, setManualPunchOpen] = useState(false);
+  const [pinDialogOpen, setPinDialogOpen] = useState(false);
 
   // Avaliação 360
   const { data: ciclos = [], isLoading: ciclosLoading } = useCiclos(isAdminOrOwner ? orgId : undefined);
@@ -113,6 +116,7 @@ export default function TeamPage() {
   if (profileId) {
     const selected = profiles.find((p) => String(p.id) === String(profileId));
     const selectedIsExempt = selected?.role === "owner" || selected?.role === "admin";
+    const selectedCanHavePin = ["owner", "admin", "manager"].includes(selected?.role ?? "");
     return (
       <div className="space-y-6">
         <div className="flex items-start justify-between gap-4">
@@ -136,11 +140,35 @@ export default function TeamPage() {
                 </Button>
               </>
             )}
+            {isAdminOrOwner && selectedCanHavePin && (
+              <Button size="sm" variant="outline" onClick={() => setPinDialogOpen(true)}>
+                <KeyRound className="h-3.5 w-3.5 mr-1" /> PIN Gerencial
+              </Button>
+            )}
+            {selected && (
+              <DriveFolderButton
+                organizationId={orgId!}
+                module="employee"
+                record={{ id: selected.id, full_name: selected.full_name }}
+                folderId={(selected.metadata as Record<string, unknown> | null)?.drive_folder_id as string | null}
+                folderUrl={(selected.metadata as Record<string, unknown> | null)?.drive_folder_url as string | null}
+              />
+            )}
             <Button variant="outline" onClick={() => navigate("/team")}>
               Voltar
             </Button>
           </div>
         </div>
+
+        {isAdminOrOwner && selectedCanHavePin && selected && (
+          <ManagerPinAdminDialog
+            open={pinDialogOpen}
+            onOpenChange={setPinDialogOpen}
+            targetUserId={selected.id}
+            targetName={selected.full_name}
+            targetRole={selected.role ?? ""}
+          />
+        )}
 
         {!employeesPermission.canView ? (
           <div className="flex flex-col items-center justify-center min-h-[240px] gap-2 text-center">

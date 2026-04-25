@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Employee, PayrollEntry, Team } from "./types";
@@ -216,19 +217,19 @@ export function PayrollView({ employees, payroll, onPayrollUpdate, teams }: Prop
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label className="text-xs text-muted-foreground">Comissão (R$)</Label>
-                <Input type="number" value={editForm.commission} onChange={(e) => setEditForm((f) => ({ ...f, commission: Number(e.target.value) }))} />
+                <CurrencyInput value={editForm.commission} onChange={(v) => setEditForm((f) => ({ ...f, commission: Number(v) || 0 }))} />
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">Bônus (R$)</Label>
-                <Input type="number" value={editForm.bonus} onChange={(e) => setEditForm((f) => ({ ...f, bonus: Number(e.target.value) }))} />
+                <CurrencyInput value={editForm.bonus} onChange={(v) => setEditForm((f) => ({ ...f, bonus: Number(v) || 0 }))} />
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">Hora extra (R$)</Label>
-                <Input type="number" value={editForm.overtime} onChange={(e) => setEditForm((f) => ({ ...f, overtime: Number(e.target.value) }))} />
+                <CurrencyInput value={editForm.overtime} onChange={(v) => setEditForm((f) => ({ ...f, overtime: Number(v) || 0 }))} />
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">Descontos (R$)</Label>
-                <Input type="number" value={editForm.deductions} onChange={(e) => setEditForm((f) => ({ ...f, deductions: Number(e.target.value) }))} />
+                <CurrencyInput value={editForm.deductions} onChange={(v) => setEditForm((f) => ({ ...f, deductions: Number(v) || 0 }))} />
               </div>
             </div>
             <DialogFooter>

@@ -5,6 +5,10 @@ import { useProjects, useTasks } from "@/hooks/useProjects";
 import { useTeams } from "@/hooks/useTeams";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useModulePermission } from "@/hooks/usePermissions";
+import { useSuppliers } from "@/hooks/useSuppliers";
+import { useIntegration } from "@/hooks/useSettings";
+import { useClickupSync } from "@/hooks/useClickupSync";
+import { SupplierSelect } from "@/components/shared/SupplierSelect";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -19,9 +23,16 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Loader2, FolderKanban, LayoutList, CalendarDays, Columns3, ArrowLeft, ArrowRight } from "lucide-react";
-import { addMonths, differenceInCalendarDays, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameMonth, startOfDay, startOfMonth, startOfWeek, subMonths } from "date-fns";
+import { Plus, Loader2, FolderKanban, LayoutList, CalendarDays, Columns3, ArrowLeft, ArrowRight, RefreshCcw } from "lucide-react";
+import { FreelancerBadge } from "@/components/shared/FreelancerBadge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useDriveFolder } from "@/hooks/useDriveFolder";
+import { DriveFolderStatusAlert } from "@/components/shared/DriveFolderStatusAlert";
+import { addMonths, differenceInCalendarDays, eachDayOfInterval, endOfMonth, endOfWeek, format, formatDistanceToNow, isSameMonth, startOfDay, startOfMonth, startOfWeek, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { toast } from "sonner";
+import { formatEntityCode } from "@/lib/formatters";
+import type { N8nConfig } from "@/types/settings";
 
 type ProjectAppliedTo = "agency" | "team" | "collaborator";
 type ProjectsViewMode = "list" | "calendar" | "kanban";
@@ -41,9 +52,14 @@ export default function ProjectsPage() {
   const navigate = useNavigate();
   const organizationId = useOrganization();
   const { data: projects = [], isLoading, create } = useProjects(organizationId);
+  const { autoCreateFolder } = useDriveFolder(organizationId);
   const projectsPermission = useModulePermission("projects");
   const teamsQuery = useTeams(organizationId);
   const profilesQuery = useProfiles(organizationId);
+  const { data: suppliers = [] } = useSuppliers(organizationId);
+  const { data: n8nIntegration } = useIntegration(organizationId, "n8n");
+  const clickupSyncWebhookUrl = (n8nIntegration as { config?: N8nConfig } | null)?.config?.clickupSyncWebhookUrl ?? null;
+  const clickupWebhookUrl = (n8nIntegration as { config?: N8nConfig } | null)?.config?.clickupWebhookUrl ?? null;
   const [viewMode, setViewMode] = useState<ProjectsViewMode>("list");
   const [calendarMonth, setCalendarMonth] = useState(() => startOfMonth(new Date()));
   const [modalOpen, setModalOpen] = useState(false);
@@ -56,6 +72,8 @@ export default function ProjectsPage() {
     applied_to: (projectsPermission.isAdminOrOwner ? "agency" : "team") as ProjectAppliedTo,
     team_id: "none",
     assigned_to: "none",
+    is_freelancer: false,
+    supplier_id: null as string | null,
   });
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -74,6 +92,12 @@ export default function ProjectsPage() {
     for (const p of profiles) m.set(p.id, p.full_name);
     return m;
   }, [profiles]);
+
+  const supplierNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of suppliers) m.set(s.id, s.name);
+    return m;
+  }, [suppliers]);
 
   const resolveResponsibleLabel = (p: (typeof projects)[number]) => {
     const assignedTo = (p as unknown as { assigned_to?: string | null }).assigned_to ?? null;
@@ -206,6 +230,8 @@ export default function ProjectsPage() {
       applied_to: projectsPermission.isAdminOrOwner ? "agency" : "team",
       team_id: "none",
       assigned_to: "none",
+      is_freelancer: false,
+      supplier_id: null,
     });
   };
 
@@ -214,15 +240,28 @@ export default function ProjectsPage() {
     setSubmitting(true);
     setSubmitError(null);
     try {
+      // Validação de responsável obrigatório
+      if (form.applied_to === "team" && (!form.team_id || form.team_id === "none")) {
+        setSubmitError("Selecione uma equipe responsável.");
+        return;
+      }
+      if (form.applied_to === "collaborator" && (!form.assigned_to || form.assigned_to === "none")) {
+        setSubmitError("Selecione um colaborador responsável.");
+        return;
+      }
       applyTargetToFields();
-      await create.mutateAsync({
+      const created = await create.mutateAsync({
         title: form.title,
         description: form.description || null,
         start_date: form.start_date || new Date().toISOString().slice(0, 10),
         end_date: form.end_date || (normalizeProjectStatus(form.status) === "concluida" ? new Date().toISOString().slice(0, 10) : null),
         status: normalizeProjectStatus(form.status),
+        is_freelancer: form.is_freelancer,
+        supplier_id: form.is_freelancer ? form.supplier_id : null,
         ...toDelegationPayload(),
       });
+      // Auto-criar pasta no Drive (fire-and-forget via webhook)
+      autoCreateFolder("project", { id: created.id, title: created.title, name: created.title, code: created.code ?? null }, ["projects", organizationId]);
       setModalOpen(false);
       resetForm();
     } catch (err) {
@@ -255,6 +294,15 @@ export default function ProjectsPage() {
           Novo projeto
         </Button>
       </div>
+
+      <DriveFolderStatusAlert
+        organizationId={organizationId}
+        module="project"
+        table="projects"
+        queryKey="projects"
+        records={projects.map((p) => ({ id: p.id, name: p.title, title: p.title, folder_id: p.folder_id, metadata: (p as any).metadata }))}
+        canEdit={projectsPermission.canEdit}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
         <Card className="h-full">
@@ -376,10 +424,18 @@ export default function ProjectsPage() {
                       key={p.id}
                       projectId={p.id}
                       title={p.title}
+                      code={p.code}
                       startDate={(p as unknown as { start_date?: string | null }).start_date ?? ""}
                       endDate={(p as unknown as { end_date?: string | null }).end_date ?? null}
                       status={projectStatusLabel(String((p as unknown as { status?: string | null }).status ?? ""))}
                       responsible={resolveResponsibleLabel(p)}
+                      isFreelancer={(p as unknown as { is_freelancer?: boolean }).is_freelancer ?? false}
+                      supplierName={p.supplier_id ? supplierNameById.get(p.supplier_id) : undefined}
+                      clickupSyncedAt={(p as unknown as { clickup_synced_at?: string | null }).clickup_synced_at ?? null}
+                      clickupTaskId={(p as unknown as { clickup_task_id?: string | null }).clickup_task_id ?? null}
+                      syncWebhookUrl={(p as unknown as { is_freelancer?: boolean }).is_freelancer ? clickupSyncWebhookUrl : null}
+                      createWebhookUrl={(p as unknown as { is_freelancer?: boolean }).is_freelancer ? clickupWebhookUrl : null}
+                      projectData={p as unknown as Record<string, unknown>}
                       onOpen={() => navigate(`/projects/${p.id}`)}
                     />
                   ))}
@@ -574,9 +630,9 @@ export default function ProjectsPage() {
             </div>
             {form.applied_to === "team" && (
               <div>
-                <Label>Equipe</Label>
+                <Label>Equipe *</Label>
                 <Select value={form.team_id} onValueChange={(v) => setForm((p) => ({ ...p, team_id: v }))}>
-                  <SelectTrigger>
+                  <SelectTrigger className={form.team_id === "none" ? "border-destructive" : ""}>
                     <SelectValue placeholder="Selecione" />
                   </SelectTrigger>
                   <SelectContent>
@@ -592,9 +648,9 @@ export default function ProjectsPage() {
             )}
             {form.applied_to === "collaborator" && (
               <div>
-                <Label>Responsável</Label>
+                <Label>Responsável *</Label>
                 <Select value={form.assigned_to} onValueChange={(v) => setForm((p) => ({ ...p, assigned_to: v }))}>
-                  <SelectTrigger>
+                  <SelectTrigger className={form.assigned_to === "none" ? "border-destructive" : ""}>
                     <SelectValue placeholder="Selecione" />
                   </SelectTrigger>
                   <SelectContent>
@@ -613,6 +669,30 @@ export default function ProjectsPage() {
                 {submitError}
               </div>
             )}
+            {/* Freelancer checkbox */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-3 rounded-md border px-3 py-2.5">
+                <Checkbox
+                  id="is_freelancer"
+                  checked={form.is_freelancer}
+                  onCheckedChange={(v) => setForm(p => ({ ...p, is_freelancer: !!v, supplier_id: !!v ? p.supplier_id : null }))}
+                />
+                <label htmlFor="is_freelancer" className="text-sm cursor-pointer flex items-center gap-2">
+                  Atribuído a terceirizado
+                  {form.is_freelancer && <FreelancerBadge />}
+                </label>
+              </div>
+              {form.is_freelancer && organizationId && (
+                <div>
+                  <Label>Fornecedor</Label>
+                  <SupplierSelect
+                    organizationId={organizationId}
+                    value={form.supplier_id}
+                    onChange={(v) => setForm(p => ({ ...p, supplier_id: v }))}
+                  />
+                </div>
+              )}
+            </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => {
                 setModalOpen(false);
@@ -634,24 +714,42 @@ export default function ProjectsPage() {
 function ProjectRow({
   projectId,
   title,
+  code,
   startDate,
   endDate,
   status,
   responsible,
+  isFreelancer = false,
+  supplierName,
+  clickupSyncedAt,
+  clickupTaskId,
+  syncWebhookUrl,
+  createWebhookUrl,
+  projectData,
   onOpen,
 }: {
   projectId: string;
   title: string;
+  code?: number | null;
   startDate: string;
   endDate: string | null;
   status: string;
   responsible: string;
+  isFreelancer?: boolean;
+  supplierName?: string;
+  clickupSyncedAt?: string | null;
+  clickupTaskId?: string | null;
+  syncWebhookUrl?: string | null;
+  createWebhookUrl?: string | null;
+  projectData?: Record<string, unknown>;
   onOpen: () => void;
 }) {
   const { data: tasks = [] } = useTasks(projectId);
   const progress = useMemo(() => computeTasksProgress(tasks), [tasks]);
   const startOk = startDate ? new Date(startDate) : null;
   const endOk = endDate ? new Date(endDate) : null;
+  const { syncItem, syncing } = useClickupSync();
+  const isSyncing = syncing === projectId;
   return (
     <button
       type="button"
@@ -661,7 +759,70 @@ function ProjectRow({
       <div className="flex items-center gap-3">
         <FolderKanban className="h-5 w-5 text-muted-foreground" />
         <div>
-          <p className="font-medium">{title}</p>
+          <div className="flex items-center gap-2">
+            {code != null && (
+              <span className="font-mono text-xs text-muted-foreground">{formatEntityCode("PRJ", code)}</span>
+            )}
+            <p className="font-medium">{title}</p>
+            {isFreelancer && <FreelancerBadge supplierName={supplierName} />}
+            {isFreelancer && clickupSyncedAt && (
+              <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5">
+                <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-9-9"/><polyline points="21 3 21 9 15 9"/></svg>
+                ClickUp · {formatDistanceToNow(new Date(clickupSyncedAt), { addSuffix: true, locale: ptBR })}
+              </span>
+            )}
+            {isFreelancer && !clickupSyncedAt && (
+              <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                ClickUp · Não sincronizado
+              </span>
+            )}
+            {/* Botão Criar no ClickUp — só se terceirizado E sem clickup_task_id */}
+            {isFreelancer && !clickupTaskId && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!createWebhookUrl) { toast.error("Configure o Webhook ClickUp nas Configurações → n8n → ClickUp."); return; }
+                  if (!projectData) return;
+                  syncItem({
+                    webhookUrl: createWebhookUrl,
+                    table: "projects",
+                    item: { ...projectData, id: projectId, title, clickup_task_id: null } as any,
+                  });
+                }}
+                disabled={isSyncing}
+                className="inline-flex items-center gap-1 text-[10px] text-slate-500 hover:text-emerald-600 border border-slate-200 hover:border-emerald-300 rounded px-1.5 py-0.5 transition-colors"
+                title={createWebhookUrl ? "Criar no ClickUp" : "Webhook não configurado"}
+              >
+                <RefreshCcw className={`h-2.5 w-2.5 ${isSyncing ? "animate-spin" : ""}`} />
+                {isSyncing ? "Criando..." : "Criar no ClickUp"}
+              </button>
+            )}
+            {/* Botão Sincronizar — só se já tem clickup_task_id */}
+            {isFreelancer && clickupTaskId && (
+              <button
+                type="button"
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  if (!syncWebhookUrl) { toast.error("Configure o Webhook de Sync ClickUp nas Configurações → n8n → ClickUp."); return; }
+                  try {
+                    await fetch(syncWebhookUrl, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ trigger: "manual", project_id: projectId }),
+                    });
+                    toast.success("Sincronização iniciada!");
+                  } catch { toast.error("Erro ao sincronizar."); }
+                }}
+                disabled={isSyncing}
+                className="inline-flex items-center gap-1 text-[10px] text-emerald-600 hover:text-emerald-700 border border-emerald-200 hover:border-emerald-400 rounded px-1.5 py-0.5 transition-colors"
+                title={syncWebhookUrl ? "Sincronizar com ClickUp" : "Webhook não configurado"}
+              >
+                <RefreshCcw className={`h-2.5 w-2.5 ${isSyncing ? "animate-spin" : ""}`} />
+                {isSyncing ? "Sincronizando..." : "Sync ClickUp"}
+              </button>
+            )}          </div>
           <p className="text-sm text-muted-foreground">
             {startOk && !Number.isNaN(startOk.getTime()) ? format(startOk, "dd/MM/yyyy", { locale: ptBR }) : "—"}
             {endOk && !Number.isNaN(endOk.getTime()) ? ` – ${format(endOk, "dd/MM/yyyy", { locale: ptBR })}` : ""}

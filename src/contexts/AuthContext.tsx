@@ -44,6 +44,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfileLoading(true);
 
     try {
+      // Verificar se há sessão válida antes de qualquer chamada REST
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        console.warn("[Auth] fetchProfile chamado sem sessão válida, abortando.");
+        return null;
+      }
+
       // 1. SELECT direto (mais rápido e menos bloqueado)
       const { data, error: selectError } = await supabase
         .from('profiles')
@@ -66,6 +73,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // 3. Se ainda não encontrou, tenta criar o perfil (fluxo simplificado)
+      // Só tenta criar se não houve erro de autenticação (401)
+      if (selectError && (selectError as any).status === 401) {
+        console.warn("[Auth] 401 — sessão inválida, não tentando criar perfil.");
+        return null;
+      }
+      if (rpcError && (rpcError as any).status === 401) {
+        console.warn("[Auth] 401 no RPC — sessão inválida, não tentando criar perfil.");
+        return null;
+      }
+
       console.log("[Auth] Perfil não encontrado, tentando criar organização e perfil...");
       const orgSlug = user.email?.split('@')[0]?.replace(/[^a-z0-9]/g, '') || 'org';
       const uniqueSlug = `${orgSlug}-${uid.slice(0, 5)}`;
@@ -146,10 +163,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Limpeza manual para garantir que nada sobrou
       // (Alguns problemas de cookies/cache persistem após signOut)
       // Preserva chaves client_auth_* (sessões independentes do dashboard do cliente)
+      // Preserva chaves n8n_config_cache_* (cache de configurações para evitar flash de campos vazios)
       const keysToRemove: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i);
-        if (k && !k.startsWith('client_auth_')) keysToRemove.push(k);
+        if (k && !k.startsWith('client_auth_') && !k.startsWith('n8n_config_cache_')) keysToRemove.push(k);
       }
       keysToRemove.forEach((k) => localStorage.removeItem(k));
 

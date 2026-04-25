@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, Copy, Mail, CheckCircle2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useOrganization } from "@/hooks/useOrganization";
+import { useDriveFolder } from "@/hooks/useDriveFolder";
 import { useProfiles } from "@/hooks/useProfiles";
 import { getJobTitleOptions } from "@/lib/jobTitles";
 import { useJobTitleCatalog } from "@/hooks/useJobTitleCatalog";
@@ -43,16 +44,19 @@ export function AddCollaboratorModal({
   onSuccess,
 }: AddCollaboratorModalProps) {
   const organizationId = useOrganization();
+  const { autoCreateFolder } = useDriveFolder(organizationId);
   const catalog = useJobTitleCatalog(organizationId);
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
-  const [password, setPassword] = useState("");
   const [phone, setPhone] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [cpf, setCpf] = useState("");
   const [rg, setRg] = useState("");
   const [pixKey, setPixKey] = useState("");
   const [addressStreet, setAddressStreet] = useState("");
+  const [addressNumber, setAddressNumber] = useState("");
+  const [addressComplement, setAddressComplement] = useState("");
+  const [addressNeighborhood, setAddressNeighborhood] = useState("");
   const [addressCity, setAddressCity] = useState("");
   const [addressState, setAddressState] = useState("");
   const [addressZip, setAddressZip] = useState("");
@@ -99,7 +103,8 @@ export function AddCollaboratorModal({
       try {
         const address = await fetchAddressByCep(cleanCep);
         if (address) {
-          setAddressStreet(`${address.logradouro}${address.bairro ? `, ${address.bairro}` : ""}`);
+          setAddressStreet(address.logradouro || "");
+          setAddressNeighborhood(address.bairro || "");
           setAddressCity(address.localidade);
           setAddressState(address.uf);
           toast.success("Endereço preenchido pelo CEP!");
@@ -115,9 +120,10 @@ export function AddCollaboratorModal({
   }
 
   function resetForm() {
-    setEmail(""); setFullName(""); setPassword(""); setPhone("");
+    setEmail(""); setFullName(""); setPhone("");
     setDisplayName(""); setCpf(""); setRg(""); setPixKey("");
-    setAddressStreet(""); setAddressCity(""); setAddressState(""); setAddressZip("");
+    setAddressStreet(""); setAddressNumber(""); setAddressComplement("");
+    setAddressNeighborhood(""); setAddressCity(""); setAddressState(""); setAddressZip("");
     setEducationLevel("fundamental"); setGraduation(""); setJobTitle("");
     setBaseSalary(""); setCommissionPercent(""); setOvertimeFactor("1");
     setNotes(""); setError(null); setSuccessState(null);
@@ -135,15 +141,12 @@ export function AddCollaboratorModal({
     if (!trimmedEmail || !trimmedEmail.includes("@")) {
       setError("Informe um e-mail válido"); return;
     }
-    if (password && password.length < 6) {
-      setError("Senha deve ter no mínimo 6 caracteres"); return;
-    }
     if (!phone.trim()) { setError("Telefone é obrigatório"); return; }
     if (!displayName.trim()) { setError("Nome de exibição é obrigatório"); return; }
     if (!cpf.trim()) { setError("CPF é obrigatório"); return; }
     if (!rg.trim()) { setError("RG é obrigatório"); return; }
     if (!pixKey.trim()) { setError("Chave PIX é obrigatória"); return; }
-    if (!addressStreet.trim()) { setError("Endereço é obrigatório"); return; }
+    if (!addressStreet.trim()) { setError("Rua/Av. é obrigatória"); return; }
     if (!addressCity.trim()) { setError("Cidade é obrigatória"); return; }
     if (!addressState.trim()) { setError("Estado é obrigatório"); return; }
     if (!addressZip.trim()) { setError("CEP é obrigatório"); return; }
@@ -164,7 +167,6 @@ export function AddCollaboratorModal({
         },
         body: JSON.stringify({
           email: trimmedEmail,
-          password: password || undefined,
           full_name: fullName.trim() || trimmedEmail.split("@")[0],
           phone: phone.trim(),
           display_name: displayName.trim(),
@@ -172,6 +174,9 @@ export function AddCollaboratorModal({
           rg: rg.trim(),
           pix_key: pixKey.trim(),
           address_street: addressStreet.trim(),
+          address_number: addressNumber.trim(),
+          address_complement: addressComplement.trim(),
+          address_neighborhood: addressNeighborhood.trim(),
           address_city: addressCity.trim(),
           address_state: addressState.trim(),
           address_zip: addressZip.trim(),
@@ -197,6 +202,12 @@ export function AddCollaboratorModal({
       }
 
       onSuccess?.();
+      // Auto-criar pasta no Drive para o colaborador — inclui todos os campos disponíveis
+      autoCreateFolder("employee", {
+        id: trimmedEmail,
+        full_name: fullName.trim() || trimmedEmail,
+        name: fullName.trim() || trimmedEmail,
+      }, ["profiles", organizationId]);
 
       if (data.no_password && data.invite_link) {
         // Show invite options instead of closing
@@ -321,37 +332,19 @@ export function AddCollaboratorModal({
               {/* Dados de Acesso */}
               <div className="space-y-4">
                 <h3 className="text-sm font-semibold border-b pb-1">Dados de Acesso</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="email">E-mail *</Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="colaborador@exemplo.com"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="password">
-                      Senha{" "}
-                      <span className="text-muted-foreground font-normal">(opcional)</span>
-                    </Label>
-                    <Input
-                      id="password"
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Deixe em branco para enviar convite"
-                      minLength={password ? 6 : undefined}
-                    />
-                    {!password && (
-                      <p className="text-xs text-muted-foreground">
-                        Sem senha: você poderá enviar um link de convite após o cadastro.
-                      </p>
-                    )}
-                  </div>
+                <div className="space-y-2">
+                  <Label htmlFor="email">E-mail *</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="colaborador@exemplo.com"
+                    required
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Um link de convite será gerado após o cadastro para o colaborador definir sua senha.
+                  </p>
                 </div>
               </div>
 
@@ -391,39 +384,59 @@ export function AddCollaboratorModal({
               {/* Endereço */}
               <div className="space-y-4">
                 <h3 className="text-sm font-semibold border-b pb-1">Endereço</h3>
-                <div className="space-y-2">
-                  <Label htmlFor="addressStreet">Rua e Número *</Label>
-                  <Input id="addressStreet" value={addressStreet} onChange={(e) => setAddressStreet(e.target.value)} required />
-                </div>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-3 gap-4 items-end">
+                  <div className="space-y-2 col-span-3 w-[40%]">
+                    <Label htmlFor="addressZip">CEP *</Label>
+                    <div className="relative">
+                      <Input
+                        id="addressZip"
+                        value={addressZip}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setAddressZip(val);
+                          if (val.replace(/\D/g, "").length === 8) handleCepSearch(val);
+                        }}
+                        placeholder="00000-000"
+                        maxLength={9}
+                        required
+                      />
+                      {searchingCep && (
+                        <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="space-y-2 col-span-2">
+                    <Label htmlFor="addressStreet">Rua / Av. *</Label>
+                    <Input id="addressStreet" value={addressStreet} onChange={(e) => setAddressStreet(e.target.value)} placeholder="Nome da rua ou avenida" required />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="addressNumber">Número</Label>
+                    <Input id="addressNumber" value={addressNumber} onChange={(e) => setAddressNumber(e.target.value)} placeholder="Nº" />
+                  </div>
+                  <div className="space-y-2 col-span-2">
+                    <Label htmlFor="addressComplement">Complemento</Label>
+                    <Input id="addressComplement" value={addressComplement} onChange={(e) => setAddressComplement(e.target.value)} placeholder="Apto, sala, bloco..." />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="addressNeighborhood">Bairro</Label>
+                    <Input id="addressNeighborhood" value={addressNeighborhood} onChange={(e) => setAddressNeighborhood(e.target.value)} placeholder="Bairro" />
+                  </div>
                   <div className="space-y-2 col-span-2">
                     <Label htmlFor="addressCity">Cidade *</Label>
                     <Input id="addressCity" value={addressCity} onChange={(e) => setAddressCity(e.target.value)} required />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="addressState">Estado *</Label>
-                    <Input id="addressState" value={addressState} onChange={(e) => setAddressState(e.target.value)} placeholder="Ex: SP" required />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="addressZip">CEP *</Label>
-                  <div className="relative">
-                    <Input
-                      id="addressZip"
-                      value={addressZip}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setAddressZip(val);
-                        if (val.replace(/\D/g, "").length === 8) handleCepSearch(val);
-                      }}
-                      placeholder="00000-000"
-                      required
-                    />
-                    {searchingCep && (
-                      <div className="absolute right-2 top-1/2 -translate-y-1/2">
-                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                      </div>
-                    )}
+                    <Select value={addressState} onValueChange={setAddressState} required>
+                      <SelectTrigger id="addressState"><SelectValue placeholder="UF" /></SelectTrigger>
+                      <SelectContent>
+                        {["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"].map((uf) => (
+                          <SelectItem key={uf} value={uf}>{uf}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
               </div>

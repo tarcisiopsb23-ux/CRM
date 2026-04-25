@@ -33,6 +33,8 @@ export function useIntegration(
       return data as IntegrationRow | null;
     },
     enabled: !!organizationId,
+    staleTime: 5 * 60 * 1000, // 5 minutos — evita refetch desnecessário ao navegar entre páginas
+    gcTime: 10 * 60 * 1000,   // mantém em cache por 10 minutos após desmonte
   });
 
   const upsert = useMutation({
@@ -84,6 +86,7 @@ export type DriveApiSettings = {
   clientId: string | null;
   clientSecret: string | null;
   refreshToken: string | null;
+  googleDeveloperToken: string | null;
 };
 
 export function getDriveFoldersFromOrganizationSettings(settings: unknown): DriveFoldersByModule {
@@ -98,13 +101,14 @@ export function getDriveFoldersFromOrganizationSettings(settings: unknown): Driv
 }
 
 export function getDriveApiFromOrganizationSettings(settings: unknown): DriveApiSettings {
-  if (!isRecord(settings)) return { clientId: null, clientSecret: null, refreshToken: null };
+  if (!isRecord(settings)) return { clientId: null, clientSecret: null, refreshToken: null, googleDeveloperToken: null };
   const drive = isRecord(settings.drive) ? settings.drive : null;
   const api = drive && isRecord(drive.api) ? drive.api : null;
   const clientId = api && typeof api.clientId === "string" ? api.clientId : null;
   const clientSecret = api && typeof api.clientSecret === "string" ? api.clientSecret : null;
   const refreshToken = api && typeof api.refreshToken === "string" ? api.refreshToken : null;
-  return { clientId, clientSecret, refreshToken };
+  const googleDeveloperToken = api && typeof api.googleDeveloperToken === "string" ? api.googleDeveloperToken : null;
+  return { clientId, clientSecret, refreshToken, googleDeveloperToken };
 }
 
 export function setDriveFoldersInOrganizationSettings(
@@ -133,6 +137,7 @@ export function setDriveApiInOrganizationSettings(settings: unknown, next: Parti
   if ("clientId" in next) api.clientId = next.clientId ?? null;
   if ("clientSecret" in next) api.clientSecret = next.clientSecret ?? null;
   if ("refreshToken" in next) api.refreshToken = next.refreshToken ?? null;
+  if ("googleDeveloperToken" in next) api.googleDeveloperToken = next.googleDeveloperToken ?? null;
 
   drive.api = api;
   base.drive = drive;

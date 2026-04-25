@@ -8,6 +8,10 @@ export interface ClientIntegration {
   refresh_token?: string;
   token_expires_at?: string;
   settings?: Record<string, any>;
+  last_sync_at?: string | null;
+  sync_status?: 'pending' | 'syncing' | 'success' | 'error' | null;
+  sync_error?: string | null;
+  last_sync_records?: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -29,12 +33,18 @@ export interface CampaignData {
   organization_id: string;
   date: string;
   platform: string;
+  campaign_id?: string | null;
   campaign_name?: string;
+  objective?: string | null;
+  objective_metric_label?: string | null;
+  objective_metric_value?: number | null;
   spend?: number;
   clicks?: number;
   impressions?: number;
+  reach?: number;
   leads?: number;
   sales?: number;
+  revenue?: number;
   created_at: string;
 }
 

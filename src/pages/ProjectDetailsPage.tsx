@@ -6,11 +6,21 @@ import { useProjects, useTasks } from "@/hooks/useProjects";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useClients } from "@/hooks/useClients";
 import { useModulePermission } from "@/hooks/usePermissions";
-import { getDriveFoldersFromOrganizationSettings, useOrganizationSettings } from "@/hooks/useSettings";
+import { useSuppliers } from "@/hooks/useSuppliers";
+import { useIntegration, getDriveFoldersFromOrganizationSettings, useOrganizationSettings } from "@/hooks/useSettings";
+import { useClickupSync } from "@/hooks/useClickupSync";
+import { DriveFolderButton } from "@/components/shared/DriveFolderButton";
+import { SupplierSelect } from "@/components/shared/SupplierSelect";
+import { FreelancerBadge } from "@/components/shared/FreelancerBadge";
+import { PinAuthDialog } from "@/components/shared/PinAuthDialog";
+import { usePinConfirm } from "@/hooks/usePinConfirm";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
+import type { N8nConfig } from "@/types/settings";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
@@ -20,7 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, ArrowRight, Trash2, Calendar, CheckSquare, Plus, Users, LayoutList, CalendarDays, GanttChart, Pencil, FileText, ExternalLink, Download, PauseCircle } from "lucide-react";
+import { ArrowLeft, ArrowRight, Trash2, Calendar, CheckSquare, Plus, Users, LayoutList, CalendarDays, GanttChart, Pencil, FileText, ExternalLink, Download, PauseCircle, RefreshCcw } from "lucide-react";
 import { format, parseISO, isSameDay, isSameMonth, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, isWithinInterval, differenceInCalendarDays, isAfter, startOfWeek, endOfWeek, addWeeks, subWeeks, addDays, subDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import type { Database } from "@/types/supabase";
@@ -30,17 +40,51 @@ import { Progress } from "@/components/ui/progress";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { DocumentsCard } from "@/components/documents/DocumentsCard";
+import { DRIVE_AUTO_FOLDERS } from "@/constants/driveAutoFolders";
+import { ProjectMembersSection } from "@/components/projects/ProjectMembersSection";
+import { ProjectChatButton } from "@/components/projects/ProjectChatButton";
+import { TaskChatButton } from "@/components/projects/TaskChatButton";
+import { useChatContext } from "@/contexts/ChatContext";
 
 export function ProjectDetailsPage() {
   const { projectId } = useParams();
   const navigate = useNavigate();
   const organizationId = useOrganization();
+  const chat = useChatContext();
   const orgSettings = useOrganizationSettings(organizationId);
   const driveFolders = useMemo(() => getDriveFoldersFromOrganizationSettings(orgSettings.data), [orgSettings.data]);
   const { data: projects = [], remove, update } = useProjects(organizationId);
   const { data: profiles = [] } = useProfiles(organizationId);
   const { data: clients = [] } = useClients(organizationId);
   const { data: tasks = [], create: createTask, update: updateTask, remove: removeTask } = useTasks(projectId);
+  const { data: suppliers = [] } = useSuppliers(organizationId);
+  const { pinProps, requirePin } = usePinConfirm();
+  const { data: n8nIntegration } = useIntegration(organizationId, "n8n");
+  const clickupWebhookUrl = (n8nIntegration as { config?: N8nConfig } | null)?.config?.clickupWebhookUrl ?? null;
+  const clickupSyncWebhookUrl = (n8nIntegration as { config?: N8nConfig } | null)?.config?.clickupSyncWebhookUrl ?? null;
+  const clickupMembersWebhookUrl = (n8nIntegration as { config?: N8nConfig } | null)?.config?.clickupMembersWebhookUrl ?? null;
+  const { syncItem, syncing: clickupSyncing } = useClickupSync();
+
+  // Busca conversation_ids das tasks deste projeto
+  const { data: taskConversations = [] } = useQuery({
+    queryKey: ["task_conversations", projectId],
+    queryFn: async () => {
+      if (!projectId) return [];
+      const { data } = await supabase
+        .from("chat_conversations")
+        .select("id, linked_id")
+        .eq("linked_to", "task")
+        .in("linked_id", tasks.map(t => t.id));
+      return (data ?? []) as { id: string; linked_id: string }[];
+    },
+    enabled: !!projectId && tasks.length > 0,
+  });
+
+  const taskConvMap = useMemo(() => {
+    const m = new Map<string, string>();
+    taskConversations.forEach(c => m.set(c.linked_id, c.id));
+    return m;
+  }, [taskConversations]);
   const projectsPermission = useModulePermission("projects");
 
   const [isEditing, setIsEditing] = useState(false);
@@ -74,7 +118,7 @@ export function ProjectDetailsPage() {
   const [newTask, setNewTask] = useState({
     title: "",
     priority: "media" as Database["public"]["Enums"]["task_priority"],
-    assigned_to: "" as string | null,
+    assigned_to: null as string | null,
     status: "backlog" as Database["public"]["Enums"]["task_status"],
     description: "",
     notes: "",
@@ -82,6 +126,8 @@ export function ProjectDetailsPage() {
     end_date: "",
     estimated_hours: "",
     progress: "0",
+    is_freelancer: false,
+    supplier_id: null as string | null,
   });
 
   const filteredTasks = useMemo(() => {
@@ -137,8 +183,8 @@ export function ProjectDetailsPage() {
       end_date: editForm.end_date || null,
       status: editForm.status as any,
       priority: editForm.priority as any,
-      responsible_id: editForm.responsible_id === "unassigned" ? null : editForm.responsible_id,
-      client_id: (editForm as any).client_id === "none" ? null : (editForm as any).client_id,
+      responsible_id: editForm.responsible_id === "unassigned" || editForm.responsible_id === "" ? null : editForm.responsible_id,
+      client_id: (editForm as any).client_id === "none" || (editForm as any).client_id === "" ? null : (editForm as any).client_id,
       metadata: { ...((project as any).metadata || {}), notes: editForm.notes },
     });
     setIsEditing(false);
@@ -179,7 +225,7 @@ export function ProjectDetailsPage() {
         setNewTask({
             title: task.title,
             priority: task.priority,
-            assigned_to: task.assigned_to,
+            assigned_to: task.assigned_to || null,
             status: task.status,
             description: task.description || "",
             notes: (task.metadata as any)?.notes || "",
@@ -187,13 +233,15 @@ export function ProjectDetailsPage() {
             end_date: task.end_date || "",
             estimated_hours: task.estimated_hours ? String(task.estimated_hours) : "",
             progress: task.progress ? String(task.progress) : "0",
+            is_freelancer: task.is_freelancer ?? false,
+            supplier_id: task.supplier_id ?? null,
         });
     } else {
         setEditingTask(null);
         setNewTask({
             title: "",
             priority: "media",
-            assigned_to: "",
+            assigned_to: null,
             status: "backlog",
             description: "",
             notes: "",
@@ -201,6 +249,8 @@ export function ProjectDetailsPage() {
             end_date: "",
             estimated_hours: "",
             progress: "0",
+            is_freelancer: false,
+            supplier_id: null,
         });
     }
     setIsTaskModalOpen(true);
@@ -263,14 +313,35 @@ export function ProjectDetailsPage() {
                <Button size="sm" onClick={handleSaveDetails} disabled={!projectsPermission.canEdit}>Salvar</Button>
              </>
            )}
+          <DriveFolderButton
+            organizationId={organizationId!}
+            module="project"
+            record={{ id: project.id, title: project.title }}
+            folderId={project.folder_id ?? (project.metadata as Record<string, unknown> | null)?.drive_folder_id as string | null}
+            folderUrl={project.folder_url ?? (project.metadata as Record<string, unknown> | null)?.drive_folder_url as string | null}
+            onFolderSaved={async (fId, fUrl) => {
+              await update.mutateAsync({ id: project.id, folder_id: fId, folder_url: fUrl ?? null } as any);
+            }}
+          />
+          <ProjectChatButton
+            projectId={project.id}
+            linkedConversationId={(project.metadata as Record<string, unknown> | null)?.chat_conversation_id as string | null ?? null}
+            onConversationReady={(convId) => {
+              chat.openConversationById(convId);
+            }}
+          />
           <Button
             variant="destructive"
             size="sm"
             onClick={() => {
-              if (window.confirm("Tem certeza que deseja excluir este projeto?")) {
-                remove.mutate(project.id);
-                navigate("/projects");
-              }
+              requirePin(
+                "Excluir projeto",
+                "Esta ação não pode ser desfeita. Digite seu PIN para confirmar.",
+                async () => {
+                  remove.mutate(project.id);
+                  navigate("/projects");
+                }
+              );
             }}
             disabled={!projectsPermission.canDelete}
           >
@@ -284,6 +355,7 @@ export function ProjectDetailsPage() {
           <TabsTrigger value="dados">Dados cadastrais</TabsTrigger>
           <TabsTrigger value="tarefas">Tarefas</TabsTrigger>
           <TabsTrigger value="documentos">Documentos</TabsTrigger>
+          <TabsTrigger value="participantes">Participantes</TabsTrigger>
         </TabsList>
 
         <TabsContent value="dados" className="space-y-6">
@@ -603,7 +675,6 @@ export function ProjectDetailsPage() {
                               {task.title}
                             </p>
                             {task.description && <p className="text-xs text-muted-foreground mt-0.5">{task.description}</p>}
-                            {(task.metadata as any)?.notes && <p className="text-xs text-amber-600 mt-0.5 italic">Obs: {(task.metadata as any).notes}</p>}
                             </div>
                         </div>
                         <div className="flex gap-1">
@@ -627,13 +698,80 @@ export function ProjectDetailsPage() {
                             >
                                 <Pencil className="h-4 w-4" />
                             </Button>
+                            {/* Botão Criar no ClickUp — só aparece se terceirizado E sem clickup_task_id */}
+                            {task.is_freelancer && !task.clickup_task_id && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-muted-foreground hover:text-emerald-600"
+                                disabled={clickupSyncing === task.id}
+                                title={clickupWebhookUrl ? "Criar no ClickUp" : "Webhook não configurado — vá em Configurações → n8n → ClickUp"}
+                                onClick={() => {
+                                  if (!clickupWebhookUrl) { toast.error("Configure o Webhook ClickUp nas Configurações → n8n → ClickUp."); return; }
+                                  syncItem({
+                                    webhookUrl: clickupWebhookUrl,
+                                    table: "tasks",
+                                    item: {
+                                      ...task,
+                                      clickup_list_id: (project as any)?.clickup_list_id ?? null,
+                                      parent_project: {
+                                        id: project.id,
+                                        title: project.title,
+                                        clickup_list_id: (project as any)?.clickup_list_id ?? null,
+                                        is_freelancer: (project as any)?.is_freelancer ?? false,
+                                      },
+                                    },
+                                    parentClickupListId: (project as any)?.clickup_list_id ?? null,
+                                  });
+                                }}
+                                aria-label="Criar no ClickUp"
+                              >
+                                <RefreshCcw className={`h-4 w-4 ${clickupSyncing === task.id ? "animate-spin" : ""}`} />
+                              </Button>
+                            )}
+                            {/* Botão Sincronizar — só aparece se já tem clickup_task_id */}
+                            {task.is_freelancer && task.clickup_task_id && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-emerald-600 hover:text-emerald-700"
+                                disabled={clickupSyncing === task.id}
+                                title={clickupSyncWebhookUrl ? "Sincronizar com ClickUp" : "Webhook não configurado — vá em Configurações → n8n → ClickUp"}
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if (!clickupSyncWebhookUrl) { toast.error("Configure o Webhook de Sync ClickUp nas Configurações → n8n → ClickUp."); return; }
+                                  try {
+                                    await fetch(clickupSyncWebhookUrl, {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ trigger: "manual", task_id: task.id }),
+                                    });
+                                    toast.success("Sincronização iniciada!");
+                                  } catch { toast.error("Erro ao sincronizar."); }
+                                }}
+                                aria-label="Sincronizar com ClickUp"
+                              >
+                                <RefreshCcw className={`h-4 w-4 ${clickupSyncing === task.id ? "animate-spin" : ""}`} />
+                              </Button>
+                            )}
+                            <TaskChatButton
+                              taskId={task.id}
+                              taskTitle={task.title}
+                              linkedConversationId={taskConvMap.get(task.id) ?? null}
+                              size="icon"
+                              onConversationReady={(convId) => chat.openConversationById(convId)}
+                            />
                             <Button
                                 variant="ghost"
                                 size="icon"
                                 className="h-8 w-8 text-muted-foreground hover:text-destructive"
                                 onClick={() => {
                                   if (window.confirm("Cancelar esta tarefa?")) {
-                                    removeTask.mutate(task.id);
+                                    requirePin(
+                                      "Cancelar tarefa",
+                                      "Digite seu PIN para confirmar o cancelamento.",
+                                      async () => { removeTask.mutate(task.id); }
+                                    );
                                   }
                                 }}
                                 disabled={!projectsPermission.canDelete}
@@ -697,16 +835,39 @@ export function ProjectDetailsPage() {
         <TabsContent value="documentos" className="space-y-6">
           <DocumentsCard
             title="Documentos"
-            folderValue={(() => {
+            folderId={project.folder_id ?? (() => {
+              const meta = ((project as any).metadata ?? {}) as Record<string, unknown>;
+              return String(meta.drive_folder_id ?? meta.drive_folder ?? "").trim() || null;
+            })()}
+            folderValue={project.folder_url ?? (() => {
               const meta = ((project as any).metadata ?? {}) as Record<string, unknown>;
               const raw = (meta.drive_folder ?? meta.drive_folder_url ?? meta.folder ?? meta.pasta ?? "") as string;
               const v = String(raw ?? "").trim();
-              return v || driveFolders.projects || null;
+              return v || null;
             })()}
             canEdit={projectsPermission.canEdit}
             actionsDisplay="icons"
             limit={5}
+            autoFolderNames={DRIVE_AUTO_FOLDERS.project}
           />
+        </TabsContent>
+
+        <TabsContent value="participantes" className="space-y-4">
+          <Card>
+            <CardContent className="pt-6">
+              <ProjectMembersSection
+                projectId={project.id}
+                assignedTo={project.assigned_to ?? null}
+                teamId={project.team_id ?? null}
+                assignedToName={profiles.find((p) => p.id === project.assigned_to)?.full_name ?? null}
+                teamName={null}
+                clickupListId={(project as any)?.clickup_list_id ?? null}
+                clickupWebhookUrl={clickupWebhookUrl}
+                clickupMembersWebhookUrl={clickupMembersWebhookUrl}
+                projectTitle={project.title}
+              />
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 
@@ -729,14 +890,14 @@ export function ProjectDetailsPage() {
             
             <div className="grid grid-cols-2 gap-4">
                <div>
-                <Label>Responsável</Label>
+                <Label>Responsável *</Label>
                 <Select
                   value={newTask.assigned_to || "unassigned"}
                   onValueChange={(v) => setNewTask({ ...newTask, assigned_to: v === "unassigned" ? null : v })}
                 >
-                  <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                  <SelectTrigger className={!newTask.assigned_to ? "border-destructive" : ""}><SelectValue placeholder="Selecione..." /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="unassigned">Sem responsável</SelectItem>
+                    <SelectItem value="unassigned">Selecione...</SelectItem>
                     {profiles.map((p) => (
                       <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>
                     ))}
@@ -837,6 +998,31 @@ export function ProjectDetailsPage() {
                    rows={3}
                  />
               </div>
+
+              {/* Terceirizado */}
+              <div className="col-span-2 border-t pt-3 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="task_is_freelancer"
+                    checked={newTask.is_freelancer}
+                    onCheckedChange={(v) => setNewTask({ ...newTask, is_freelancer: !!v, supplier_id: !!v ? newTask.supplier_id : null })}
+                  />
+                  <label htmlFor="task_is_freelancer" className="text-sm cursor-pointer flex items-center gap-1.5">
+                    Atribuído a terceirizado
+                    {newTask.is_freelancer && <FreelancerBadge />}
+                  </label>
+                </div>
+                {newTask.is_freelancer && organizationId && (
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Fornecedor</Label>
+                    <SupplierSelect
+                      organizationId={organizationId}
+                      value={newTask.supplier_id}
+                      onChange={(id) => setNewTask({ ...newTask, supplier_id: id })}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           </div>
           <DialogFooter>
@@ -845,10 +1031,13 @@ export function ProjectDetailsPage() {
               disabled={
                 createTask.isPending ||
                 updateTask.isPending ||
+                !newTask.title.trim() ||
+                !newTask.assigned_to ||
                 (editingTask ? !projectsPermission.canEdit : !projectsPermission.canCreate)
               }
               onClick={() => {
                 if (!newTask.title.trim()) return;
+                if (!newTask.assigned_to) return;
                 
                 const taskData = {
                   project_id: project.id,
@@ -856,25 +1045,50 @@ export function ProjectDetailsPage() {
                   title: newTask.title,
                   description: newTask.description,
                   priority: newTask.priority,
-                  assigned_to: newTask.assigned_to,
+                  assigned_to: newTask.assigned_to || null,
                   status: newTask.status,
                   start_date: newTask.start_date || null,
                   end_date: newTask.end_date || null,
                   estimated_hours: newTask.estimated_hours ? Number(newTask.estimated_hours) : null,
                   progress: newTask.progress ? Number(newTask.progress) : 0,
                   metadata: { notes: newTask.notes },
+                  is_freelancer: newTask.is_freelancer,
+                  supplier_id: newTask.is_freelancer ? (newTask.supplier_id || null) : null,
+                };
+
+                // Helper para disparar webhook ClickUp
+                // Regra: tarefa terceirizada sempre envia dados do projeto pai,
+                // mesmo que o projeto não seja terceirizado (projeto = lista no ClickUp)
+                const fireClickupWebhook = (action: "create" | "update", task: any) => {
+                  if (!newTask.is_freelancer || !clickupWebhookUrl) return;
+                  const itemWithParent = {
+                    ...task,
+                    clickup_list_id: (project as any)?.clickup_list_id ?? null,
+                    parent_project: {
+                      id: project.id,
+                      title: project.title,
+                      clickup_list_id: (project as any)?.clickup_list_id ?? null,
+                      is_freelancer: (project as any)?.is_freelancer ?? false,
+                    },
+                  };
+                  fetch(clickupWebhookUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action, table: "tasks", item: itemWithParent }),
+                  }).catch(() => {});
                 };
 
                 if (editingTask) {
                     updateTask.mutate({ id: editingTask.id, ...taskData }, {
-                        onSuccess: () => {
+                        onSuccess: (updated) => {
                              setIsTaskModalOpen(false);
                              setEditingTask(null);
+                             fireClickupWebhook("update", updated);
                         }
                     });
                 } else {
                     createTask.mutate(taskData, {
-                      onSuccess: () => {
+                      onSuccess: (created) => {
                         setNewTask({ 
                           title: "", 
                           priority: "media", 
@@ -886,8 +1100,14 @@ export function ProjectDetailsPage() {
                           end_date: "",
                           estimated_hours: "",
                           progress: "0",
+                          is_freelancer: false,
+                          supplier_id: null,
                         });
                         setIsTaskModalOpen(false);
+                        fireClickupWebhook("create", created);
+                        if (newTask.is_freelancer) {
+                          toast.success("Tarefa criada e enviada para o ClickUp!");
+                        }
                       }
                     });
                 }
@@ -897,6 +1117,7 @@ export function ProjectDetailsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <PinAuthDialog {...pinProps} />
     </div>
   );
 }

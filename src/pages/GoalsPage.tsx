@@ -11,6 +11,8 @@ import { useProfiles } from "@/hooks/useProfiles";
 import { useModulePermission } from "@/hooks/usePermissions";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { PinAuthDialog } from "@/components/shared/PinAuthDialog";
+import { usePinConfirm } from "@/hooks/usePinConfirm";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -21,6 +23,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -75,6 +78,7 @@ type ViewType = "list" | "calendar" | "kanban";
 export default function GoalsPage() {
   const organizationId = useOrganization();
   const { data: goals = [], isLoading, create, update, remove } = useGoals(organizationId);
+  const { pinProps, requirePin } = usePinConfirm();
   const goalsPermission = useModulePermission("goals");
   const { canView: canViewFinancial } = useModulePermission("financial");
   const payments = usePayments(organizationId, { enabled: canViewFinancial });
@@ -531,9 +535,11 @@ export default function GoalsPage() {
                           size="icon"
                           className="text-destructive"
                           onClick={() => {
-                            if (window.confirm("Excluir esta meta?")) {
-                              remove.mutate(g.id);
-                            }
+                            requirePin(
+                              "Excluir meta",
+                              "Esta ação não pode ser desfeita. Digite seu PIN para confirmar.",
+                              async () => { remove.mutate(g.id); }
+                            );
                           }}
                           aria-label="Excluir"
                           disabled={!goalsPermission.canDelete}
@@ -794,14 +800,22 @@ export default function GoalsPage() {
             )}
             <div>
               <Label>Valor meta *</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={form.target_value}
-                onChange={(e) => setForm({ ...form, target_value: e.target.value })}
-                placeholder="0"
-                required
-              />
+              {form.unit === "R$" ? (
+                <CurrencyInput
+                  value={form.target_value}
+                  onChange={(v) => setForm({ ...form, target_value: v })}
+                  required
+                />
+              ) : (
+                <Input
+                  type="number"
+                  step="1"
+                  value={form.target_value}
+                  onChange={(e) => setForm({ ...form, target_value: e.target.value })}
+                  placeholder="0"
+                  required
+                />
+              )}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -977,13 +991,21 @@ export default function GoalsPage() {
             </div>
             <div>
               <Label>Valor meta *</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={form.target_value}
-                onChange={(e) => setForm({ ...form, target_value: e.target.value })}
-                required
-              />
+              {form.unit === "R$" ? (
+                <CurrencyInput
+                  value={form.target_value}
+                  onChange={(v) => setForm({ ...form, target_value: v })}
+                  required
+                />
+              ) : (
+                <Input
+                  type="number"
+                  step="1"
+                  value={form.target_value}
+                  onChange={(e) => setForm({ ...form, target_value: e.target.value })}
+                  required
+                />
+              )}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -1012,6 +1034,7 @@ export default function GoalsPage() {
           </form>
         </DialogContent>
       </Dialog>
+      <PinAuthDialog {...pinProps} />
     </div>
   );
 }

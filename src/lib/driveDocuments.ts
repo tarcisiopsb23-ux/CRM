@@ -22,6 +22,23 @@ function joinUrl(baseUrl: string, path: string) {
   return `${base}${p}`;
 }
 
+/**
+ * Em desenvolvimento, redireciona URLs absolutas do n8n para o proxy local do Vite
+ * (/n8n-proxy/...) evitando bloqueio de CORS.
+ * Em produção, retorna a URL original sem alteração.
+ */
+function toProxiedUrl(url: string): string {
+  if (import.meta.env.DEV) {
+    try {
+      const parsed = new URL(url);
+      return `/n8n-proxy${parsed.pathname}${parsed.search}`;
+    } catch {
+      return url;
+    }
+  }
+  return url;
+}
+
 export function getN8nWebhookUrl(config: N8nConfig | undefined): string | null {
   const baseUrl = config?.baseUrl?.trim();
   const webhookPath = config?.webhookPath?.trim();
@@ -67,6 +84,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+/** Lê o body da resposta como JSON de forma segura — retorna null se vazio ou inválido */
+async function safeJson(res: Response): Promise<unknown> {
+  const text = await res.text();
+  if (!text.trim()) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 function coerceFiles(payload: unknown): DriveDocumentItem[] {
   let rawFiles: unknown = payload;
   if (isRecord(payload)) {
@@ -76,14 +104,31 @@ function coerceFiles(payload: unknown): DriveDocumentItem[] {
     else if (Array.isArray(payload.items)) rawFiles = payload.items;
     else if (Array.isArray(data)) rawFiles = data;
   }
+  // Array direto (lastNode mode ou resposta já filtrada)
+  if (Array.isArray(payload) && rawFiles === payload) rawFiles = payload;
 
   if (!Array.isArray(rawFiles)) return [];
 
-  return rawFiles
+  // Normaliza itens que podem vir como { json: {...} } (formato interno do n8n)
+  const normalized = rawFiles.map((item) => {
+    if (isRecord(item) && isRecord(item.json)) return item.json;
+    return item;
+  });
+
+  return normalized
     .map((f) => {
       if (!isRecord(f)) return null;
       const name = String(f.name ?? f.title ?? "").trim();
       if (!name) return null;
+
+      // Exclui pastas da lista de arquivos
+      const mimeType = f.mimeType ? String(f.mimeType) : "";
+      const typeStr = String(f.type ?? f.kind ?? "").toLowerCase();
+      if (
+        mimeType === "application/vnd.google-apps.folder" ||
+        mimeType.includes("folder") ||
+        typeStr === "folder"
+      ) return null;
       const size =
         typeof f.size === "number"
           ? f.size
@@ -93,7 +138,16 @@ function coerceFiles(payload: unknown): DriveDocumentItem[] {
       return {
         id: f.id ? String(f.id) : undefined,
         name,
-        url: f.url ? String(f.url) : f.webViewLink ? String(f.webViewLink) : f.link ? String(f.link) : undefined,
+        // Tenta url, webViewLink, link — e como fallback constrói a URL a partir do id
+        url: f.url
+          ? String(f.url)
+          : f.webViewLink
+            ? String(f.webViewLink)
+            : f.link
+              ? String(f.link)
+              : f.id
+                ? `https://drive.google.com/file/d/${String(f.id)}/view`
+                : undefined,
         mimeType: f.mimeType ? String(f.mimeType) : undefined,
         modifiedTime: f.modifiedTime ? String(f.modifiedTime) : f.modified_at ? String(f.modified_at) : undefined,
         size: Number.isFinite(size) ? size : undefined,
@@ -104,6 +158,7 @@ function coerceFiles(payload: unknown): DriveDocumentItem[] {
 
 function coerceFolders(payload: unknown): DriveFolderItem[] {
   let rawItems: unknown = payload;
+
   if (isRecord(payload)) {
     const data = payload.data;
     if (Array.isArray(payload.folders)) rawItems = payload.folders;
@@ -111,21 +166,35 @@ function coerceFolders(payload: unknown): DriveFolderItem[] {
     else if (Array.isArray(payload.items)) rawItems = payload.items;
     else if (Array.isArray(data)) rawItems = data;
   }
+  // Array direto (lastNode mode ou resposta já filtrada)
+  if (Array.isArray(payload) && rawItems === payload) rawItems = payload;
 
   if (!Array.isArray(rawItems)) return [];
 
-  return rawItems
+  // Normaliza itens que podem vir como { json: {...} } (formato interno do n8n)
+  const normalized = rawItems.map((item) => {
+    if (isRecord(item) && isRecord(item.json)) return item.json;
+    return item;
+  });
+
+  return normalized
     .map((f) => {
       if (!isRecord(f)) return null;
-      const mimeType = f.mimeType ? String(f.mimeType) : "";
-      const isFolder =
-        String(f.type ?? f.kind ?? "").toLowerCase() === "folder" ||
-        mimeType === "application/vnd.google-apps.folder" ||
-        mimeType.includes("folder");
-      if (!isFolder) return null;
       const id = String(f.id ?? "").trim();
       const name = String(f.name ?? f.title ?? "").trim();
       if (!id || !name) return null;
+
+      // Se mimeType estiver presente, filtra apenas pastas.
+      // Se não estiver (n8n já retornou lista filtrada), aceita o item.
+      const mimeType = f.mimeType ? String(f.mimeType) : "";
+      if (mimeType) {
+        const isFolder =
+          String(f.type ?? f.kind ?? "").toLowerCase() === "folder" ||
+          mimeType === "application/vnd.google-apps.folder" ||
+          mimeType.includes("folder");
+        if (!isFolder) return null;
+      }
+
       return {
         id,
         name,
@@ -140,37 +209,38 @@ export async function listDriveFolderDocuments(input: {
   config: N8nConfig | undefined;
   folderId: string;
 }): Promise<DriveDocumentItem[]> {
-  const webhookUrl = getN8nWebhookUrl(input.config);
-  if (!webhookUrl) throw new Error("Integração n8n não configurada (URL Base / Caminho do Webhook).");
-
+  const rawUrl = input.config?.driveFolderManualWebhookUrl?.trim() || getN8nWebhookUrl(input.config);
+  if (!rawUrl) throw new Error("Webhook do Drive não configurado. Configure em Configurações → n8n → Ações Manuais no Drive.");
+  const webhookUrl = toProxiedUrl(rawUrl);
   const authHeaders = buildAuthHeaders(input.config);
 
+  // Tenta GET primeiro (compatível com workflow drive.json), depois POST (drive-folder-manual)
   const tryGet = async () => {
-    const url = new URL(webhookUrl);
+    const url = new URL(webhookUrl, window.location.origin);
     url.searchParams.set("action", "documents.list");
     url.searchParams.set("folderId", input.folderId);
     const res = await fetch(url.toString(), {
       method: "GET",
       headers: { ...authHeaders },
     });
-    if (!res.ok) throw new Error(`Falha ao listar documentos (${res.status})`);
-    return coerceFiles(await res.json());
+    if (!res.ok) throw new Error(`GET ${res.status}`);
+    return coerceFiles(await safeJson(res));
   };
 
-  const tryPostJson = async () => {
+  const tryPost = async () => {
     const res = await fetch(webhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify({ action: "documents.list", folderId: input.folderId }),
     });
     if (!res.ok) throw new Error(`Falha ao listar documentos (${res.status})`);
-    return coerceFiles(await res.json());
+    return coerceFiles(await safeJson(res));
   };
 
   try {
     return await tryGet();
   } catch {
-    return await tryPostJson();
+    return await tryPost();
   }
 }
 
@@ -178,37 +248,37 @@ export async function listDriveFolderFolders(input: {
   config: N8nConfig | undefined;
   folderId: string;
 }): Promise<DriveFolderItem[]> {
-  const webhookUrl = getN8nWebhookUrl(input.config);
-  if (!webhookUrl) throw new Error("Integração n8n não configurada (URL Base / Caminho do Webhook).");
-
+  const rawUrl = input.config?.driveFolderManualWebhookUrl?.trim() || getN8nWebhookUrl(input.config);
+  if (!rawUrl) throw new Error("Webhook do Drive não configurado. Configure em Configurações → n8n → Ações Manuais no Drive.");
+  const webhookUrl = toProxiedUrl(rawUrl);
   const authHeaders = buildAuthHeaders(input.config);
 
   const tryGet = async () => {
-    const url = new URL(webhookUrl);
+    const url = new URL(webhookUrl, window.location.origin);
     url.searchParams.set("action", "documents.folders.list");
     url.searchParams.set("folderId", input.folderId);
     const res = await fetch(url.toString(), {
       method: "GET",
       headers: { ...authHeaders },
     });
-    if (!res.ok) throw new Error(`Falha ao listar pastas (${res.status})`);
-    return coerceFolders(await res.json());
+    if (!res.ok) throw new Error(`GET ${res.status}`);
+    return coerceFolders(await safeJson(res));
   };
 
-  const tryPostJson = async () => {
+  const tryPost = async () => {
     const res = await fetch(webhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify({ action: "documents.folders.list", folderId: input.folderId }),
     });
     if (!res.ok) throw new Error(`Falha ao listar pastas (${res.status})`);
-    return coerceFolders(await res.json());
+    return coerceFolders(await safeJson(res));
   };
 
   try {
     return await tryGet();
   } catch {
-    return await tryPostJson();
+    return await tryPost();
   }
 }
 
@@ -217,8 +287,9 @@ export async function createDriveFolder(input: {
   parentFolderId: string;
   name: string;
 }): Promise<DriveFolderItem> {
-  const webhookUrl = getN8nWebhookUrl(input.config);
-  if (!webhookUrl) throw new Error("Integração n8n não configurada (URL Base / Caminho do Webhook).");
+  const rawUrl = input.config?.driveFolderManualWebhookUrl?.trim() || getN8nWebhookUrl(input.config);
+  if (!rawUrl) throw new Error("Webhook do Drive não configurado. Configure em Configurações → n8n → Ações Manuais no Drive.");
+  const webhookUrl = toProxiedUrl(rawUrl);
   const authHeaders = buildAuthHeaders(input.config);
 
   const res = await fetch(webhookUrl, {
@@ -231,7 +302,8 @@ export async function createDriveFolder(input: {
     }),
   });
   if (!res.ok) throw new Error(`Falha ao criar pasta (${res.status})`);
-  const payload = await res.json();
+  const payload = await safeJson(res);
+  if (!payload) return { id: "", name: input.name }; // resposta vazia — retorna fallback
   const items = coerceFolders(payload);
   const first = items[0];
   if (first) return first;
@@ -257,9 +329,9 @@ export async function uploadDriveFolderDocument(input: {
   folderId: string;
   file: File;
 }): Promise<void> {
-  const webhookUrl = getN8nWebhookUrl(input.config);
-  if (!webhookUrl) throw new Error("Integração n8n não configurada (URL Base / Caminho do Webhook).");
-
+  const rawUrl = input.config?.driveFolderManualWebhookUrl?.trim() || getN8nWebhookUrl(input.config);
+  if (!rawUrl) throw new Error("Webhook do Drive não configurado. Configure em Configurações → n8n → Ações Manuais no Drive.");
+  const webhookUrl = toProxiedUrl(rawUrl);
   const authHeaders = buildAuthHeaders(input.config);
   const form = new FormData();
   form.set("action", "documents.upload");
@@ -272,4 +344,94 @@ export async function uploadDriveFolderDocument(input: {
     body: form,
   });
   if (!res.ok) throw new Error(`Falha ao enviar documento (${res.status})`);
+}
+
+export async function shareDriveFolder(input: {
+  config: N8nConfig | undefined;
+  folderId: string;
+  name: string;
+  email: string;
+  role: "reader" | "commenter" | "writer";
+}): Promise<void> {
+  const rawUrl = input.config?.driveFolderManualWebhookUrl?.trim() || getN8nWebhookUrl(input.config);
+  if (!rawUrl) throw new Error("Webhook do Drive não configurado. Configure em Configurações → n8n → Ações Manuais no Drive.");
+  const webhookUrl = toProxiedUrl(rawUrl);
+  const authHeaders = buildAuthHeaders(input.config);
+  const res = await fetch(webhookUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders },
+    body: JSON.stringify({ action: "share_access", folderId: input.folderId, name: input.name, email: input.email, role: input.role }),
+  });
+  if (!res.ok) throw new Error(`Falha ao compartilhar pasta (${res.status})`);
+}
+
+export async function revokeDriveFolderAccess(input: {
+  config: N8nConfig | undefined;
+  folderId: string;
+  email: string;
+}): Promise<void> {
+  const rawUrl = input.config?.driveFolderManualWebhookUrl?.trim() || getN8nWebhookUrl(input.config);
+  if (!rawUrl) throw new Error("Webhook do Drive não configurado. Configure em Configurações → n8n → Ações Manuais no Drive.");
+  const webhookUrl = toProxiedUrl(rawUrl);
+  const authHeaders = buildAuthHeaders(input.config);
+  const res = await fetch(webhookUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders },
+    body: JSON.stringify({ action: "revoke_access", folderId: input.folderId, email: input.email }),
+  });
+  if (!res.ok) throw new Error(`Falha ao revogar acesso (${res.status})`);
+}
+
+/** Compartilha um arquivo específico (por fileId) no Google Drive */
+export async function shareDriveFile(input: {
+  config: N8nConfig | undefined;
+  fileId: string;
+  name: string;
+  email: string;
+  role: "reader" | "commenter" | "writer";
+}): Promise<void> {
+  const rawUrl = input.config?.driveFolderManualWebhookUrl?.trim() || getN8nWebhookUrl(input.config);
+  if (!rawUrl) throw new Error("Webhook do Drive não configurado. Configure em Configurações → n8n → Ações Manuais no Drive.");
+  const webhookUrl = toProxiedUrl(rawUrl);
+  const authHeaders = buildAuthHeaders(input.config);
+  const res = await fetch(webhookUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders },
+    body: JSON.stringify({ action: "share_access", fileId: input.fileId, name: input.name, email: input.email, role: input.role }),
+  });
+  if (!res.ok) throw new Error(`Falha ao compartilhar arquivo (${res.status})`);
+}
+
+/** Exclui uma subpasta do Google Drive */
+export async function deleteDriveFolder(input: {
+  config: N8nConfig | undefined;
+  folderId: string;
+}): Promise<void> {
+  const rawUrl = input.config?.driveFolderManualWebhookUrl?.trim() || getN8nWebhookUrl(input.config);
+  if (!rawUrl) throw new Error("Webhook do Drive não configurado. Configure em Configurações → n8n → Ações Manuais no Drive.");
+  const webhookUrl = toProxiedUrl(rawUrl);
+  const authHeaders = buildAuthHeaders(input.config);
+  const res = await fetch(webhookUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders },
+    body: JSON.stringify({ action: "delete_subfolder", folderId: input.folderId }),
+  });
+  if (!res.ok) throw new Error(`Falha ao excluir pasta (${res.status})`);
+}
+
+/** Exclui um arquivo do Google Drive */
+export async function deleteDriveFile(input: {
+  config: N8nConfig | undefined;
+  fileId: string;
+}): Promise<void> {
+  const rawUrl = input.config?.driveFolderManualWebhookUrl?.trim() || getN8nWebhookUrl(input.config);
+  if (!rawUrl) throw new Error("Webhook do Drive não configurado. Configure em Configurações → n8n → Ações Manuais no Drive.");
+  const webhookUrl = toProxiedUrl(rawUrl);
+  const authHeaders = buildAuthHeaders(input.config);
+  const res = await fetch(webhookUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders },
+    body: JSON.stringify({ action: "delete_file", fileId: input.fileId }),
+  });
+  if (!res.ok) throw new Error(`Falha ao excluir arquivo (${res.status})`);
 }

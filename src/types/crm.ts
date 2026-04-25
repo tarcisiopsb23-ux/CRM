@@ -5,6 +5,7 @@ export type PaymentPeriodicity = "pagamento_unico" | "50_50" | "mensal" | "trime
 export interface Client {
   id: string;
   organization_id: string;
+  code?: number | null;
   lead_id: string | null;
   name: string;
   document: string | null;
@@ -12,6 +13,9 @@ export interface Client {
   phone: string | null;
   company: string | null;
   address_street: string | null;
+  address_number: string | null;
+  address_complement: string | null;
+  address_neighborhood: string | null;
   address_city: string | null;
   address_state: string | null;
   address_zip: string | null;
@@ -26,6 +30,9 @@ export interface Client {
   responsible_name: string | null;
   responsible_phone: string | null;
   portfolio_team_id?: string | null;
+  folder_id: string | null;
+  folder_url: string | null;
+  asaas_id?: string | null;
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -80,16 +87,23 @@ export interface Payment {
 export interface Supplier {
   id: string;
   organization_id: string;
+  code?: number | null;
   name: string;
   document: string | null;
   email: string | null;
   phone: string | null;
   address_street: string | null;
+  address_number: string | null;
+  address_complement: string | null;
+  address_neighborhood: string | null;
   address_city: string | null;
   address_state: string | null;
   address_zip: string | null;
   service_category: string | null;
   pix: string | null;
+  is_active: boolean;
+  folder_id: string | null;
+  folder_url: string | null;
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;

@@ -8,7 +8,7 @@ import { useTeams } from "@/hooks/useTeams";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useLeadsKanban } from "@/hooks/useLeadsKanban";
 import { usePayments } from "@/hooks/useFinancial";
-import { useContractsByClient, useCreateContract, useDeleteContract, useEndContract, useReactivateContract, useSuspendContract, useUpdateContract, useSetDashboardReference } from "@/hooks/useContracts";
+import { useContractsByClient, useContractsWithC8, useCreateContract, useDeleteContract, useEndContract, useReactivateContract, useSuspendContract, useUpdateContract, useSetDashboardReference } from "@/hooks/useContracts";
 import { useContractMetrics } from "@/hooks/useContractMetrics";
 import { useModulePermission } from "@/hooks/usePermissions";
 import { getDriveFoldersFromOrganizationSettings, useOrganizationSettings } from "@/hooks/useSettings";
@@ -26,6 +26,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -48,14 +49,20 @@ import { Switch } from "@/components/ui/switch";
 import { fetchAddressByCep } from "@/lib/viacep";
 import { toast } from "sonner";
 import type { Client } from "@/types/crm";
-import { formatCpfCnpj, formatPhoneBR } from "@/lib/formatters";
+import { formatCpfCnpj, formatPhoneBR, formatEntityCode } from "@/lib/formatters";
 import { addMonths, endOfMonth, format, isWithinInterval, parseISO, startOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { DocumentsCard } from "@/components/documents/DocumentsCard";
+import { DRIVE_AUTO_FOLDERS } from "@/constants/driveAutoFolders";
 
 import { ClientIntegrationsTab } from "@/components/clients/ClientIntegrationsTab";
 import { ClientKPIsTab } from "@/components/clients/ClientKPIsTab";
+import { DriveFolderStatusAlert } from "@/components/shared/DriveFolderStatusAlert";
+import { PinAuthDialog } from "@/components/shared/PinAuthDialog";
+import { usePinConfirm } from "@/hooks/usePinConfirm";
+import { DriveFolderButton } from "@/components/shared/DriveFolderButton";
+import { useDriveFolder } from "@/hooks/useDriveFolder";
 import { ClientPerformanceTab } from "@/components/clients/ClientPerformanceTab";
 import { ContractDetailPage } from "@/components/clients/ContractDetailPage";
 import useFormPersistence from "@/hooks/useFormPersistence";
@@ -75,18 +82,21 @@ const SERVICE_LABELS: Record<string, string> = {
 
 export default function ClientsPage() {
   const organizationId = useOrganization();
+  const { pinProps, requirePin } = usePinConfirm();
   const orgSettings = useOrganizationSettings(organizationId);
   const driveFolders = useMemo(() => getDriveFoldersFromOrganizationSettings(orgSettings.data), [orgSettings.data]);
   const { profile } = useAuth();
   const { canCreate, canEdit, canDelete } = useModulePermission("clients");
   const { canEdit: canManageContracts } = useModulePermission("financial");
-  const { data: clients = [], isLoading, error: fetchError, create, update, remove, deactivate, activate } = useClients(organizationId);
+  const { data: clients = [], isLoading, error: fetchError, create, update, remove, deactivate, activate, hardDelete } = useClients(organizationId);
+  const { autoCreateFolder } = useDriveFolder(organizationId);
   const { data: teams = [] } = useTeams(organizationId);
   const { data: allProfiles = [] } = useProfiles(organizationId);
   const portfolios = useMemo(() => teams.filter(t => t.is_portfolio && t.type === 'comercial'), [teams]);
   const { leads, updateLead, removeLead } = useLeadsKanban(organizationId);
   const paymentsQuery = usePayments(organizationId);
   const contractMetrics = useContractMetrics(organizationId);
+
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Client | null>(null);
   const [fromLeadId, setFromLeadId] = useState<string | null>(null);
@@ -119,9 +129,28 @@ export default function ClientsPage() {
     phone: "",
   });
   const [delinquentOpen, setDelinquentOpen] = useState(false);
+  const [deleteClientTarget, setDeleteClientTarget] = useState<Client | null>(null);
+  const [isDeletingClient, setIsDeletingClient] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [searchingCep, setSearchingCep] = useState(false);
+  // IDs de clientes com criação de pasta em andamento — suprime o alerta até o folder_id chegar
+  const [folderPendingIds, setFolderPendingIds] = useState<Set<string>>(new Set());
+
+  // Limpa IDs pendentes quando o folder_id chegar via React Query
+  useEffect(() => {
+    if (folderPendingIds.size === 0) return;
+    const resolved = clients.filter(
+      (c) => folderPendingIds.has(c.id) && (c.folder_id || c.folder_url)
+    );
+    if (resolved.length > 0) {
+      setFolderPendingIds((prev) => {
+        const next = new Set(prev);
+        resolved.forEach((c) => next.delete(c.id));
+        return next;
+      });
+    }
+  }, [clients, folderPendingIds]);
   const navigate = useNavigate();
   const { clientId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -140,6 +169,9 @@ export default function ClientsPage() {
     address_city: "",
     address_state: "",
     address_zip: "",
+    address_number: "",
+    address_complement: "",
+    address_neighborhood: "",
     niche: "",
     origin: "",
     registration_type: DEFAULT_REGISTRATION_TYPE,
@@ -171,7 +203,8 @@ export default function ClientsPage() {
         if (address) {
           setForm((f) => ({
             ...f,
-            address_street: `${address.logradouro}${address.bairro ? `, ${address.bairro}` : ""}`,
+            address_street: address.logradouro || f.address_street,
+            address_neighborhood: address.bairro || (f as any).address_neighborhood,
             address_city: address.localidade,
             address_state: address.uf,
             address_zip: address.cep,
@@ -351,7 +384,7 @@ export default function ClientsPage() {
     enabled: !!organizationId && efetivadosParaConverter.length > 0,
   });
 
-  const clientContractsQuery = useContractsByClient(organizationId, viewing?.id ?? undefined);
+  const clientContractsQuery = useContractsWithC8(organizationId, viewing?.id ?? undefined);
   const createContract = useCreateContract(organizationId);
   const updateContract = useUpdateContract(organizationId);
   const endContract = useEndContract(organizationId, profile?.id);
@@ -361,7 +394,9 @@ export default function ClientsPage() {
   const setDashboardReference = useSetDashboardReference(organizationId);
 
   const viewingContractIds = useMemo(() => {
-    const ids = (clientContractsQuery.data ?? []).map((c) => String(c.id));
+    const ids = (clientContractsQuery.data ?? [])
+      .map((c) => String(c.id))
+      .filter((id) => !id.startsWith("c8_")); // exclude virtual C8 contracts
     ids.sort();
     return ids;
   }, [clientContractsQuery.data]);
@@ -399,7 +434,8 @@ export default function ClientsPage() {
     for (const ct of clientContractsQuery.data ?? []) {
       const st = String(ct.status ?? "");
       if (st !== "ativo" && st !== "suspenso") continue;
-      sum += contractTotalById.get(String(ct.id)) ?? 0;
+      // For virtual C8 contracts (no payments in DB), fall back to ct.value
+      sum += contractTotalById.get(String(ct.id)) ?? ct.value ?? 0;
     }
     return sum;
   }, [clientContractsQuery.data, contractTotalById]);
@@ -472,6 +508,9 @@ export default function ClientsPage() {
       address_city: c.address_city ?? "",
       address_state: c.address_state ?? "",
       address_zip: c.address_zip ?? "",
+      address_number: (c as any).address_number ?? "",
+      address_complement: (c as any).address_complement ?? "",
+      address_neighborhood: (c as any).address_neighborhood ?? "",
       niche: c.niche ?? "",
       origin: c.origin ?? "",
       registration_type: DEFAULT_REGISTRATION_TYPE,
@@ -507,6 +546,28 @@ export default function ClientsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editing && !form.name?.trim()) return;
+
+    // CPF/CNPJ obrigatório
+    const rawDoc = (form.document ?? "").replace(/\D/g, "");
+    if (!rawDoc) {
+      setSubmitError("CPF / CNPJ é obrigatório.");
+      return;
+    }
+
+    // Validação de duplicata por CPF/CNPJ (ignora o próprio registro ao editar)
+    const duplicate = clients.find(
+      (c) =>
+        c.id !== editing?.id &&
+        c.document &&
+        c.document.replace(/\D/g, "") === rawDoc
+    );
+    if (duplicate) {
+      setSubmitError(
+        `Já existe um cadastro com este CPF/CNPJ: "${duplicate.company || duplicate.name}". Verifique antes de continuar.`
+      );
+      return;
+    }
+
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -523,6 +584,9 @@ export default function ClientsPage() {
         await update.mutateAsync({ ...cleanedForm, id: editing.id } as Partial<Client> & { id: string });
       } else {
         const created = await create.mutateAsync({ ...cleanedForm, name: cleanedForm.name! });
+        // Auto-criar pasta no Drive — marca como pendente para suprimir o alerta imediatamente
+        autoCreateFolder("client", { id: created.id, name: created.name, company: created.company ?? undefined, code: (created as any).code ?? null }, ["clients", organizationId]);
+        setFolderPendingIds((prev) => new Set(prev).add(created.id));
         if (fromLeadId) {
           const l = leadsById.get(fromLeadId);
           await updateLead(fromLeadId, {
@@ -605,6 +669,15 @@ export default function ClientsPage() {
 
       {!clientId && (
         <>
+          <DriveFolderStatusAlert
+            organizationId={organizationId}
+            module="client"
+            table="clients"
+            queryKey="clients"
+            records={clients.map((c) => ({ id: c.id, name: c.company || c.name, folder_id: c.folder_id, folder_url: c.folder_url, metadata: c.metadata, is_active: (c as any).is_active }))}
+            pendingIds={folderPendingIds}
+            canEdit={canEdit}
+          />
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <Card>
               <CardHeader>
@@ -818,8 +891,11 @@ export default function ClientsPage() {
                               variant="ghost"
                               className="text-destructive bg-background hover:bg-muted"
                               onClick={async () => {
-                                if (!window.confirm("Excluir este lead?")) return;
-                                await removeLead(l.id);
+                                requirePin(
+                                  "Excluir lead",
+                                  "Esta ação não pode ser desfeita. Digite seu PIN para confirmar.",
+                                  async () => { await removeLead(l.id); }
+                                );
                               }}
                               aria-label="Excluir lead"
                             >
@@ -877,11 +953,13 @@ export default function ClientsPage() {
                 <Table className="border-separate border-spacing-0">
                   <TableHeader className="sticky top-0 z-20 bg-background shadow-sm">
                   <TableRow className="bg-background hover:bg-background">
+                    <TableHead className="bg-background border-b font-bold text-foreground w-24">Código</TableHead>
                     <TableHead className="bg-background border-b font-bold text-foreground">Nome</TableHead>
                     <TableHead className="bg-background border-b font-bold text-foreground">Carteira</TableHead>
                     <TableHead className="bg-background border-b font-bold text-foreground">Decisor</TableHead>
                     <TableHead className="bg-background border-b font-bold text-foreground">Tel. decisor</TableHead>
                     <TableHead className="text-right bg-background border-b font-bold text-foreground">Total contratos</TableHead>
+                    {profile?.role === "owner" && <TableHead className="bg-background border-b w-10" />}
                   </TableRow>
                 </TableHeader>
                   <TableBody className="bg-background">
@@ -897,9 +975,12 @@ export default function ClientsPage() {
                           className="cursor-pointer bg-background hover:bg-muted/30 transition-colors group"
                           onClick={() => navigate(clientHref(String(c.id)))}
                         >
+                          <TableCell className="bg-background group-hover:bg-transparent">
+                            <span className="font-mono text-xs text-muted-foreground">{formatEntityCode("CLI", c.code)}</span>
+                          </TableCell>
                           <TableCell className="font-medium bg-background group-hover:bg-transparent">
                             <div className="flex items-center gap-2">
-                              <span className="truncate">{c.company || c.name}</span>
+                              <span className="truncate">{c.name}</span>
                               {hasSuspended ? <Badge variant="secondary">Suspenso</Badge> : null}
                             </div>
                           </TableCell>
@@ -913,6 +994,19 @@ export default function ClientsPage() {
                           <TableCell className="bg-background group-hover:bg-transparent">{decisor}</TableCell>
                           <TableCell className="bg-background group-hover:bg-transparent">{decisorPhone !== "—" ? formatPhoneBR(String(decisorPhone)) : "—"}</TableCell>
                           <TableCell className="text-right bg-background group-hover:bg-transparent">R$ {total.toFixed(2).replace(".", ",")}</TableCell>
+                          {profile?.role === "owner" && (
+                            <TableCell className="bg-background group-hover:bg-transparent" onClick={(e) => e.stopPropagation()}>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7 text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={() => setDeleteClientTarget(c)}
+                                aria-label="Excluir cliente"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </TableCell>
+                          )}
                         </TableRow>
                       );
                     })}
@@ -924,53 +1018,86 @@ export default function ClientsPage() {
         </Card>
       )}
 
+      <Dialog open={!!deleteClientTarget} onOpenChange={(open) => { if (!open) setDeleteClientTarget(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Excluir cliente</DialogTitle>
+            <DialogDescription>
+              Tem certeza que deseja excluir permanentemente <strong>{deleteClientTarget?.name}</strong>?
+              <br />
+              Contratos e lançamentos pendentes serão removidos. Pagamentos realizados serão preservados no histórico.
+              <br /><br />
+              <span className="text-destructive font-medium">Esta ação não pode ser desfeita.</span>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteClientTarget(null)} disabled={isDeletingClient}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={isDeletingClient}
+              onClick={() => {
+                if (!deleteClientTarget) return;
+                requirePin(
+                  "Excluir cliente permanentemente",
+                  `Excluir "${deleteClientTarget.name}"? Esta ação não pode ser desfeita.`,
+                  async () => {
+                    setIsDeletingClient(true);
+                    try {
+                      await hardDelete.mutateAsync(deleteClientTarget.id);
+                      toast.success(`Cliente "${deleteClientTarget.name}" excluído.`);
+                      setDeleteClientTarget(null);
+                    } finally {
+                      setIsDeletingClient(false);
+                    }
+                  }
+                );
+              }}
+            >
+              {isDeletingClient ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Excluir permanentemente
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={modalOpen} onOpenChange={(open) => {setModalOpen(open); if (!open) setSubmitError(null);}}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-[75vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {editing ? "Editar cliente" : fromLeadId ? "Finalizar Conversão" : "Novo cliente"}
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-4 items-end">
               <div>
-                <Label>Tipo</Label>
-                <Select
-                  value={DEFAULT_REGISTRATION_TYPE}
-                  onValueChange={() => void 0}
-                  disabled
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={DEFAULT_REGISTRATION_TYPE}>Cliente</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Nome *</Label>
+                <Label>Nome de Exibição *</Label>
+                <p className="text-[11px] text-muted-foreground mb-1">Nome fantasia ou apelido usado para identificar o cliente no sistema.</p>
                 <Input
                   value={form.name ?? ""}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="Nome do responsável"
+                  placeholder="Ex: Acme, João Silva"
                   required
                 />
               </div>
               <div>
-                <Label>Empresa</Label>
+                <Label>Empresa (Razão Social / Nome Completo)</Label>
+                <p className="text-[11px] text-muted-foreground mb-1">Razão social da empresa ou nome completo da pessoa física.</p>
                 <Input
                   value={form.company ?? ""}
                   onChange={(e) => setForm({ ...form, company: e.target.value })}
-                  placeholder="Nome da empresa"
+                  placeholder="Ex: Acme Ltda. / João da Silva Santos"
                 />
               </div>
               <div>
-                <Label>CPF/CNPJ</Label>
+                <Label>CPF / CNPJ *</Label>
+                <p className="text-[11px] text-muted-foreground mb-1">CPF para pessoa física, CNPJ para pessoa jurídica.</p>
                 <Input
                   value={form.document ?? ""}
                   onChange={(e) => setForm({ ...form, document: e.target.value })}
                   placeholder="CPF ou CNPJ"
+                  required
                 />
               </div>
               <div>
@@ -1006,7 +1133,7 @@ export default function ClientsPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div>
+              <div className="col-span-2 w-[40%]">
                 <Label>CEP</Label>
                 <div className="relative">
                   <Input
@@ -1019,6 +1146,7 @@ export default function ClientsPage() {
                       }
                     }}
                     placeholder="00000-000"
+                    maxLength={9}
                   />
                   {searchingCep && (
                     <div className="absolute right-2 top-1/2 -translate-y-1/2">
@@ -1026,6 +1154,38 @@ export default function ClientsPage() {
                     </div>
                   )}
                 </div>
+              </div>
+              <div className="col-span-2">
+                <Label>Rua / Av.</Label>
+                <Input
+                  value={form.address_street ?? ""}
+                  onChange={(e) => setForm({ ...form, address_street: e.target.value })}
+                  placeholder="Nome da rua ou avenida"
+                />
+              </div>
+              <div className="w-[40%]">
+                <Label>Número</Label>
+                <Input
+                  value={(form as any).address_number ?? ""}
+                  onChange={(e) => setForm({ ...form, address_number: e.target.value } as any)}
+                  placeholder="Nº"
+                />
+              </div>
+              <div>
+                <Label>Complemento</Label>
+                <Input
+                  value={(form as any).address_complement ?? ""}
+                  onChange={(e) => setForm({ ...form, address_complement: e.target.value } as any)}
+                  placeholder="Apto, sala, bloco..."
+                />
+              </div>
+              <div>
+                <Label>Bairro</Label>
+                <Input
+                  value={(form as any).address_neighborhood ?? ""}
+                  onChange={(e) => setForm({ ...form, address_neighborhood: e.target.value } as any)}
+                  placeholder="Bairro"
+                />
               </div>
               <div>
                 <Label>Cidade</Label>
@@ -1035,21 +1195,19 @@ export default function ClientsPage() {
                   placeholder="Cidade"
                 />
               </div>
-              <div className="col-span-2">
-                <Label>Endereço</Label>
-                <Input
-                  value={form.address_street ?? ""}
-                  onChange={(e) => setForm({ ...form, address_street: e.target.value })}
-                  placeholder="Rua, número, bairro"
-                />
-              </div>
               <div>
-                <Label>UF</Label>
-                <Input
+                <Label>Estado</Label>
+                <Select
                   value={form.address_state ?? ""}
-                  onChange={(e) => setForm({ ...form, address_state: e.target.value })}
-                  placeholder="Estado"
-                />
+                  onValueChange={(v) => setForm({ ...form, address_state: v })}
+                >
+                  <SelectTrigger><SelectValue placeholder="UF" /></SelectTrigger>
+                  <SelectContent>
+                    {["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"].map((uf) => (
+                      <SelectItem key={uf} value={uf}>{uf}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <Label>Decisor</Label>
@@ -1101,12 +1259,9 @@ export default function ClientsPage() {
               ) : (
                 <div>
                   <Label>Faturamento (R$)</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
+                  <CurrencyInput
                     value={form.revenue ?? ""}
-                    onChange={(e) => setForm({ ...form, revenue: e.target.value ? Number(e.target.value) : undefined })}
-                    placeholder="0,00"
+                    onChange={(v) => setForm({ ...form, revenue: v ? Number(v) : undefined })}
                   />
                 </div>
               )}
@@ -1170,7 +1325,16 @@ export default function ClientsPage() {
             <Button type="button" size="sm" onClick={() => openEdit(viewing)} disabled={!canEdit}>
               Alterar
             </Button>
-            {/* Toggle ativo/inativo */}
+            <DriveFolderButton
+              organizationId={organizationId!}
+              module="client"
+              record={{ id: viewing.id, name: viewing.name, company: viewing.company ?? undefined }}
+              folderId={viewing.folder_id ?? (viewing.metadata as Record<string, unknown> | null)?.drive_folder_id as string | null}
+              folderUrl={viewing.folder_url ?? (viewing.metadata as Record<string, unknown> | null)?.drive_folder_url as string | null}
+              onFolderSaved={async (fId, fUrl) => {
+                await update.mutateAsync({ id: viewing.id, folder_id: fId, folder_url: fUrl ?? null });
+              }}
+            />
             <div className="flex items-center gap-2">
               <Switch
                 checked={(viewing as any)?.is_active !== false}
@@ -1184,10 +1348,15 @@ export default function ClientsPage() {
                       onError: (err) => toast.error(err instanceof Error ? err.message : "Erro ao reativar"),
                     });
                   } else {
-                    if (!window.confirm(`Desativar "${viewing!.company || viewing!.name}"? Lançamentos pendentes serão cancelados.`)) return;
-                    deactivate.mutateAsync(viewing!.id)
-                      .then(() => { toast.success("Cliente desativado"); navigate(listHref); })
-                      .catch((err) => toast.error(err instanceof Error ? err.message : "Erro ao desativar"));
+                    requirePin(
+                      "Desativar cliente",
+                      `Desativar "${viewing!.company || viewing!.name}"? Lançamentos pendentes serão cancelados.`,
+                      async () => {
+                        await deactivate.mutateAsync(viewing!.id);
+                        toast.success("Cliente desativado");
+                        navigate(listHref);
+                      }
+                    );
                   }
                 }}
               />
@@ -1232,6 +1401,10 @@ export default function ClientsPage() {
               <div>
                 <p className="text-sm text-muted-foreground">CPF/CNPJ</p>
                 <p className="font-medium">{viewing.document ? formatCpfCnpj(viewing.document) : "—"}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Código</p>
+                <p className="font-mono font-medium">{formatEntityCode("CLI", viewing.code)}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Cidade</p>
@@ -1339,8 +1512,11 @@ export default function ClientsPage() {
                       setContractSuspendOpen(true);
                     }}
                     onReactivate={async () => {
-                      if (!window.confirm("Reativar este contrato?")) return;
-                      await reactivateContract.mutateAsync({ id: ct.id, client_id: viewing.id });
+                      requirePin(
+                        "Reativar contrato",
+                        "Digite seu PIN para confirmar a reativação.",
+                        async () => { await reactivateContract.mutateAsync({ id: ct.id, client_id: viewing.id }); }
+                      );
                     }}
                     onEnd={() => {
                       setContractTargetId(ct.id);
@@ -1434,7 +1610,7 @@ export default function ClientsPage() {
                             )}
                           </div>
                         </TableCell>
-                        <TableCell className="text-right bg-background group-hover:bg-transparent">{new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(contractTotalById.get(String(ct.id)) ?? 0)}</TableCell>
+                        <TableCell className="text-right bg-background group-hover:bg-transparent">{new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(contractTotalById.get(String(ct.id)) ?? ct.value ?? 0)}</TableCell>
                         <TableCell className="text-right bg-background group-hover:bg-transparent" onClick={(e) => e.stopPropagation()}>
                           <div className="flex justify-end gap-1">
                             <Button size="icon" variant="ghost" onClick={() => setViewingContractId(ct.id)} aria-label="Ver detalhes" className="bg-background hover:bg-muted">
@@ -1471,8 +1647,11 @@ export default function ClientsPage() {
                               size="icon" variant="ghost"
                               className="text-destructive bg-background hover:bg-muted"
                               onClick={async () => {
-                                if (!window.confirm("Excluir este contrato?")) return;
-                                await deleteContract.mutateAsync({ id: ct.id, client_id: viewing.id });
+                                requirePin(
+                                  "Excluir contrato",
+                                  "Esta ação não pode ser desfeita. Digite seu PIN para confirmar.",
+                                  async () => { await deleteContract.mutateAsync({ id: ct.id, client_id: viewing.id }); }
+                                );
                               }}
                               disabled={!canManageContracts || !canDelete || deleteContract.isPending}
                               aria-label="Excluir"
@@ -1496,7 +1675,11 @@ export default function ClientsPage() {
         <DocumentsCard
           title="Documentos"
           variant="folders"
-          folderValue={(() => {
+          folderId={viewing.folder_id ?? (() => {
+            const meta = (viewing.metadata ?? {}) as Record<string, unknown>;
+            return String(meta.drive_folder_id ?? meta.drive_folder ?? "").trim() || null;
+          })()}
+          folderValue={viewing.folder_url ?? (() => {
             const meta = (viewing.metadata ?? {}) as Record<string, unknown>;
             const raw = (meta.drive_folder ?? meta.drive_folder_url ?? meta.folder ?? meta.pasta ?? "") as string;
             const v = String(raw ?? "").trim();
@@ -1504,13 +1687,15 @@ export default function ClientsPage() {
           })()}
           canEdit={canEdit}
           allowCreateFolder
+          autoFolderNames={DRIVE_AUTO_FOLDERS.client}
           createFolderParentValue={driveFolders.clients}
           createFolderName={(viewing.company || viewing.name || "Cliente").trim()}
           onSetFolderValue={
             canEdit
               ? async (next) => {
-                  const current = (viewing.metadata ?? {}) as Record<string, unknown>;
-                  await update.mutateAsync({ id: viewing.id, metadata: { ...current, drive_folder: next || null } });
+                  const folderId = next.match(/^[a-zA-Z0-9_-]{10,}$/) && !next.includes("http") ? next : (next.match(/\/folders\/([a-zA-Z0-9_-]+)/)?.[1] ?? next);
+                  const folderUrl = next.startsWith("http") ? next : `https://drive.google.com/drive/folders/${folderId}`;
+                  await update.mutateAsync({ id: viewing.id, folder_id: folderId, folder_url: folderUrl });
                 }
               : undefined
           }
@@ -1692,6 +1877,7 @@ export default function ClientsPage() {
                     <SelectItem value="Automação IA">Automação IA</SelectItem>
                     <SelectItem value="Captação Profissional">Captação Profissional</SelectItem>
                     <SelectItem value="Desenvolvimento e Programação">Desenvolvimento e Programação</SelectItem>
+                    <SelectItem value="Identidade Visual">Identidade Visual</SelectItem>
                     <SelectItem value="Lançamento">Lançamento</SelectItem>
                     <SelectItem value="Parceria/Collab">Parceria/Collab</SelectItem>
                   </SelectContent>
@@ -1766,10 +1952,9 @@ export default function ClientsPage() {
             <div className="grid grid-cols-4 gap-4">
               <div>
                 <Label>Valor do 1º pagamento</Label>
-                <Input
-                  type="number" step="0.01"
+                <CurrencyInput
                   value={contractForm.first_payment_value}
-                  onChange={(e) => setContractForm({ ...contractForm, first_payment_value: e.target.value })}
+                  onChange={(v) => setContractForm({ ...contractForm, first_payment_value: v })}
                   disabled={contractEditingId ? !canEdit : !canCreate}
                 />
               </div>
@@ -1821,10 +2006,9 @@ export default function ClientsPage() {
               <div className="grid grid-cols-4 gap-4">
                 <div>
                   <Label>Taxas (acréscimo)</Label>
-                  <Input
-                    type="number" step="0.01"
+                  <CurrencyInput
                     value={contractForm.first_payment_fees}
-                    onChange={(e) => setContractForm({ ...contractForm, first_payment_fees: e.target.value })}
+                    onChange={(v) => setContractForm({ ...contractForm, first_payment_fees: v })}
                     disabled={contractEditingId ? !canEdit : !canCreate}
                   />
                 </div>
@@ -1846,10 +2030,9 @@ export default function ClientsPage() {
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <Label>Valor mensal (demais pagamentos)</Label>
-                  <Input
-                    type="number" step="0.01"
+                  <CurrencyInput
                     value={contractForm.recurring_value}
-                    onChange={(e) => setContractForm({ ...contractForm, recurring_value: e.target.value })}
+                    onChange={(v) => setContractForm({ ...contractForm, recurring_value: v })}
                     disabled={contractEditingId ? !canEdit : !canCreate}
                   />
                 </div>
@@ -1926,11 +2109,17 @@ export default function ClientsPage() {
               if (!contractTargetId || !contractTargetClientId) return;
               const reason = contractEndReason.trim();
               if (!reason) return;
-              await endContract.mutateAsync({ id: contractTargetId, client_id: contractTargetClientId, reason });
-              setContractEndOpen(false);
-              setContractTargetId(null);
-              setContractTargetClientId(null);
-              setContractEndReason("");
+              requirePin(
+                "Encerrar contrato",
+                "Esta ação encerrará o contrato. Digite seu PIN para confirmar.",
+                async () => {
+                  await endContract.mutateAsync({ id: contractTargetId!, client_id: contractTargetClientId!, reason });
+                  setContractEndOpen(false);
+                  setContractTargetId(null);
+                  setContractTargetClientId(null);
+                  setContractEndReason("");
+                }
+              );
             }}
           >
             <div>
@@ -1960,11 +2149,17 @@ export default function ClientsPage() {
               if (!contractTargetId || !contractTargetClientId) return;
               const reason = contractSuspendReason.trim();
               if (!reason) return;
-              await suspendContract.mutateAsync({ id: contractTargetId, client_id: contractTargetClientId, reason });
-              setContractSuspendOpen(false);
-              setContractTargetId(null);
-              setContractTargetClientId(null);
-              setContractSuspendReason("");
+              requirePin(
+                "Suspender contrato",
+                "Esta ação suspenderá o contrato. Digite seu PIN para confirmar.",
+                async () => {
+                  await suspendContract.mutateAsync({ id: contractTargetId!, client_id: contractTargetClientId!, reason });
+                  setContractSuspendOpen(false);
+                  setContractTargetId(null);
+                  setContractTargetClientId(null);
+                  setContractSuspendReason("");
+                }
+              );
             }}
           >
             <div>
@@ -2105,7 +2300,7 @@ export default function ClientsPage() {
             </div>
             <div className="space-y-1">
               <Label>Valor (R$)</Label>
-              <Input type="number" step="0.01" value={editPaymentForm.value} onChange={(e) => setEditPaymentForm({ ...editPaymentForm, value: e.target.value })} />
+              <CurrencyInput value={editPaymentForm.value} onChange={(v) => setEditPaymentForm({ ...editPaymentForm, value: v })} />
             </div>
             <div className="space-y-1">
               <Label>Vencimento</Label>
@@ -2156,10 +2351,9 @@ export default function ClientsPage() {
           <div className="space-y-4 py-2">
             <div className="space-y-1">
               <Label>Valor recebido (R$)</Label>
-              <Input
-                type="number" step="0.01" min="0.01"
+              <CurrencyInput
                 value={receiveValue}
-                onChange={(e) => setReceiveValue(e.target.value)}
+                onChange={(v) => setReceiveValue(v)}
               />
               {receivePaymentOpen && parseFloat(receiveValue) > 0 && parseFloat(receiveValue) < receivePaymentOpen.value && (
                 <p className="text-xs text-amber-600 mt-1">
@@ -2214,6 +2408,7 @@ export default function ClientsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <PinAuthDialog {...pinProps} />
     </div>
   );
 }

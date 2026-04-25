@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PercentInput } from "@/components/ui/percent-input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -200,23 +201,23 @@ export function CommissionConfigTab({ profile }: Props) {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="space-y-1">
             <Label>Taxa de Comissão (%)</Label>
-            <Input type="number" min={0} step={0.01} value={rates.commission_rate}
-              onChange={(e) => setRates((r) => ({ ...r, commission_rate: e.target.value }))} />
+            <PercentInput value={rates.commission_rate}
+              onChange={(v) => setRates((r) => ({ ...r, commission_rate: v }))} />
           </div>
           <div className="space-y-1">
             <Label>Bônus Tier 120% (%)</Label>
-            <Input type="number" min={0} step={0.01} value={rates.bonus_rate_120}
-              onChange={(e) => setRates((r) => ({ ...r, bonus_rate_120: e.target.value }))} />
+            <PercentInput value={rates.bonus_rate_120}
+              onChange={(v) => setRates((r) => ({ ...r, bonus_rate_120: v }))} />
           </div>
           <div className="space-y-1">
             <Label>Bônus Tier 135% (%)</Label>
-            <Input type="number" min={0} step={0.01} value={rates.bonus_rate_135}
-              onChange={(e) => setRates((r) => ({ ...r, bonus_rate_135: e.target.value }))} />
+            <PercentInput value={rates.bonus_rate_135}
+              onChange={(v) => setRates((r) => ({ ...r, bonus_rate_135: v }))} />
           </div>
           <div className="space-y-1">
             <Label>Bônus Tier 150% (%)</Label>
-            <Input type="number" min={0} step={0.01} value={rates.bonus_rate_150}
-              onChange={(e) => setRates((r) => ({ ...r, bonus_rate_150: e.target.value }))} />
+            <PercentInput value={rates.bonus_rate_150}
+              onChange={(v) => setRates((r) => ({ ...r, bonus_rate_150: v }))} />
           </div>
         </div>
         <div className="flex justify-end mt-3">

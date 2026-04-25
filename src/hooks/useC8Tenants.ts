@@ -1,0 +1,110 @@
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/lib/supabase";
+import type { SubscriptionStatus } from "@/lib/crmModules";
+
+export interface C8Tenant {
+  client_id: string;
+  client_name: string;
+  plan_name: string;
+  plan_value: number;
+  max_users: number;
+  due_day: number;
+  subscription_status: SubscriptionStatus;
+  contract_start: string | null;
+  contract_end: string | null;
+  primary_user_email: string | null;
+  notes: string | null;
+  suspended_at: string | null;
+  blocked_reason: string | null;
+  active_users_count: number;
+  total_users_count: number;
+  c8_control_enabled: boolean;
+}
+
+export function useC8Tenants(organizationId: string | undefined) {
+  return useQuery({
+    queryKey: ["c8_tenants", organizationId],
+    queryFn: async (): Promise<C8Tenant[]> => {
+      if (!organizationId) return [];
+
+      // Query 1: clients + crm_client_plans
+      const { data: plans, error: plansError } = await supabase
+        .from("crm_client_plans")
+        .select(`
+          client_id,
+          plan_name,
+          plan_value,
+          max_users,
+          due_day,
+          subscription_status,
+          contract_start,
+          contract_end,
+          primary_user_email,
+          notes,
+          suspended_at,
+          blocked_reason,
+          clients!inner (
+            id,
+            name,
+            c8_control_enabled,
+            organization_id
+          )
+        `)
+        .eq("clients.organization_id", organizationId)
+        .eq("clients.c8_control_enabled", true);
+
+      if (plansError) throw plansError;
+      if (!plans || plans.length === 0) return [];
+
+      // Query 2: contagem local (excluindo suporte)
+      // Não usa c8Summary pois o C8 Control ainda contabiliza usuários de suporte
+      const [localUsersResult] = await Promise.all([
+        supabase
+          .from("crm_client_users")
+          .select("client_id, active, email, last_access_at, is_support")
+          .in("client_id", plans.map(p => p.client_id))
+          .eq("is_support", false),
+      ]);
+
+      // Fallback local — conta por client_id excluindo suporte
+      const localTotalMap: Record<string, number> = {};
+      const localActiveMap: Record<string, number> = {};
+
+      for (const u of localUsersResult.data ?? []) {
+        localTotalMap[u.client_id] = (localTotalMap[u.client_id] ?? 0) + 1;
+        // Ativo = já fez primeiro login (last_access_at preenchido)
+        if (u.last_access_at) {
+          localActiveMap[u.client_id] = (localActiveMap[u.client_id] ?? 0) + 1;
+        }
+      }
+
+      return plans.map((p) => {
+        const client = p.clients as unknown as { id: string; name: string; c8_control_enabled: boolean };
+
+        const activeCount = localActiveMap[p.client_id] ?? 0;
+        const totalCount = localTotalMap[p.client_id] ?? 0;
+
+        return {
+          client_id: p.client_id,
+          client_name: client?.name ?? "",
+          plan_name: p.plan_name ?? "Starter",
+          plan_value: p.plan_value ?? 0,
+          max_users: p.max_users ?? 1,
+          due_day: p.due_day ?? 1,
+          subscription_status: (p.subscription_status ?? "ativo") as SubscriptionStatus,
+          contract_start: p.contract_start ?? null,
+          contract_end: p.contract_end ?? null,
+          primary_user_email: p.primary_user_email ?? null,
+          notes: p.notes ?? null,
+          suspended_at: p.suspended_at ?? null,
+          blocked_reason: p.blocked_reason ?? null,
+          active_users_count: activeCount,
+          total_users_count: totalCount,
+          c8_control_enabled: client?.c8_control_enabled ?? true,
+        };
+      });
+    },
+    enabled: !!organizationId,
+    staleTime: 30_000,
+  });
+}

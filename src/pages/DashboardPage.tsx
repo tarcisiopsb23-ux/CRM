@@ -59,6 +59,9 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { DailyMetrics } from "@/types/hub_performance";
+import { PendingAuthorizationsWidget } from "@/components/dashboard/PendingAuthorizationsWidget";
+import AuthorizationsPage from "@/pages/AuthorizationsPage";
+import { usePendingAuthorizations } from "@/hooks/usePendingAuthorizations";
 
 interface RankingItem {
   name: string;
@@ -241,6 +244,8 @@ function RankingBlock({
 
 export function DashboardPage() {
   const organizationId = useOrganization();
+  const { pending: pendingAuths } = usePendingAuthorizations();
+  const pendingCount = pendingAuths.length;
   const navigate = useNavigate();
 
   // Funil de Vendas
@@ -740,6 +745,14 @@ export function DashboardPage() {
         <TabsList>
           <TabsTrigger value="dashboard">Visão Geral</TabsTrigger>
           <TabsTrigger value="ranking">Rankings & Performance</TabsTrigger>
+          <TabsTrigger value="authorizations" className="relative">
+            Autorizações
+            {pendingCount > 0 && (
+              <span className="ml-1.5 bg-amber-500 text-white text-xs rounded-full px-1.5 py-0.5 leading-none">
+                {pendingCount}
+              </span>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="dashboard" className="space-y-6 outline-none">
@@ -1199,6 +1212,10 @@ export function DashboardPage() {
           }))}
         />
       </div>
+    </TabsContent>
+
+    <TabsContent value="authorizations" className="outline-none">
+      <AuthorizationsPage embedded />
     </TabsContent>
   </Tabs>
 </div>

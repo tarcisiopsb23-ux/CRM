@@ -30,6 +30,45 @@ import { fmtKpiValue } from "@/lib/formatters";
 import { supabase } from "@/lib/supabase";
 
 const isLowerBetter = (name: string) => /cac|cpa|cpl|cpc|cpm|custo/i.test(name);
+
+// Agrega linhas diárias de campaign_data por (platform, campaign_name)
+function aggregateCampaigns(rows: any[]) {
+  const map = new Map<string, any>();
+  for (const r of rows) {
+    const key = `${r.platform}||${r.campaign_id ?? r.campaign_name ?? ""}`;
+    if (!map.has(key)) {
+      map.set(key, {
+        platform: r.platform,
+        campaign_name: r.campaign_name ?? "—",
+        objective: r.objective ?? null,
+        objective_metric_label: r.objective_metric_label ?? null,
+        spend: 0, leads: 0, sales: 0, clicks: 0, impressions: 0, revenue: 0, reach: 0,
+        objective_metric_value: 0,
+      });
+    }
+    const agg = map.get(key)!;
+    agg.spend                  += r.spend                  ?? 0;
+    agg.leads                  += r.leads                  ?? 0;
+    agg.sales                  += r.sales                  ?? 0;
+    agg.clicks                 += r.clicks                 ?? 0;
+    agg.impressions            += r.impressions            ?? 0;
+    agg.revenue                += r.revenue                ?? 0;
+    agg.reach                  += r.reach                  ?? 0;
+    agg.objective_metric_value += r.objective_metric_value ?? 0;
+    if (!agg.objective && r.objective) agg.objective = r.objective;
+    if (!agg.objective_metric_label && r.objective_metric_label) agg.objective_metric_label = r.objective_metric_label;
+  }
+  return Array.from(map.values()).map(c => {
+    const hasRealMetric = c.objective_metric_label && c.objective_metric_value > 0;
+    const resultLabel = hasRealMetric ? c.objective_metric_label
+      : c.sales > 0 ? "Vendas" : c.leads > 0 ? "Leads" : "Cliques";
+    const mainResult = hasRealMetric ? c.objective_metric_value
+      : c.sales > 0 ? c.sales : c.leads > 0 ? c.leads : c.clicks;
+    const objective = c.objective ?? (c.sales > 0 ? "Vendas" : c.leads > 0 ? "Geração de Leads" : "Tráfego");
+    const cpr = c.spend > 0 && mainResult > 0 ? c.spend / mainResult : 0;
+    return { ...c, objective, mainResult, resultLabel, cpr };
+  }).sort((a, b) => b.spend - a.spend);
+}
 const KPI_COLORS = ["#10b981","#2D8CC7","#f59e0b","#a855f7","#f43f5e","#06b6d4","#e879f9","#34d399"];
 
 type Period = "7d" | "30d" | "90d" | "180d" | "1y" | "custom";
@@ -73,7 +112,12 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
   }, [organizationId, clientId]);
 
   const { campaignDataQuery, dailyMetricsQuery } = useClientReports(organizationId, clientId, dateRange);
-  const campaigns = (campaignDataQuery.data ?? []) as any[];
+  const campaigns = useMemo(() => aggregateCampaigns((campaignDataQuery.data ?? []) as any[]), [campaignDataQuery.data]);
+  const [campaignFilter, setCampaignFilter] = useState<"Todas" | "meta" | "google">("Todas");
+  const filteredCampaigns = useMemo(() =>
+    campaignFilter === "Todas" ? campaigns : campaigns.filter((c: any) => c.platform === campaignFilter),
+    [campaigns, campaignFilter]
+  );
   const dailyMetrics = (dailyMetricsQuery.data ?? []) as any[];
   const { data: kpis = [] } = useClientKPIs(organizationId, clientId);
   const { data: kpiHistory = [] } = useClientKPIHistory(organizationId, clientId);
@@ -382,46 +426,77 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
 
         {/* ── 4. TOP CAMPANHAS ── */}
         <Card className="border-none shadow-sm ring-1 ring-slate-200">
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-row items-center justify-between pb-3">
             <CardTitle className="text-base font-bold text-slate-800">Top Campanhas do Período</CardTitle>
-            <InfoTooltip text="Ranking das campanhas com maior volume de resultado no período. Compare eficiência entre campanhas e plataformas — identifique quais geram melhor ROAS e menor custo por aquisição." />
+            <div className="flex items-center gap-2">
+              {(["Todas", "meta", "google"] as const).map(f => (
+                <button
+                  key={f}
+                  onClick={() => setCampaignFilter(f)}
+                  className={cn(
+                    "px-3 py-1 rounded-full text-[11px] font-bold transition-colors",
+                    campaignFilter === f
+                      ? "bg-slate-800 text-white"
+                      : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                  )}
+                >
+                  {f === "Todas" ? "Todas" : f.charAt(0).toUpperCase() + f.slice(1)}
+                </button>
+              ))}
+              <InfoTooltip text="Ranking das campanhas com maior volume de resultado no período. Compare eficiência entre campanhas e plataformas — identifique quais geram melhor ROAS e menor custo por aquisição." />
+            </div>
           </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="text-slate-400 text-[10px] uppercase font-black tracking-widest border-b border-slate-100">
-                    <th className="px-6 py-3">Plataforma</th>
-                    <th className="px-6 py-3">Campanha</th>
-                    <th className="px-6 py-3">Investimento</th>
-                    <th className="px-6 py-3 text-center">Leads</th>
-                    <th className="px-6 py-3 text-center">Vendas</th>
-                    <th className="px-6 py-3 text-right">ROAS</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {campaigns.length === 0 ? (
-                    <tr><td colSpan={6} className="py-10 text-center text-slate-400 text-sm italic">Sem dados de campanhas para este período.</td></tr>
-                  ) : campaigns.map((c: any) => {
-                    const campRevenue = c.revenue ?? c.total_revenue ?? 0;
-                    const r = c.spend > 0 ? (campRevenue / c.spend).toFixed(1) : "0.0";
-                    return (
-                      <tr key={c.id ?? c.campaign_name ?? c.name} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-6 py-4 text-slate-500 font-bold text-sm">{c.platform}</td>
-                        <td className="px-6 py-4 font-bold text-slate-800 text-sm">{c.campaign_name ?? c.name ?? "—"}</td>
-                        <td className="px-6 py-4 text-slate-500 text-sm">R$ {(c.spend || 0).toLocaleString("pt-BR")}</td>
-                        <td className="px-6 py-4 text-slate-600 font-bold text-center text-sm">{c.leads ?? 0}</td>
-                        <td className="px-6 py-4 text-slate-600 font-bold text-center text-sm">{c.sales ?? 0}</td>
-                        <td className="px-6 py-4 text-right">
-                          <span className={cn("font-black px-2 py-1 rounded text-xs", Number(r) >= 4 ? "bg-emerald-500/10 text-emerald-600" : "bg-orange-500/10 text-orange-500")}>
-                            {r}x
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <div className="overflow-y-auto" style={{ maxHeight: "336px" }}>
+                <table className="w-full text-left border-collapse">
+                  <thead className="sticky top-0 bg-white z-10">
+                    <tr className="text-slate-400 text-[10px] uppercase font-black tracking-widest border-b border-slate-100">
+                      <th className="px-3 py-3 w-24">Plataforma</th>
+                      <th className="px-6 py-3">Campanha</th>
+                      <th className="px-6 py-3 w-32">Investimento</th>
+                      <th className="px-3 py-3 text-center w-20">Alcance</th>
+                      <th className="px-3 py-3 text-center w-28">Resultado</th>
+                      <th className="px-6 py-3 text-center w-32">Custo/Result.</th>
+                      <th className="px-6 py-3 text-right w-32">Faturamento</th>
+                      <th className="px-6 py-3 text-right w-20">ROAS</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {filteredCampaigns.length === 0 ? (
+                      <tr><td colSpan={8} className="py-10 text-center text-slate-400 text-sm italic">Sem dados de campanhas para este período.</td></tr>
+                    ) : filteredCampaigns.map((c: any) => {
+                      const r = c.spend > 0 && c.revenue > 0 ? (c.revenue / c.spend).toFixed(1) : "0.0";
+                      return (
+                        <tr key={`${c.platform}-${c.campaign_name}`} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-3 py-4 text-slate-500 font-bold text-sm w-24">{c.platform}</td>
+                          <td className="px-6 py-4 font-bold text-slate-800 text-sm">
+                            <div>{c.campaign_name}</div>
+                            <div className="text-[10px] font-normal text-slate-400 uppercase tracking-wide mt-0.5">{c.objective}</div>
+                          </td>
+                          <td className="px-6 py-4 text-slate-500 text-sm w-32">R$ {c.spend.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</td>
+                          <td className="px-3 py-4 text-slate-600 text-center text-sm w-20">{c.reach > 0 ? c.reach.toLocaleString("pt-BR") : "—"}</td>
+                          <td className="px-3 py-4 text-slate-600 font-bold text-center text-sm w-28">
+                            <div>{c.mainResult}</div>
+                            <div className="text-[10px] font-normal text-slate-400">{c.resultLabel}</div>
+                          </td>
+                          <td className="px-6 py-4 text-slate-600 font-bold text-center text-sm w-32">
+                            {c.cpr > 0 ? `R$ ${c.cpr.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}
+                          </td>
+                          <td className="px-6 py-4 text-slate-600 font-bold text-right text-sm w-32">
+                            {c.revenue > 0 ? `R$ ${c.revenue.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : "—"}
+                          </td>
+                          <td className="px-6 py-4 text-right w-20">
+                            <span className={cn("font-black px-2 py-1 rounded text-xs", Number(r) >= 4 ? "bg-emerald-500/10 text-emerald-600" : "bg-orange-500/10 text-orange-500")}>
+                              {r}x
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </CardContent>
         </Card>

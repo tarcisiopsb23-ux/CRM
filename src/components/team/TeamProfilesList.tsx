@@ -41,6 +41,10 @@ import { useNavigate } from "react-router-dom";
 import { usePermissionForScope } from "@/hooks/usePermissions";
 import { getDriveFoldersFromOrganizationSettings, useOrganizationSettings } from "@/hooks/useSettings";
 import { DocumentsCard } from "@/components/documents/DocumentsCard";
+import { DRIVE_AUTO_FOLDERS } from "@/constants/driveAutoFolders";
+import { DriveFolderButton } from "@/components/shared/DriveFolderButton";
+import { DriveFolderStatusAlert } from "@/components/shared/DriveFolderStatusAlert";
+import { useDriveFolder } from "@/hooks/useDriveFolder";
 import { CollaboratorTimeclockTab } from "./CollaboratorTimeclockTab";
 import { CommissionConfigTab } from "./CommissionConfigTab";
 import { EmployeeAbsencesTab } from "./EmployeeAbsencesTab";
@@ -49,6 +53,7 @@ import { EmployeeGoalsTab } from "./EmployeeGoalsTab";
 import { EmployeeTrainingsTab } from "./EmployeeTrainingsTab";
 import { EmployeeDocumentsTab } from "./EmployeeDocumentsTab";
 import { EmployeeScoreTab } from "./EmployeeScoreTab";
+import { PinAuthDialog } from "@/components/shared/PinAuthDialog";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 
@@ -76,6 +81,7 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
   const orgSettings = useOrganizationSettings(organizationId);
   const driveFolders = getDriveFoldersFromOrganizationSettings(orgSettings.data);
   const { update, remove, deactivate, activate } = useProfiles(organizationId);
+  useDriveFolder(organizationId); // inicializa para DriveFolderButton e DriveFolderStatusAlert
   const { profile: me } = useAuth();
   const { canView: canEditTimeclock, isAdminOrOwner: isAdmin } = usePermissionForScope("team", "timeclock_edit");
   const expenses = useSupplierExpenses(organizationId);
@@ -90,7 +96,7 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
   const [profileToDelete, setProfileToDelete] = useState<ProfileRow | null>(null);
   const [showInactive, setShowInactive] = useState(false);
 
-  // Dialogs de ponto — suportam controle externo (via props) ou interno
+  // Dialogs de ponto � suportam controle externo (via props) ou interno
   const [limitOpenInternal, setLimitOpenInternal] = useState(false);
   const limitOpen = externalLimitOpen !== undefined ? externalLimitOpen : limitOpenInternal;
   const setLimitOpen = (v: boolean) => { setLimitOpenInternal(v); onExternalLimitOpenChange?.(v); };
@@ -117,62 +123,82 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
   const authorizeLimit = useRepPAdminAuthorizeLimit();
   const createPunch = useRepPAdminCreatePunch();
 
+  // PIN auth state
+  const [pinOpen, setPinOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<(() => Promise<void>) | null>(null);
+  const [pinTitle, setPinTitle] = useState("Autorizar acao");
+  const [pinDescription, setPinDescription] = useState("Digite seu PIN de 8 digitos para confirmar.");
+
+  const requirePin = (title: string, description: string, action: () => Promise<void>) => {
+    setPinTitle(title);
+    setPinDescription(description);
+    setPendingAction(() => action);
+    setPinOpen(true);
+  };
+
   const submitLimit = async () => {
     if (!viewing) return;
-    try {
-      if (!limitForm.justification.trim()) { toast.error("Justificativa obrigatória"); return; }
-      await authorizeLimit.mutateAsync({
-        userId: viewing.id,
-        forDate: format(new Date(), "yyyy-MM-dd"),
-        authType: limitForm.authType,
-        justification: limitForm.justification,
-      });
-      toast.success("Autorização concedida — colaborador tem 5 minutos para registrar");
-      setLimitOpen(false);
-      setLimitForm((p) => ({ ...p, justification: "" }));
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Erro ao autorizar");
-    }
+    if (!limitForm.justification.trim()) { toast.error("Justificativa obrigatoria"); return; }
+    requirePin(
+      "Autorizar entrada/saida fora do horario",
+      "Digite seu PIN de 8 digitos para confirmar a autorizacao.",
+      async () => {
+        await authorizeLimit.mutateAsync({
+          userId: viewing.id,
+          forDate: format(new Date(), "yyyy-MM-dd"),
+          authType: limitForm.authType,
+          justification: limitForm.justification,
+        });
+        toast.success("Autorizacao concedida - colaborador tem 5 minutos para registrar");
+        setLimitOpen(false);
+        setLimitForm((p) => ({ ...p, justification: "" }));
+      }
+    );
   };
 
   const submitOvertime = async () => {
     if (!viewing) return;
-    try {
-      if (!overtimeForm.justification.trim()) { toast.error("Justificativa obrigatória"); return; }
-      if (overtimeForm.authorizedMinutes <= 0) { toast.error("Informe os minutos autorizados"); return; }
-      await authorizeLimit.mutateAsync({
-        userId: viewing.id,
-        forDate: format(new Date(), "yyyy-MM-dd"),
-        authType: "overtime",
-        justification: overtimeForm.justification,
-        authorizedMinutes: overtimeForm.authorizedMinutes,
-      });
-      toast.success(`Hora extra autorizada: ${overtimeForm.authorizedMinutes} min`);
-      setOvertimeOpen(false);
-      setOvertimeForm((p) => ({ ...p, justification: "" }));
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Erro ao autorizar hora extra");
-    }
+    if (!overtimeForm.justification.trim()) { toast.error("Justificativa obrigatoria"); return; }
+    if (overtimeForm.authorizedMinutes <= 0) { toast.error("Informe os minutos autorizados"); return; }
+    requirePin(
+      "Autorizar hora extra",
+      "Digite seu PIN de 8 digitos para confirmar a autorizacao.",
+      async () => {
+        await authorizeLimit.mutateAsync({
+          userId: viewing.id,
+          forDate: format(new Date(), "yyyy-MM-dd"),
+          authType: "overtime",
+          justification: overtimeForm.justification,
+          authorizedMinutes: overtimeForm.authorizedMinutes,
+        });
+        toast.success(`Hora extra autorizada: ${overtimeForm.authorizedMinutes} min`);
+        setOvertimeOpen(false);
+        setOvertimeForm((p) => ({ ...p, justification: "" }));
+      }
+    );
   };
 
   const submitManualPunch = async () => {
     if (!viewing) return;
-    try {
-      if (!manualPunchForm.justification.trim()) { toast.error("Justificativa obrigatória"); return; }
-      const occurredAtIso = new Date(`${manualPunchForm.date}T${manualPunchForm.time}:00`).toISOString();
-      await createPunch.mutateAsync({
-        userId: viewing.id,
-        occurredAtIso,
-        type: manualPunchForm.type,
-        justification: manualPunchForm.justification,
-      });
-      toast.success("Registro de ponto incluído");
-      setManualPunchOpen(false);
-      setManualPunchForm((p) => ({ ...p, justification: "" }));
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Erro ao registrar ponto");
-    }
+    if (!manualPunchForm.justification.trim()) { toast.error("Justificativa obrigatoria"); return; }
+    requirePin(
+      "Incluir registro de ponto",
+      "Digite seu PIN de 8 digitos para confirmar.",
+      async () => {
+        const occurredAtIso = new Date(`${manualPunchForm.date}T${manualPunchForm.time}:00`).toISOString();
+        await createPunch.mutateAsync({
+          userId: viewing.id,
+          occurredAtIso,
+          type: manualPunchForm.type,
+          justification: manualPunchForm.justification,
+        });
+        toast.success("Registro de ponto incluido");
+        setManualPunchOpen(false);
+        setManualPunchForm((p) => ({ ...p, justification: "" }));
+      }
+    );
   };
+
 
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [newPassword, setNewPassword] = useState("");
@@ -238,7 +264,7 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
     } catch (err) {
       const error = err as Error;
       if (error.message === "Bucket not found") {
-        toast.error("Configuração pendente: O bucket 'avatars' não foi encontrado no Supabase.");
+        toast.error("Configura��o pendente: O bucket 'avatars' n�o foi encontrado no Supabase.");
       } else {
         toast.error(error.message || "Erro ao fazer upload da foto");
       }
@@ -303,9 +329,9 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
             address_state: address.uf,
             address_zip: address.cep,
           }));
-          toast.success("Endereço preenchido pelo CEP!");
+          toast.success("Endere�o preenchido pelo CEP!");
         } else {
-          toast.error("CEP não encontrado.");
+          toast.error("CEP n�o encontrado.");
         }
       } catch {
         toast.error("Erro ao buscar CEP.");
@@ -393,8 +419,8 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
     e.preventDefault();
     if (!canResetPassword) return;
     if (!viewing?.id) return;
-    if (!newPassword || newPassword.length < 6) { toast.error("Senha deve ter no mínimo 6 caracteres"); return; }
-    if (newPassword !== confirmPassword) { toast.error("As senhas não conferem"); return; }
+    if (!newPassword || newPassword.length < 6) { toast.error("Senha deve ter no m�nimo 6 caracteres"); return; }
+    if (newPassword !== confirmPassword) { toast.error("As senhas n�o conferem"); return; }
     setChangingPassword(true);
     try {
       const { error: refreshErr } = await supabase.auth.refreshSession();
@@ -402,7 +428,7 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData.session?.access_token ?? "";
       if (!accessToken || accessToken.split(".").length !== 3) {
-        throw new Error("Sessão expirada. Faça login novamente.");
+        throw new Error("Sess�o expirada. Fa�a login novamente.");
       }
       const { data, error } = await supabase.functions.invoke("set-user-password", {
         body: { user_id: viewing.id, password: newPassword },
@@ -421,7 +447,7 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
       const serviceMsg = raw?.context?.body ? String(raw.context.body) : "";
       const combined = [msg, serviceMsg].filter(Boolean).join(" ");
       if (combined.includes("Invalid JWT") || combined.includes("JWT") || status === 401) {
-        toast.error("Sessão expirada. Faça login novamente.");
+        toast.error("Sess�o expirada. Fa�a login novamente.");
         return;
       }
       toast.error(combined || "Erro ao alterar senha");
@@ -436,7 +462,7 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
     return (
       <Card>
         <CardContent className="py-12 text-center text-muted-foreground">
-          Nenhum colaborador na organização. Usuários convidados aparecerão aqui.
+          Nenhum colaborador na organiza��o. Usu�rios convidados aparecer�o aqui.
         </CardContent>
       </Card>
     );
@@ -470,31 +496,33 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
         </DialogContent>
       </Dialog>
 
-      {/* Dialog: confirmar desativação */}
+      {/* Dialog: confirmar desativa��o */}
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Desativar colaborador</DialogTitle>
             <DialogDescription>
-              <strong>{profileToDelete?.full_name}</strong> será desativado e não poderá mais acessar o sistema. Nenhum dado será apagado. Você pode reativar a qualquer momento.
+              <strong>{profileToDelete?.full_name}</strong> ser� desativado e n�o poder� mais acessar o sistema. Nenhum dado ser� apagado. Voc� pode reativar a qualquer momento.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>Cancelar</Button>
             <Button
               variant="destructive"
-              onClick={async () => {
+              onClick={() => {
                 if (!profileToDelete) return;
-                try {
-                  await deactivate.mutateAsync(profileToDelete.id);
-                  toast.success("Colaborador desativado");
-                  setDeleteConfirmOpen(false);
-                  setProfileToDelete(null);
-                  setViewing(null);
-                  navigate("/team");
-                } catch (err) {
-                  toast.error(err instanceof Error ? err.message : "Erro ao desativar");
-                }
+                requirePin(
+                  "Desativar colaborador",
+                  `Desativar ${profileToDelete.full_name}? Nenhum dado sera apagado.`,
+                  async () => {
+                    await deactivate.mutateAsync(profileToDelete!.id);
+                    toast.success("Colaborador desativado");
+                    setDeleteConfirmOpen(false);
+                    setProfileToDelete(null);
+                    setViewing(null);
+                    navigate("/team");
+                  }
+                );
               }}
             >
               Desativar
@@ -503,21 +531,21 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
         </DialogContent>
       </Dialog>
 
-      {/* Dialog: autorizar entrada/saída fora do horário */}
+      {/* Dialog: autorizar entrada/sa�da fora do hor�rio */}
       <Dialog open={limitOpen} onOpenChange={setLimitOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Autorizar entrada/saída fora do horário</DialogTitle>
-            <DialogDescription>Concede autorização temporária (5 min) para o colaborador registrar o ponto.</DialogDescription>
+            <DialogTitle>Autorizar entrada/sa�da fora do hor�rio</DialogTitle>
+            <DialogDescription>Concede autoriza��o tempor�ria (5 min) para o colaborador registrar o ponto.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Tipo de autorização</Label>
+              <Label>Tipo de autoriza��o</Label>
               <Select value={limitForm.authType} onValueChange={(v) => setLimitForm((p) => ({ ...p, authType: v as "late_break" | "late_return" }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="late_break">Saída para intervalo fora do horário</SelectItem>
-                  <SelectItem value="late_return">Retorno do intervalo fora do horário</SelectItem>
+                  <SelectItem value="late_break">Sa�da para intervalo fora do hor�rio</SelectItem>
+                  <SelectItem value="late_return">Retorno do intervalo fora do hor�rio</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -541,7 +569,7 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Autorizar hora extra</DialogTitle>
-            <DialogDescription>Permite que o colaborador trabalhe além do horário normal.</DialogDescription>
+            <DialogDescription>Permite que o colaborador trabalhe al�m do hor�rio normal.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
@@ -587,9 +615,9 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="entrada">Entrada</SelectItem>
-                  <SelectItem value="saida_intervalo">Saída Intervalo</SelectItem>
+                  <SelectItem value="saida_intervalo">Sa�da Intervalo</SelectItem>
                   <SelectItem value="retorno_intervalo">Retorno Intervalo</SelectItem>
-                  <SelectItem value="saida_final">Saída Final</SelectItem>
+                  <SelectItem value="saida_final">Sa�da Final</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -608,6 +636,14 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
         </DialogContent>
       </Dialog>
 
+      <PinAuthDialog
+        open={pinOpen}
+        onOpenChange={setPinOpen}
+        title={pinTitle}
+        description={pinDescription}
+        onConfirm={async () => { if (pendingAction) await pendingAction(); }}
+      />
+
       {editing && (
         <EditCollaboratorDialog
           open={editDialogOpen}
@@ -618,15 +654,25 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
 
       {/* Filtro ativos/inativos */}
       {!selectedProfileId && (
-        <div className="flex justify-end">
-          <Button
-            variant={showInactive ? "default" : "outline"}
-            size="sm"
-            onClick={() => setShowInactive((v) => !v)}
-          >
-            {showInactive ? "Ver ativos" : `Ver inativos (${profiles.filter((p) => !p.is_active).length})`}
-          </Button>
-        </div>
+        <>
+          <DriveFolderStatusAlert
+            organizationId={organizationId!}
+            module="employee"
+            table="profiles"
+            queryKey="profiles"
+            records={profiles.map((p) => ({ id: p.id, name: p.full_name, full_name: p.full_name, folder_id: p.folder_id, metadata: p.metadata, is_active: p.is_active }))}
+            canEdit={isAdmin}
+          />
+          <div className="flex justify-end">
+            <Button
+              variant={showInactive ? "default" : "outline"}
+              size="sm"
+              onClick={() => setShowInactive((v) => !v)}
+            >
+              {showInactive ? "Ver ativos" : `Ver inativos (${profiles.filter((p) => !p.is_active).length})`}
+            </Button>
+          </div>
+        </>
       )}
 
       {/* Lista de colaboradores */}
@@ -684,7 +730,7 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
                 </div>
               </div>
 
-              {/* Botões — gestão do colaborador */}
+              {/* Bot�es � gest�o do colaborador */}
               <div className="flex items-center gap-2 flex-wrap justify-end">
                 <Button size="sm" variant="outline" onClick={() => setPasswordOpen(true)} disabled={!canResetPassword}>
                   Alterar senha
@@ -692,6 +738,16 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
                 <Button size="sm" variant="outline" onClick={() => { setEditing(viewing); setEditDialogOpen(true); }} disabled={!employeesPermission.canEdit}>
                   Editar
                 </Button>
+                <DriveFolderButton
+                  organizationId={organizationId!}
+                  module="employee"
+                  record={{ id: viewing.id, full_name: viewing.full_name }}
+                  folderId={viewing.folder_id ?? null}
+                  folderUrl={viewing.folder_url ?? null}
+                  onFolderSaved={async (fId, fUrl) => {
+                    await update.mutateAsync({ id: viewing.id, folder_id: fId, folder_url: fUrl ?? null });
+                  }}
+                />
                 {/* Toggle ativo/inativo */}
                 {employeesPermission.canDelete && (
                   <div className="flex items-center gap-2">
@@ -725,7 +781,7 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
                 <div className="min-w-0">
                   <div className="font-medium truncate">{viewing.full_name}</div>
                   <div className="text-sm text-muted-foreground truncate">{viewing.email}</div>
-                  <div className="text-sm text-muted-foreground">{viewing.phone ? formatPhoneBR(viewing.phone) : "—"}</div>
+                  <div className="text-sm text-muted-foreground">{viewing.phone ? formatPhoneBR(viewing.phone) : "�"}</div>
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge variant={viewing.is_active ? "default" : "secondary"}>
@@ -742,11 +798,11 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
               <Tabs defaultValue="dados" className="w-full">
                 <TabsList className="mb-4 flex-wrap h-auto gap-1">
                   <TabsTrigger value="dados">Dados cadastrais</TabsTrigger>
-                  <TabsTrigger value="comissao">Remuneração Variável</TabsTrigger>
+                  <TabsTrigger value="comissao">Remunera��o Vari�vel</TabsTrigger>
                   <TabsTrigger value="pagamentos">Pagamentos</TabsTrigger>
                   <TabsTrigger value="ponto">Controle de Ponto</TabsTrigger>
-                  <TabsTrigger value="ausencias">Férias e Ausências</TabsTrigger>
-                  <TabsTrigger value="avaliacoes">Avaliação</TabsTrigger>
+                  <TabsTrigger value="ausencias">F�rias e Aus�ncias</TabsTrigger>
+                  <TabsTrigger value="avaliacoes">Avalia��o</TabsTrigger>
                   <TabsTrigger value="metas">Metas</TabsTrigger>
                   <TabsTrigger value="treinamentos">Treinamentos</TabsTrigger>
                   <TabsTrigger value="documentos">Documentos</TabsTrigger>
@@ -772,59 +828,59 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                         <div className="flex items-center justify-between rounded border p-3">
                           <span className="text-muted-foreground">Cargo</span>
-                          <span className="font-medium truncate max-w-[220px]">{jobTitle || "—"}</span>
+                          <span className="font-medium truncate max-w-[220px]">{jobTitle || "�"}</span>
                         </div>
                         <div className="flex items-center justify-between rounded border p-3">
                           <span className="text-muted-foreground">Ativo</span>
-                          <span className="font-medium">{viewing.is_active ? "Sim" : "Não"}</span>
+                          <span className="font-medium">{viewing.is_active ? "Sim" : "N�o"}</span>
                         </div>
                         <div className="flex items-center justify-between rounded border p-3">
-                          <span className="text-muted-foreground">Nome de apresentação</span>
-                          <span className="font-medium">{displayName || "—"}</span>
+                          <span className="text-muted-foreground">Nome de apresenta��o</span>
+                          <span className="font-medium">{displayName || "�"}</span>
                         </div>
                         <div className="flex items-center justify-between rounded border p-3">
                           <span className="text-muted-foreground">CPF</span>
-                          <span className="font-medium">{cpf ? formatCpfCnpj(cpf) : "—"}</span>
+                          <span className="font-medium">{cpf ? formatCpfCnpj(cpf) : "�"}</span>
                         </div>
                         <div className="flex items-center justify-between rounded border p-3">
                           <span className="text-muted-foreground">RG</span>
-                          <span className="font-medium">{rg || "—"}</span>
+                          <span className="font-medium">{rg || "�"}</span>
                         </div>
                         <div className="flex items-center justify-between rounded border p-3">
                           <span className="text-muted-foreground">Chave PIX</span>
-                          <span className="font-medium">{pixKey || "—"}</span>
+                          <span className="font-medium">{pixKey || "�"}</span>
                         </div>
                         <div className="flex items-center justify-between rounded border p-3">
-                          <span className="text-muted-foreground">Endereço</span>
-                          <span className="font-medium truncate max-w-[220px]">{addressStreet || "—"}</span>
+                          <span className="text-muted-foreground">Endere�o</span>
+                          <span className="font-medium truncate max-w-[220px]">{addressStreet || "�"}</span>
                         </div>
                         <div className="flex items-center justify-between rounded border p-3">
                           <span className="text-muted-foreground">Cidade</span>
-                          <span className="font-medium">{addressCity || "—"}</span>
+                          <span className="font-medium">{addressCity || "�"}</span>
                         </div>
                         <div className="flex items-center justify-between rounded border p-3">
                           <span className="text-muted-foreground">Estado</span>
-                          <span className="font-medium">{addressState || "—"}</span>
+                          <span className="font-medium">{addressState || "�"}</span>
                         </div>
                         <div className="flex items-center justify-between rounded border p-3">
                           <span className="text-muted-foreground">CEP</span>
-                          <span className="font-medium">{addressZip || "—"}</span>
+                          <span className="font-medium">{addressZip || "�"}</span>
                         </div>
                         <div className="flex items-center justify-between rounded border p-3">
                           <span className="text-muted-foreground">Escolaridade</span>
-                          <span className="font-medium">{educationLevel || "—"}</span>
+                          <span className="font-medium">{educationLevel || "�"}</span>
                         </div>
                         <div className="flex items-center justify-between rounded border p-3">
-                          <span className="text-muted-foreground">Formação</span>
-                          <span className="font-medium">{graduation || "—"}</span>
+                          <span className="text-muted-foreground">Forma��o</span>
+                          <span className="font-medium">{graduation || "�"}</span>
                         </div>
                         <div className="flex items-center justify-between rounded border p-3">
-                          <span className="text-muted-foreground">Salário base</span>
-                          <span className="font-medium">{baseSalary ? formatBRL(baseSalary) : "—"}</span>
+                          <span className="text-muted-foreground">Sal�rio base</span>
+                          <span className="font-medium">{baseSalary ? formatBRL(baseSalary) : "�"}</span>
                         </div>
                         {notes && (
                           <div className="col-span-full flex items-start justify-between rounded border p-3 gap-4">
-                            <span className="text-muted-foreground shrink-0">Observações</span>
+                            <span className="text-muted-foreground shrink-0">Observa��es</span>
                             <span className="font-medium text-right">{notes}</span>
                           </div>
                         )}
@@ -843,10 +899,10 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead>Competência</TableHead>
-                            <TableHead className="text-right">Salário Base</TableHead>
-                            <TableHead className="text-right">Comissão</TableHead>
-                            <TableHead className="text-right">Bônus</TableHead>
+                            <TableHead>Compet�ncia</TableHead>
+                            <TableHead className="text-right">Sal�rio Base</TableHead>
+                            <TableHead className="text-right">Comiss�o</TableHead>
+                            <TableHead className="text-right">B�nus</TableHead>
                             <TableHead className="text-right">Descontos</TableHead>
                             <TableHead className="text-right">Total</TableHead>
                             <TableHead className="text-center">Status</TableHead>
@@ -885,8 +941,19 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
 
                 <TabsContent value="documentos">
                   <DocumentsCard
-                    folderValue={driveFolders?.team ?? null}
+                    folderId={viewing.folder_id ?? (() => {
+                      const meta = (viewing.metadata ?? {}) as Record<string, unknown>;
+                      return String(meta.drive_folder_id ?? meta.drive_folder ?? "").trim() || null;
+                    })()}
+                    folderValue={viewing.folder_url ?? null}
                     canEdit={isAdmin}
+                    allowCreateFolder={isAdmin}
+                    autoFolderNames={DRIVE_AUTO_FOLDERS.employee}
+                    createFolderParentValue={driveFolders?.team ?? null}
+                    createFolderName={(viewing.full_name || "Colaborador").trim()}
+                    onSetFolderValue={isAdmin ? async (next) => {
+                      await update.mutateAsync({ id: viewing.id, folder_url: next || null });
+                    } : undefined}
                   />
                 </TabsContent>
 
@@ -904,7 +971,7 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
                 <TabsContent value="avaliacoes">
                   <Tabs defaultValue="avaliacoes-360" className="w-full">
                     <TabsList className="mb-4">
-                      <TabsTrigger value="avaliacoes-360">Avaliações</TabsTrigger>
+                      <TabsTrigger value="avaliacoes-360">Avalia��es</TabsTrigger>
                       <TabsTrigger value="score">Score</TabsTrigger>
                     </TabsList>
                     <TabsContent value="avaliacoes-360">
@@ -940,15 +1007,15 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
       <Dialog open={allPaymentsOpen} onOpenChange={setAllPaymentsOpen}>
         <DialogContent className="sm:max-w-3xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Histórico completo de pagamentos</DialogTitle>
+            <DialogTitle>Hist�rico completo de pagamentos</DialogTitle>
           </DialogHeader>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Competência</TableHead>
-                <TableHead className="text-right">Salário Base</TableHead>
-                <TableHead className="text-right">Comissão</TableHead>
-                <TableHead className="text-right">Bônus</TableHead>
+                <TableHead>Compet�ncia</TableHead>
+                <TableHead className="text-right">Sal�rio Base</TableHead>
+                <TableHead className="text-right">Comiss�o</TableHead>
+                <TableHead className="text-right">B�nus</TableHead>
                 <TableHead className="text-right">Descontos</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 <TableHead className="text-center">Status</TableHead>
@@ -979,3 +1046,8 @@ export function TeamProfilesList({ profiles, teams, members, selectedProfileId, 
     </div>
   );
 }
+
+
+
+
+

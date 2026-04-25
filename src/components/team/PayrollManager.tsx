@@ -6,6 +6,7 @@ import type { TablesInsert, TablesUpdate } from "@/types/supabase";
 import { useCreatePayroll, useDeletePayroll, usePayrolls, useUpdatePayroll, type PayrollEntry, type PayrollUpsertInput } from "@/hooks/usePayrolls";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
@@ -239,27 +240,27 @@ export function PayrollManager() {
 
               <div>
                 <Label>Salário Base (R$)</Label>
-                <Input type="number" value={baseSalary} onChange={(e) => setBaseSalary(e.target.value)} />
+                <CurrencyInput value={baseSalary} onChange={(v) => setBaseSalary(v)} />
               </div>
 
               <div>
                 <Label>Comissão (R$)</Label>
-                <Input type="number" value={commission} onChange={(e) => setCommission(e.target.value)} />
+                <CurrencyInput value={commission} onChange={(v) => setCommission(v)} />
               </div>
 
               <div>
                 <Label>Bônus / Premiação (R$)</Label>
-                <Input type="number" value={bonus} onChange={(e) => setBonus(e.target.value)} />
+                <CurrencyInput value={bonus} onChange={(v) => setBonus(v)} />
               </div>
 
               <div>
                 <Label>Hora Extra (R$)</Label>
-                <Input type="number" value={overtime} onChange={(e) => setOvertime(e.target.value)} />
+                <CurrencyInput value={overtime} onChange={(v) => setOvertime(v)} />
               </div>
 
               <div className="col-span-2">
                 <Label className="text-red-500">Descontos (R$)</Label>
-                <Input type="number" className="border-red-200 focus-visible:ring-red-500" value={discounts} onChange={(e) => setDiscounts(e.target.value)} />
+                <CurrencyInput className="border-red-200 focus-visible:ring-red-500" value={discounts} onChange={(v) => setDiscounts(v)} />
               </div>
 
               <div className="col-span-2 bg-muted p-4 rounded-lg flex justify-between items-center mt-2">

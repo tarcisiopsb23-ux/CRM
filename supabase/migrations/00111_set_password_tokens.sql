@@ -19,6 +19,7 @@ ALTER TABLE set_password_tokens ENABLE ROW LEVEL SECURITY;
 
 -- Apenas service role acessa diretamente (edge functions usam service key)
 -- Leitura pública via RPC para validação do token
+DROP POLICY IF EXISTS set_password_tokens_admin ON set_password_tokens;
 CREATE POLICY set_password_tokens_admin ON set_password_tokens
   USING (organization_id = get_user_organization_id() AND user_has_role(ARRAY['owner', 'admin']::user_role[]));
 

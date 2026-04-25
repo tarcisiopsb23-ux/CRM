@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { fireN8nWebhook } from "@/lib/n8nWebhook";
 import type { Database } from "@/types/supabase";
 
 type TaskStatus = "backlog" | "em_andamento" | "em_revisao" | "concluida" | "bloqueada";
@@ -9,6 +10,7 @@ type TaskPriority = "baixa" | "media" | "alta" | "urgente";
 export interface Project {
   id: string;
   organization_id: string;
+  code?: number | null;
   client_id: string | null;
   team_id?: string | null;
   assigned_to?: string | null;
@@ -25,6 +27,13 @@ export interface Project {
   responsible_type?: "team" | "profile" | null;
   responsible_id?: string | null;
   color?: string | null;
+  is_freelancer?: boolean;
+  supplier_id?: string | null;
+  clickup_task_id?: string | null;
+  clickup_list_id?: string | null;
+  clickup_synced_at?: string | null;
+  folder_id?: string | null;
+  folder_url?: string | null;
 }
 
 export interface Task {
@@ -42,6 +51,10 @@ export interface Task {
   metadata?: unknown;
   estimated_hours?: number | null;
   progress?: number | null;
+  is_freelancer?: boolean;
+  supplier_id?: string | null;
+  clickup_task_id?: string | null;
+  clickup_synced_at?: string | null;
 }
 
 export function useProjects(organizationId: string | undefined) {
@@ -55,7 +68,7 @@ export function useProjects(organizationId: string | undefined) {
         .from("projects")
         .select("*")
         .eq("organization_id", organizationId)
-        .order("start_date", { ascending: false });
+        .order("code", { ascending: true, nullsFirst: false });
       if (error) throw error;
       return ((data ?? []) as Array<{ name?: string; metadata?: unknown; [k: string]: unknown }>).map((r) => {
         const meta = (r.metadata ?? {}) as Record<string, unknown>;
@@ -108,7 +121,23 @@ export function useProjects(organizationId: string | undefined) {
         color: (meta.color as string) ?? null,
       } as unknown as Project;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["projects", organizationId] }),
+    onSuccess: (project) => {
+      qc.invalidateQueries({ queryKey: ["projects", organizationId] });
+      if (organizationId) {
+        void fireN8nWebhook(organizationId, "projects", "create", project as unknown as Record<string, unknown>);
+      }
+      // Fire ClickUp webhook for freelancer projects
+      if ((project as Project)?.is_freelancer) {
+        const webhookUrl = import.meta.env.VITE_N8N_WEBHOOK_CLICKUP;
+        if (webhookUrl) {
+          fetch(webhookUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "create", table: "projects", item: project }),
+          }).catch(() => {});
+        }
+      }
+    },
   });
 
   const update = useMutation({
@@ -147,15 +176,50 @@ export function useProjects(organizationId: string | undefined) {
         color: (meta.color as string) ?? null,
       } as unknown as Project;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["projects", organizationId] }),
+    onSuccess: (project) => {
+      qc.invalidateQueries({ queryKey: ["projects", organizationId] });
+      if (organizationId) {
+        void fireN8nWebhook(organizationId, "projects", "update", project as unknown as Record<string, unknown>);
+      }
+      // Fire ClickUp webhook for freelancer projects on update
+      if ((project as Project)?.is_freelancer) {
+        const webhookUrl = import.meta.env.VITE_N8N_WEBHOOK_CLICKUP;
+        if (webhookUrl) {
+          fetch(webhookUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "update", table: "projects", item: project }),
+          }).catch(() => {});
+        }
+      }
+    },
   });
 
   const remove = useMutation({
     mutationFn: async (id: string) => {
+      // Busca o projeto antes de deletar para ter os dados para o webhook
+      const { data: project } = await supabase.from("projects").select("*").eq("id", id).single();
       const { error } = await supabase.from("projects").delete().eq("id", id);
       if (error) throw error;
+      return project;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["projects", organizationId] }),
+    onSuccess: (project) => {
+      qc.invalidateQueries({ queryKey: ["projects", organizationId] });
+      if (organizationId && project) {
+        void fireN8nWebhook(organizationId, "projects", "delete", project as unknown as Record<string, unknown>);
+      }
+      // Fire ClickUp webhook for freelancer projects on delete
+      if ((project as any)?.is_freelancer) {
+        const webhookUrl = import.meta.env.VITE_N8N_WEBHOOK_CLICKUP;
+        if (webhookUrl) {
+          fetch(webhookUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "delete", table: "projects", item: project }),
+          }).catch(() => {});
+        }
+      }
+    },
   });
 
   return { ...query, create, update, remove };
@@ -183,21 +247,19 @@ export function useTasks(projectId: string | undefined) {
 
   const create = useMutation({
     mutationFn: async (input: Partial<Task> & { project_id: string; title: string }) => {
-      // Garantir que organization_id seja passado
-      // Se não vier no input, buscamos do projeto
       let orgId = (input as any).organization_id;
       if (!orgId) {
         const { data: proj } = await supabase.from("projects").select("organization_id").eq("id", input.project_id).single();
         orgId = proj?.organization_id;
       }
-      
       const payload = { ...input, organization_id: orgId };
       const { data, error } = await supabase.from("tasks").insert(payload as any).select().single();
       if (error) throw error;
-      return data as unknown as Task;
+      return { task: data as unknown as Task, orgId: orgId as string | undefined };
     },
-    onSuccess: () => {
-        qc.invalidateQueries({ queryKey: ["tasks", projectId] });
+    onSuccess: ({ task, orgId }) => {
+      qc.invalidateQueries({ queryKey: ["tasks", projectId] });
+      if (orgId) void fireN8nWebhook(orgId, "tasks", "create", task as unknown as Record<string, unknown>);
     },
   });
 
@@ -207,18 +269,33 @@ export function useTasks(projectId: string | undefined) {
       if (error) throw error;
       return data as unknown as Task;
     },
-    onSuccess: () => {
-        qc.invalidateQueries({ queryKey: ["tasks", projectId] });
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["tasks", projectId] });
+      // Busca orgId do projeto para disparar webhook
+      const projId = (data as any)?.project_id;
+      if (projId) {
+        supabase.from("projects").select("organization_id").eq("id", projId).single().then(({ data: proj }) => {
+          if (proj?.organization_id) void fireN8nWebhook(proj.organization_id, "tasks", "update", data as unknown as Record<string, unknown>);
+        });
+      }
     },
   });
 
   const remove = useMutation({
     mutationFn: async (id: string) => {
+      const { data: task } = await supabase.from("tasks").select("*").eq("id", id).single();
       const { error } = await supabase.from("tasks").delete().eq("id", id);
       if (error) throw error;
+      return task as unknown as Task | null;
     },
-    onSuccess: () => {
-        qc.invalidateQueries({ queryKey: ["tasks", projectId] });
+    onSuccess: (task) => {
+      qc.invalidateQueries({ queryKey: ["tasks", projectId] });
+      const projId = (task as any)?.project_id;
+      if (projId) {
+        supabase.from("projects").select("organization_id").eq("id", projId).single().then(({ data: proj }) => {
+          if (proj?.organization_id && task) void fireN8nWebhook(proj.organization_id, "tasks", "delete", task as unknown as Record<string, unknown>);
+        });
+      }
     },
   });
 

@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { toJson } from "@/lib/supabase-utils";
+import { fireN8nWebhook } from "@/lib/n8nWebhook";
 import type { Supplier } from "@/types/crm";
 
 export function useSuppliers(organizationId: string | undefined) {
@@ -14,7 +15,7 @@ export function useSuppliers(organizationId: string | undefined) {
         .from("suppliers")
         .select("*")
         .eq("organization_id", organizationId)
-        .order("name");
+        .order("code", { ascending: true, nullsFirst: false });
       if (error) throw error;
       return (data ?? []) as unknown as Supplier[];
     },
@@ -33,7 +34,10 @@ export function useSuppliers(organizationId: string | undefined) {
       if (error) throw error;
       return data as unknown as Supplier;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["suppliers", organizationId] }),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["suppliers", organizationId] });
+      if (organizationId) void fireN8nWebhook(organizationId, "suppliers", "create", data as unknown as Record<string, unknown>);
+    },
   });
 
   const update = useMutation({
@@ -44,7 +48,10 @@ export function useSuppliers(organizationId: string | undefined) {
       if (error) throw error;
       return data as unknown as Supplier;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["suppliers", organizationId] }),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["suppliers", organizationId] });
+      if (organizationId) void fireN8nWebhook(organizationId, "suppliers", "update", data as unknown as Record<string, unknown>);
+    },
   });
 
   const deactivate = useMutation({
@@ -52,7 +59,10 @@ export function useSuppliers(organizationId: string | undefined) {
       const { error } = await supabase.from("suppliers").update({ is_active: false }).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["suppliers", organizationId] }),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: ["suppliers", organizationId] });
+      if (organizationId) void fireN8nWebhook(organizationId, "suppliers", "delete", { id });
+    },
   });
 
   const activate = useMutation({

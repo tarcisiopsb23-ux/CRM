@@ -8,3 +8,5 @@ export { GoogleCalendarSection } from "./GoogleCalendarSection";
 export { ResendSection } from "./ResendSection";
 export { PermissionsSection } from "./PermissionsSection";
 export { HolidaysSection } from "./HolidaysSection";
+export { C8ControlSection } from "./C8ControlSection";
+export { NotaasSection } from "./NotaasSection";

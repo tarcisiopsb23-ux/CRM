@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { toJson } from "@/lib/supabase-utils";
+import { dispatchWebhook } from "@/lib/webhookDispatcher";
 import type { Payment, SupplierExpense } from "@/types/crm";
 import type { Database } from "@/types/supabase";
 
@@ -37,8 +38,6 @@ export function usePayments(organizationId: string | undefined, options?: { enab
       metadata?: Record<string, unknown>;
     }) => {
       if (!organizationId) throw new Error("Sem organização");
-      // if this payment is tied to a contract and it's the very first one for
-      // that contract, mark it as paid immediately (status=pago, paid_at=now).
       let status: PaymentStatus | undefined = input.status;
       let paid_at: string | null | undefined = input.paid_at;
 
@@ -51,7 +50,6 @@ export function usePayments(organizationId: string | undefined, options?: { enab
           .limit(1);
         if (queryErr) throw queryErr;
         if ((existing ?? []).length === 0) {
-          // no previous payments for this contract
           status = "pago";
           paid_at = new Date().toISOString();
         }
@@ -75,9 +73,47 @@ export function usePayments(organizationId: string | undefined, options?: { enab
         .select()
         .single();
       if (error) throw error;
+
+      // Cria invoice pendente automaticamente para o lançamento
+      // O usuário poderá emitir a NFS-e a partir da aba Pendentes
+      try {
+        const { data: clientData } = await supabase
+          .from("clients")
+          .select("id, name, company, document, email")
+          .eq("id", input.client_id)
+          .single();
+
+        if (clientData) {
+          const d = new Date(input.due_date);
+          const competencia = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+          await supabase.from("invoices").insert({
+            organization_id: organizationId,
+            client_id:        input.client_id,
+            contract_id:      input.contract_id ?? null,
+            payment_id:       data.id,
+            type:             "nfse",
+            status:           "pendente",
+            valor_servico:    input.value,
+            competencia,
+            due_date:         input.due_date, // data de vencimento do débito
+            tomador_nome:     clientData.company || clientData.name,
+            tomador_cnpj_cpf: clientData.document,
+            tomador_email:    clientData.email,
+            tomador_endereco: {},
+          });
+        }
+      } catch (invoiceErr) {
+        // best-effort — não reverte o lançamento
+        console.warn("[useFinancial] Falha ao criar invoice pendente:", invoiceErr);
+      }
+
       return data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["payments", organizationId] }),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["payments", organizationId] });
+      qc.invalidateQueries({ queryKey: ["invoices", organizationId] });
+      if (organizationId) dispatchWebhook(organizationId, "payment.created", data);
+    },
   });
 
   const registerPayment = useMutation({
@@ -91,7 +127,10 @@ export function usePayments(organizationId: string | undefined, options?: { enab
       if (error) throw error;
       return data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["payments", organizationId] }),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["payments", organizationId] });
+      if (organizationId) dispatchWebhook(organizationId, "payment.paid", data);
+    },
   });
 
   const updateStatus = useMutation({
@@ -108,7 +147,10 @@ export function usePayments(organizationId: string | undefined, options?: { enab
       if (error) throw error;
       return data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["payments", organizationId] }),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["payments", organizationId] });
+      if (organizationId) dispatchWebhook(organizationId, "payment.status_changed", data);
+    },
   });
 
   const remove = useMutation({
@@ -151,7 +193,9 @@ export function usePayments(organizationId: string | undefined, options?: { enab
       if (error) throw error;
       return data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["payments", organizationId] }),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["payments", organizationId] });
+    },
   });
 
   return { ...query, create, registerPayment, updateStatus, updatePayment, remove };

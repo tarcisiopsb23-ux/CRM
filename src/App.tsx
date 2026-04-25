@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { UserPreferencesProvider } from "@/contexts/UserPreferencesContext";
+import { PendingAuthProvider } from "@/contexts/PendingAuthContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { ModuleGuard } from "@/components/auth/ModuleGuard";
 import { TimeclockGuard } from "@/components/auth/TimeclockGuard";
@@ -40,17 +41,42 @@ import { TimeClockLockedPage } from "./pages/TimeClockLockedPage";
 import { TimeclockEntryPage } from "./pages/TimeclockEntryPage";
 import { PublicDashboardPage } from "./pages/PublicDashboardPage";
 import { PublicDashboardLoginPage } from "./pages/PublicDashboardLoginPage";
+import { C8ControlLoginPage } from "./pages/C8ControlLoginPage";
+import { C8ControlPage } from "./pages/C8ControlPage";
 import { DynamicFavicon } from "@/components/layout/DynamicFavicon";
 import { DynamicTitle } from "@/components/layout/DynamicTitle";
 import { PublicDemoDashboardPage } from "./pages/PublicDemoDashboardPage";
+import SuppliersModulePage from "@/pages/SuppliersModulePage";
+import FiscalPage from "@/pages/FiscalPage";
+import RecruitmentPage from "@/pages/recruitment/RecruitmentPage";
+import AuthorizationsPage from "@/pages/AuthorizationsPage";
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, refetchOnWindowFocus: false } } });
 
 function App() {
+  const hostname = typeof window !== "undefined" ? window.location.hostname : "";
+  const isVagasSubdomain = hostname.startsWith("vagas.");
+
+  if (isVagasSubdomain) {
+    const { PublicVagasRouter } = require("@/router/PublicVagasRouter");
+    return (
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+            <PublicVagasRouter />
+          </BrowserRouter>
+        </TooltipProvider>
+      </QueryClientProvider>
+    );
+  }
+
   return (
     <QueryClientProvider client={queryClient}>
       <UserPreferencesProvider>
         <AuthProvider>
+          <PendingAuthProvider>
           <DynamicFavicon />
           <DynamicTitle />
           <TooltipProvider>
@@ -67,6 +93,7 @@ function App() {
                 <Route path="/demo/dashboard" element={<PublicDemoDashboardPage />} />
                 <Route path="/public/dashboard/:slug" element={<PublicDashboardPage />} />
                 <Route path="/public/dashboard/:slug/login" element={<PublicDashboardLoginPage />} />
+                <Route path="/public/dashboard/:slug/crm/login" element={<C8ControlLoginPage />} />
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/complete-registration" element={<CompleteRegistrationPage />} />
                 <Route path="/set-password" element={<SetPasswordPage />} />
@@ -111,7 +138,7 @@ function App() {
                     <Route path="/clients" element={<ClientsPage />} />
                     <Route path="/clients/:clientId" element={<ClientsPage />} />
                     <Route path="/integrations" element={<IntegrationsPage />} />
-                    <Route path="/suppliers" element={<Navigate to="/financial?tab=suppliers" replace />} />
+                    <Route path="/suppliers" element={<SuppliersModulePage />} />
                     <Route path="/financial" element={<FinancialPage />} />
                     <Route path="/agenda" element={<Agenda />} />
                     <Route path="/projects" element={<ProjectsPage />} />
@@ -128,6 +155,10 @@ function App() {
                     <Route path="/reports" element={<ReportsPage />} />
                     <Route path="/sales-analytics" element={<SalesDashboardPage />} />
                     <Route path="/audit" element={<AuditPage />} />
+                    <Route path="/fiscal" element={<FiscalPage />} />
+                    <Route path="/recruitment" element={<RecruitmentPage />} />
+                    <Route path="/authorizations" element={<AuthorizationsPage />} />
+                    <Route path="/c8control" element={<C8ControlPage />} />
                     <Route path="/settings" element={<SettingsPage />} />
                   </Route>
                 </Route>
@@ -135,6 +166,7 @@ function App() {
               </Routes>
             </BrowserRouter>
           </TooltipProvider>
+        </PendingAuthProvider>
         </AuthProvider>
       </UserPreferencesProvider>
     </QueryClientProvider>
