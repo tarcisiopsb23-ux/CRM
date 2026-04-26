@@ -102,10 +102,6 @@
             {
               "name": "account_id",
               "value": "not.is.null"
-            },
-            {
-              "name": "access_token",
-              "value": "not.is.null"
             }
           ]
         },

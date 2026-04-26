@@ -46,6 +46,7 @@ export function AdIntegrationDialog({
   const [developerToken, setDeveloperToken] = useState("");
   const [clientIdOAuth, setClientIdOAuth] = useState("");
   const [clientSecretOAuth, setClientSecretOAuth] = useState("");
+  const [managerId, setManagerId] = useState("");
 
   useEffect(() => {
     if (open && platform) {
@@ -58,6 +59,7 @@ export function AdIntegrationDialog({
       setDeveloperToken(existingIntegration?.settings?.developer_token || "");
       setClientIdOAuth(existingIntegration?.settings?.client_id || "");
       setClientSecretOAuth(existingIntegration?.settings?.client_secret || "");
+      setManagerId(existingIntegration?.settings?.manager_id || "");
     }
   }, [open, platform, existingIntegration]);
 
@@ -76,6 +78,8 @@ export function AdIntegrationDialog({
         if (developerToken.trim()) settings.developer_token = developerToken.trim();
         if (clientIdOAuth.trim()) settings.client_id = clientIdOAuth.trim();
         if (clientSecretOAuth.trim()) settings.client_secret = clientSecretOAuth.trim();
+        // manager_id: salva o novo valor, preserva o existente se vazio, remove se explicitamente apagado
+        settings.manager_id = managerId.trim() || (existingIntegration?.settings?.manager_id ?? null);
       }
 
       await upsert.mutateAsync({
@@ -190,6 +194,18 @@ export function AdIntegrationDialog({
                   />
                   <p className="text-[10px] text-muted-foreground italic">
                     Necessário para renovar o acesso automaticamente. O access token é gerado automaticamente pelo sistema a cada sincronização.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="manager_id">Manager ID / MCC (Opcional)</Label>
+                  <Input
+                    id="manager_id"
+                    value={managerId}
+                    onChange={(e) => setManagerId(e.target.value)}
+                    placeholder="123-456-7890"
+                  />
+                  <p className="text-[10px] text-muted-foreground italic">
+                    Preencha apenas se a conta estiver vinculada a uma conta de gerenciamento (MCC). Deixe vazio para contas diretas.
                   </p>
                 </div>
               </>

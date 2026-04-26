@@ -147,7 +147,7 @@ export function useAllClientIntegrations(organizationId?: string) {
       if (!organizationId) return [];
       const { data, error } = await supabase
         .from("client_integrations")
-        .select("*, clients(id, name, company)")
+        .select("*, clients!left(id, name, company)")
         .eq("organization_id", organizationId)
         .order("last_sync_at", { ascending: false, nullsFirst: true });
       if (error) throw error;
