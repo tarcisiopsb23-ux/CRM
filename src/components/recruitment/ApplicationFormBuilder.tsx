@@ -103,7 +103,9 @@ export function ApplicationFormBuilder({ open, onOpenChange, jobOpening, initial
     try {
       await onSave(
         questions.map((q, i) => {
-          const { _key, ...rest } = q;
+          // Remove _key, id e created_at — campos que não devem ir para o banco
+          const { _key, id, created_at, ...rest } = q as any;
+          void _key; void id; void created_at;
           return { ...rest, sort_order: i };
         })
       );

@@ -337,9 +337,9 @@ export function JobOpeningForm({ open, onOpenChange, editing, onSubmit }: Props)
           open={builderOpen}
           onOpenChange={(v) => { if (!v) setBuilderOpen(false); }}
           jobOpening={fakeJobOpening}
-          initialQuestions={(suggestedQuestions ?? []).map((q, i) => ({
+          initialQuestions={(suggestedQuestions ?? []).map((q) => ({
             ...q,
-            id: `ai-${i}`,
+            id: crypto.randomUUID(),
             organization_id: organizationId ?? "",
             job_opening_id: editing?.id ?? "preview",
             created_at: new Date().toISOString(),

@@ -111,8 +111,9 @@ export default function RecruitmentPage({ embedded = false }: { embedded?: boole
       if (fnError) throw new Error(fnError.message);
       if (data?.error) throw new Error(data.error);
       if (!data?.questions?.length) throw new Error("A IA não retornou perguntas.");
-      // Salva direto as perguntas geradas
-      await upsertQuestions.mutateAsync(data.questions as any);
+      // Salva direto as perguntas geradas — remove id/created_at que não existem na tabela
+      const cleanQuestions = (data.questions as any[]).map(({ id, created_at, organization_id, job_opening_id, ...rest }: any) => rest);
+      await upsertQuestions.mutateAsync(cleanQuestions as any);
       toast.success(`${data.questions.length} perguntas geradas e salvas pela IA!`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao gerar formulário.");
