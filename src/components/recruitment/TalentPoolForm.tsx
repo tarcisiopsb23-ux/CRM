@@ -33,16 +33,17 @@ interface Props {
 const ENV_ORG_ID = (import.meta.env.VITE_PUBLIC_ORG_ID as string | undefined)?.trim() || null;
 
 export function TalentPoolForm({ organizationId: propOrgId }: Props) {
-  // Resolve org ID: prop → env → RPC
-  const [resolvedOrgId, setResolvedOrgId] = useState<string | null>(propOrgId ?? ENV_ORG_ID);
+  // Resolve org ID: prop → env → RPC (assíncrono, não bloqueia o render)
+  const [resolvedOrgId, setResolvedOrgId] = useState<string | null>(
+    propOrgId ?? ENV_ORG_ID
+  );
 
   useEffect(() => {
     if (resolvedOrgId) return;
-    // Tenta RPC como último recurso
     supabase.rpc("get_public_org_id").then(({ data }) => {
       if (data) setResolvedOrgId(data as string);
     });
-  }, [resolvedOrgId]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [step, setStep] = useState<"personal" | "requirements" | "success">("personal");
   const [personal, setPersonal] = useState({ full_name: "", email: "", phone: "", linkedin_url: "", portfolio_url: "", desired_role: "", cover_letter: "" });
   const [reqMatch, setReqMatch] = useState<RequirementMatch[]>(
