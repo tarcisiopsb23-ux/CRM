@@ -3,9 +3,9 @@
  * Essas pastas são protegidas e não podem ser excluídas pela UI.
  * Fonte: workflow "Google Drive - Pastas e Documentos" → nó "Preparar Subpastas Padrao"
  */
-export const DRIVE_AUTO_FOLDERS = {
+export const DRIVE_AUTO_FOLDERS: Record<string, string[]> = {
   client:   ["Contratos", "Documentos", "Relatorios", "Comunicacoes", "Notas Fiscais"],
   supplier: ["Contratos", "Notas Fiscais", "Documentos"],
   project:  ["Briefing", "Entregas", "Aprovacoes", "Arquivos"],
   employee: ["Documentos Pessoais", "Contratos", "Avaliacoes"],
-} as const;
+};

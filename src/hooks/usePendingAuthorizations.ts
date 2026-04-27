@@ -48,10 +48,10 @@ export function usePendingAuthorizations() {
         if (isTableMissing(error)) return [] as PendingAuthorization[];
         throw error;
       }
-      return (data ?? []).map((r: Record<string, unknown>) => ({
-        ...(r as PendingAuthorization),
-        requester_name: (r.requester as { full_name?: string } | null)?.full_name ?? null,
-        resolver_name: (r.resolver as { full_name?: string } | null)?.full_name ?? null,
+      return (data ?? []).map((r) => ({
+        ...(r as unknown as PendingAuthorization),
+        requester_name: ((r as Record<string, unknown>).requester as { full_name?: string } | null)?.full_name ?? null,
+        resolver_name: ((r as Record<string, unknown>).resolver as { full_name?: string } | null)?.full_name ?? null,
       })) as PendingAuthorization[];
     },
     enabled: !!orgId,

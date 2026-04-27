@@ -56,14 +56,14 @@ Implementação incremental do módulo de recrutamento, construindo da fundaçã
 - [x] 8. Checkpoint — Módulo interno funcional
   - Garantir que `/recruitment` renderiza dashboard, listagem de vagas e candidatos. Perguntar ao usuário se há ajustes antes de prosseguir para a parte pública.
 
-- [ ] 9. PublicLayout e roteamento público
+- [x] 9. PublicLayout e roteamento público
   - Criar `src/layouts/PublicLayout.tsx` com header (logo C8), área de conteúdo e rodapé — visual idêntico ao site `agenciac8.com.br` (fundo escuro `#0a0a0a`, texto branco, destaque laranja `#f97316`)
   - Criar `src/router/PublicVagasRouter.tsx` com rotas: `/` → `VagasPage`, `/:jobOpeningId` → `VagaDetailPage`
   - Atualizar `src/App.tsx` para detectar hostname `vagas.*` e renderizar `PublicVagasRouter` em vez do app interno
   - Atualizar `nginx.conf` adicionando server block para `vagas.agenciac8.com.br`
   - _Requisitos: 3.1, 3.6, 3.9_
 
-- [ ] 10. Página pública de listagem de vagas
+- [x] 10. Página pública de listagem de vagas
   - Criar `src/components/recruitment/PublicJobCard.tsx` — card de vaga com título, cargo, área, tipo de trabalho, faixa salarial e botão "Candidatar-se"
   - Criar `src/pages/VagasPage.tsx` com:
     - Seção hero: "Faça parte do time C8" com botão âncora para listagem
@@ -72,7 +72,7 @@ Implementação incremental do módulo de recrutamento, construindo da fundaçã
     - Rodapé com logo, contato e copyright
   - _Requisitos: 3.2, 3.3, 3.4, 3.5, 3.7, 3.8_
 
-- [ ] 11. Formulário público de candidatura
+- [x] 11. Formulário público de candidatura
   - Criar `src/components/recruitment/ApplicationForm.tsx` com:
     - Seção de dados pessoais (nome, email, telefone, LinkedIn, portfólio, carta de apresentação)
     - Renderização dinâmica das perguntas da vaga por `question_type`
@@ -85,20 +85,20 @@ Implementação incremental do módulo de recrutamento, construindo da fundaçã
   - Criar `src/pages/VagaDetailPage.tsx` com descrição da vaga + `ApplicationForm`
   - _Requisitos: 4.1, 4.2, 4.3, 4.4, 4.7, 4.8, 4.9, 4.10, 4.11_
 
-- [ ] 12. Integração com Google Drive para currículos
+- [x] 12. Integração com Google Drive para currículos
   - Na submissão do formulário, após salvar candidato e candidatura no Supabase, enviar o arquivo de currículo ao webhook n8n de Drive (`action: 'documents.upload'`, `folderId` da config de recrutamento)
   - Organizar em subpasta por vaga: criar subpasta `[Título da Vaga]` dentro da pasta raiz de currículos se não existir
   - Atualizar `resume_drive_url` do candidato com o link retornado pelo n8n
   - Tratar falha de upload como não-bloqueante (candidatura salva mesmo sem currículo no Drive)
   - _Requisitos: 4.4, 4.5, 4.6, 8.1, 8.2, 8.3, 8.4_
 
-- [ ] 13. Configurações do módulo em SettingsPage
+- [x] 13. Configurações do módulo em SettingsPage
   - Criar seção "Recrutamento" em Configurações com campos: pasta do Drive (ID + URL), e-mail de notificação, toggle de notificação automática
   - Usar `useRecruitmentConfig` para ler/salvar em `organization_integrations`
   - Exibir aviso quando `drive_folder_id` não estiver configurado
   - _Requisitos: 10.1, 10.2, 10.3, 10.4_
 
-- [ ] 14. Workflow n8n do Agente Virtual
+- [x] 14. Workflow n8n do Agente Virtual
   - Criar `docs/n8n_workflows/n8n_workflow_recruitment_agent.json` com:
     - Webhook de entrada para mensagens do WhatsApp/chat
     - Nó HTTP para buscar perguntas da vaga via Supabase REST API
@@ -109,7 +109,7 @@ Implementação incremental do módulo de recrutamento, construindo da fundaçã
     - Mensagem de confirmação ao candidato
   - _Requisitos: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6_
 
-- [ ] 15. Checkpoint final
+- [x] 15. Checkpoint final
   - Testar fluxo completo: criar vaga → configurar perguntas → candidatura via formulário público → upload de currículo → visualizar candidato com score no painel interno
   - Verificar que o subdomínio `vagas.agenciac8.com.br` renderiza corretamente sem o layout do app
   - Verificar que permissões do módulo `recruitment` funcionam corretamente

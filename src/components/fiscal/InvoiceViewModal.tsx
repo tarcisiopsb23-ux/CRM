@@ -157,7 +157,7 @@ export function InvoiceViewModal({ open, onOpenChange, invoice }: InvoiceViewMod
 
         <DialogFooter className="gap-2 sm:gap-0">
           {/* ── PDF link ── */}
-          {invoice.status === "autorizada" && invoice.pdf_url && (
+          {invoice.status === "emitida" && invoice.pdf_url && (
             <Button variant="outline" asChild>
               <a href={invoice.pdf_url} target="_blank" rel="noopener noreferrer">
                 <ExternalLink className="h-4 w-4 mr-2" />

@@ -98,7 +98,7 @@ export function C8ControlTab({ clientId, clientName, organizationId, c8ControlEn
   const [isInviting, setIsInviting] = useState(false);
 
   // Remove user
-  const [removeTarget, setRemoveTarget] = useState<{ id: string; name: string | null } | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<{ id: string; email: string; name: string | null } | null>(null);
   const [isRemoving, setIsRemoving] = useState(false);
 
   // Reset password per user
@@ -372,7 +372,7 @@ export function C8ControlTab({ clientId, clientName, organizationId, c8ControlEn
     if (!removeTarget) return;
     setIsRemoving(true);
     try {
-      await removeUser.mutateAsync(removeTarget.id);
+      await removeUser.mutateAsync({ email: removeTarget.email, c8UserId: removeTarget.id });
       toast.success("Usuário removido.");
       setRemoveTarget(null);
     } catch { toast.error("Erro ao remover usuário."); }
@@ -561,7 +561,7 @@ export function C8ControlTab({ clientId, clientName, organizationId, c8ControlEn
                           <KeyRound className="h-3.5 w-3.5" />
                         </Button>
                         <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700"
-                          onClick={() => setRemoveTarget({ id: u.id, name: u.name })}
+                          onClick={() => setRemoveTarget({ id: u.id, email: u.email, name: u.name })}
                           title="Excluir usuário"
                         >
                           <Trash2 className="h-3.5 w-3.5" />

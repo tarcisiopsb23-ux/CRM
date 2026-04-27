@@ -50,6 +50,7 @@ import SuppliersModulePage from "@/pages/SuppliersModulePage";
 import FiscalPage from "@/pages/FiscalPage";
 import RecruitmentPage from "@/pages/recruitment/RecruitmentPage";
 import AuthorizationsPage from "@/pages/AuthorizationsPage";
+import { PublicVagasRouter } from "@/router/PublicVagasRouter";
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, refetchOnWindowFocus: false } } });
 
@@ -58,7 +59,6 @@ function App() {
   const isVagasSubdomain = hostname.startsWith("vagas.");
 
   if (isVagasSubdomain) {
-    const { PublicVagasRouter } = require("@/router/PublicVagasRouter");
     return (
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>

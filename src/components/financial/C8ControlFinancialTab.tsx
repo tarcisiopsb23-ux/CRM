@@ -27,6 +27,7 @@ const STATUS_LABEL: Record<SubscriptionStatus, string> = {
   ativo: "Ativo",
   bloqueado: "Bloqueado",
   inadimplente: "Inadimplente",
+  suspenso: "Suspenso",
   cancelado: "Cancelado",
 };
 
@@ -34,6 +35,7 @@ const STATUS_BADGE_CLASS: Record<SubscriptionStatus, string> = {
   ativo: "bg-emerald-100 text-emerald-700",
   bloqueado: "bg-red-100 text-red-700",
   inadimplente: "bg-yellow-100 text-yellow-700",
+  suspenso: "bg-yellow-100 text-yellow-600",
   cancelado: "bg-slate-100 text-slate-600",
 };
 

@@ -8,6 +8,6 @@ export function useRecruitmentConfig(organizationId: string | undefined) {
   return {
     config,
     isLoading: integration.isLoading,
-    save: integration.save,
+    save: integration.upsert,
   };
 }

@@ -566,7 +566,7 @@ export function C8TenantDetail({
                       const linkedInvoice = fiscalPerms.canView
                         ? tenantInvoices.find(inv => inv.payment_id === p.id) ?? null
                         : null;
-                      const isAutorizada  = linkedInvoice?.status === "autorizada";
+                      const isAutorizada  = linkedInvoice?.status === "emitida";
                       const isPendente    = linkedInvoice?.status === "pendente";
                       const isProcessando = linkedInvoice?.status === "processando";
 
@@ -699,7 +699,7 @@ export function C8TenantDetail({
                                 <InvoiceStatusBadge status={inv.status} />
                               </TableCell>
                               <TableCell className="text-right">
-                                {inv.status === "autorizada" && inv.pdf_url ? (
+                                {inv.status === "emitida" && inv.pdf_url ? (
                                   <Button variant="ghost" size="sm" asChild title="Baixar PDF">
                                     <a href={inv.pdf_url} target="_blank" rel="noopener noreferrer">
                                       <FileText className="h-4 w-4" />

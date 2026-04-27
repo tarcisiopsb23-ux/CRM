@@ -30,7 +30,7 @@ export function DriveFolderAlert({ organizationId, canEdit }: DriveFolderAlertPr
   if (!webhookConfigured || !canEdit) return null;
 
   const clientsWithoutDrive = (clients as Client[]).filter(
-    (c) => c.is_active !== false && !clientHasDriveFolder(c)
+    (c) => (c as any).is_active !== false && !clientHasDriveFolder(c)
   );
 
   if (clientsWithoutDrive.length === 0) return null;

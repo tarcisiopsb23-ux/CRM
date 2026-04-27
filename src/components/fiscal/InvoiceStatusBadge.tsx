@@ -38,6 +38,10 @@ const STATUS_CONFIG: Record<
     label: "Cancelamento Pendente",
     className: "bg-orange-100 text-orange-700 border-orange-300",
   },
+  cancelamento_erro: {
+    label: "Erro no Cancelamento",
+    className: "bg-red-200 text-red-800 border-red-400",
+  },
 };
 
 /**

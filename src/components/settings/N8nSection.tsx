@@ -90,7 +90,7 @@ export function N8nSection() {
   useEffect(() => {
     if (!orgId || !serverData || loadedForOrgRef.current === orgId) return;
 
-    const config = (serverData as { config?: Record<string, unknown> } | null)?.config;
+    const config = (serverData as unknown as { config?: Record<string, unknown> } | null)?.config;
     loadedForOrgRef.current = orgId;
 
     if (!config || Object.keys(config).length === 0) return;

@@ -42,7 +42,7 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   jobOpening: JobOpening;
   initialQuestions: JobFormQuestion[];
-  onSave: (questions: Omit<JobFormQuestion, "id" | "created_at">[]) => Promise<void>;
+  onSave: (questions: Omit<JobFormQuestion, "id" | "created_at" | "organization_id" | "job_opening_id">[]) => Promise<void>;
 }
 
 export function ApplicationFormBuilder({ open, onOpenChange, jobOpening, initialQuestions, onSave }: Props) {

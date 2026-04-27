@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useIntegration } from "@/hooks/useSettings";
-import type { FiscalConfig } from "@/types/fiscal";
+import type { NotaasConfig } from "@/types/fiscal";
 
 const REGIME_OPTIONS = [
   { value: "simples_nacional", label: "Simples Nacional" },
@@ -35,7 +35,7 @@ interface Props {
 
 export function FiscalSection({ organizationId }: Props) {
   const integration = useIntegration(organizationId, "fiscal" as any);
-  const config = (integration.data?.config ?? {}) as FiscalConfig;
+  const config = (integration.data?.config ?? {}) as Record<string, unknown>;
 
   const [apiKey, setApiKey]                   = useState("");
   const [env, setEnv]                         = useState<"sandbox" | "production">("production");
@@ -51,16 +51,16 @@ export function FiscalSection({ organizationId }: Props) {
   // Inicializa com os valores salvos
   useEffect(() => {
     if (!integration.data) return;
-    setApiKey(config.notaas_api_key ?? "");
-    setEnv(config.notaas_env ?? "production");
-    setCnpj(config.cnpj_emissor ?? "");
-    setRegime(config.regime_tributario ?? "simples_nacional");
+    setApiKey((config.notaas_api_key as string) ?? "");
+    setEnv((config.notaas_env as "sandbox" | "production") ?? "production");
+    setCnpj((config.cnpj_emissor as string) ?? "");
+    setRegime((config.regime_tributario as string) ?? "simples_nacional");
     setAliquota(config.aliquota_iss_padrao != null ? String(config.aliquota_iss_padrao) : "");
-    setCodigoPadrao(config.codigo_servico_padrao ?? "");
-    setDescricaoPadrao(config.descricao_servico_padrao ?? "");
-    setEmissaoAuto(config.emissao_automatica ?? false);
-    const map = config.codigos_por_servico ?? {};
-    setCodigos(Object.entries(map).map(([servico, codigo]) => ({ servico, codigo })));
+    setCodigoPadrao((config.codigo_servico_padrao as string) ?? "");
+    setDescricaoPadrao((config.descricao_servico_padrao as string) ?? "");
+    setEmissaoAuto((config.emissao_automatica as boolean) ?? false);
+    const map = (config.codigos_por_servico as Record<string, string>) ?? {};
+    setCodigos(Object.entries(map).map(([servico, codigo]) => ({ servico, codigo: String(codigo) })));
   }, [integration.data]);
 
   const handleSave = async () => {
@@ -73,13 +73,13 @@ export function FiscalSection({ organizationId }: Props) {
         notaas_api_key:           apiKey.trim() || undefined,
         notaas_env:               env,
         cnpj_emissor:             cnpj.replace(/\D/g, "") || undefined,
-        regime_tributario:        regime as FiscalConfig["regime_tributario"],
+        regime_tributario:        regime as NotaasConfig["regime_tributario"],
         aliquota_iss_padrao:      aliquota ? parseFloat(aliquota.replace(",", ".")) : undefined,
         codigo_servico_padrao:    codigoPadrao.trim() || undefined,
         descricao_servico_padrao: descricaoPadrao.trim() || undefined,
         emissao_automatica:       emissaoAuto,
         codigos_por_servico:      Object.keys(codigosMap).length > 0 ? codigosMap : undefined,
-      } as FiscalConfig);
+      } as NotaasConfig);
       toast.success("Configurações fiscais salvas!");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao salvar");

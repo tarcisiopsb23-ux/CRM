@@ -30,7 +30,7 @@ interface RecordItem {
 /** Verifica se um registro tem pasta — checa folder_id, folder_url direto, fallback em metadata e flag de criação pendente */
 function hasDriveFolder(r: RecordItem): boolean {
   if (r.folder_id) return true;
-  if ((r as Record<string, unknown>).folder_url) return true;
+  if (r.folder_url) return true;
   const meta = (r.metadata ?? {}) as Record<string, unknown>;
   // Pasta em processo de criação — webhook disparado mas n8n ainda não retornou o folder_id
   if (meta.drive_folder_pending === true) return true;

@@ -88,6 +88,7 @@ export interface Application {
 export interface RecruitmentConfig {
   drive_folder_id?: string;
   drive_folder_url?: string;
+  drive_webhook_url?: string;  // URL do webhook n8n para upload de currículos
   notification_email?: string;
   auto_notify?: boolean;
 }

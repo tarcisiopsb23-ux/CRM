@@ -56,7 +56,7 @@ import { useOrganization } from "@/hooks/useOrganization";
 import { useModulePermission } from "@/hooks/usePermissions";
 import { maskApiKey, validateCnpj, validateAliquota } from "@/lib/fiscalValidators";
 import { supabase } from "@/lib/supabase";
-import type { NotaasConfig } from "@/types/fiscal";
+import type { NotaasConfig, ServicoMapping } from "@/types/fiscal";
 
 // ── Constantes ────────────────────────────────────────────────────────────────
 
@@ -459,7 +459,7 @@ export function FiscalSettingsTab() {
 
     setSaving(true);
     try {
-      const codigosMap: Record<string, object> = {};
+      const codigosMap: Record<string, string | ServicoMapping> = {};
       codigos.forEach(({ contractType, codigo, descricao, aliquota }) => {
         if (!contractType.trim() || !codigo.trim()) return;
         const aliquotaNum = aliquota.trim() ? parseFloat(aliquota.replace(",", ".")) : undefined;

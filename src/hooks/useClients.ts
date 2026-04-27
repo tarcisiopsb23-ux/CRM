@@ -163,7 +163,7 @@ export function useClients(organizationId: string | undefined) {
     onSuccess: (_data, id) => {
       qc.invalidateQueries({ queryKey: ["clients", organizationId] });
       qc.invalidateQueries({ queryKey: ["payments", organizationId] });
-      if (organizationId) dispatchWebhook(organizationId, "client.deleted", { id });
+      if (organizationId) dispatchWebhook(organizationId, "client.deactivated", { id });
     },
     onError: (err) => console.error("[useClients] hardDelete error:", err),
   });
