@@ -16,6 +16,7 @@ import { JobOpeningForm } from "@/components/recruitment/JobOpeningForm";
 import { ApplicationFormBuilder } from "@/components/recruitment/ApplicationFormBuilder";
 import { CandidateList } from "@/components/recruitment/CandidateList";
 import { CandidateDetail } from "@/components/recruitment/CandidateDetail";
+import { TalentPoolTab } from "@/components/recruitment/TalentPoolTab";
 import type { JobOpening, Application, JobFormQuestion } from "@/types/recruitment";
 
 export default function RecruitmentPage({ embedded = false }: { embedded?: boolean }) {
@@ -137,6 +138,7 @@ export default function RecruitmentPage({ embedded = false }: { embedded?: boole
         <TabsList>
           <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
           <TabsTrigger value="openings">Vagas</TabsTrigger>
+          <TabsTrigger value="talent">Banco de Talentos</TabsTrigger>
           {selectedOpening && (
             <TabsTrigger value="candidates">
               Candidatos — {selectedOpening.title}
@@ -165,6 +167,12 @@ export default function RecruitmentPage({ embedded = false }: { embedded?: boole
             onViewCandidates={handleViewCandidates}
             onDelete={isOwner ? handleDelete : undefined}
           />
+        </TabsContent>
+
+        <TabsContent value="talent" className="mt-4">
+          {organizationId && (
+            <TalentPoolTab organizationId={organizationId} canEdit={canCreate} />
+          )}
         </TabsContent>
 
         {selectedOpening && (

@@ -1,7 +1,7 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { JobFormQuestion, JobOpening, ApplicationFormData } from "@/types/recruitment";
-import { calculateTotalScore, calculateMaxScore, calculateScorePercent } from "@/lib/recruitmentScoring";
+import { calculateTotalScore, calculateMaxScore, calculateScorePercent, scoreRequirements } from "@/lib/recruitmentScoring";
 
 /** Busca perguntas de uma vaga (acesso público) via RPC */
 export function useJobFormQuestions(jobOpeningId: string | undefined) {
@@ -111,14 +111,18 @@ export function useSubmitApplication(jobOpening: JobOpening | null | undefined) 
       }
 
       // 3. Calcular score
+      const reqMatch = formData.requirements_match ?? [];
+      const { score: scoreReq, maxScore: maxReq } = scoreRequirements(reqMatch);
+
       const scoredAnswers = calculateTotalScore(questions, formData.answers);
       const fullAnswers = scoredAnswers.map((a) => {
         const q = questions.find((q) => q.id === a.question_id);
         return { ...a, question_text: q?.question_text ?? '' };
       });
       const scoreAuto = fullAnswers.reduce((sum, a) => sum + a.score, 0);
-      const scoreMax = calculateMaxScore(questions);
-      const scorePercent = calculateScorePercent(scoreAuto, scoreMax);
+      const scoreMax = calculateMaxScore(questions) + maxReq;
+      const scoreTotal = scoreAuto + scoreReq;
+      const scorePercent = calculateScorePercent(scoreTotal, scoreMax);
 
       // 4. Criar candidatura
       const { data: application, error: appError } = await supabase
@@ -129,8 +133,10 @@ export function useSubmitApplication(jobOpening: JobOpening | null | undefined) 
           candidate_id: candidateId,
           cover_letter: formData.cover_letter?.trim() || null,
           answers: fullAnswers,
+          requirements_match: reqMatch,
+          score_requirements: scoreReq,
           score_auto: scoreAuto,
-          score_total: scoreAuto,
+          score_total: scoreTotal,
           score_max: scoreMax,
           score_percent: scorePercent,
           source: "web",

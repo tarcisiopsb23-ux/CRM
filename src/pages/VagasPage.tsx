@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Loader2, ArrowRight, MapPin, Briefcase, DollarSign, Zap, Target, Users, TrendingUp, ChevronDown } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import type { JobOpening, LocationType } from "@/types/recruitment";
+import { TalentPoolForm } from "@/components/recruitment/TalentPoolForm";
 
 const ENV_ORG_ID = (import.meta.env.VITE_PUBLIC_ORG_ID as string | undefined)?.trim() || null;
 
@@ -147,6 +148,7 @@ function JobCard({ job }: { job: JobOpening }) {
 
 export default function VagasPage() {
   const vagasRef = useRef<HTMLElement>(null);
+  const orgId = ENV_ORG_ID;
 
   const { data: jobs = [], isLoading } = useQuery<JobOpening[]>({
     queryKey: ["vagas_publicas"],
@@ -507,39 +509,38 @@ export default function VagasPage() {
         </div>
       </section>
 
-      {/* ── CTA Final ── */}
-      <section className="relative overflow-hidden px-6 py-32 text-center">
+      {/* ── Banco de Talentos ── */}
+      <section className="relative overflow-hidden px-6 py-24">
         <div
-          className="absolute inset-0 opacity-5"
-          style={{
-            backgroundImage: `radial-gradient(circle at 50% 50%, ${C.orange}, transparent 70%)`,
-          }}
+          className="absolute inset-0 opacity-[0.04]"
+          style={{ backgroundImage: `radial-gradient(circle at 50% 0%, ${C.orange}, transparent 60%)` }}
         />
         <div className="relative z-10 max-w-2xl mx-auto">
-          <h2 className="text-4xl sm:text-5xl font-black leading-tight mb-6" style={{ color: C.white }}>
-            Se você quer mais que um emprego,
-            <br />
-            <span style={{ color: C.orange }}>candidate-se agora.</span>
-          </h2>
-          <p className="text-lg mb-10" style={{ color: C.gray2 }}>
-            Estamos prontos para conhecer quem vai crescer com a gente.
-          </p>
-          <button
-            type="button"
-            onClick={scrollToVagas}
-            className="px-10 py-4 rounded-xl font-bold text-base transition-all duration-200 inline-flex items-center gap-2"
-            style={{ backgroundColor: C.orange, color: C.white }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.backgroundColor = C.orangeD;
-              (e.currentTarget as HTMLButtonElement).style.transform = "scale(1.03)";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.backgroundColor = C.orange;
-              (e.currentTarget as HTMLButtonElement).style.transform = "scale(1)";
-            }}
+          <div className="text-center mb-10">
+            <SectionLabel>Banco de Talentos</SectionLabel>
+            <h2 className="text-3xl sm:text-4xl font-black leading-tight mb-4" style={{ color: C.white }}>
+              Não encontrou a vaga certa?
+              <br />
+              <span style={{ color: C.orange }}>Deixe seu perfil conosco.</span>
+            </h2>
+            <p className="text-base" style={{ color: C.gray2 }}>
+              Cadastre-se no nosso banco de talentos. Quando surgir uma oportunidade compatível com o seu perfil, entraremos em contato.
+            </p>
+          </div>
+
+          <div
+            className="rounded-2xl p-8"
+            style={{ backgroundColor: C.card, border: `1px solid ${C.border}` }}
           >
-            Ver vagas abertas <ArrowRight className="h-4 w-4" />
-          </button>
+            {orgId ? (
+              <TalentPoolForm organizationId={orgId} />
+            ) : (
+              <div className="text-center py-8" style={{ color: C.gray2 }}>
+                <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" style={{ color: C.orange }} />
+                Carregando...
+              </div>
+            )}
+          </div>
         </div>
       </section>
 

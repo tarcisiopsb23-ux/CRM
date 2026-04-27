@@ -9,8 +9,9 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Sparkles, CheckCircle2, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
-import type { JobOpening, LocationType, JobOpeningStatus, JobFormQuestion } from "@/types/recruitment";
+import type { JobOpening, LocationType, JobOpeningStatus, JobFormQuestion, JobRequirement } from "@/types/recruitment";
 import { ApplicationFormBuilder } from "@/components/recruitment/ApplicationFormBuilder";
+import { RequirementsEditor } from "@/components/recruitment/RequirementsEditor";
 import { useJobFormQuestionsAdmin } from "@/hooks/useApplicationForm";
 import { useOrganization } from "@/hooks/useOrganization";
 
@@ -57,6 +58,7 @@ const EMPTY_FORM: Partial<JobOpening> = {
 export function JobOpeningForm({ open, onOpenChange, editing, onSubmit }: Props) {
   const organizationId = useOrganization();
   const [form, setForm] = useState<Partial<JobOpening>>(EMPTY_FORM);
+  const [requirementsList, setRequirementsList] = useState<JobRequirement[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,6 +66,7 @@ export function JobOpeningForm({ open, onOpenChange, editing, onSubmit }: Props)
   useEffect(() => {
     if (open) {
       setForm(editing ? stripComputedFields(editing) : EMPTY_FORM);
+      setRequirementsList(editing?.requirements_list ?? []);
       setError(null);
       setSuggestedQuestions(null);
     }
@@ -86,7 +89,7 @@ export function JobOpeningForm({ open, onOpenChange, editing, onSubmit }: Props)
     setSubmitting(true);
     setError(null);
     try {
-      await onSubmit(stripComputedFields(form), suggestedQuestions ?? undefined);
+      await onSubmit({ ...stripComputedFields(form), requirements_list: requirementsList as any }, suggestedQuestions ?? undefined);
       onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao salvar vaga.");
@@ -260,6 +263,15 @@ export function JobOpeningForm({ open, onOpenChange, editing, onSubmit }: Props)
                   placeholder="Formação, experiência, habilidades necessárias..."
                 />
               </div>
+            </div>
+
+            {/* ── Requisitos pontuados ── */}
+            <div className="rounded-lg border p-4">
+              <RequirementsEditor
+                value={requirementsList}
+                onChange={setRequirementsList}
+                department={form.department}
+              />
             </div>
 
             {/* ── Bloco IA ── */}

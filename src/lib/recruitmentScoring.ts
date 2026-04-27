@@ -1,4 +1,19 @@
-import type { JobFormQuestion, ApplicationAnswer, QuestionType } from "@/types/recruitment";
+import type { JobFormQuestion, ApplicationAnswer, QuestionType, RequirementMatch } from "@/types/recruitment";
+
+/**
+ * Calcula a pontuação dos requisitos marcados pelo candidato.
+ * Cada requisito marcado vale weight * 10 pontos.
+ */
+export function scoreRequirements(requirements: RequirementMatch[]): {
+  score: number;
+  maxScore: number;
+} {
+  const maxScore = requirements.reduce((s, r) => s + r.weight * 10, 0);
+  const score = requirements
+    .filter((r) => r.checked)
+    .reduce((s, r) => s + r.weight * 10, 0);
+  return { score, maxScore };
+}
 
 /**
  * Calcula a pontuação de uma resposta para uma pergunta específica.
