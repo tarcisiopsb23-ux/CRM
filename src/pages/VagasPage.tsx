@@ -1,19 +1,64 @@
 import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { PublicLayout } from "@/layouts/PublicLayout";
 import { PublicJobCard } from "@/components/recruitment/PublicJobCard";
-import { usePublicJobOpenings } from "@/hooks/useJobOpenings";
-import { usePublicOrgId } from "@/hooks/usePublicOrgId";
+import { supabase } from "@/lib/supabase";
 import type { JobOpening } from "@/types/recruitment";
 
-export default function VagasPage() {
-  const { data: orgId } = usePublicOrgId();
-  const { data: jobs = [], isLoading, error } = usePublicJobOpenings(orgId ?? undefined);
+// Lê o org ID do env (embutido no build)
+const ENV_ORG_ID = (import.meta.env.VITE_PUBLIC_ORG_ID as string | undefined)?.trim() || null;
 
-  // Debug temporário — remove após confirmar funcionamento
-  if (import.meta.env.DEV || window.location.search.includes("debug")) {
-    console.log("[VagasPage] orgId:", orgId, "jobs:", jobs, "error:", error);
-  }
+export default function VagasPage() {
+  const { data: jobs = [], isLoading, error } = useQuery<JobOpening[]>({
+    queryKey: ["vagas_publicas"],
+    queryFn: async () => {
+      // Estratégia 1: RPC SECURITY DEFINER (bypassa RLS, não precisa de org_id)
+      const { data: rpcData, error: rpcErr } = await supabase
+        .rpc("get_public_job_openings");
+
+      if (!rpcErr && Array.isArray(rpcData)) {
+        console.log("[VagasPage] RPC ok, vagas:", rpcData.length);
+        return rpcData as JobOpening[];
+      }
+
+      console.warn("[VagasPage] RPC falhou:", rpcErr?.message, "— tentando query direta");
+
+      // Estratégia 2: query direta com org_id do env
+      if (ENV_ORG_ID) {
+        const { data, error: qErr } = await supabase
+          .from("job_openings")
+          .select("*")
+          .eq("organization_id", ENV_ORG_ID)
+          .eq("status", "aberta")
+          .order("created_at", { ascending: false });
+
+        if (!qErr) {
+          console.log("[VagasPage] Query direta ok, vagas:", data?.length);
+          return (data ?? []) as JobOpening[];
+        }
+        console.error("[VagasPage] Query direta falhou:", qErr.message);
+      }
+
+      // Estratégia 3: busca sem filtro de org (retorna todas as vagas abertas)
+      const { data: allData, error: allErr } = await supabase
+        .from("job_openings")
+        .select("*")
+        .eq("status", "aberta")
+        .order("created_at", { ascending: false });
+
+      if (!allErr) {
+        console.log("[VagasPage] Query sem org ok, vagas:", allData?.length);
+        return (allData ?? []) as JobOpening[];
+      }
+
+      console.error("[VagasPage] Todas as estratégias falharam:", allErr.message);
+      return [];
+    },
+    staleTime: 30_000,
+    retry: 2,
+    retryDelay: 1000,
+  });
 
   // Agrupa por departamento
   const grouped = useMemo(() => {
@@ -64,6 +109,13 @@ export default function VagasPage() {
           {isLoading ? (
             <div className="flex items-center justify-center py-20">
               <Loader2 className="h-8 w-8 animate-spin" style={{ color: "#f97316" }} />
+            </div>
+          ) : error ? (
+            <div className="text-center py-20">
+              <p className="text-xl font-medium text-white mb-2">Erro ao carregar vagas</p>
+              <p style={{ color: "#6b7280" }} className="text-sm font-mono">
+                {(error as Error).message}
+              </p>
             </div>
           ) : jobs.length === 0 ? (
             <div className="text-center py-20">
