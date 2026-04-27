@@ -28,7 +28,7 @@ export interface JobOpening {
   department: string | null;
   description: string | null;
   requirements: string | null;
-  requirements_list: JobRequirement[] | null;
+  requirements_list?: JobRequirement[] | null;
   location_type: LocationType | null;
   salary_range: string | null;
   status: JobOpeningStatus;

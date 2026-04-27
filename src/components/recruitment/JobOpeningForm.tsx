@@ -154,6 +154,7 @@ export function JobOpeningForm({ open, onOpenChange, editing, onSubmit }: Props)
     department: form.department ?? null,
     description: form.description ?? null,
     requirements: form.requirements ?? null,
+    requirements_list: requirementsList,
     location_type: form.location_type ?? null,
     salary_range: form.salary_range ?? null,
     status: form.status ?? "aberta",
