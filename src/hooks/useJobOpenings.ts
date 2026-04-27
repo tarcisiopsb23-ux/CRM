@@ -66,9 +66,12 @@ export function useJobOpenings(
   const create = useMutation({
     mutationFn: async (input: Omit<Partial<JobOpening>, "id" | "organization_id" | "created_at" | "updated_at"> & { title: string }) => {
       if (!organizationId) throw new Error("Sem organização");
+      // Remove campos computados que não existem na tabela
+      const { candidate_count, new_candidate_count, avg_score, ...dbInput } = input as any;
+      void candidate_count; void new_candidate_count; void avg_score;
       const { data, error } = await supabase
         .from("job_openings")
-        .insert({ ...input, organization_id: organizationId })
+        .insert({ ...dbInput, organization_id: organizationId })
         .select()
         .single();
       if (error) throw error;
@@ -79,9 +82,12 @@ export function useJobOpenings(
 
   const update = useMutation({
     mutationFn: async ({ id, ...input }: Partial<JobOpening> & { id: string }) => {
+      // Remove campos computados que não existem na tabela
+      const { candidate_count, new_candidate_count, avg_score, ...dbInput } = input as any;
+      void candidate_count; void new_candidate_count; void avg_score;
       const { data, error } = await supabase
         .from("job_openings")
-        .update({ ...input, updated_at: new Date().toISOString() })
+        .update({ ...dbInput, updated_at: new Date().toISOString() })
         .eq("id", id)
         .select()
         .single();
