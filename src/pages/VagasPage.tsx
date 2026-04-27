@@ -8,7 +8,12 @@ import type { JobOpening } from "@/types/recruitment";
 
 export default function VagasPage() {
   const { data: orgId } = usePublicOrgId();
-  const { data: jobs = [], isLoading } = usePublicJobOpenings(orgId ?? undefined);
+  const { data: jobs = [], isLoading, error } = usePublicJobOpenings(orgId ?? undefined);
+
+  // Debug temporário — remove após confirmar funcionamento
+  if (import.meta.env.DEV || window.location.search.includes("debug")) {
+    console.log("[VagasPage] orgId:", orgId, "jobs:", jobs, "error:", error);
+  }
 
   // Agrupa por departamento
   const grouped = useMemo(() => {
