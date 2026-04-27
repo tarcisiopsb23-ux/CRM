@@ -93,6 +93,7 @@ function App() {
                 <Route path="/public/dashboard/:slug" element={<PublicDashboardPage />} />
                 <Route path="/public/dashboard/:slug/login" element={<PublicDashboardLoginPage />} />
                 <Route path="/public/dashboard/:slug/crm/login" element={<C8ControlLoginPage />} />
+                <Route path="/vagas/*" element={<PublicVagasRouter />} />
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/complete-registration" element={<CompleteRegistrationPage />} />
                 <Route path="/set-password" element={<SetPasswordPage />} />
