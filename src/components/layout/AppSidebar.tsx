@@ -22,7 +22,6 @@ import {
   Truck,
   FileText,
   ShieldCheck,
-  BriefcaseBusiness,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -53,7 +52,6 @@ const navItems: {
   { title: "WhatsApp", url: "/whatsapp", icon: MessageCircle, module: "whatsapp" },
   { title: "Reuniões IA", url: "/meetings", icon: Sparkles, module: "meetings" },
   { title: "Gestão de Pessoas", url: "/team", icon: UsersRound, module: "team" },
-  { title: "Recrutamento", url: "/recruitment", icon: BriefcaseBusiness, module: "recruitment" },
   { title: "Campanhas", url: "/campaign-reports", icon: Megaphone, module: "campaigns" },
   { title: "Relatórios", url: "/reports", icon: FileBarChart, module: "reports" },
   { title: "Auditoria", url: "/audit", icon: History, module: "audit" },
@@ -88,7 +86,6 @@ export function AppSidebar() {
   const { canView: canViewIntegrations } = useModulePermission("integrations");
   const { canView: canViewC8Control } = useModulePermission("c8control" as any);
   const { canView: canViewFiscal } = useModulePermission("fiscal" as any);
-  const { canView: canViewRecruitment } = useModulePermission("recruitment" as any);
 
   const canViewByModule: Record<string, boolean> = {
     dashboard: canViewDashboard,
@@ -109,7 +106,6 @@ export function AppSidebar() {
     integrations: canViewIntegrations,
     c8control: canViewC8Control,
     fiscal: canViewFiscal,
-    recruitment: canViewRecruitment,
   };
 
   const visibleItems = navItems.filter((item) => {

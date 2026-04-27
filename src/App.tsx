@@ -48,7 +48,6 @@ import { DynamicTitle } from "@/components/layout/DynamicTitle";
 import { PublicDemoDashboardPage } from "./pages/PublicDemoDashboardPage";
 import SuppliersModulePage from "@/pages/SuppliersModulePage";
 import FiscalPage from "@/pages/FiscalPage";
-import RecruitmentPage from "@/pages/recruitment/RecruitmentPage";
 import AuthorizationsPage from "@/pages/AuthorizationsPage";
 import { PublicVagasRouter } from "@/router/PublicVagasRouter";
 
@@ -156,7 +155,7 @@ function App() {
                     <Route path="/sales-analytics" element={<SalesDashboardPage />} />
                     <Route path="/audit" element={<AuditPage />} />
                     <Route path="/fiscal" element={<FiscalPage />} />
-                    <Route path="/recruitment" element={<RecruitmentPage />} />
+                    <Route path="/recruitment" element={<Navigate to="/team" replace />} />
                     <Route path="/authorizations" element={<AuthorizationsPage />} />
                     <Route path="/c8control" element={<C8ControlPage />} />
                     <Route path="/settings" element={<SettingsPage />} />

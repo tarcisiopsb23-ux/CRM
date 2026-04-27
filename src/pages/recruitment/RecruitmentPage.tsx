@@ -16,7 +16,7 @@ import { CandidateList } from "@/components/recruitment/CandidateList";
 import { CandidateDetail } from "@/components/recruitment/CandidateDetail";
 import type { JobOpening, Application } from "@/types/recruitment";
 
-export default function RecruitmentPage() {
+export default function RecruitmentPage({ embedded = false }: { embedded?: boolean }) {
   const organizationId = useOrganization();
   const { canCreate } = useModulePermission("recruitment" as any);
 
@@ -67,12 +67,14 @@ export default function RecruitmentPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-foreground">Recrutamento e Seleção</h1>
-          <p className="text-sm text-muted-foreground">Gerencie vagas, candidatos e o processo seletivo</p>
+      {!embedded && (
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="font-display text-2xl font-bold text-foreground">Recrutamento e Seleção</h1>
+            <p className="text-sm text-muted-foreground">Gerencie vagas, candidatos e o processo seletivo</p>
+          </div>
         </div>
-      </div>
+      )}
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>

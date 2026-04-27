@@ -10,7 +10,7 @@ import { useProfiles } from "@/hooks/useProfiles";
 import { useTeams, useTeamMembers } from "@/hooks/useTeams";
 import { useAuth } from "@/contexts/AuthContext";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Clock, Users, UsersRound, UserPlus, ChevronDown, Calculator, ShieldCheck, Timer, Star, KeyRound } from "lucide-react";
+import { Clock, Users, UsersRound, UserPlus, ChevronDown, Calculator, ShieldCheck, Timer, Star, KeyRound, BriefcaseBusiness } from "lucide-react";
 import { PayrollManager } from "@/components/team/PayrollManager";
 import { Button } from "@/components/ui/button";
 import { usePermissionForScope } from "@/hooks/usePermissions";
@@ -29,6 +29,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import RecruitmentPage from "@/pages/recruitment/RecruitmentPage";
 
 export default function TeamPage() {
   const orgId = useOrganization();
@@ -41,7 +42,7 @@ export default function TeamPage() {
   const [addDirectOpen, setAddDirectOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteMode, setInviteMode] = useState<"email" | "link">("email");
-  const [tab, setTab] = useState<"dashboard" | "employees" | "teams" | "payroll" | "timeclock" | "avaliacao360">(
+  const [tab, setTab] = useState<"dashboard" | "employees" | "teams" | "payroll" | "timeclock" | "avaliacao360" | "recruitment">(
     (profile?.role === "admin" || profile?.role === "owner") ? "dashboard" : "employees"
   );
 
@@ -269,6 +270,11 @@ export default function TeamPage() {
               <Star className="h-4 w-4" /> Avaliação 360°
             </TabsTrigger>
           )}
+          {isAdminOrOwner && (
+            <TabsTrigger value="recruitment" className="gap-1.5">
+              <BriefcaseBusiness className="h-4 w-4" /> Recrutamento
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {!scopePermission.canView ? (
@@ -350,6 +356,11 @@ export default function TeamPage() {
                     organizationId={orgId}
                   />
                 </div>
+              </TabsContent>
+            )}
+            {isAdminOrOwner && (
+              <TabsContent value="recruitment">
+                <RecruitmentPage embedded />
               </TabsContent>
             )}
           </>
