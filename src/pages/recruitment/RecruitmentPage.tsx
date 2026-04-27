@@ -8,13 +8,14 @@ import { useJobOpenings } from "@/hooks/useJobOpenings";
 import { useCandidates, useAllApplications } from "@/hooks/useCandidates";
 import { useJobFormQuestionsAdmin } from "@/hooks/useApplicationForm";
 import { toast } from "sonner";
+import { supabase } from "@/lib/supabase";
 import { RecruitmentDashboard } from "@/components/recruitment/RecruitmentDashboard";
 import { JobOpeningList } from "@/components/recruitment/JobOpeningList";
 import { JobOpeningForm } from "@/components/recruitment/JobOpeningForm";
 import { ApplicationFormBuilder } from "@/components/recruitment/ApplicationFormBuilder";
 import { CandidateList } from "@/components/recruitment/CandidateList";
 import { CandidateDetail } from "@/components/recruitment/CandidateDetail";
-import type { JobOpening, Application } from "@/types/recruitment";
+import type { JobOpening, Application, JobFormQuestion } from "@/types/recruitment";
 
 export default function RecruitmentPage({ embedded = false }: { embedded?: boolean }) {
   const organizationId = useOrganization();
@@ -45,13 +46,34 @@ export default function RecruitmentPage({ embedded = false }: { embedded?: boole
     builderOpening?.id
   );
 
-  const handleCreateOrUpdate = async (data: Partial<JobOpening>) => {
+  const handleCreateOrUpdate = async (
+    data: Partial<JobOpening>,
+    approvedQuestions?: Omit<JobFormQuestion, "id" | "created_at" | "organization_id" | "job_opening_id">[]
+  ) => {
     if (editingOpening) {
       await update.mutateAsync({ id: editingOpening.id, ...data });
       toast.success("Vaga atualizada.");
     } else {
-      await create.mutateAsync(data as any);
-      toast.success("Vaga criada.");
+      const created = await create.mutateAsync(data as any);
+      // Se há perguntas aprovadas pela IA, salva automaticamente
+      if (approvedQuestions && approvedQuestions.length > 0 && created?.id && organizationId) {
+        try {
+          await supabase.from("job_form_questions").delete().eq("job_opening_id", created.id);
+          await supabase.from("job_form_questions").insert(
+            approvedQuestions.map((q, i) => ({
+              ...q,
+              organization_id: organizationId,
+              job_opening_id: created.id,
+              sort_order: i,
+            }))
+          );
+          toast.success(`Vaga criada com ${approvedQuestions.length} perguntas do formulário!`);
+        } catch {
+          toast.success("Vaga criada! Formulário não foi salvo — configure manualmente.");
+        }
+      } else {
+        toast.success("Vaga criada.");
+      }
     }
   };
 
