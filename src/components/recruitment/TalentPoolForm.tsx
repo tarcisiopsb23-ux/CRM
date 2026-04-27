@@ -2,10 +2,11 @@
  * TalentPoolForm — Formulário público de candidatura espontânea
  * Exibido na seção "Banco de Talentos" da página pública de vagas.
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Loader2, CheckCircle2, Upload, X } from "lucide-react";
 import { submitTalentPool } from "@/hooks/useTalentPool";
 import { scoreRequirements } from "@/lib/recruitmentScoring";
+import { supabase } from "@/lib/supabase";
 import type { RequirementMatch } from "@/types/recruitment";
 
 const ACCENT = "#7c3aed";
@@ -26,10 +27,22 @@ const GENERIC_REQUIREMENTS: { id: string; label: string; weight: number }[] = [
 ];
 
 interface Props {
-  organizationId: string;
+  organizationId?: string | null;
 }
 
-export function TalentPoolForm({ organizationId }: Props) {
+const ENV_ORG_ID = (import.meta.env.VITE_PUBLIC_ORG_ID as string | undefined)?.trim() || null;
+
+export function TalentPoolForm({ organizationId: propOrgId }: Props) {
+  // Resolve org ID: prop → env → RPC
+  const [resolvedOrgId, setResolvedOrgId] = useState<string | null>(propOrgId ?? ENV_ORG_ID);
+
+  useEffect(() => {
+    if (resolvedOrgId) return;
+    // Tenta RPC como último recurso
+    supabase.rpc("get_public_org_id").then(({ data }) => {
+      if (data) setResolvedOrgId(data as string);
+    });
+  }, [resolvedOrgId]);
   const [step, setStep] = useState<"personal" | "requirements" | "success">("personal");
   const [personal, setPersonal] = useState({ full_name: "", email: "", phone: "", linkedin_url: "", portfolio_url: "", desired_role: "", cover_letter: "" });
   const [reqMatch, setReqMatch] = useState<RequirementMatch[]>(
@@ -59,13 +72,17 @@ export function TalentPoolForm({ organizationId }: Props) {
   };
 
   const handleSubmit = async () => {
+    if (!resolvedOrgId) {
+      setErrors({ _global: "Não foi possível identificar a organização. Tente novamente." });
+      return;
+    }
     setSubmitting(true);
     try {
       const { score, maxScore } = scoreRequirements(reqMatch);
       const pct = maxScore > 0 ? (score / maxScore) * 100 : 0;
 
       await submitTalentPool({
-        organizationId,
+        organizationId: resolvedOrgId,
         full_name: personal.full_name,
         email: personal.email,
         phone: personal.phone,

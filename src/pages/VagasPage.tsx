@@ -532,14 +532,7 @@ export default function VagasPage() {
             className="rounded-2xl p-8"
             style={{ backgroundColor: C.card, border: `1px solid ${C.border}` }}
           >
-            {orgId ? (
-              <TalentPoolForm organizationId={orgId} />
-            ) : (
-              <div className="text-center py-8" style={{ color: C.gray2 }}>
-                <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" style={{ color: C.orange }} />
-                Carregando...
-              </div>
-            )}
+            <TalentPoolForm organizationId={orgId} />
           </div>
         </div>
       </section>
