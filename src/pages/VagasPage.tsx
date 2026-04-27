@@ -19,8 +19,8 @@ const C = {
   surface:  "#0f0f0f",
   card:     "#141414",
   border:   "#1c1c1c",
-  orange:   "#f97316",
-  orangeD:  "#ea6c0a",
+  orange:   "#7c3aed",   // violet-700
+  orangeD:  "#6d28d9",   // violet-800 (hover)
   white:    "#ffffff",
   gray1:    "#e5e7eb",
   gray2:    "#9ca3af",

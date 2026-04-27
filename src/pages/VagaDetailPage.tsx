@@ -61,7 +61,7 @@ export default function VagaDetailPage() {
 
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
-            <Loader2 className="h-8 w-8 animate-spin" style={{ color: "#f97316" }} />
+            <Loader2 className="h-8 w-8 animate-spin" style={{ color: "#7c3aed" }} />
           </div>
         ) : !job ? (
           <div className="text-center py-20">
