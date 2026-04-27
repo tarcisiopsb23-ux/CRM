@@ -3,6 +3,11 @@
 -- Execute no Supabase SQL Editor
 -- =============================================================================
 
+-- ── Remove versões anteriores com assinatura diferente ───────────────────────
+DROP FUNCTION IF EXISTS public.get_public_job_openings();
+DROP FUNCTION IF EXISTS public.get_public_job_opening(UUID);
+DROP FUNCTION IF EXISTS public.get_public_job_form_questions(UUID);
+
 -- ── RPC: lista todas as vagas abertas (sem parâmetros) ───────────────────────
 CREATE OR REPLACE FUNCTION public.get_public_job_openings()
 RETURNS SETOF public.job_openings
