@@ -4,6 +4,7 @@ import { PublicLayout } from "@/layouts/PublicLayout";
 import { ApplicationForm } from "@/components/recruitment/ApplicationForm";
 import { usePublicJobOpening, useJobFormQuestions } from "@/hooks/useApplicationForm";
 import { useRecruitmentConfig } from "@/hooks/useRecruitmentConfig";
+import { usePublicOrgId } from "@/hooks/usePublicOrgId";
 import type { LocationType } from "@/types/recruitment";
 
 const LOCATION_LABELS: Record<LocationType, string> = {
@@ -12,16 +13,14 @@ const LOCATION_LABELS: Record<LocationType, string> = {
   hibrido: "Híbrido",
 };
 
-// Organização pública configurada via env
-const PUBLIC_ORG_ID = import.meta.env.VITE_PUBLIC_ORG_ID as string | undefined;
-
 export default function VagaDetailPage() {
   const { jobOpeningId } = useParams<{ jobOpeningId: string }>();
   const navigate = useNavigate();
+  const { data: orgId } = usePublicOrgId();
 
   const { data: job, isLoading: loadingJob } = usePublicJobOpening(jobOpeningId);
   const { data: questions = [], isLoading: loadingQuestions } = useJobFormQuestions(jobOpeningId);
-  const { config: recruitmentConfig } = useRecruitmentConfig(PUBLIC_ORG_ID);
+  const { config: recruitmentConfig } = useRecruitmentConfig(orgId ?? undefined);
 
   const isLoading = loadingJob || loadingQuestions;
 

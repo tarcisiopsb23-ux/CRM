@@ -3,13 +3,12 @@ import { Loader2 } from "lucide-react";
 import { PublicLayout } from "@/layouts/PublicLayout";
 import { PublicJobCard } from "@/components/recruitment/PublicJobCard";
 import { usePublicJobOpenings } from "@/hooks/useJobOpenings";
+import { usePublicOrgId } from "@/hooks/usePublicOrgId";
 import type { JobOpening } from "@/types/recruitment";
 
-// A organização pública é configurada via variável de ambiente
-const PUBLIC_ORG_ID = import.meta.env.VITE_PUBLIC_ORG_ID as string | undefined;
-
 export default function VagasPage() {
-  const { data: jobs = [], isLoading } = usePublicJobOpenings(PUBLIC_ORG_ID);
+  const { data: orgId } = usePublicOrgId();
+  const { data: jobs = [], isLoading } = usePublicJobOpenings(orgId ?? undefined);
 
   // Agrupa por departamento
   const grouped = useMemo(() => {
