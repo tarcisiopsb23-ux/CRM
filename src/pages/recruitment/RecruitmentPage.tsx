@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useModulePermission } from "@/hooks/usePermissions";
+import { useAuth } from "@/contexts/AuthContext";
 import { useJobOpenings } from "@/hooks/useJobOpenings";
 import { useCandidates, useAllApplications } from "@/hooks/useCandidates";
 import { useJobFormQuestionsAdmin } from "@/hooks/useApplicationForm";
@@ -20,8 +21,10 @@ import type { JobOpening, Application, JobFormQuestion } from "@/types/recruitme
 export default function RecruitmentPage({ embedded = false }: { embedded?: boolean }) {
   const organizationId = useOrganization();
   const { canCreate } = useModulePermission("recruitment" as any);
+  const { profile } = useAuth();
+  const isOwner = profile?.role === "owner";
 
-  const { data: openings = [], isLoading: loadingOpenings, create, update } = useJobOpenings(organizationId);
+  const { data: openings = [], isLoading: loadingOpenings, create, update, remove } = useJobOpenings(organizationId);
   const { data: allApplications = [], isLoading: loadingApplications } = useAllApplications(organizationId);
 
   const [tab, setTab] = useState("dashboard");
@@ -31,6 +34,7 @@ export default function RecruitmentPage({ embedded = false }: { embedded?: boole
   const [selectedOpening, setSelectedOpening] = useState<JobOpening | null>(null);
   const [selectedApplication, setSelectedApplication] = useState<Application | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [generatingAI, setGeneratingAI] = useState(false);
 
   // Candidates for selected opening
   const {
@@ -45,6 +49,10 @@ export default function RecruitmentPage({ embedded = false }: { embedded?: boole
     organizationId,
     builderOpening?.id
   );
+
+  const handleDelete = async (id: string) => {
+    await remove.mutateAsync(id);
+  };
 
   const handleCreateOrUpdate = async (
     data: Partial<JobOpening>,
@@ -87,6 +95,32 @@ export default function RecruitmentPage({ embedded = false }: { embedded?: boole
     setDetailOpen(true);
   };
 
+  const handleGenerateAIForBuilder = async () => {
+    if (!builderOpening) return;
+    setGeneratingAI(true);
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke("generate-recruitment-form", {
+        body: {
+          title: builderOpening.title,
+          description: builderOpening.description ?? "",
+          requirements: builderOpening.requirements ?? "",
+          department: builderOpening.department ?? "",
+          location_type: builderOpening.location_type ?? "",
+        },
+      });
+      if (fnError) throw new Error(fnError.message);
+      if (data?.error) throw new Error(data.error);
+      if (!data?.questions?.length) throw new Error("A IA não retornou perguntas.");
+      // Salva direto as perguntas geradas
+      await upsertQuestions.mutateAsync(data.questions as any);
+      toast.success(`${data.questions.length} perguntas geradas e salvas pela IA!`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao gerar formulário.");
+    } finally {
+      setGeneratingAI(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {!embedded && (
@@ -123,10 +157,12 @@ export default function RecruitmentPage({ embedded = false }: { embedded?: boole
             openings={openings}
             isLoading={loadingOpenings}
             canCreate={canCreate}
+            canDelete={isOwner}
             onNew={() => { setEditingOpening(null); setFormOpen(true); }}
             onEdit={(o) => { setEditingOpening(o); setFormOpen(true); }}
             onManageForm={(o) => setBuilderOpening(o)}
             onViewCandidates={handleViewCandidates}
+            onDelete={isOwner ? handleDelete : undefined}
           />
         </TabsContent>
 
@@ -168,6 +204,8 @@ export default function RecruitmentPage({ embedded = false }: { embedded?: boole
           onSave={async (questions) => {
             await upsertQuestions.mutateAsync(questions as any);
           }}
+          onGenerateWithAI={handleGenerateAIForBuilder}
+          isGeneratingAI={generatingAI}
         />
       )}
 

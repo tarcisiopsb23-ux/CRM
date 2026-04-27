@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Sparkles, CheckCircle2, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
-import type { JobOpening, LocationType, JobOpeningStatus, JobFormQuestion, QuestionType } from "@/types/recruitment";
+import type { JobOpening, LocationType, JobOpeningStatus, JobFormQuestion } from "@/types/recruitment";
 import { ApplicationFormBuilder } from "@/components/recruitment/ApplicationFormBuilder";
 import { useJobFormQuestionsAdmin } from "@/hooks/useApplicationForm";
 import { useOrganization } from "@/hooks/useOrganization";
@@ -35,27 +35,39 @@ const STATUS_LABELS: Record<JobOpeningStatus, string> = {
 
 type SuggestedQuestion = Omit<JobFormQuestion, "id" | "created_at" | "organization_id" | "job_opening_id">;
 
+/** Remove campos computados que não existem na tabela job_openings */
+function stripComputedFields(obj: Partial<JobOpening>): Partial<JobOpening> {
+  const { candidate_count, new_candidate_count, avg_score, ...rest } = obj as any;
+  void candidate_count; void new_candidate_count; void avg_score;
+  return rest;
+}
+
+const EMPTY_FORM: Partial<JobOpening> = {
+  title: "",
+  job_title: "",
+  department: "",
+  description: "",
+  requirements: "",
+  location_type: "presencial",
+  salary_range: "",
+  status: "aberta",
+  closes_at: "",
+};
+
 export function JobOpeningForm({ open, onOpenChange, editing, onSubmit }: Props) {
   const organizationId = useOrganization();
-  const [form, setForm] = useState<Partial<JobOpening>>(() => {
-    if (!editing) return {
-      title: "",
-      job_title: "",
-      department: "",
-      description: "",
-      requirements: "",
-      location_type: "presencial",
-      salary_range: "",
-      status: "aberta",
-      closes_at: "",
-    };
-    // Strip computed fields that don't exist in the DB table
-    const { candidate_count, new_candidate_count, avg_score, ...dbFields } = editing as any;
-    void candidate_count; void new_candidate_count; void avg_score;
-    return dbFields;
-  });
+  const [form, setForm] = useState<Partial<JobOpening>>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // ── Sincroniza o form quando editing muda (abre modal com vaga diferente) ──
+  useEffect(() => {
+    if (open) {
+      setForm(editing ? stripComputedFields(editing) : EMPTY_FORM);
+      setError(null);
+      setSuggestedQuestions(null);
+    }
+  }, [open, editing]);
 
   // ── IA: geração de formulário ──────────────────────────────────────────────
   const [generatingForm, setGeneratingForm] = useState(false);
@@ -74,10 +86,7 @@ export function JobOpeningForm({ open, onOpenChange, editing, onSubmit }: Props)
     setSubmitting(true);
     setError(null);
     try {
-      // Strip computed fields before sending to DB
-      const { candidate_count, new_candidate_count, avg_score, ...dbForm } = form as any;
-      void candidate_count; void new_candidate_count; void avg_score;
-      await onSubmit(dbForm, suggestedQuestions ?? undefined);
+      await onSubmit(stripComputedFields(form), suggestedQuestions ?? undefined);
       onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao salvar vaga.");
@@ -91,10 +100,8 @@ export function JobOpeningForm({ open, onOpenChange, editing, onSubmit }: Props)
       toast.error("Preencha pelo menos o título da vaga antes de gerar o formulário.");
       return;
     }
-
     setGeneratingForm(true);
     setSuggestedQuestions(null);
-
     try {
       const { data, error: fnError } = await supabase.functions.invoke("generate-recruitment-form", {
         body: {
@@ -105,23 +112,19 @@ export function JobOpeningForm({ open, onOpenChange, editing, onSubmit }: Props)
           location_type: form.location_type ?? "",
         },
       });
-
       if (fnError) {
-        // CORS / função não deployada
         if (fnError.message?.includes("Failed to fetch") || fnError.message?.includes("ERR_FAILED")) {
-          throw new Error("A Edge Function 'generate-recruitment-form' não está deployada no Supabase. Execute: supabase functions deploy generate-recruitment-form");
+          throw new Error("Edge Function não deployada. Execute: supabase functions deploy generate-recruitment-form");
         }
         throw new Error(fnError.message);
       }
       if (data?.error) throw new Error(data.error);
       if (!data?.questions?.length) throw new Error("A IA não retornou perguntas.");
-
       setSuggestedQuestions(data.questions as SuggestedQuestion[]);
       setBuilderOpen(true);
       toast.success(`${data.questions.length} perguntas geradas pela IA. Revise e aprove!`);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Erro ao gerar formulário.";
-      toast.error(msg);
+      toast.error(err instanceof Error ? err.message : "Erro ao gerar formulário.");
     } finally {
       setGeneratingForm(false);
     }
@@ -131,18 +134,15 @@ export function JobOpeningForm({ open, onOpenChange, editing, onSubmit }: Props)
     questions: Omit<JobFormQuestion, "id" | "created_at" | "organization_id" | "job_opening_id">[]
   ) => {
     if (editing?.id) {
-      // Vaga já existe — salva direto
       await upsertQuestions.mutateAsync(questions as any);
       toast.success("Formulário salvo com sucesso!");
     } else {
-      // Vaga ainda não foi criada — guarda para salvar depois
       setSuggestedQuestions(questions as SuggestedQuestion[]);
       toast.success("Formulário aprovado! Salve a vaga para confirmar.");
     }
     setBuilderOpen(false);
   };
 
-  // Cria um JobOpening fake para o builder quando a vaga ainda não existe
   const fakeJobOpening: JobOpening = {
     id: editing?.id ?? "preview",
     organization_id: organizationId ?? "",
@@ -291,13 +291,11 @@ export function JobOpeningForm({ open, onOpenChange, editing, onSubmit }: Props)
                   onClick={handleGenerateForm}
                   disabled={generatingForm || !form.title?.trim()}
                 >
-                  {generatingForm ? (
-                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Gerando com IA...</>
-                  ) : (
-                    <><Sparkles className="h-4 w-4 mr-2" /> Gerar formulário com IA</>
-                  )}
+                  {generatingForm
+                    ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Gerando com IA...</>
+                    : <><Sparkles className="h-4 w-4 mr-2" /> Gerar formulário com IA</>
+                  }
                 </Button>
-
                 {suggestedQuestions && (
                   <Button
                     type="button"
@@ -334,15 +332,12 @@ export function JobOpeningForm({ open, onOpenChange, editing, onSubmit }: Props)
         </DialogContent>
       </Dialog>
 
-      {/* Builder de revisão/aprovação das perguntas geradas pela IA */}
-      {builderOpen && suggestedQuestions && (
+      {builderOpen && (
         <ApplicationFormBuilder
           open={builderOpen}
-          onOpenChange={(v) => {
-            if (!v) setBuilderOpen(false);
-          }}
+          onOpenChange={(v) => { if (!v) setBuilderOpen(false); }}
           jobOpening={fakeJobOpening}
-          initialQuestions={suggestedQuestions.map((q, i) => ({
+          initialQuestions={(suggestedQuestions ?? []).map((q, i) => ({
             ...q,
             id: `ai-${i}`,
             organization_id: organizationId ?? "",
@@ -350,6 +345,8 @@ export function JobOpeningForm({ open, onOpenChange, editing, onSubmit }: Props)
             created_at: new Date().toISOString(),
           }))}
           onSave={handleSaveGeneratedForm}
+          onGenerateWithAI={handleGenerateForm}
+          isGeneratingAI={generatingForm}
         />
       )}
     </>

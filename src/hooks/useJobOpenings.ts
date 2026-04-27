@@ -97,7 +97,21 @@ export function useJobOpenings(
     onSuccess: () => qc.invalidateQueries({ queryKey: ["job_openings", organizationId] }),
   });
 
-  return { ...query, data: openingsWithCounts, create, update };
+  const remove = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("job_openings")
+        .delete()
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["job_openings", organizationId] });
+      qc.invalidateQueries({ queryKey: ["job_openings_counts", organizationId] });
+    },
+  });
+
+  return { ...query, data: openingsWithCounts, create, update, remove };
 }
 
 /** Busca vagas abertas publicamente (sem auth) */

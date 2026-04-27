@@ -7,7 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, ChevronUp, ChevronDown, Loader2, GripVertical } from "lucide-react";
+import { Plus, Trash2, ChevronUp, ChevronDown, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import type { JobFormQuestion, QuestionType, JobOpening } from "@/types/recruitment";
 import { calculateMaxScore } from "@/lib/recruitmentScoring";
@@ -43,9 +43,12 @@ interface Props {
   jobOpening: JobOpening;
   initialQuestions: JobFormQuestion[];
   onSave: (questions: Omit<JobFormQuestion, "id" | "created_at" | "organization_id" | "job_opening_id">[]) => Promise<void>;
+  /** Callback para disparar geração com IA (opcional — exibe botão quando fornecido) */
+  onGenerateWithAI?: () => Promise<void>;
+  isGeneratingAI?: boolean;
 }
 
-export function ApplicationFormBuilder({ open, onOpenChange, jobOpening, initialQuestions, onSave }: Props) {
+export function ApplicationFormBuilder({ open, onOpenChange, jobOpening, initialQuestions, onSave, onGenerateWithAI, isGeneratingAI }: Props) {
   const [questions, setQuestions] = useState<DraftQuestion[]>(() =>
     initialQuestions.length > 0
       ? initialQuestions.map((q) => ({ ...q, _key: q.id }))
@@ -120,13 +123,28 @@ export function ApplicationFormBuilder({ open, onOpenChange, jobOpening, initial
           <DialogTitle>
             Formulário de candidatura — {jobOpening.title}
           </DialogTitle>
-          <div className="flex items-center gap-2 mt-1">
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
             <Badge variant="outline" className="text-xs">
               {questions.length} pergunta{questions.length !== 1 ? "s" : ""}
             </Badge>
             <Badge variant="outline" className="text-xs text-blue-600">
               Pontuação máxima: {maxScore} pts
             </Badge>
+            {onGenerateWithAI && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="ml-auto border-violet-400 text-violet-700 hover:bg-violet-100 dark:text-violet-300 dark:hover:bg-violet-900 text-xs h-7"
+                onClick={onGenerateWithAI}
+                disabled={isGeneratingAI}
+              >
+                {isGeneratingAI
+                  ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Gerando...</>
+                  : <><Sparkles className="h-3.5 w-3.5 mr-1.5" /> Gerar com IA</>
+                }
+              </Button>
+            )}
           </div>
         </DialogHeader>
 
