@@ -119,24 +119,26 @@ export function usePublicJobOpenings(organizationId: string | undefined) {
   return useQuery({
     queryKey: ["job_openings_public", organizationId],
     queryFn: async () => {
-      // Usa RPC SECURITY DEFINER que bypassa RLS — não precisa de auth
-      const { data, error } = await supabase.rpc("get_public_job_openings");
-      if (error) {
-        // Fallback: tenta query direta se a RPC ainda não foi aplicada
-        if (!organizationId) return [];
-        const { data: fallback, error: fbErr } = await supabase
-          .from("job_openings")
-          .select("*")
-          .eq("organization_id", organizationId)
-          .eq("status", "aberta")
-          .order("published_at", { ascending: false });
-        if (fbErr) throw fbErr;
-        return (fallback ?? []) as JobOpening[];
+      // 1. Tenta RPC SECURITY DEFINER (bypassa RLS, não precisa de org_id)
+      const { data: rpcData, error: rpcError } = await supabase.rpc("get_public_job_openings");
+      if (!rpcError && Array.isArray(rpcData) && rpcData.length >= 0) {
+        return rpcData as JobOpening[];
       }
+
+      // 2. Fallback: query direta com org_id (requer VITE_PUBLIC_ORG_ID)
+      if (!organizationId) return [];
+      const { data, error } = await supabase
+        .from("job_openings")
+        .select("id,organization_id,title,job_title,department,description,requirements,location_type,salary_range,status,published_at,closes_at,created_at,updated_at")
+        .eq("organization_id", organizationId)
+        .eq("status", "aberta")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
       return (data ?? []) as JobOpening[];
     },
-    // Roda mesmo sem orgId — a RPC não precisa dele
+    // Roda sempre — a RPC não precisa de org_id, e o fallback usa se disponível
     enabled: true,
-    staleTime: 60_000,
+    staleTime: 30_000,
+    retry: 1,
   });
 }
