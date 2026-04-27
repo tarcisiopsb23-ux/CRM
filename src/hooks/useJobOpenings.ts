@@ -114,21 +114,29 @@ export function useJobOpenings(
   return { ...query, data: openingsWithCounts, create, update, remove };
 }
 
-/** Busca vagas abertas publicamente (sem auth) */
+/** Busca vagas abertas publicamente via RPC (sem auth, bypassa RLS) */
 export function usePublicJobOpenings(organizationId: string | undefined) {
   return useQuery({
     queryKey: ["job_openings_public", organizationId],
     queryFn: async () => {
-      if (!organizationId) return [];
-      const { data, error } = await supabase
-        .from("job_openings")
-        .select("*")
-        .eq("organization_id", organizationId)
-        .eq("status", "aberta")
-        .order("published_at", { ascending: false });
-      if (error) throw error;
+      // Usa RPC SECURITY DEFINER que bypassa RLS — não precisa de auth
+      const { data, error } = await supabase.rpc("get_public_job_openings");
+      if (error) {
+        // Fallback: tenta query direta se a RPC ainda não foi aplicada
+        if (!organizationId) return [];
+        const { data: fallback, error: fbErr } = await supabase
+          .from("job_openings")
+          .select("*")
+          .eq("organization_id", organizationId)
+          .eq("status", "aberta")
+          .order("published_at", { ascending: false });
+        if (fbErr) throw fbErr;
+        return (fallback ?? []) as JobOpening[];
+      }
       return (data ?? []) as JobOpening[];
     },
-    enabled: !!organizationId,
+    // Roda mesmo sem orgId — a RPC não precisa dele
+    enabled: true,
+    staleTime: 60_000,
   });
 }

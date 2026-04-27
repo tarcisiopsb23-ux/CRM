@@ -3,38 +3,53 @@ import { supabase } from "@/lib/supabase";
 import type { JobFormQuestion, JobOpening, ApplicationFormData } from "@/types/recruitment";
 import { calculateTotalScore, calculateMaxScore, calculateScorePercent } from "@/lib/recruitmentScoring";
 
-/** Busca perguntas de uma vaga (acesso público) */
+/** Busca perguntas de uma vaga (acesso público) via RPC */
 export function useJobFormQuestions(jobOpeningId: string | undefined) {
   return useQuery({
     queryKey: ["job_form_questions", jobOpeningId],
     queryFn: async () => {
       if (!jobOpeningId) return [];
-      const { data, error } = await supabase
+      // Tenta via RPC SECURITY DEFINER primeiro
+      const { data, error } = await supabase.rpc("get_public_job_form_questions", {
+        p_job_opening_id: jobOpeningId,
+      });
+      if (!error) return (data ?? []) as JobFormQuestion[];
+      // Fallback: query direta
+      const { data: fallback, error: fbErr } = await supabase
         .from("job_form_questions")
         .select("*")
         .eq("job_opening_id", jobOpeningId)
         .order("sort_order", { ascending: true });
-      if (error) throw error;
-      return (data ?? []) as JobFormQuestion[];
+      if (fbErr) throw fbErr;
+      return (fallback ?? []) as JobFormQuestion[];
     },
     enabled: !!jobOpeningId,
   });
 }
 
-/** Busca detalhes de uma vaga pública */
+/** Busca detalhes de uma vaga pública via RPC */
 export function usePublicJobOpening(jobOpeningId: string | undefined) {
   return useQuery({
     queryKey: ["job_opening_public", jobOpeningId],
     queryFn: async () => {
       if (!jobOpeningId) return null;
-      const { data, error } = await supabase
+      // Tenta via RPC SECURITY DEFINER primeiro
+      const { data, error } = await supabase.rpc("get_public_job_opening", {
+        p_job_opening_id: jobOpeningId,
+      });
+      if (!error && data) {
+        const rows = data as JobOpening[];
+        return rows[0] ?? null;
+      }
+      // Fallback: query direta
+      const { data: fallback, error: fbErr } = await supabase
         .from("job_openings")
         .select("*")
         .eq("id", jobOpeningId)
         .eq("status", "aberta")
         .maybeSingle();
-      if (error) throw error;
-      return data as JobOpening | null;
+      if (fbErr) throw fbErr;
+      return fallback as JobOpening | null;
     },
     enabled: !!jobOpeningId,
   });
