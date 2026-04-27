@@ -37,16 +37,22 @@ type SuggestedQuestion = Omit<JobFormQuestion, "id" | "created_at" | "organizati
 
 export function JobOpeningForm({ open, onOpenChange, editing, onSubmit }: Props) {
   const organizationId = useOrganization();
-  const [form, setForm] = useState<Partial<JobOpening>>(() => editing ?? {
-    title: "",
-    job_title: "",
-    department: "",
-    description: "",
-    requirements: "",
-    location_type: "presencial",
-    salary_range: "",
-    status: "aberta",
-    closes_at: "",
+  const [form, setForm] = useState<Partial<JobOpening>>(() => {
+    if (!editing) return {
+      title: "",
+      job_title: "",
+      department: "",
+      description: "",
+      requirements: "",
+      location_type: "presencial",
+      salary_range: "",
+      status: "aberta",
+      closes_at: "",
+    };
+    // Strip computed fields that don't exist in the DB table
+    const { candidate_count, new_candidate_count, avg_score, ...dbFields } = editing as any;
+    void candidate_count; void new_candidate_count; void avg_score;
+    return dbFields;
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,7 +74,10 @@ export function JobOpeningForm({ open, onOpenChange, editing, onSubmit }: Props)
     setSubmitting(true);
     setError(null);
     try {
-      await onSubmit(form, suggestedQuestions ?? undefined);
+      // Strip computed fields before sending to DB
+      const { candidate_count, new_candidate_count, avg_score, ...dbForm } = form as any;
+      void candidate_count; void new_candidate_count; void avg_score;
+      await onSubmit(dbForm, suggestedQuestions ?? undefined);
       onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao salvar vaga.");
@@ -97,7 +106,13 @@ export function JobOpeningForm({ open, onOpenChange, editing, onSubmit }: Props)
         },
       });
 
-      if (fnError) throw new Error(fnError.message);
+      if (fnError) {
+        // CORS / função não deployada
+        if (fnError.message?.includes("Failed to fetch") || fnError.message?.includes("ERR_FAILED")) {
+          throw new Error("A Edge Function 'generate-recruitment-form' não está deployada no Supabase. Execute: supabase functions deploy generate-recruitment-form");
+        }
+        throw new Error(fnError.message);
+      }
       if (data?.error) throw new Error(data.error);
       if (!data?.questions?.length) throw new Error("A IA não retornou perguntas.");
 

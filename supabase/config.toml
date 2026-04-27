@@ -10,3 +10,6 @@ verify_jwt = false
 
 [functions.delete-user]
 verify_jwt = false
+
+[functions.generate-recruitment-form]
+verify_jwt = true
