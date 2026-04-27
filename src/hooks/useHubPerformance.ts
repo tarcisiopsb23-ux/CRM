@@ -194,12 +194,19 @@ export function useClientKPIs(organizationId?: string, clientId?: string) {
 }
 
 // Hook para buscar dados de relatórios (campaign_data e daily_metrics)
-export function useClientReports(organizationId?: string, clientId?: string, dateRange?: { from: string, to: string }) {
+export function useClientReports(organizationId?: string, clientId?: string, dateRange?: { from: string, to: string }, usePublicRpc?: boolean) {
 
   const campaignDataQuery = useQuery<CampaignData[]>({ 
-    queryKey: ["campaign_data", organizationId, clientId, dateRange],
+    queryKey: ["campaign_data", organizationId, clientId, dateRange, usePublicRpc],
     queryFn: async () => {
       if (!clientId || !dateRange) return [];
+      // Dashboard público: usa RPC SECURITY DEFINER que bypassa RLS
+      if (usePublicRpc) {
+        const { data, error } = await supabase
+          .rpc('get_campaign_data_public', { p_client_id: clientId, p_from: dateRange.from, p_to: dateRange.to });
+        if (error) { console.error('[useClientReports] campaign_data RPC error:', error); return []; }
+        return (data || []) as CampaignData[];
+      }
       let q = supabase
         .from("campaign_data")
         .select("*")
@@ -215,9 +222,16 @@ export function useClientReports(organizationId?: string, clientId?: string, dat
   });
 
   const dailyMetricsQuery = useQuery<DailyMetrics[]>({ 
-    queryKey: ["daily_metrics", organizationId, clientId, dateRange],
+    queryKey: ["daily_metrics", organizationId, clientId, dateRange, usePublicRpc],
     queryFn: async () => {
       if (!clientId || !dateRange) return [];
+      // Dashboard público: usa RPC SECURITY DEFINER que bypassa RLS
+      if (usePublicRpc) {
+        const { data, error } = await supabase
+          .rpc('get_daily_metrics_public', { p_client_id: clientId, p_from: dateRange.from, p_to: dateRange.to });
+        if (error) { console.error('[useClientReports] daily_metrics RPC error:', error); return []; }
+        return (data || []) as DailyMetrics[];
+      }
       let q = supabase
         .from("daily_metrics")
         .select("*")

@@ -80,6 +80,8 @@ type DemoCampaign = {
   platform: "Meta Ads" | "Google Ads";
   name: string;
   spend: number;
+  impressions: number;
+  clicks: number;
   leads: number;
   sales: number;
   revenue: number;
@@ -135,11 +137,11 @@ const buildDemoLongTerm = (): DemoKpiPoint[] => {
 
 const buildDemoCampaigns = (): DemoCampaign[] => {
   return [
-    { platform: "Meta Ads", name: "Conversão - Produto Principal", spend: 4200, leads: 210, sales: 36, revenue: 64800 },
-    { platform: "Meta Ads", name: "Remarketing - Carrinho", spend: 1600, leads: 78, sales: 22, revenue: 38500 },
-    { platform: "Google Ads", name: "Search - Alta Intenção", spend: 2900, leads: 120, sales: 28, revenue: 46200 },
-    { platform: "Google Ads", name: "Search - Institucional", spend: 1100, leads: 62, sales: 10, revenue: 14500 },
-    { platform: "Meta Ads", name: "Topo - Conteúdo", spend: 900, leads: 55, sales: 4, revenue: 5200 },
+    { platform: "Meta Ads",    name: "Conversão - Produto Principal", spend: 4200, impressions: 180000, clicks: 3600, leads: 210, sales: 36, revenue: 64800 },
+    { platform: "Meta Ads",    name: "Remarketing - Carrinho",        spend: 1600, impressions:  72000, clicks: 1800, leads:  78, sales: 22, revenue: 38500 },
+    { platform: "Google Ads",  name: "Search - Alta Intenção",        spend: 2900, impressions:  95000, clicks: 2900, leads: 120, sales: 28, revenue: 46200 },
+    { platform: "Google Ads",  name: "Search - Institucional",        spend: 1100, impressions:  48000, clicks: 1200, leads:  62, sales: 10, revenue: 14500 },
+    { platform: "Meta Ads",    name: "Topo - Conteúdo",               spend:  900, impressions: 210000, clicks: 1890, leads:  55, sales:  4, revenue:  5200 },
   ];
 };
 
@@ -230,6 +232,7 @@ export function PublicDemoDashboardPage() {
     demoCampaignFilter === "Todas" ? campaigns : campaigns.filter(c => c.platform === demoCampaignFilter),
     [campaigns, demoCampaignFilter]
   );
+  const [selectedDemoCampaign, setSelectedDemoCampaign] = useState<any>(null);
 
   const totals = useMemo(() => {
     return daily.reduce(
@@ -444,38 +447,91 @@ export function PublicDemoDashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
-                <div className="overflow-y-auto" style={{ maxHeight: "336px" }}>
-                  <table className="w-full text-left border-collapse">
+              {selectedDemoCampaign && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setSelectedDemoCampaign(null)}>
+                  <div className="bg-[#0F172A] border border-slate-700 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+                    <div className="px-6 py-4 border-b border-slate-800 flex items-start justify-between">
+                      <div>
+                        <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">{selectedDemoCampaign.platform}</p>
+                        <h2 className="text-lg font-black text-white mt-0.5">{selectedDemoCampaign.name}</h2>
+                      </div>
+                      <button onClick={() => setSelectedDemoCampaign(null)} className="text-slate-400 hover:text-white text-2xl font-bold leading-none">×</button>
+                    </div>
+                    <div className="px-6 py-4 grid grid-cols-4 gap-3 border-b border-slate-800">
+                      {[
+                        { label: "Investimento", value: `R$ ${selectedDemoCampaign.spend.toLocaleString("pt-BR")}` },
+                        { label: "Impressões",   value: selectedDemoCampaign.impressions.toLocaleString("pt-BR") },
+                        { label: "Cliques",      value: selectedDemoCampaign.clicks.toLocaleString("pt-BR") },
+                        { label: "CTR",          value: `${((selectedDemoCampaign.clicks / selectedDemoCampaign.impressions) * 100).toFixed(2)}%` },
+                        { label: "CPC",          value: `R$ ${(selectedDemoCampaign.spend / selectedDemoCampaign.clicks).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
+                        { label: "CPM",          value: `R$ ${((selectedDemoCampaign.spend / selectedDemoCampaign.impressions) * 1000).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
+                        { label: "Leads",        value: String(selectedDemoCampaign.leads) },
+                        { label: "Vendas",       value: String(selectedDemoCampaign.sales) },
+                        { label: "Faturamento",  value: `R$ ${selectedDemoCampaign.revenue.toLocaleString("pt-BR")}` },
+                        { label: "ROAS",         value: `${(selectedDemoCampaign.revenue / selectedDemoCampaign.spend).toFixed(1)}x` },
+                      ].map((m: any) => (
+                        <div key={m.label} className="bg-slate-800/50 rounded-xl p-3">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">{m.label}</p>
+                          <p className="text-base font-black text-white mt-1">{m.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex-1 overflow-auto px-6 py-4">
+                      <p className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">Dados do período (mock)</p>
+                      <p className="text-slate-500 text-sm italic">Dados diários não disponíveis no modo demo.</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div className="overflow-x-auto scrollbar-dark">
+                <div className="overflow-y-auto scrollbar-dark" style={{ maxHeight: "336px" }}>
+                  <table className="text-left border-collapse whitespace-nowrap" style={{ minWidth: "1300px", width: "100%" }}>
                     <thead className="sticky top-0 bg-[#1E293B] z-10">
                       <tr className="text-slate-500 text-[10px] uppercase font-black tracking-widest border-b border-slate-800">
-                        <th className="pb-4 w-24">Plataforma</th>
-                        <th className="pb-4">Campanha</th>
-                        <th className="pb-4 w-32">Invest.</th>
-                        <th className="pb-4 text-center w-20">Leads</th>
-                        <th className="pb-4 text-center w-20">Vendas</th>
-                        <th className="pb-4 text-right w-32">Faturamento</th>
-                        <th className="pb-4 text-right w-20">ROAS</th>
+                        <th className="px-4 py-3 w-20">Plat.</th>
+                        <th className="px-4 py-3 min-w-[350px]">Campanha</th>
+                        <th className="px-4 py-3 text-right w-32">Investimento</th>
+                        <th className="px-4 py-3 text-center w-20">Leads</th>
+                        <th className="px-4 py-3 text-center w-20">Vendas</th>
+                        <th className="px-4 py-3 text-right w-28">Faturamento</th>
+                        <th className="px-4 py-3 text-right w-20">ROAS</th>
+                        <th className="px-4 py-3 text-right w-28">Impressões</th>
+                        <th className="px-4 py-3 text-right w-24">Cliques</th>
+                        <th className="px-4 py-3 text-right w-20">CTR</th>
+                        <th className="px-4 py-3 text-right w-24">CPC</th>
+                        <th className="px-4 py-3 text-right w-24">CPM</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/50">
                       {filteredDemoCampaigns.map((c) => {
                         const roasCamp = c.spend > 0 ? (c.revenue / c.spend).toFixed(1) : "0.0";
+                        const ctr = c.impressions > 0 ? ((c.clicks / c.impressions) * 100).toFixed(2) : "—";
+                        const cpc = c.clicks > 0 ? (c.spend / c.clicks).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
+                        const cpm = c.impressions > 0 ? ((c.spend / c.impressions) * 1000).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
                         return (
-                          <tr key={c.name} className="text-sm hover:bg-slate-800/30 transition-colors">
-                            <td className="py-4 text-slate-400 font-bold w-24">{c.platform}</td>
-                            <td className="py-4 font-bold text-slate-200">{c.name}</td>
-                            <td className="py-4 text-slate-400 w-32">R$ {c.spend.toLocaleString("pt-BR")}</td>
-                            <td className="py-4 text-slate-400 font-bold text-center w-20">{c.leads}</td>
-                            <td className="py-4 text-slate-400 font-bold text-center w-20">{c.sales}</td>
-                            <td className="py-4 text-slate-300 font-bold text-right w-32">
-                              {c.revenue > 0 ? `R$ ${c.revenue.toLocaleString("pt-BR")}` : "—"}
+                          <tr key={c.name} className="text-sm hover:bg-slate-800/30 transition-colors cursor-pointer" onClick={() => setSelectedDemoCampaign(c)}>
+                            <td className="px-4 py-3 text-slate-400 font-bold w-20">{c.platform}</td>
+                            <td className="px-4 py-3 min-w-[350px] whitespace-normal">
+                              <div className="font-bold text-slate-200 hover:text-blue-400 transition-colors">{c.name}</div>
                             </td>
-                            <td className="py-4 text-right w-20">
+                            <td className="px-4 py-3 text-slate-400 text-right w-32">R$ {c.spend.toLocaleString("pt-BR")}</td>
+                            <td className="px-4 py-3 text-slate-400 font-bold text-center w-20">{c.leads}</td>
+                            <td className="px-4 py-3 text-slate-400 font-bold text-center w-20">{c.sales}</td>
+                            <td className="px-4 py-3 text-slate-300 font-bold text-right w-28">{c.revenue > 0 ? `R$ ${c.revenue.toLocaleString("pt-BR")}` : "—"}</td>
+                            <td className="px-4 py-3 text-right w-20">
                               <span className={cn("font-black px-2 py-1 rounded text-xs", Number(roasCamp) >= 4 ? "bg-emerald-500/10 text-emerald-400" : "bg-orange-500/10 text-orange-400")}>
                                 {roasCamp}x
                               </span>
                             </td>
+                            <td className="px-4 py-3 text-slate-500 text-right w-28">{c.impressions.toLocaleString("pt-BR")}</td>
+                            <td className="px-4 py-3 text-slate-500 text-right w-24">{c.clicks.toLocaleString("pt-BR")}</td>
+                            <td className="px-4 py-3 text-right w-20">
+                              <span className={cn("font-bold", Number(ctr) >= 2 ? "text-emerald-400" : Number(ctr) >= 1 ? "text-slate-300" : "text-orange-400")}>
+                                {ctr !== "—" ? `${ctr}%` : "—"}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-slate-500 text-right w-24">{cpc !== "—" ? `R$ ${cpc}` : "—"}</td>
+                            <td className="px-4 py-3 text-slate-500 text-right w-24">{cpm !== "—" ? `R$ ${cpm}` : "—"}</td>
                           </tr>
                         );
                       })}
@@ -973,3 +1029,4 @@ function InfoTooltip({ text, light = false }: any) {
     </ShadcnTooltip>
   );
 }
+

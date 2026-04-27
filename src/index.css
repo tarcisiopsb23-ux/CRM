@@ -175,3 +175,49 @@
     box-shadow: none;
   }
 }
+
+/* ── Scrollbar customization ── */
+
+/* Dashboard interno (fundo claro) */
+.scrollbar-light::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-light::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 999px;
+}
+.scrollbar-light::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+.scrollbar-light::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Dashboard público (fundo escuro) */
+.scrollbar-dark::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-dark::-webkit-scrollbar-track {
+  background: #1e293b;
+  border-radius: 999px;
+}
+.scrollbar-dark::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 999px;
+}
+.scrollbar-dark::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* Firefox */
+.scrollbar-light {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 #f1f5f9;
+}
+.scrollbar-dark {
+  scrollbar-width: thin;
+  scrollbar-color: #334155 #1e293b;
+}

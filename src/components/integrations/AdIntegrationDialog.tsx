@@ -69,6 +69,11 @@ export function AdIntegrationDialog({
       return;
     }
 
+    if (platform === 'google' && refreshToken.trim().startsWith('ya29.')) {
+      toast.error("O campo Refresh Token contém um access token (ya29...). Use o refresh token que começa com '1//'.");
+      return;
+    }
+
     try {
       const settings: Record<string, any> = { ...existingIntegration?.settings };
       
@@ -192,6 +197,11 @@ export function AdIntegrationDialog({
                     onChange={(e) => setRefreshToken(e.target.value)}
                     placeholder="1//..."
                   />
+                  {refreshToken.startsWith('ya29.') && (
+                    <p className="text-[10px] text-red-500 font-bold">
+                      ⚠️ Isso parece um access token (ya29...), não um refresh token. Refresh tokens começam com "1//".
+                    </p>
+                  )}
                   <p className="text-[10px] text-muted-foreground italic">
                     Necessário para renovar o acesso automaticamente. O access token é gerado automaticamente pelo sistema a cada sincronização.
                   </p>
