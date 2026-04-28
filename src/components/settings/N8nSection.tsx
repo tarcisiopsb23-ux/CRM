@@ -32,6 +32,7 @@ const FIELD_DEFS: {
   { key: "clickupSyncWebhookUrl",      label: "Webhook URL: ClickUp → Maestria (sync manual/polling)",                       placeholder: "https://n8n.dominio.com/webhook/clickup-sync-trigger",  section: "clickup" },
   { key: "clickupMembersWebhookUrl",   label: "Webhook URL: Participantes ClickUp (convidar/remover)",                       placeholder: "https://n8n.dominio.com/webhook/clickup-members",        section: "clickup" },
   { key: "adsWebhookUrl",              label: "Webhook URL: Sync de Ads (Meta + Google)",                                     placeholder: "https://n8n.dominio.com/webhook/sync-ads",               section: "ads"     },
+  { key: "adsClientId",                label: "Client ID da Agência (para Dashboard e módulo Campanhas)",                     placeholder: "uuid-do-cliente-agencia",                                section: "ads"     },
 ];
 
 const CACHE_PREFIX = "n8n_cfg_";

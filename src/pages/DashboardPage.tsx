@@ -8,6 +8,7 @@ import { useProfiles } from "@/hooks/useProfiles";
 import { usePayments, useSupplierExpenses } from "@/hooks/useFinancial";
 import { useEvents } from "@/hooks/useEvents";
 import { useCampaigns } from "@/hooks/useCampaigns";
+import { useAgencyClientId } from "@/hooks/useAgencyCampaignData";
 import { useGoals } from "@/hooks/useGoalsCRUD";
 import { useContractMetrics } from "@/hooks/useContractMetrics";
 import { useAuth } from "@/contexts/AuthContext";
@@ -255,17 +256,18 @@ export function DashboardPage() {
   const { canView: canViewFinancial } = useModulePermission("financial");
   const { canView: canViewPerformance } = useModulePermission("performance");
   const contractMetrics = useContractMetrics(organizationId);
+  const agencyClientId = useAgencyClientId();
 
   // Dados Financeiros
   const { data: payments = [] } = usePayments(organizationId, { enabled: canViewFinancial });
   const { data: expenses = [] } = useSupplierExpenses(organizationId, { enabled: canViewFinancial });
 
-  // Performance Data
+  // Performance Data — filtra pelo client_id da agência (configurado em Settings → n8n → adsClientId)
   const performanceQuery = useQuery({
-    queryKey: ["all_clients_performance", organizationId],
+    queryKey: ["agency_performance", organizationId, agencyClientId],
     queryFn: async () => {
       if (!organizationId) return [];
-      const { data, error } = await supabase
+      let q = supabase
         .from("campaign_data")
         .select(`
           client_id, date, spend, impressions, reach, clicks, leads, sales, revenue,
@@ -273,11 +275,15 @@ export function DashboardPage() {
         `)
         .eq("organization_id", organizationId)
         .order("date", { ascending: true });
+      // Filtra pelo client_id da agência se configurado
+      if (agencyClientId) {
+        q = q.eq("client_id", agencyClientId);
+      }
+      const { data, error } = await q;
       if (error) {
         console.warn("[Dashboard] Erro ao buscar campaign_data:", error.message);
         return [];
       }
-      // Normaliza para o mesmo formato que daily_metrics usava
       return (data || []).map((r: any) => ({
         ...r,
         total_spend:       Number(r.spend       ?? 0),
