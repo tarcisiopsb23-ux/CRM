@@ -1,3 +1,9 @@
+/**
+ * useCampaigns
+ * Agrega campaign_data da organização (campanhas da própria agência).
+ * Usado pelo Dashboard e pelo módulo Campanhas.
+ * Fonte: tabela campaign_data, filtrada por organization_id.
+ */
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
@@ -20,101 +26,95 @@ export interface Campaign {
   revenue: number;
 }
 
-const MOCK_CAMPAIGNS: Campaign[] = [];
-
 export function useCampaigns() {
   const organizationId = useOrganization();
 
-  const { data: campaigns = [], isLoading, error } = useQuery({
-    queryKey: ["campaigns", organizationId],
+  const { data: rawRows = [], isLoading, error } = useQuery({
+    queryKey: ["campaigns_raw", organizationId],
     queryFn: async () => {
-      if (!organizationId) return [] as Campaign[];
-
-      type CampaignPerformanceRow = {
-        id: string;
-        name: string | null;
-        platform: string | null;
-        external_id: string | null;
-        status: string | null;
-        total_spend: number | string | null;
-        total_impressions: number | string | null;
-        total_clicks: number | string | null;
-        total_leads: number | string | null;
-        total_revenue: number | string | null;
-      };
-
+      if (!organizationId) return [];
       const { data, error } = await supabase
-        .from("campaign_performance" as never)
-        .select("*")
+        .from("campaign_data")
+        .select("campaign_id, campaign_name, platform, spend, impressions, reach, clicks, leads, sales, revenue")
         .eq("organization_id", organizationId);
-
       if (error) {
-        console.warn("View campaign_performance não encontrada:", error.message);
-        return [] as Campaign[];
+        console.warn("[useCampaigns] Erro ao buscar campaign_data:", error.message);
+        return [];
       }
-
-      if (!data || data.length === 0) return [] as Campaign[];
-
-      const rows = (data ?? []) as unknown as CampaignPerformanceRow[];
-      return rows.map((c) => {
-        const leads = Number(c.total_leads || 0);
-        const platform =
-          c.platform === "google_ads" ? "Google Ads" :
-          c.platform === "meta_ads"   ? "Facebook Ads" :
-          (c.platform ?? "");
-        const status =
-          c.status === "active"  ? "Ativa" :
-          c.status === "paused"  ? "Pausada" :
-          "Encerrada";
-        return {
-          id: String(c.id),
-          name: c.name ?? "Campanha",
-          platform,
-          account: c.external_id || "Conta Principal",
-          status,
-          spend:       Number(c.total_spend       || 0),
-          impressions: Number(c.total_impressions  || 0),
-          clicks:      Number(c.total_clicks       || 0),
-          leads,
-          qualified:   Math.round(leads * 0.4),
-          meetings:    Math.round(leads * 0.1),
-          contracts:   Math.round(leads * 0.05),
-          revenue:     Number(c.total_revenue      || 0),
-        };
-      });
+      return data ?? [];
     },
     enabled: !!organizationId,
     staleTime: 5 * 60 * 1000,
   });
 
-  const totals = useMemo(() => {
-    return campaigns.reduce(
-      (acc, c) => ({
-        spend: acc.spend + c.spend,
-        impressions: acc.impressions + c.impressions,
-        clicks: acc.clicks + c.clicks,
-        leads: acc.leads + c.leads,
-        qualified: acc.qualified + c.qualified,
-        meetings: acc.meetings + c.meetings,
-        contracts: acc.contracts + c.contracts,
-        revenue: acc.revenue + c.revenue,
-        count: acc.count + 1,
-        active: acc.active + (c.status === "Ativa" ? 1 : 0),
-      }),
-      { spend: 0, impressions: 0, clicks: 0, leads: 0, qualified: 0, meetings: 0, contracts: 0, revenue: 0, count: 0, active: 0 }
-    );
-  }, [campaigns]);
+  // Agrega por campanha (campaign_id + platform)
+  const campaigns = useMemo<Campaign[]>(() => {
+    const map = new Map<string, Campaign>();
+    for (const r of rawRows as any[]) {
+      const key = `${r.platform}||${r.campaign_id ?? r.campaign_name ?? ""}`;
+      const existing = map.get(key);
+      if (existing) {
+        existing.spend       += Number(r.spend       ?? 0);
+        existing.impressions += Number(r.impressions ?? 0);
+        existing.clicks      += Number(r.clicks      ?? 0);
+        existing.leads       += Number(r.leads       ?? 0);
+        existing.revenue     += Number(r.revenue     ?? 0);
+      } else {
+        const leads = Number(r.leads ?? 0);
+        const platform =
+          r.platform === "google" ? "Google Ads" :
+          r.platform === "meta"   ? "Meta Ads"   :
+          (r.platform ?? "");
+        map.set(key, {
+          id:          r.campaign_id ?? r.campaign_name ?? key,
+          name:        r.campaign_name ?? "Sem nome",
+          platform,
+          account:     "Conta Principal",
+          status:      "Ativa",
+          spend:       Number(r.spend       ?? 0),
+          impressions: Number(r.impressions ?? 0),
+          clicks:      Number(r.clicks      ?? 0),
+          leads,
+          qualified:   Math.round(leads * 0.4),
+          meetings:    Math.round(leads * 0.1),
+          contracts:   Math.round(leads * 0.05),
+          revenue:     Number(r.revenue     ?? 0),
+        });
+      }
+    }
+    // Recalcula qualified/meetings/contracts após agregação
+    return Array.from(map.values()).map(c => ({
+      ...c,
+      qualified: Math.round(c.leads * 0.4),
+      meetings:  Math.round(c.leads * 0.1),
+      contracts: Math.round(c.leads * 0.05),
+    })).sort((a, b) => b.spend - a.spend);
+  }, [rawRows]);
 
-  const metrics = useMemo(() => {
-    return {
-      cpc: totals.clicks > 0 ? totals.spend / totals.clicks : 0,
-      cpm: totals.impressions > 0 ? (totals.spend / totals.impressions) * 1000 : 0,
-      ctr: totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0,
-      cpl: totals.leads > 0 ? totals.spend / totals.leads : 0,
-      roas: totals.spend > 0 ? totals.revenue / totals.spend : 0,
-      roi: totals.spend > 0 ? ((totals.revenue - totals.spend) / totals.spend) * 100 : 0,
-    };
-  }, [totals]);
+  const totals = useMemo(() => campaigns.reduce(
+    (acc, c) => ({
+      spend:       acc.spend       + c.spend,
+      impressions: acc.impressions + c.impressions,
+      clicks:      acc.clicks      + c.clicks,
+      leads:       acc.leads       + c.leads,
+      qualified:   acc.qualified   + c.qualified,
+      meetings:    acc.meetings    + c.meetings,
+      contracts:   acc.contracts   + c.contracts,
+      revenue:     acc.revenue     + c.revenue,
+      count:       acc.count       + 1,
+      active:      acc.active      + (c.status === "Ativa" ? 1 : 0),
+    }),
+    { spend: 0, impressions: 0, clicks: 0, leads: 0, qualified: 0, meetings: 0, contracts: 0, revenue: 0, count: 0, active: 0 }
+  ), [campaigns]);
+
+  const metrics = useMemo(() => ({
+    cpc:  totals.clicks      > 0 ? totals.spend / totals.clicks : 0,
+    cpm:  totals.impressions > 0 ? (totals.spend / totals.impressions) * 1000 : 0,
+    ctr:  totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0,
+    cpl:  totals.leads       > 0 ? totals.spend / totals.leads : 0,
+    roas: totals.spend       > 0 ? totals.revenue / totals.spend : 0,
+    roi:  totals.spend       > 0 ? ((totals.revenue - totals.spend) / totals.spend) * 100 : 0,
+  }), [totals]);
 
   return { campaigns, totals, metrics, isLoading, error };
 }

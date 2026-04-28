@@ -266,15 +266,27 @@ export function DashboardPage() {
     queryFn: async () => {
       if (!organizationId) return [];
       const { data, error } = await supabase
-        .from("daily_metrics")
+        .from("campaign_data")
         .select(`
-          *,
+          client_id, date, spend, impressions, reach, clicks, leads, sales, revenue,
           clients ( name, company, dashboard_slug )
         `)
         .eq("organization_id", organizationId)
         .order("date", { ascending: true });
-      if (error) throw error;
-      return (data || []) as any[];
+      if (error) {
+        console.warn("[Dashboard] Erro ao buscar campaign_data:", error.message);
+        return [];
+      }
+      // Normaliza para o mesmo formato que daily_metrics usava
+      return (data || []).map((r: any) => ({
+        ...r,
+        total_spend:       Number(r.spend       ?? 0),
+        total_leads:       Number(r.leads       ?? 0),
+        total_sales:       Number(r.sales       ?? 0),
+        total_revenue:     Number(r.revenue     ?? 0),
+        total_impressions: Number(r.impressions ?? 0),
+        total_clicks:      Number(r.clicks      ?? 0),
+      }));
     },
     enabled: !!organizationId && canViewPerformance,
   });
