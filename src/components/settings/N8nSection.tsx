@@ -3,9 +3,10 @@ import { SettingsSection, SettingsInput } from "./SettingsSection";
 import { Button } from "@/components/ui/button";
 import { useIntegration } from "@/hooks/useSettings";
 import { useOrganization } from "@/hooks/useOrganization";
+import { useAgencyClientId } from "@/hooks/useAgencyCampaignData";
 import { toast } from "sonner";
 import type { N8nConfig } from "@/types/settings";
-import { Share2, Copy, Check, RefreshCcw } from "lucide-react";
+import { Share2, Copy, Check, RefreshCcw, Info } from "lucide-react";
 
 const FIELD_DEFS: {
   key: keyof N8nConfig;
@@ -32,7 +33,6 @@ const FIELD_DEFS: {
   { key: "clickupSyncWebhookUrl",      label: "Webhook URL: ClickUp → Maestria (sync manual/polling)",                       placeholder: "https://n8n.dominio.com/webhook/clickup-sync-trigger",  section: "clickup" },
   { key: "clickupMembersWebhookUrl",   label: "Webhook URL: Participantes ClickUp (convidar/remover)",                       placeholder: "https://n8n.dominio.com/webhook/clickup-members",        section: "clickup" },
   { key: "adsWebhookUrl",              label: "Webhook URL: Sync de Ads (Meta + Google)",                                     placeholder: "https://n8n.dominio.com/webhook/sync-ads",               section: "ads"     },
-  { key: "adsClientId",                label: "Client ID da Agência (para Dashboard e módulo Campanhas)",                     placeholder: "uuid-do-cliente-agencia",                                section: "ads"     },
 ];
 
 const CACHE_PREFIX = "n8n_cfg_";
@@ -63,6 +63,7 @@ function writeCache(orgId: string, config: Record<string, unknown>) {
 
 export function N8nSection() {
   const orgId = useOrganization();
+  const agencyClientId = useAgencyClientId();
 
   // ── Estado local dos campos — fonte única de verdade para a UI ──────────────
   const [values, setValues] = useState<Partial<Record<keyof N8nConfig, string>>>({});
@@ -285,6 +286,42 @@ export function N8nSection() {
           {FIELD_DEFS.filter((f) => f.section === "ads").map(({ key, label, placeholder }) => (
             <SettingsInput key={key} label={label} value={v(key)} onChange={(val) => setValue(key, val)} placeholder={placeholder} />
           ))}
+
+          {/* Client ID da agência — detectado automaticamente, somente leitura */}
+          <div className="rounded-lg border bg-muted/30 p-3 space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                Client ID da Agência (detectado automaticamente)
+              </p>
+            </div>
+            {agencyClientId ? (
+              <div className="flex items-center gap-2">
+                <code className="flex-1 px-2 py-1 rounded bg-white dark:bg-slate-800 border text-xs font-mono truncate text-emerald-700 dark:text-emerald-400">
+                  {agencyClientId}
+                </code>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7 shrink-0"
+                  onClick={() => {
+                    navigator.clipboard.writeText(agencyClientId);
+                    toast.success("Client ID copiado!");
+                  }}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ) : (
+              <p className="text-[10px] text-amber-600 dark:text-amber-400">
+                Nenhuma integração de Meta Ads ou Google Ads encontrada. Configure as integrações no cadastro do cliente que representa a agência.
+              </p>
+            )}
+            <p className="text-[10px] text-slate-400 italic">
+              Identificado pelo primeiro cliente da organização com integração de Meta ou Google Ads sem dashboard externo configurado.
+              Usado para filtrar campanhas no Dashboard e módulo Campanhas.
+            </p>
+          </div>
         </div>
 
         <div className="flex gap-2">

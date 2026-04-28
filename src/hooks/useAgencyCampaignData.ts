@@ -18,9 +18,42 @@ export interface PeriodRange {
 
 export function useAgencyClientId() {
   const organizationId = useOrganization();
+
+  // Detecta automaticamente o client_id da agência:
+  // busca o primeiro cliente da organização que tem integração de ads (meta ou google)
+  // e que NÃO tem dashboard_slug (clientes externos têm slug; a agência não)
+  const autoQuery = useQuery({
+    queryKey: ["agency_client_id_auto", organizationId],
+    queryFn: async () => {
+      if (!organizationId) return null;
+
+      // Busca integrações de ads da organização
+      const { data, error } = await supabase
+        .from("client_integrations")
+        .select("client_id, platform, clients!inner(dashboard_slug)")
+        .eq("organization_id", organizationId)
+        .in("platform", ["meta", "google"])
+        .order("created_at", { ascending: true })
+        .limit(20);
+
+      if (error || !data || data.length === 0) return null;
+
+      // Prefere clientes sem dashboard_slug (são da agência, não clientes externos)
+      const agencyRow = (data as any[]).find(r => !r.clients?.dashboard_slug);
+      if (agencyRow) return agencyRow.client_id as string;
+
+      // Fallback: usa o primeiro encontrado
+      return (data[0] as any).client_id as string;
+    },
+    enabled: !!organizationId,
+    staleTime: 10 * 60 * 1000,
+  });
+
+  // Fallback: lê do campo manual nas Settings do n8n (legado)
   const n8nIntegration = useIntegration(organizationId, "n8n");
-  const config = (n8nIntegration.data?.config ?? {}) as N8nConfig;
-  return config.adsClientId?.trim() || null;
+  const manualClientId = ((n8nIntegration.data?.config ?? {}) as N8nConfig).adsClientId?.trim() || null;
+
+  return autoQuery.data ?? manualClientId;
 }
 
 export function useAgencyCampaignData(range?: PeriodRange) {
