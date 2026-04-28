@@ -4,16 +4,18 @@ import { Button } from "@/components/ui/button";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
-import { DollarSign, TrendingUp, Users, Target, FileText, Download, Filter } from "lucide-react";
+import { DollarSign, TrendingUp, Users, Target, FileText, Download, Filter, Megaphone, Eye, MousePointerClick, ArrowRightLeft } from "lucide-react";
 import { useOrganization } from "@/hooks/useOrganization";
 import { usePayments, useSupplierExpenses } from "@/hooks/useFinancial";
 import { useLeadsKanban } from "@/hooks/useLeadsKanban";
 import { useGoals } from "@/hooks/useGoalsCRUD";
 import { useTasksReport } from "@/hooks/useProjects";
-import { endOfMonth, startOfMonth, subMonths, format as fmtDate } from "date-fns";
+import { useAllClientsCampaigns } from "@/hooks/useAllClientsCampaigns";
+import { endOfMonth, startOfMonth, subMonths, subDays, format as fmtDate } from "date-fns";
 
 const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const COLORS = ["hsl(265 62% 46%)", "hsl(210 80% 52%)", "hsl(152 60% 42%)", "hsl(38 92% 50%)", "hsl(0 84% 60%)"];
@@ -39,6 +41,7 @@ export default function GeneralReports() {
           <TabsTrigger value="sales" className="gap-1.5"><TrendingUp className="h-4 w-4" /> Vendas</TabsTrigger>
           <TabsTrigger value="operational" className="gap-1.5"><FileText className="h-4 w-4" /> Operacional</TabsTrigger>
           <TabsTrigger value="goals" className="gap-1.5"><Target className="h-4 w-4" /> Metas</TabsTrigger>
+          <TabsTrigger value="campaigns" className="gap-1.5"><Megaphone className="h-4 w-4" /> Campanhas dos Clientes</TabsTrigger>
         </TabsList>
 
         <TabsContent value="financial">
@@ -52,6 +55,9 @@ export default function GeneralReports() {
         </TabsContent>
         <TabsContent value="goals">
           <GoalsReport />
+        </TabsContent>
+        <TabsContent value="campaigns">
+          <ClientsCampaignsReport />
         </TabsContent>
       </Tabs>
     </div>
@@ -308,6 +314,254 @@ function GoalsReport() {
           </ResponsiveContainer>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function ClientsCampaignsReport() {
+  const iso = (d: Date) => fmtDate(d, "yyyy-MM-dd");
+  const [preset, setPreset] = useState("30d");
+  const [customFrom, setCustomFrom] = useState(iso(subDays(new Date(), 29)));
+  const [customTo, setCustomTo]     = useState(iso(new Date()));
+  const [clientFilter, setClientFilter] = useState("all");
+  const [platformFilter, setPlatformFilter] = useState("all");
+
+  const range = useMemo(() => {
+    const now = new Date();
+    if (preset === "7d")    return { from: iso(subDays(now, 6)),                    to: iso(now) };
+    if (preset === "month") return { from: iso(startOfMonth(now)),                  to: iso(endOfMonth(now)) };
+    if (preset === "90d")   return { from: iso(subDays(now, 89)),                   to: iso(now) };
+    if (preset === "custom") return { from: customFrom, to: customTo };
+    return { from: iso(subDays(now, 29)), to: iso(now) };
+  }, [preset, customFrom, customTo]);
+
+  const { summaries, totals, byClient, byPlatform, isLoading } = useAllClientsCampaigns(range);
+
+  const fmt  = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  const fmtK = (v: number) => v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M` : v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v);
+  const pct  = (v: number) => `${v.toFixed(2)}%`;
+
+  const clients = useMemo(() => Array.from(new Set(summaries.map(s => s.client_id))).map(id => ({
+    id, name: summaries.find(s => s.client_id === id)?.client_name ?? id,
+  })), [summaries]);
+
+  const platforms = useMemo(() => Array.from(new Set(summaries.map(s => s.platform))).sort(), [summaries]);
+
+  const filtered = useMemo(() => summaries.filter(s => {
+    if (clientFilter !== "all" && s.client_id !== clientFilter) return false;
+    if (platformFilter !== "all" && s.platform !== platformFilter) return false;
+    return true;
+  }), [summaries, clientFilter, platformFilter]);
+
+  const ctr  = totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0;
+  const cpc  = totals.clicks      > 0 ? totals.spend / totals.clicks : 0;
+  const cpl  = totals.leads       > 0 ? totals.spend / totals.leads : 0;
+  const roas = totals.spend       > 0 ? totals.revenue / totals.spend : 0;
+
+  const COLORS = ["hsl(265 62% 46%)", "hsl(210 80% 52%)", "hsl(152 60% 42%)", "hsl(38 92% 50%)", "hsl(0 84% 60%)"];
+
+  return (
+    <div className="space-y-6 mt-4">
+      {/* Filtros */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
+            <Select value={preset} onValueChange={setPreset}>
+              <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="7d">Últimos 7 dias</SelectItem>
+                <SelectItem value="30d">Últimos 30 dias</SelectItem>
+                <SelectItem value="month">Este mês</SelectItem>
+                <SelectItem value="90d">Últimos 90 dias</SelectItem>
+                <SelectItem value="custom">Personalizado</SelectItem>
+              </SelectContent>
+            </Select>
+            {preset === "custom" && (
+              <div className="flex items-center gap-2">
+                <input type="date" value={customFrom} max={customTo}
+                  onChange={e => setCustomFrom(e.target.value)}
+                  className="h-9 rounded-md border border-input bg-background px-3 text-sm" />
+                <span className="text-muted-foreground text-sm">até</span>
+                <input type="date" value={customTo} min={customFrom}
+                  onChange={e => setCustomTo(e.target.value)}
+                  className="h-9 rounded-md border border-input bg-background px-3 text-sm" />
+              </div>
+            )}
+            <Select value={clientFilter} onValueChange={setClientFilter}>
+              <SelectTrigger className="w-[180px]"><SelectValue placeholder="Cliente" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os clientes</SelectItem>
+                {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={platformFilter} onValueChange={setPlatformFilter}>
+              <SelectTrigger className="w-[150px]"><SelectValue placeholder="Plataforma" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas</SelectItem>
+                {platforms.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-16 text-muted-foreground">
+          Carregando dados de campanhas...
+        </div>
+      ) : summaries.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center gap-2 text-muted-foreground border-2 border-dashed rounded-xl">
+          <Megaphone className="h-8 w-8 opacity-30" />
+          <p className="font-medium">Nenhum dado de campanha encontrado</p>
+          <p className="text-sm">Configure as integrações de Meta/Google Ads nos cadastros dos clientes e aguarde a sincronização.</p>
+        </div>
+      ) : (
+        <>
+          {/* KPIs consolidados */}
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+            <KPI icon={DollarSign}        label="Investimento total"  value={fmt(totals.spend)} />
+            <KPI icon={TrendingUp}        label="Receita total"       value={fmt(totals.revenue)} />
+            <KPI icon={TrendingUp}        label="ROAS médio"          value={`${roas.toFixed(2)}x`} />
+            <KPI icon={Eye}               label="Impressões"          value={fmtK(totals.impressions)} />
+            <KPI icon={MousePointerClick} label="Cliques"             value={fmtK(totals.clicks)} />
+            <KPI icon={ArrowRightLeft}    label="CTR médio"           value={pct(ctr)} />
+            <KPI icon={DollarSign}        label="CPC médio"           value={fmt(cpc)} />
+            <KPI icon={Users}             label="Leads"               value={fmtK(totals.leads)} />
+            <KPI icon={Target}            label="CPL médio"           value={fmt(cpl)} />
+            <KPI icon={Users}             label="Clientes com dados"  value={String(byClient.length)} />
+          </div>
+
+          {/* Gráficos */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Investimento por cliente */}
+            <Card>
+              <CardContent className="p-5">
+                <h3 className="font-semibold text-foreground mb-4">Investimento por Cliente</h3>
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={byClient.slice(0, 10)} layout="vertical">
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 20% 90%)" />
+                    <XAxis type="number" fontSize={11} tickFormatter={v => fmt(v)} />
+                    <YAxis type="category" dataKey="client_name" fontSize={11} width={120} />
+                    <Tooltip formatter={(v: number) => fmt(v)} />
+                    <Bar dataKey="spend" name="Investimento" fill="hsl(265 62% 46%)" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+
+            {/* Distribuição por plataforma */}
+            <Card>
+              <CardContent className="p-5">
+                <h3 className="font-semibold text-foreground mb-4">Investimento por Plataforma</h3>
+                <ResponsiveContainer width="100%" height={280}>
+                  <PieChart>
+                    <Pie data={byPlatform} cx="50%" cy="50%" innerRadius={55} outerRadius={90} dataKey="value"
+                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                      {byPlatform.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip formatter={(v: number) => fmt(v)} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Ranking de clientes */}
+          <Card>
+            <CardContent className="p-5">
+              <h3 className="font-semibold text-foreground mb-4">Ranking de Clientes por Investimento</h3>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>#</TableHead>
+                    <TableHead>Cliente</TableHead>
+                    <TableHead className="text-right">Investimento</TableHead>
+                    <TableHead className="text-right">Receita</TableHead>
+                    <TableHead className="text-right">ROAS</TableHead>
+                    <TableHead className="text-right">Leads</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {byClient.map((c, i) => (
+                    <TableRow key={c.client_name}>
+                      <TableCell className="text-muted-foreground text-sm">{i + 1}</TableCell>
+                      <TableCell className="font-medium">{c.client_name}</TableCell>
+                      <TableCell className="text-right">{fmt(c.spend)}</TableCell>
+                      <TableCell className="text-right">{fmt(c.revenue)}</TableCell>
+                      <TableCell className="text-right">
+                        <span className={c.roas >= 2 ? "text-emerald-600 font-bold" : c.roas >= 1 ? "text-amber-600" : "text-red-500"}>
+                          {c.roas.toFixed(2)}x
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">{fmtK(c.leads)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          {/* Tabela detalhada de campanhas */}
+          <Card>
+            <CardContent className="p-5">
+              <h3 className="font-semibold text-foreground mb-4">
+                Campanhas Detalhadas
+                <span className="ml-2 text-xs text-muted-foreground font-normal">({filtered.length} campanhas)</span>
+              </h3>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Cliente</TableHead>
+                      <TableHead>Campanha</TableHead>
+                      <TableHead>Plataforma</TableHead>
+                      <TableHead className="text-right">Investimento</TableHead>
+                      <TableHead className="text-right">Impressões</TableHead>
+                      <TableHead className="text-right">Cliques</TableHead>
+                      <TableHead className="text-right">CTR</TableHead>
+                      <TableHead className="text-right">CPC</TableHead>
+                      <TableHead className="text-right">Leads</TableHead>
+                      <TableHead className="text-right">CPL</TableHead>
+                      <TableHead className="text-right">Receita</TableHead>
+                      <TableHead className="text-right">ROAS</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filtered.slice(0, 50).map((s, i) => (
+                      <TableRow key={i}>
+                        <TableCell className="text-sm font-medium">{s.client_name}</TableCell>
+                        <TableCell className="text-sm max-w-[180px] truncate">{s.campaign_name}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="text-xs">{s.platform}</Badge>
+                        </TableCell>
+                        <TableCell className="text-right text-sm">{fmt(s.spend)}</TableCell>
+                        <TableCell className="text-right text-sm text-muted-foreground">{fmtK(s.impressions)}</TableCell>
+                        <TableCell className="text-right text-sm text-muted-foreground">{fmtK(s.clicks)}</TableCell>
+                        <TableCell className="text-right text-sm">{pct(s.ctr)}</TableCell>
+                        <TableCell className="text-right text-sm">{fmt(s.cpc)}</TableCell>
+                        <TableCell className="text-right text-sm">{fmtK(s.leads)}</TableCell>
+                        <TableCell className="text-right text-sm">{s.leads > 0 ? fmt(s.cpl) : "—"}</TableCell>
+                        <TableCell className="text-right text-sm">{fmt(s.revenue)}</TableCell>
+                        <TableCell className="text-right text-sm">
+                          <span className={s.roas >= 2 ? "text-emerald-600 font-bold" : s.roas >= 1 ? "text-amber-600" : s.spend > 0 ? "text-red-500" : "text-muted-foreground"}>
+                            {s.spend > 0 ? `${s.roas.toFixed(2)}x` : "—"}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                {filtered.length > 50 && (
+                  <p className="text-xs text-muted-foreground text-center mt-3">
+                    Exibindo 50 de {filtered.length} campanhas. Use os filtros para refinar.
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
     </div>
   );
 }
