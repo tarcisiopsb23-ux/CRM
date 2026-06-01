@@ -31,8 +31,8 @@ import { useClientAuth } from "@/hooks/useClientAuth";
 function PeriodDropdown() {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const from = searchParams.get("from") ?? format(startOfMonth(new Date()), "yyyy-MM-dd");
-  const to = searchParams.get("to") ?? format(endOfMonth(new Date()), "yyyy-MM-dd");
+  const from = searchParams.get("from") ?? format(subDays(new Date(), 30), "yyyy-MM-dd");
+  const to = searchParams.get("to") ?? format(new Date(), "yyyy-MM-dd");
 
   const presets = [
     {

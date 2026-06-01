@@ -22,16 +22,16 @@ export function DashboardGeralPage() {
   const dc = useDynamicClient();
   const [searchParams] = useSearchParams();
 
-  const dateRange = {
-    from: searchParams.get("from") ?? format(startOfMonth(new Date()), "yyyy-MM-dd"),
-    to: searchParams.get("to") ?? format(endOfMonth(new Date()), "yyyy-MM-dd"),
-  };
+  const dateRange = useMemo(() => ({
+    from: searchParams.get("from") ?? format(subDays(new Date(), 30), "yyyy-MM-dd"),
+    to: searchParams.get("to") ?? format(new Date(), "yyyy-MM-dd"),
+  }), [searchParams.get("from"), searchParams.get("to")]);
 
   // ── Dados de campanhas (CRM Supabase) ──────────────────────────────────────
   const { campaignDataQuery } = useClientReports(
     auth?.organization_id,
     auth?.id,
-    useMemo(() => dateRange, [dateRange.from, dateRange.to]),
+    dateRange,
     true
   );
 

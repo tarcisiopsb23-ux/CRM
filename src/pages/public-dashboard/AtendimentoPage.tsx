@@ -9,8 +9,8 @@ export function AtendimentoPage() {
   const { auth } = useClientAuth();
   const [searchParams] = useSearchParams();
   const dateRange = {
-    from: searchParams.get('from') ?? format(startOfMonth(new Date()), 'yyyy-MM-dd'),
-    to: searchParams.get('to') ?? format(endOfMonth(new Date()), 'yyyy-MM-dd'),
+    from: searchParams.get('from') ?? format(subDays(new Date(), 30), 'yyyy-MM-dd'),
+    to: searchParams.get('to') ?? format(new Date(), 'yyyy-MM-dd'),
   };
 
   const { totals, trend, byCampaign, bySource, byAgent, isLoading, hasData } = useClientConversationKpis(
