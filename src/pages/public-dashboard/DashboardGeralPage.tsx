@@ -3,13 +3,14 @@ import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueries } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  AreaChart, Area, Line, XAxis, YAxis, CartesianGrid,
+  Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
 import {
   BarChart3, Users, DollarSign, TrendingUp, Tag,
-  UtensilsCrossed, CalendarDays, Megaphone, AlertCircle, Activity, Clock,
+  UtensilsCrossed, CalendarDays, Megaphone, AlertCircle, Activity, Clock, Info,
 } from "lucide-react";
-import { format, subDays, startOfMonth, endOfMonth } from "date-fns";
+import { format, startOfMonth, endOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { supabase } from "@/lib/supabase";
 import { useClientAuth } from "@/hooks/useClientAuth";
@@ -22,9 +23,10 @@ export function DashboardGeralPage() {
   const dc = useDynamicClient();
   const [searchParams] = useSearchParams();
 
+  // Filtro padrão: mês atual
   const dateRange = useMemo(() => ({
-    from: searchParams.get("from") ?? format(subDays(new Date(), 30), "yyyy-MM-dd"),
-    to: searchParams.get("to") ?? format(new Date(), "yyyy-MM-dd"),
+    from: searchParams.get("from") ?? format(startOfMonth(new Date()), "yyyy-MM-dd"),
+    to:   searchParams.get("to")   ?? format(endOfMonth(new Date()),   "yyyy-MM-dd"),
   }), [searchParams.get("from"), searchParams.get("to")]);
 
   // ── Dados de campanhas (CRM Supabase) ──────────────────────────────────────
@@ -35,35 +37,36 @@ export function DashboardGeralPage() {
     true
   );
 
-  const { totalLeads, totalSpend, totalRevenue, activeCampaigns, weeklyData } = useMemo(() => {
+  const { totalLeads, totalSpend, totalRevenue, activeCampaigns, dailyData } = useMemo(() => {
     const rows = (campaignDataQuery.data ?? []) as any[];
     const campaignSet = new Set<string>();
-    const byDate: Record<string, { date: string; leads: number; spend: number }> = {};
+    const byDate: Record<string, { date: string; total_leads: number; total_spend: number; total_revenue: number }> = {};
     let totalLeads = 0, totalSpend = 0, totalRevenue = 0;
 
     for (const r of rows) {
       if (r.campaign_name) campaignSet.add(`${r.platform}||${r.campaign_name}`);
-      totalLeads += Number(r.leads ?? 0);
-      totalSpend += Number(r.spend ?? 0);
+      totalLeads   += Number(r.leads   ?? 0);
+      totalSpend   += Number(r.spend   ?? 0);
       totalRevenue += Number(r.revenue ?? 0);
       const d = r.date;
       if (d) {
-        if (!byDate[d]) byDate[d] = { date: d, leads: 0, spend: 0 };
-        byDate[d].leads += Number(r.leads ?? 0);
-        byDate[d].spend += Number(r.spend ?? 0);
+        if (!byDate[d]) byDate[d] = { date: d, total_leads: 0, total_spend: 0, total_revenue: 0 };
+        byDate[d].total_leads   += Number(r.leads   ?? 0);
+        byDate[d].total_spend   += Number(r.spend   ?? 0);
+        byDate[d].total_revenue += Number(r.revenue ?? 0);
       }
     }
 
-    const last7 = Array.from({ length: 7 }, (_, i) => {
-      const day = format(subDays(new Date(), 6 - i), "yyyy-MM-dd");
-      const label = format(subDays(new Date(), 6 - i), "EEE", { locale: ptBR });
-      return { date: label, leads: byDate[day]?.leads ?? 0, spend: byDate[day]?.spend ?? 0 };
-    });
+    const dailyData = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
 
-    return { totalLeads, totalSpend, totalRevenue, activeCampaigns: campaignSet.size, weeklyData: last7 };
+    return { totalLeads, totalSpend, totalRevenue, activeCampaigns: campaignSet.size, dailyData };
   }, [campaignDataQuery.data]);
 
   const roas = totalSpend > 0 ? (totalRevenue / totalSpend).toFixed(1) : "0.0";
+
+  // Detecta se os dados do período estão zerados (após carregamento)
+  const isLoaded = !campaignDataQuery.isLoading;
+  const isZero   = isLoaded && totalLeads === 0 && totalSpend === 0 && totalRevenue === 0;
 
   // ── KPIs do CRM ───────────────────────────────────────────────────────────
   const { data: kpisRaw } = useQuery({
@@ -78,7 +81,6 @@ export function DashboardGeralPage() {
     enabled: !!auth?.id,
   });
   const kpis = (kpisRaw ?? []) as any[];
-  const faturamentoKpi = kpis.find((k: any) => /faturamento/i.test(k.name));
 
   // ── Contagens IA (Dynamic_Client) ─────────────────────────────────────────
   const iaEnabled = !!(dc && auth?.show_ia_content);
@@ -122,21 +124,31 @@ export function DashboardGeralPage() {
   });
 
   const iaCountLabels = [
-    { label: "Eventos",   icon: CalendarDays, color: "text-emerald-400" },
-    { label: "Promoções", icon: Tag,           color: "text-violet-400" },
-    { label: "Sugestões", icon: UtensilsCrossed, color: "text-amber-400" },
-    { label: "Avisos",    icon: Megaphone,     color: "text-red-400" },
+    { label: "Eventos",   icon: CalendarDays,    color: "text-emerald-400" },
+    { label: "Promoções", icon: Tag,              color: "text-violet-400" },
+    { label: "Sugestões", icon: UtensilsCrossed,  color: "text-amber-400" },
+    { label: "Avisos",    icon: Megaphone,        color: "text-red-400" },
   ];
 
   return (
     <div className="space-y-8 max-w-[1600px] mx-auto">
 
+      {/* ── Banner: dados zerados no mês atual ── */}
+      {isZero && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+          <Info className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+          <p className="text-sm text-amber-200">
+            Nenhum dado encontrado para o mês atual. Use o filtro de período no canto superior direito para selecionar uma data anterior.
+          </p>
+        </div>
+      )}
+
       {/* ── Cards de resumo ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <SummaryCard label="Campanhas Ativas" value={activeCampaigns} icon={<BarChart3 className="h-5 w-5 text-[#2D8CC7]" />} />
-        <SummaryCard label="Total de Leads" value={totalLeads.toLocaleString("pt-BR")} icon={<Users className="h-5 w-5 text-blue-400" />} />
-        <SummaryCard label="Faturamento Est." value={`R$ ${totalRevenue.toLocaleString("pt-BR")}`} icon={<TrendingUp className="h-5 w-5 text-emerald-400" />} highlight />
-        <SummaryCard label="ROAS" value={`${roas}x`} icon={<DollarSign className="h-5 w-5 text-orange-400" />} />
+        <SummaryCard label="Campanhas Ativas"  value={activeCampaigns}                          icon={<BarChart3   className="h-5 w-5 text-[#2D8CC7]"    />} />
+        <SummaryCard label="Total de Leads"    value={totalLeads.toLocaleString("pt-BR")}       icon={<Users       className="h-5 w-5 text-blue-400"     />} />
+        <SummaryCard label="Faturamento Est."  value={`R$ ${totalRevenue.toLocaleString("pt-BR")}`} icon={<TrendingUp className="h-5 w-5 text-emerald-400" />} highlight />
+        <SummaryCard label="ROAS"              value={`${roas}x`}                               icon={<DollarSign  className="h-5 w-5 text-orange-400"   />} />
       </div>
 
       {/* ── Cards IA (condicional) ── */}
@@ -162,23 +174,46 @@ export function DashboardGeralPage() {
         </div>
       )}
 
-      {/* ── Gráfico semanal + Próximo evento ── */}
+      {/* ── Evolução Diária + Próximo evento ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2 bg-card border-border shadow-2xl">
           <CardHeader>
-            <CardTitle className="text-foreground text-lg font-bold">Atividade Semanal</CardTitle>
-            <p className="text-muted-foreground text-sm">Leads e investimento — últimos 7 dias</p>
+            <CardTitle className="text-foreground text-lg font-bold">Evolução Diária</CardTitle>
+            <p className="text-muted-foreground text-sm">Investimento vs Faturamento vs Leads — período selecionado</p>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={weeklyData} barSize={20}>
+            <ResponsiveContainer width="100%" height={280}>
+              <AreaChart data={dailyData}>
+                <defs>
+                  <linearGradient id="gRev" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#10b981" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="gSpend" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#2D8CC7" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#2D8CC7" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
-                <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: "#94a3b8", fontSize: 12 }} />
+                <XAxis
+                  dataKey="date"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "#94a3b8", fontSize: 12 }}
+                  tickFormatter={(s) => {
+                    try { return format(new Date(String(s)), "dd/MM"); } catch { return s; }
+                  }}
+                />
                 <YAxis axisLine={false} tickLine={false} tick={{ fill: "#94a3b8", fontSize: 12 }} />
-                <Tooltip contentStyle={{ backgroundColor: "#0F172A", border: "1px solid #334155", borderRadius: "12px" }} itemStyle={{ fontSize: "12px" }} />
-                <Bar dataKey="leads" name="Leads" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="spend" name="Investimento (R$)" fill="#2D8CC7" radius={[4, 4, 0, 0]} />
-              </BarChart>
+                <Tooltip
+                  contentStyle={{ backgroundColor: "#0F172A", border: "1px solid #334155", borderRadius: "12px" }}
+                  itemStyle={{ fontSize: "12px", fontWeight: "bold" }}
+                />
+                <Legend verticalAlign="top" align="right" height={36} iconType="circle" />
+                <Area type="monotone" dataKey="total_revenue" name="Faturamento Est. (R$)" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#gRev)" />
+                <Area type="monotone" dataKey="total_spend"   name="Investimento (R$)"     stroke="#2D8CC7" strokeWidth={3} fillOpacity={1} fill="url(#gSpend)" />
+                <Line  type="monotone" dataKey="total_leads"  name="Leads"                 stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} />
+              </AreaChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
@@ -248,7 +283,6 @@ export function DashboardGeralPage() {
               <AlertCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
               <div>
                 <p className="text-sm text-red-200 font-medium">{notice.message}</p>
-                {notice.validity && <p className="text-xs text-red-400/70 mt-1">Validade: {notice.validity}</p>}
               </div>
             </div>
           ))}
