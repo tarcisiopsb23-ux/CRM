@@ -217,8 +217,8 @@ const isLowerBetter = (name: string) =>
 
 export function PublicDemoDashboardPage() {
   const [dateRange, setDateRange] = useState({
-    from: format(subDays(new Date(), 30), "yyyy-MM-dd"),
-    to: format(new Date(), "yyyy-MM-dd"),
+    from: format(startOfMonth(new Date()), "yyyy-MM-dd"),
+    to: format(endOfMonth(new Date()), "yyyy-MM-dd"),
   });
   const [demoActiveKpi, setDemoActiveKpi] = useState<keyof DemoKpiPoint>("faturamento_real");
   const [activeTab, setActiveTab] = useState<"performance" | "atendimento">("performance");
