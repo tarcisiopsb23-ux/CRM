@@ -23,6 +23,13 @@ function PublicDashboardLayoutInner({ slug }: { slug: string }) {
   const { auth, setAuth, logout } = useClientAuth();
   const location = useLocation();
 
+  // Força tema dark no <html> para que as variantes dark: do Tailwind funcionem
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.add("dark");
+    return () => root.classList.remove("dark");
+  }, []);
+
   // Guard de rota IA
   const isIaRoute = IA_ROUTES.some((r) => location.pathname.endsWith(r));
   if (isIaRoute && !auth?.show_ia_content) {
