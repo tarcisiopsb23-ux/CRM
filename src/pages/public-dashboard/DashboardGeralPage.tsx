@@ -81,13 +81,14 @@ export function DashboardGeralPage() {
   const faturamentoKpi = kpis.find((k: any) => /faturamento/i.test(k.name));
 
   // ── Contagens IA (Dynamic_Client) ─────────────────────────────────────────
+  const iaEnabled = !!(dc && auth?.show_ia_content);
   const iaCounts = useQueries({
-    queries: dc && auth?.show_ia_content ? [
-      { queryKey: ["ia_count", "ai_promotions"],  queryFn: async () => { const { count } = await dc.from("ai_promotions").select("id", { count: "exact", head: true }).eq("status", "active"); return count ?? 0; }, staleTime: 60_000 },
-      { queryKey: ["ia_count", "ai_suggestions"], queryFn: async () => { const { count } = await dc.from("ai_suggestions").select("id", { count: "exact", head: true }).eq("status", "active"); return count ?? 0; }, staleTime: 60_000 },
-      { queryKey: ["ia_count", "ai_events"],      queryFn: async () => { const { count } = await dc.from("ai_events").select("id", { count: "exact", head: true }); return count ?? 0; }, staleTime: 60_000 },
-      { queryKey: ["ia_count", "ai_notices"],     queryFn: async () => { const { count } = await dc.from("ai_notices").select("id", { count: "exact", head: true }).eq("status", "active"); return count ?? 0; }, staleTime: 60_000 },
-    ] : [],
+    queries: iaEnabled ? [
+      { queryKey: ["ia_count", "ai_promotions"],  queryFn: async () => { const { count } = await dc!.from("ai_promotions").select("id", { count: "exact", head: true }).eq("status", "active"); return count ?? 0; }, staleTime: 60_000 },
+      { queryKey: ["ia_count", "ai_suggestions"], queryFn: async () => { const { count } = await dc!.from("ai_suggestions").select("id", { count: "exact", head: true }).eq("status", "active"); return count ?? 0; }, staleTime: 60_000 },
+      { queryKey: ["ia_count", "ai_events"],      queryFn: async () => { const { count } = await dc!.from("ai_events").select("id", { count: "exact", head: true }); return count ?? 0; }, staleTime: 60_000 },
+      { queryKey: ["ia_count", "ai_notices"],     queryFn: async () => { const { count } = await dc!.from("ai_notices").select("id", { count: "exact", head: true }).eq("status", "active"); return count ?? 0; }, staleTime: 60_000 },
+    ] : ([] as { queryKey: string[]; queryFn: () => Promise<number>; staleTime: number }[]),
   });
 
   // ── Próximo evento (ai_events) ────────────────────────────────────────────
