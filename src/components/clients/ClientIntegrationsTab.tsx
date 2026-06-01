@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import { Loader2, Trash2, Globe, Lock, Copy, Check, ExternalLink, Mail, RefreshCcw, BarChart3, MessageCircle, AlertCircle, CheckCircle2, Clock } from "lucide-react";
+import { Loader2, Trash2, Globe, Lock, Copy, Check, ExternalLink, Mail, RefreshCcw, BarChart3, MessageCircle, AlertCircle, CheckCircle2, Clock, Brain, Wifi, WifiOff, ChevronDown, ChevronUp } from "lucide-react";
 import { AdIntegrationDialog } from "@/components/integrations/AdIntegrationDialog";
 import { supabase } from "@/lib/supabase";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,104 @@ import { Label } from "@/components/ui/label";
 import { sendEmail } from "@/lib/email-service";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { createClientSupabase } from "@/lib/createClientSupabase";
+
+const MIGRATION_SQL = `-- ============================================================
+-- Migration: Tabelas do Módulo Conteúdo IA
+-- Execute no Supabase do cliente (Client_Supabase)
+-- ============================================================
+
+-- 1. Agenda Musical
+CREATE TABLE IF NOT EXISTS public.ai_schedule (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    artist      TEXT        NOT NULL,
+    date        DATE        NOT NULL,
+    time        TIME        NOT NULL,
+    description TEXT,
+    status      TEXT        NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 2. Promoções
+CREATE TABLE IF NOT EXISTS public.ai_promotions (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    title       TEXT        NOT NULL,
+    description TEXT,
+    validity    TEXT,
+    type        TEXT,
+    status      TEXT        NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 3. Sugestões da Semana
+CREATE TABLE IF NOT EXISTS public.ai_suggestions (
+    id          UUID           PRIMARY KEY DEFAULT gen_random_uuid(),
+    name        TEXT           NOT NULL,
+    description TEXT,
+    price       NUMERIC(10, 2),
+    image_url   TEXT,
+    status      TEXT           NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+    created_at  TIMESTAMPTZ    NOT NULL DEFAULT now()
+);
+
+-- 4. Eventos Especiais
+CREATE TABLE IF NOT EXISTS public.ai_events (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    title       TEXT        NOT NULL,
+    description TEXT,
+    date        DATE        NOT NULL,
+    time        TIME,
+    location    TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 5. Avisos
+CREATE TABLE IF NOT EXISTS public.ai_notices (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    message     TEXT        NOT NULL,
+    priority    TEXT        NOT NULL CHECK (priority IN ('alta', 'média', 'baixa')),
+    validity    TEXT,
+    status      TEXT        NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 6. Configurações do Agente IA
+CREATE TABLE IF NOT EXISTS public.ai_settings (
+    id                 UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    establishment_name TEXT,
+    phone              TEXT,
+    instagram          TEXT,
+    address            TEXT,
+    opening_hours      TEXT,
+    welcome_message    TEXT,
+    auto_reply_24h     BOOLEAN     NOT NULL DEFAULT true,
+    forward_to_human   BOOLEAN     NOT NULL DEFAULT true,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ============================================================
+-- Row Level Security — acesso público via anon key
+-- ============================================================
+
+ALTER TABLE public.ai_schedule    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_promotions  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_suggestions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_events      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_notices     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_settings    ENABLE ROW LEVEL SECURITY;
+
+-- Políticas: leitura e escrita pública via anon
+DO $$ DECLARE t TEXT;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['ai_schedule','ai_promotions','ai_suggestions','ai_events','ai_notices','ai_settings']
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS "public_read"  ON public.%I', t);
+    EXECUTE format('DROP POLICY IF EXISTS "public_write" ON public.%I', t);
+    EXECUTE format('CREATE POLICY "public_read"  ON public.%I FOR SELECT USING (true)', t);
+    EXECUTE format('CREATE POLICY "public_write" ON public.%I FOR ALL    USING (true) WITH CHECK (true)', t);
+  END LOOP;
+END $$;`;
 
 function SyncStatusBadge({ status, lastSyncAt, records, error }: { status?: string | null; lastSyncAt?: string | null; records?: number | null; error?: string | null }) {
   const [expanded, setExpanded] = useState(false);
@@ -54,6 +152,17 @@ function SyncStatusBadge({ status, lastSyncAt, records, error }: { status?: stri
       </div>
     );
   }
+  if (status === 'no_data' && lastSyncAt) {
+    return (
+      <div className="flex flex-col gap-0.5">
+        <Badge className="bg-slate-100 text-slate-600 text-xs flex items-center gap-1 w-fit">
+          <Clock className="h-3 w-3" />
+          {formatDistanceToNow(new Date(lastSyncAt), { addSuffix: true, locale: ptBR })}
+        </Badge>
+        <span className="text-[10px] text-muted-foreground">Sem dados no período</span>
+      </div>
+    );
+  }
   return null;
 }
 
@@ -91,12 +200,18 @@ export function ClientIntegrationsTab({ organizationId, clientId }: { organizati
   const [dashPerformance, setDashPerformance] = useState(true);
   const [dashAtendimento, setDashAtendimento] = useState(false);
   const [c8ControlEnabled, setC8ControlEnabled] = useState(false);
+  const [showIaContent, setShowIaContent] = useState(false);
+  const [clientSupabaseUrl, setClientSupabaseUrl] = useState("");
+  const [clientSupabaseKey, setClientSupabaseKey] = useState("");
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [migrationSqlOpen, setMigrationSqlOpen] = useState(false);
+  const [migrationSqlCopied, setMigrationSqlCopied] = useState(false);
 
   useEffect(() => {
     const fetchClient = async () => {
       const { data } = await supabase
         .from("clients")
-        .select("name, company, email, dashboard_slug, metadata")
+        .select("name, company, email, dashboard_slug, metadata, show_ia_content, client_supabase_url, client_supabase_anon_key")
         .eq("id", clientId)
         .single();
       
@@ -116,6 +231,9 @@ export function ClientIntegrationsTab({ organizationId, clientId }: { organizati
         setDashPerformance((data.metadata as any)?.dashboard_performance ?? true);
         setDashAtendimento((data.metadata as any)?.dashboard_atendimento ?? false);
         setC8ControlEnabled(!!(data as any).c8_control_enabled);
+        setShowIaContent(!!(data as any).show_ia_content);
+        setClientSupabaseUrl((data as any).client_supabase_url || "");
+        setClientSupabaseKey((data as any).client_supabase_anon_key || "");
       }
     };
     fetchClient();
@@ -123,6 +241,11 @@ export function ClientIntegrationsTab({ organizationId, clientId }: { organizati
 
   const handleSaveDashboard = async () => {
     setSavingDashboard(true);
+    if (showIaContent && (!clientSupabaseUrl.trim() || !clientSupabaseKey.trim())) {
+      toast.error("URL e chave do Supabase são obrigatórias para habilitar o Conteúdo IA.");
+      setSavingDashboard(false);
+      return;
+    }
     try {
       const { data: client } = await supabase
         .from("clients")
@@ -146,6 +269,14 @@ export function ClientIntegrationsTab({ organizationId, clientId }: { organizati
         .eq("id", clientId);
 
       if (error) throw error;
+      await supabase
+        .from("clients")
+        .update({
+          show_ia_content: showIaContent,
+          client_supabase_url: clientSupabaseUrl.trim() || null,
+          client_supabase_anon_key: clientSupabaseKey.trim() || null,
+        })
+        .eq("id", clientId);
       toast.success("Configurações do dashboard atualizadas!");
     } catch (err) {
       toast.error("Erro ao salvar configurações do dashboard.");
@@ -388,6 +519,122 @@ export function ClientIntegrationsTab({ organizationId, clientId }: { organizati
                 </div>
               </button>
             </div>
+          </div>
+
+          {/* Seção Conteúdo IA */}
+          <div className="space-y-4 pt-4 border-t">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-xs font-black uppercase tracking-widest text-slate-500">Módulo Conteúdo IA</Label>
+                <p className="text-[11px] text-muted-foreground mt-0.5">Permite que o cliente gerencie agenda, promoções, eventos e avisos pelo dashboard.</p>
+              </div>
+            </div>
+
+            {/* Toggle show_ia_content */}
+            <button
+              type="button"
+              onClick={() => setShowIaContent(v => !v)}
+              className={`flex items-center gap-3 p-4 rounded-xl border-2 transition-all text-left w-full ${
+                showIaContent ? "border-violet-500 bg-violet-50" : "border-slate-200 bg-white hover:border-slate-300"
+              }`}
+            >
+              <div className={`h-9 w-9 rounded-lg flex items-center justify-center shrink-0 ${showIaContent ? "bg-violet-500 text-white" : "bg-slate-100 text-slate-400"}`}>
+                <Brain className="h-4 w-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-bold ${showIaContent ? "text-violet-700" : "text-slate-600"}`}>Conteúdo IA</p>
+                <p className="text-[10px] text-muted-foreground">Agenda, promoções, eventos, avisos e configurações</p>
+              </div>
+              <div className={`h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 ${showIaContent ? "border-violet-500 bg-violet-500" : "border-slate-300"}`}>
+                {showIaContent && <Check className="h-3 w-3 text-white" />}
+              </div>
+            </button>
+
+            {/* Credenciais do Supabase (visíveis quando showIaContent = true) */}
+            {showIaContent && (
+              <div className="space-y-3 p-4 rounded-xl bg-violet-50/50 border border-violet-200">
+                <p className="text-xs font-bold text-violet-700 uppercase tracking-widest">Credenciais do Supabase do Cliente</p>
+
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold text-slate-600">URL do Supabase</Label>
+                  <Input
+                    value={clientSupabaseUrl}
+                    onChange={e => setClientSupabaseUrl(e.target.value)}
+                    placeholder="https://xxxxxxxxxxxx.supabase.co"
+                    className="bg-white text-sm"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold text-slate-600">Chave Anon (anon key)</Label>
+                  <Input
+                    type="password"
+                    value={clientSupabaseKey}
+                    onChange={e => setClientSupabaseKey(e.target.value)}
+                    placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    className="bg-white text-sm"
+                  />
+                </div>
+
+                {/* Botão Testar Conexão */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={testingConnection || !clientSupabaseUrl.trim() || !clientSupabaseKey.trim()}
+                  onClick={async () => {
+                    setTestingConnection(true);
+                    try {
+                      const testClient = createClientSupabase(clientSupabaseUrl.trim(), clientSupabaseKey.trim());
+                      const { error } = await testClient.from('ai_settings').select('id').limit(1);
+                      if (error) throw error;
+                      toast.success("Conexão estabelecida com sucesso!");
+                    } catch (err: any) {
+                      toast.error(`Falha na conexão: ${err.message}`);
+                    } finally {
+                      setTestingConnection(false);
+                    }
+                  }}
+                  className="gap-2"
+                >
+                  {testingConnection ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wifi className="h-3.5 w-3.5" />}
+                  Testar Conexão
+                </Button>
+
+                {/* SQL de Migration */}
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => setMigrationSqlOpen(v => !v)}
+                    className="flex items-center gap-2 text-xs font-semibold text-violet-700 hover:text-violet-900 transition-colors"
+                  >
+                    {migrationSqlOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                    Ver SQL de Migration (executar no Supabase do cliente)
+                  </button>
+                  {migrationSqlOpen && (
+                    <div className="relative">
+                      <pre className="text-[10px] bg-slate-900 text-slate-300 p-3 rounded-lg overflow-auto max-h-48 border border-slate-700 font-mono leading-relaxed">
+                        {MIGRATION_SQL}
+                      </pre>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="absolute top-2 right-2 h-6 text-[10px] text-slate-400 hover:text-white"
+                        onClick={() => {
+                          navigator.clipboard.writeText(MIGRATION_SQL);
+                          setMigrationSqlCopied(true);
+                          toast.success("SQL copiado!");
+                          setTimeout(() => setMigrationSqlCopied(false), 2000);
+                        }}
+                      >
+                        {migrationSqlCopied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-between pt-4 border-t">

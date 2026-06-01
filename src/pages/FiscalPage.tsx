@@ -184,7 +184,7 @@ function CheckStatusBadge({
   );
 }
 
-export default function FiscalPage() {
+export default function FiscalPage({ embedded = false }: { embedded?: boolean }) {
   const organizationId = useOrganization();
   const { canCreate, canDelete } = useModulePermission("fiscal" as any);
   const { pinProps, requirePin } = usePinConfirm();
@@ -425,7 +425,8 @@ export default function FiscalPage() {
 
   return (
     <div className="space-y-6">
-      {/* Cabeçalho */}
+      {/* Cabeçalho — oculto quando embutido no Financeiro */}
+      {!embedded && (
       <div className="flex items-center justify-between">
         <div>
           <h1 className="font-display text-2xl font-bold text-foreground">Fiscal / NFS-e</h1>
@@ -470,6 +471,38 @@ export default function FiscalPage() {
           )}
         </div>
       </div>
+      )}
+
+      {/* Controles quando embutido */}
+      {embedded && (
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Select value={period} onValueChange={(v) => setPeriod(v as PeriodKey)}>
+              <SelectTrigger className="w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PERIOD_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {period === "custom" && (
+              <>
+                <Input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="w-36" placeholder="De" />
+                <span className="text-muted-foreground text-sm">até</span>
+                <Input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="w-36" placeholder="Até" />
+              </>
+            )}
+          </div>
+          {canCreate && (
+            <Button onClick={() => setEmitModalOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Emitir NFS-e
+            </Button>
+          )}
+        </div>
+      )}
 
       {/* Banner configuração ausente */}
       {isApiKeyMissing && (

@@ -16,6 +16,7 @@ import { Progress } from "@/components/ui/progress";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -56,7 +57,7 @@ export default function ProjectsPage() {
   const projectsPermission = useModulePermission("projects");
   const teamsQuery = useTeams(organizationId);
   const profilesQuery = useProfiles(organizationId);
-  const { data: suppliers = [] } = useSuppliers(organizationId);
+  const { data: suppliers = [], create: createSupplierMutation } = useSuppliers(organizationId);
   const { data: n8nIntegration } = useIntegration(organizationId, "n8n");
   const clickupSyncWebhookUrl = (n8nIntegration as { config?: N8nConfig } | null)?.config?.clickupSyncWebhookUrl ?? null;
   const clickupWebhookUrl = (n8nIntegration as { config?: N8nConfig } | null)?.config?.clickupWebhookUrl ?? null;
@@ -69,7 +70,7 @@ export default function ProjectsPage() {
     status: "em_andamento",
     start_date: "",
     end_date: "",
-    applied_to: (projectsPermission.isAdminOrOwner ? "agency" : "team") as ProjectAppliedTo,
+    applied_to: (projectsPermission.canCreate ? "agency" : "team") as ProjectAppliedTo,
     team_id: "none",
     assigned_to: "none",
     is_freelancer: false,
@@ -77,6 +78,9 @@ export default function ProjectsPage() {
   });
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [showNewSupplier, setShowNewSupplier] = useState(false);
+  const [newSupplierForm, setNewSupplierForm] = useState({ name: "", service_category: "Serviços Terceirizados" });
+  const [creatingSupplier, setCreatingSupplier] = useState(false);
 
   const teams = useMemo(() => teamsQuery.data ?? [], [teamsQuery.data]);
   const profiles = useMemo(() => profilesQuery.data ?? [], [profilesQuery.data]);
@@ -109,7 +113,7 @@ export default function ProjectsPage() {
 
   const normalizeProjectStatus = (status: string) => {
     if (status === "ativo") return "em_andamento";
-    if (status === "parado") return "bloqueada";
+    if (status === "parado") return "parada";
     if (status === "concluido") return "concluida";
     return status;
   };
@@ -121,6 +125,7 @@ export default function ProjectsPage() {
       em_andamento: "Em andamento",
       em_revisao: "Em revisão",
       bloqueada: "Parado",
+      parada: "Parado",
       concluida: "Concluído",
     };
     return labels[s] ?? status;
@@ -184,7 +189,7 @@ export default function ProjectsPage() {
       { key: "backlog", label: "Não iniciado", items: [] },
       { key: "em_andamento", label: "Em andamento", items: [] },
       { key: "em_revisao", label: "Em revisão", items: [] },
-      { key: "bloqueada", label: "Parado", items: [] },
+      { key: "parada", label: "Parado", items: [] },
       { key: "concluida", label: "Concluído", items: [] },
     ];
     const byKey = new Map(cols.map((c) => [c.key, c]));
@@ -233,6 +238,25 @@ export default function ProjectsPage() {
       is_freelancer: false,
       supplier_id: null,
     });
+  };
+
+  const handleCreateSupplier = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSupplierForm.name.trim()) return;
+    setCreatingSupplier(true);
+    try {
+      await createSupplierMutation.mutateAsync({
+        name: newSupplierForm.name,
+        service_category: newSupplierForm.service_category,
+      });
+      toast.success("Fornecedor cadastrado com sucesso!");
+      setShowNewSupplier(false);
+      setNewSupplierForm({ name: "", service_category: "Serviços Terceirizados" });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao cadastrar fornecedor");
+    } finally {
+      setCreatingSupplier(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -433,6 +457,7 @@ export default function ProjectsPage() {
                       supplierName={p.supplier_id ? supplierNameById.get(p.supplier_id) : undefined}
                       clickupSyncedAt={(p as unknown as { clickup_synced_at?: string | null }).clickup_synced_at ?? null}
                       clickupTaskId={(p as unknown as { clickup_task_id?: string | null }).clickup_task_id ?? null}
+                      clickupListId={(p as unknown as { clickup_list_id?: string | null }).clickup_list_id ?? null}
                       syncWebhookUrl={(p as unknown as { is_freelancer?: boolean }).is_freelancer ? clickupSyncWebhookUrl : null}
                       createWebhookUrl={(p as unknown as { is_freelancer?: boolean }).is_freelancer ? clickupWebhookUrl : null}
                       projectData={p as unknown as Record<string, unknown>}
@@ -589,7 +614,7 @@ export default function ProjectsPage() {
                 <SelectContent>
                   <SelectItem value="backlog">Não iniciado</SelectItem>
                   <SelectItem value="em_andamento">Em andamento</SelectItem>
-                  <SelectItem value="bloqueada">Parado</SelectItem>
+                  <SelectItem value="parada">Parado</SelectItem>
                   <SelectItem value="concluida" disabled={!projectsPermission.isAdminOrOwner}>Concluído</SelectItem>
                 </SelectContent>
               </Select>
@@ -689,6 +714,7 @@ export default function ProjectsPage() {
                     organizationId={organizationId}
                     value={form.supplier_id}
                     onChange={(v) => setForm(p => ({ ...p, supplier_id: v }))}
+                    onAddNew={() => setShowNewSupplier(true)}
                   />
                 </div>
               )}
@@ -702,6 +728,61 @@ export default function ProjectsPage() {
               <Button type="submit" disabled={!projectsPermission.canCreate || submitting || create.isPending}>
                 {(submitting || create.isPending) && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 Criar
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Novo Fornecedor */}
+      <Dialog open={showNewSupplier} onOpenChange={setShowNewSupplier}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Cadastrar Novo Fornecedor</DialogTitle>
+            <DialogDescription>
+              Cadastre um novo fornecedor para atribuir ao projeto.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleCreateSupplier} className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="new-supplier-name">Nome do Fornecedor *</Label>
+              <Input
+                id="new-supplier-name"
+                placeholder="Ex: Fornecedor Ltda"
+                value={newSupplierForm.name}
+                onChange={(e) => setNewSupplierForm((f) => ({ ...f, name: e.target.value }))}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Categoria de Serviço</Label>
+              <Select
+                value={newSupplierForm.service_category}
+                onValueChange={(v) => setNewSupplierForm((f) => ({ ...f, service_category: v }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione uma categoria" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Serviços Terceirizados">Serviços Terceirizados</SelectItem>
+                  <SelectItem value="Eletro/Eletrônicos">Eletro/Eletrônicos</SelectItem>
+                  <SelectItem value="Tecnologia">Tecnologia</SelectItem>
+                  <SelectItem value="Assinaturas">Assinaturas</SelectItem>
+                  <SelectItem value="Marketing">Marketing</SelectItem>
+                  <SelectItem value="Outros">Outros</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => {
+                setShowNewSupplier(false);
+                setNewSupplierForm({ name: "", service_category: "Serviços Terceirizados" });
+              }} disabled={creatingSupplier}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={creatingSupplier || createSupplierMutation.isPending || !newSupplierForm.name.trim()}>
+                {(creatingSupplier || createSupplierMutation.isPending) ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                Cadastrar
               </Button>
             </DialogFooter>
           </form>
@@ -723,6 +804,7 @@ function ProjectRow({
   supplierName,
   clickupSyncedAt,
   clickupTaskId,
+  clickupListId,
   syncWebhookUrl,
   createWebhookUrl,
   projectData,
@@ -739,6 +821,7 @@ function ProjectRow({
   supplierName?: string;
   clickupSyncedAt?: string | null;
   clickupTaskId?: string | null;
+  clickupListId?: string | null;
   syncWebhookUrl?: string | null;
   createWebhookUrl?: string | null;
   projectData?: Record<string, unknown>;
@@ -822,6 +905,20 @@ function ProjectRow({
                 <RefreshCcw className={`h-2.5 w-2.5 ${isSyncing ? "animate-spin" : ""}`} />
                 {isSyncing ? "Sincronizando..." : "Sync ClickUp"}
               </button>
+            )}
+            {/* Link direto para a Lista no ClickUp */}
+            {isFreelancer && (clickupListId || clickupTaskId) && (
+              <a
+                href={`https://app.clickup.com/90171128896/v/l/li/${clickupListId || clickupTaskId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1 text-[10px] text-blue-600 hover:text-blue-700 border border-blue-200 hover:border-blue-400 rounded px-1.5 py-0.5 transition-colors"
+                title="Abrir no ClickUp"
+              >
+                <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                Ver no ClickUp
+              </a>
             )}          </div>
           <p className="text-sm text-muted-foreground">
             {startOk && !Number.isNaN(startOk.getTime()) ? format(startOk, "dd/MM/yyyy", { locale: ptBR }) : "—"}

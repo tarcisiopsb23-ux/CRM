@@ -21,6 +21,7 @@ import { useSearchParams, Link } from "react-router-dom";
 import SuppliersPage from "@/pages/SuppliersPage";
 import { SupplierExpensesView } from "@/components/suppliers/SupplierExpensesView";
 import { C8ControlFinancialTab } from "@/components/financial/C8ControlFinancialTab";
+import FiscalPage from "@/pages/FiscalPage";
 import {
   Dialog,
   DialogContent,
@@ -132,13 +133,13 @@ export default function FinancialPage() {
         "cashflow",
         "receivables",
         "payables",
-        "suppliers",
         "expenses",
         "payroll",
         "contracts",
         "dre",
         "reports",
         "c8control",
+        "nfse",
       ]),
     []
   );
@@ -147,7 +148,6 @@ export default function FinancialPage() {
   const section = (sectionParam && validTabs.has(sectionParam) ? sectionParam : "dashboard") as
     | "dashboard"
     | "cashflow"
-    | "suppliers"
     | "receivables"
     | "payables"
     | "expenses"
@@ -155,7 +155,8 @@ export default function FinancialPage() {
     | "contracts"
     | "dre"
     | "reports"
-    | "c8control";
+    | "c8control"
+    | "nfse";
 
   const setSection = (nextSection: typeof section) => {
     const next = new URLSearchParams(searchParams);
@@ -1173,12 +1174,12 @@ export default function FinancialPage() {
         <TabsList className="w-full flex flex-wrap justify-start">
           <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
           <TabsTrigger value="cashflow">Fluxo de Caixa</TabsTrigger>
-          <TabsTrigger value="suppliers">Fornecedores</TabsTrigger>
           <TabsTrigger value="expenses">Despesas</TabsTrigger>
           <TabsTrigger value="receivables">Contas a Receber</TabsTrigger>
           <TabsTrigger value="payables">Contas a Pagar</TabsTrigger>
           <TabsTrigger value="payroll">Folha de Pagamento</TabsTrigger>
           <TabsTrigger value="contracts">Contratos</TabsTrigger>
+          <TabsTrigger value="nfse">NFS-e</TabsTrigger>
           <TabsTrigger value="dre">DRE</TabsTrigger>
           <TabsTrigger value="reports">Relatórios</TabsTrigger>
           <TabsTrigger value="c8control">C8 Control</TabsTrigger>
@@ -1775,19 +1776,8 @@ export default function FinancialPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="suppliers" className="space-y-6">
-          <Alert className="border-yellow-400 bg-yellow-50 text-yellow-900 dark:bg-yellow-950 dark:text-yellow-100 dark:border-yellow-600">
-            <Info className="h-4 w-4 !text-yellow-600 dark:!text-yellow-400" />
-            <AlertTitle>Módulo movido</AlertTitle>
-            <AlertDescription>
-              O módulo de Fornecedores foi movido para o menu lateral. Acesse diretamente em{" "}
-              <Link to="/suppliers" className="font-medium underline underline-offset-2 hover:text-yellow-700 dark:hover:text-yellow-300">
-                /suppliers
-              </Link>
-              .
-            </AlertDescription>
-          </Alert>
-          <SuppliersPage />
+        <TabsContent value="nfse" className="space-y-6">
+          <FiscalPage embedded />
         </TabsContent>
 
         <TabsContent value="expenses" className="space-y-4">

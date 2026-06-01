@@ -115,7 +115,7 @@ export function useClientKPIHistory(organizationId?: string, clientId?: string) 
     mutationFn: async (history: Partial<ClientKPIHistory>) => {
       const { data, error } = await supabase
         .from("client_kpi_history")
-        .upsert({ ...history, organization_id: organizationId, client_id: clientId })
+        .upsert({ ...history, organization_id: organizationId, client_id: clientId }, { onConflict: "kpi_id, month_year" })
         .select()
         .single();
       if (error) throw error;

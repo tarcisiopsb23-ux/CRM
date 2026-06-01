@@ -9,6 +9,7 @@ import { usePayments, useSupplierExpenses } from "@/hooks/useFinancial";
 import { useEvents } from "@/hooks/useEvents";
 import { useCampaigns } from "@/hooks/useCampaigns";
 import { useAgencyClientId } from "@/hooks/useAgencyCampaignData";
+import { useAllClientsCampaigns } from "@/hooks/useAllClientsCampaigns";
 import { useGoals } from "@/hooks/useGoalsCRUD";
 import { useContractMetrics } from "@/hooks/useContractMetrics";
 import { useAuth } from "@/contexts/AuthContext";
@@ -40,6 +41,7 @@ import {
 } from "@/components/ui/dialog";
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, isWithinInterval, parseISO, subMonths, startOfDay, endOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { logger } from "@/lib/logger";
 import { useNavigate } from "react-router-dom";
 import { useMemo, useState } from "react";
 import { useFunnelStages } from "@/hooks/useFunnelStages";
@@ -256,32 +258,30 @@ export function DashboardPage() {
   const { canView: canViewFinancial } = useModulePermission("financial");
   const { canView: canViewPerformance } = useModulePermission("performance");
   const contractMetrics = useContractMetrics(organizationId);
-  const agencyClientId = useAgencyClientId();
+  const { clientId: agencyClientId, isResolved: agencyClientIdResolved } = useAgencyClientId();
 
   // Dados Financeiros
   const { data: payments = [] } = usePayments(organizationId, { enabled: canViewFinancial });
   const { data: expenses = [] } = useSupplierExpenses(organizationId, { enabled: canViewFinancial });
 
-  // Performance Data — filtra pelo client_id da agência (configurado em Settings → n8n → adsClientId)
+  // Performance Data — filtra EXCLUSIVAMENTE pelo client_id da agência.
+  // Aguarda a resolução do agencyClientId antes de buscar para evitar
+  // retornar dados de todos os clientes enquanto o ID ainda está carregando.
   const performanceQuery = useQuery({
     queryKey: ["agency_performance", organizationId, agencyClientId],
     queryFn: async () => {
-      if (!organizationId) return [];
-      let q = supabase
+      if (!organizationId || !agencyClientId) return [];
+      const { data, error } = await supabase
         .from("campaign_data")
         .select(`
           client_id, date, spend, impressions, reach, clicks, leads, sales, revenue,
           clients ( name, company, dashboard_slug )
         `)
         .eq("organization_id", organizationId)
+        .eq("client_id", agencyClientId)
         .order("date", { ascending: true });
-      // Filtra pelo client_id da agência se configurado
-      if (agencyClientId) {
-        q = q.eq("client_id", agencyClientId);
-      }
-      const { data, error } = await q;
       if (error) {
-        console.warn("[Dashboard] Erro ao buscar campaign_data:", error.message);
+        logger.warn("Erro ao buscar campaign_data", { error: error.message }, 'DASHBOARD');
         return [];
       }
       return (data || []).map((r: any) => ({
@@ -294,7 +294,8 @@ export function DashboardPage() {
         total_clicks:      Number(r.clicks      ?? 0),
       }));
     },
-    enabled: !!organizationId && canViewPerformance,
+    // Só executa quando: tem org, tem permissão, e o client_id já foi resolvido
+    enabled: !!organizationId && canViewPerformance && agencyClientIdResolved,
   });
 
   const performanceMetrics = performanceQuery.data || [];
@@ -328,6 +329,9 @@ export function DashboardPage() {
 
   const { campaigns, totals: campTotals } = useCampaigns();
 
+  // Totais consolidados de TODOS os clientes da organização (para a linha "Todos os Clientes")
+  const { totals: allClientsTotals } = useAllClientsCampaigns();
+
   const funnelDataPerf = useMemo(() => {
     // Impressões e cliques vêm das campanhas; leads e vendas do daily_metrics
     const impressions = campTotals.impressions || perfTotals.impressions;
@@ -350,13 +354,14 @@ export function DashboardPage() {
       if (!acc[clientId]) {
         acc[clientId] = { 
           name: clientInfo?.company || clientInfo?.name || "Desconhecido", 
-          spend: 0, leads: 0, sales: 0, 
+          spend: 0, leads: 0, sales: 0, revenue: 0,
           slug: clientInfo?.dashboard_slug 
         };
       }
-      acc[clientId].spend += Number(curr.total_spend) || 0;
-      acc[clientId].leads += Number(curr.total_leads) || 0;
-      acc[clientId].sales += Number(curr.total_sales) || 0;
+      acc[clientId].spend   += Number(curr.total_spend)   || 0;
+      acc[clientId].leads   += Number(curr.total_leads)   || 0;
+      acc[clientId].sales   += Number(curr.total_sales)   || 0;
+      acc[clientId].revenue += Number(curr.total_revenue) || 0;
       return acc;
     }, {});
     return Object.values(perClient).sort((a: any, b: any) => b.spend - a.spend);
@@ -783,15 +788,10 @@ export function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{kpis.leadsCreatedMonth}</div>
-                <Progress
-                  value={
-                    Math.min(
-                      100,
-                      (kpis.leadsHot / Math.max(1, kpis.leadsCreatedMonth)) * 100
-                    )
-                  }
-                  className="h-1 mt-2 bg-primary/10"
-                />
+                <p className="text-xs text-muted-foreground">
+                  {kpis.leadsHot > 0 ? <span className="text-amber-500 font-medium">{kpis.leadsHot} quentes</span> : "Nenhum quente"}
+                </p>
+                <Progress value={Math.min(100, (kpis.leadsHot / Math.max(1, kpis.leadsCreatedMonth)) * 100)} className="h-1 mt-2 bg-primary/10" />
               </CardContent>
             </Card>
             <Card>
@@ -802,24 +802,38 @@ export function DashboardPage() {
               <CardContent>
                 <div className="text-2xl font-bold">{kpis.contractsClosedMonth}</div>
                 <p className="text-xs text-muted-foreground">
-                  Taxa de Conversão: {kpis.conversionRate.toFixed(1)}%
+                  Conversão: {kpis.conversionRate.toFixed(1)}%
                 </p>
                 <Progress value={kpis.conversionRate} className="h-1 mt-2 bg-emerald-100" />
               </CardContent>
             </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Contratos Cancelados (Mês)</CardTitle>
-                <FileX className="h-4 w-4 text-red-500" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{kpis.contractsCancelledMonth}</div>
-                <p className="text-xs text-muted-foreground">
-                  Taxa de Perda (Leads): {kpis.lossRate.toFixed(1)}%
-                </p>
-                <Progress value={kpis.lossRate} className="h-1 mt-2 bg-red-100" />
-              </CardContent>
-            </Card>
+            {canViewFinancial && (
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Receita (Mês)</CardTitle>
+                  <DollarSign className="h-4 w-4 text-emerald-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{fmt(financialSummary.revenue)}</div>
+                  <p className={`text-xs font-medium mt-1 ${financialSummary.profit >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                    Lucro: {fmt(financialSummary.profit)}
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+            {!canViewFinancial && (
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Contratos Cancelados (Mês)</CardTitle>
+                  <FileX className="h-4 w-4 text-red-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{kpis.contractsCancelledMonth}</div>
+                  <p className="text-xs text-muted-foreground">Perda (leads): {kpis.lossRate.toFixed(1)}%</p>
+                  <Progress value={kpis.lossRate} className="h-1 mt-2 bg-red-100" />
+                </CardContent>
+              </Card>
+            )}
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Projetos Ativos</CardTitle>
@@ -834,7 +848,7 @@ export function DashboardPage() {
                     "Todos no prazo"
                   )}
                 </p>
-                <Progress value={60} className="h-1 mt-2 bg-indigo-100" />
+                <Progress value={kpis.activeProjects > 0 ? Math.max(10, 100 - (kpis.lateProjects / kpis.activeProjects) * 100) : 0} className="h-1 mt-2 bg-indigo-100" />
               </CardContent>
             </Card>
             <Card>
@@ -844,9 +858,7 @@ export function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{Math.round(kpis.avgGoalProgress)}%</div>
-                <p className="text-xs text-muted-foreground">
-                  Progresso geral da agência
-                </p>
+                <p className="text-xs text-muted-foreground">Progresso geral da agência</p>
                 <Progress value={kpis.avgGoalProgress} className="h-1 mt-2 bg-amber-100" />
               </CardContent>
             </Card>
@@ -858,68 +870,242 @@ export function DashboardPage() {
               <CardContent>
                 <div className="text-2xl font-bold">{contractMetrics.suspendedTotal}</div>
                 <p className="text-xs text-muted-foreground">
-                  Reativados (mês): {contractMetrics.reactivatedMonth}
+                  Reativados (mês): <span className="text-emerald-600 font-medium">{contractMetrics.reactivatedMonth}</span>
                 </p>
               </CardContent>
             </Card>
           </div>
 
-          {/* NOVO BLOCO: Performance de Marketing (Soma de todos os clientes) */}
+          {/* LINHA: Projetos em Destaque + Agenda do Dia — acima do Marketing */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Projetos em Destaque */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Projetos em Destaque</CardTitle>
+                  <CardDescription>Acompanhamento de prazos e entregas</CardDescription>
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => navigate("/projects")}>Ver todos <ArrowRight className="ml-1 h-3 w-3" /></Button>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {projects.slice(0, 4).map((project) => (
+                    <div key={project.id} className="flex items-center justify-between border-b pb-4 last:border-0 last:pb-0">
+                      <div className="space-y-1">
+                        <p className="font-medium text-sm">{project.title}</p>
+                        <div className="flex items-center gap-2">
+                          <Badge variant={project.status === 'concluida' ? 'default' : 'secondary'} className="text-[10px] h-5">
+                            {project.status === 'backlog' ? 'Não iniciado' : project.status === 'em_andamento' ? 'Em andamento' : project.status === 'concluida' ? 'Concluído' : 'Parado'}
+                          </Badge>
+                          {project.end_date && (
+                            <span className={`text-xs ${new Date(project.end_date) < new Date() && project.status !== 'concluida' ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}>
+                              Prazo: {format(new Date(project.end_date), "dd/MM", { locale: ptBR })}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="w-24 hidden sm:block">
+                        <Progress value={project.status === 'concluida' ? 100 : project.status === 'em_andamento' ? 50 : 0} className="h-2" />
+                      </div>
+                    </div>
+                  ))}
+                  {projects.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">Nenhum projeto ativo.</p>}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Agenda do Dia */}
+            <Card className="bg-slate-50 dark:bg-slate-900/50 border-l-4 border-l-primary">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Calendar className="h-5 w-5 text-primary" />
+                  Agenda do Dia
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {nextTasks.map((item) => (
+                    <div key={item.id} className="flex items-start gap-3 bg-background p-3 rounded-lg border shadow-sm">
+                      <div className="flex flex-col items-center justify-center w-12 h-12 rounded bg-muted text-muted-foreground shrink-0">
+                        <span className="text-xs font-bold">{item.time}</span>
+                      </div>
+                      <div>
+                        <p className="font-medium text-sm">{item.title}</p>
+                        <Badge variant="outline" className="text-[10px] h-5 mt-1">
+                          {item.type === 'meeting' ? 'Reunião' : 'Tarefa'}
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
+                  {nextTasks.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">Nenhum evento hoje.</p>}
+                </div>
+                <Button variant="link" className="w-full mt-2" size="sm" onClick={() => navigate("/agenda")}>
+                  Ver agenda completa
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* BLOCO: Desempenho de Marketing */}
           {canViewPerformance && (
             <div className="space-y-4">
               <div className="flex items-center gap-2">
                 <BarChart3 className="h-5 w-5 text-primary" />
-                <h2 className="text-xl font-bold tracking-tight">Desempenho de Marketing (Consolidado)</h2>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <Card className="bg-slate-50 dark:bg-slate-900/50 border-none shadow-sm ring-1 ring-slate-200">
-                  <CardContent className="pt-6">
-                    <div className="flex flex-row items-center justify-between space-y-0 pb-2">
-                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Investimento</p>
-                      <DollarSign className="h-4 w-4 text-blue-500" />
-                    </div>
-                    <div className="text-xl font-bold text-slate-900">R$ {perfTotals.spend.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
-                    <p className="text-[10px] text-slate-400 mt-1">Total investido em anúncios</p>
-                  </CardContent>
-                </Card>
-                <Card className="bg-slate-50 dark:bg-slate-900/50 border-none shadow-sm ring-1 ring-slate-200">
-                  <CardContent className="pt-6">
-                    <div className="flex flex-row items-center justify-between space-y-0 pb-2">
-                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Leads Marketing</p>
-                      <Users className="h-4 w-4 text-indigo-500" />
-                    </div>
-                    <div className="text-xl font-bold text-slate-900">{perfTotals.leads.toLocaleString('pt-BR')}</div>
-                    <p className="text-[10px] text-slate-400 mt-1">Contatos gerados via campanhas</p>
-                  </CardContent>
-                </Card>
-                <Card className="bg-slate-50 dark:bg-slate-900/50 border-none shadow-sm ring-1 ring-slate-200">
-                  <CardContent className="pt-6">
-                    <div className="flex flex-row items-center justify-between space-y-0 pb-2">
-                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Vendas Marketing</p>
-                      <Target className="h-4 w-4 text-emerald-500" />
-                    </div>
-                    <div className="text-xl font-bold text-slate-900">{perfTotals.sales.toLocaleString('pt-BR')}</div>
-                    <p className="text-[10px] text-slate-400 mt-1">Conversões diretas das campanhas</p>
-                  </CardContent>
-                </Card>
-                <Card className="gradient-primary border-none shadow-sm ring-1 ring-primary/20 text-primary-foreground">
-                  <CardContent className="pt-6">
-                    <div className="flex flex-row items-center justify-between space-y-0 pb-2">
-                      <p className="text-xs font-bold text-primary-foreground/80 uppercase tracking-wider">ROAS Geral</p>
-                      <TrendingUp className="h-4 w-4" />
-                    </div>
-                    <div className="text-xl font-bold">
-                      {perfTotals.spend > 0 ? (perfTotals.revenue / perfTotals.spend).toFixed(2) : "0.00"}x
-                    </div>
-                    <p className="text-[10px] text-primary-foreground/70 mt-1">Retorno sobre investimento</p>
-                  </CardContent>
-                </Card>
+                <h2 className="text-xl font-bold tracking-tight">Desempenho de Marketing</h2>
               </div>
 
+              {/* Linha 1 — Todos os Clientes */}
+              <div>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                  <Users className="h-3.5 w-3.5" /> Todos os Clientes
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                  <Card className="bg-blue-50 dark:bg-blue-950/30 border-none shadow-sm ring-1 ring-blue-100 dark:ring-blue-900/40">
+                    <CardContent className="pt-5 pb-4">
+                      <div className="flex items-center justify-between pb-1">
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Investimento</p>
+                        <DollarSign className="h-3.5 w-3.5 text-blue-500" />
+                      </div>
+                      <div className="text-lg font-bold text-slate-900 dark:text-slate-100">{fmt(allClientsTotals.spend)}</div>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Total em anúncios</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-blue-50 dark:bg-blue-950/30 border-none shadow-sm ring-1 ring-blue-100 dark:ring-blue-900/40">
+                    <CardContent className="pt-5 pb-4">
+                      <div className="flex items-center justify-between pb-1">
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Faturamento Est.</p>
+                        <TrendingUp className="h-3.5 w-3.5 text-emerald-500" />
+                      </div>
+                      <div className="text-lg font-bold text-slate-900 dark:text-slate-100">{fmt(allClientsTotals.revenue)}</div>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Receita das campanhas</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-blue-50 dark:bg-blue-950/30 border-none shadow-sm ring-1 ring-blue-100 dark:ring-blue-900/40">
+                    <CardContent className="pt-5 pb-4">
+                      <div className="flex items-center justify-between pb-1">
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Leads</p>
+                        <Users className="h-3.5 w-3.5 text-indigo-500" />
+                      </div>
+                      <div className="text-lg font-bold text-slate-900 dark:text-slate-100">{allClientsTotals.leads.toLocaleString('pt-BR')}</div>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Contatos gerados</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-blue-50 dark:bg-blue-950/30 border-none shadow-sm ring-1 ring-blue-100 dark:ring-blue-900/40">
+                    <CardContent className="pt-5 pb-4">
+                      <div className="flex items-center justify-between pb-1">
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">CPL</p>
+                        <Target className="h-3.5 w-3.5 text-violet-500" />
+                      </div>
+                      <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                        {allClientsTotals.leads > 0 ? fmt(allClientsTotals.spend / allClientsTotals.leads) : "—"}
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Custo por lead</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-blue-50 dark:bg-blue-950/30 border-none shadow-sm ring-1 ring-blue-100 dark:ring-blue-900/40">
+                    <CardContent className="pt-5 pb-4">
+                      <div className="flex items-center justify-between pb-1">
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Vendas</p>
+                        <Target className="h-3.5 w-3.5 text-emerald-500" />
+                      </div>
+                      <div className="text-lg font-bold text-slate-900 dark:text-slate-100">{allClientsTotals.sales.toLocaleString('pt-BR')}</div>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Conversões diretas</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-blue-600 border-none shadow-sm text-white">
+                    <CardContent className="pt-5 pb-4">
+                      <div className="flex items-center justify-between pb-1">
+                        <p className="text-[10px] font-bold text-blue-100 uppercase tracking-wider">ROAS</p>
+                        <TrendingUp className="h-3.5 w-3.5 text-blue-200" />
+                      </div>
+                      <div className="text-lg font-bold">
+                        {allClientsTotals.spend > 0 ? (allClientsTotals.revenue / allClientsTotals.spend).toFixed(2) : "0.00"}x
+                      </div>
+                      <p className="text-[10px] text-blue-200 mt-0.5">Retorno sobre invest.</p>
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
+
+              {/* Linha 2 — Agência */}
+              <div>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                  <Megaphone className="h-3.5 w-3.5" /> Agência
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                  <Card className="bg-slate-50 dark:bg-slate-900/50 border-none shadow-sm ring-1 ring-slate-200">
+                    <CardContent className="pt-5 pb-4">
+                      <div className="flex items-center justify-between pb-1">
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Investimento</p>
+                        <DollarSign className="h-3.5 w-3.5 text-blue-500" />
+                      </div>
+                      <div className="text-lg font-bold text-slate-900 dark:text-slate-100">{fmt(perfTotals.spend)}</div>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Total em anúncios</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-slate-50 dark:bg-slate-900/50 border-none shadow-sm ring-1 ring-slate-200">
+                    <CardContent className="pt-5 pb-4">
+                      <div className="flex items-center justify-between pb-1">
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Faturamento Est.</p>
+                        <TrendingUp className="h-3.5 w-3.5 text-emerald-500" />
+                      </div>
+                      <div className="text-lg font-bold text-slate-900 dark:text-slate-100">{fmt(perfTotals.revenue)}</div>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Receita das campanhas</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-slate-50 dark:bg-slate-900/50 border-none shadow-sm ring-1 ring-slate-200">
+                    <CardContent className="pt-5 pb-4">
+                      <div className="flex items-center justify-between pb-1">
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Leads</p>
+                        <Users className="h-3.5 w-3.5 text-indigo-500" />
+                      </div>
+                      <div className="text-lg font-bold text-slate-900 dark:text-slate-100">{perfTotals.leads.toLocaleString('pt-BR')}</div>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Contatos gerados</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-slate-50 dark:bg-slate-900/50 border-none shadow-sm ring-1 ring-slate-200">
+                    <CardContent className="pt-5 pb-4">
+                      <div className="flex items-center justify-between pb-1">
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">CPL</p>
+                        <Target className="h-3.5 w-3.5 text-violet-500" />
+                      </div>
+                      <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                        {perfTotals.leads > 0 ? fmt(perfTotals.spend / perfTotals.leads) : "—"}
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Custo por lead</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-slate-50 dark:bg-slate-900/50 border-none shadow-sm ring-1 ring-slate-200">
+                    <CardContent className="pt-5 pb-4">
+                      <div className="flex items-center justify-between pb-1">
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Vendas</p>
+                        <Target className="h-3.5 w-3.5 text-emerald-500" />
+                      </div>
+                      <div className="text-lg font-bold text-slate-900 dark:text-slate-100">{perfTotals.sales.toLocaleString('pt-BR')}</div>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Conversões diretas</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="gradient-primary border-none shadow-sm ring-1 ring-primary/20 text-primary-foreground">
+                    <CardContent className="pt-5 pb-4">
+                      <div className="flex items-center justify-between pb-1">
+                        <p className="text-[10px] font-bold text-primary-foreground/80 uppercase tracking-wider">ROAS</p>
+                        <TrendingUp className="h-3.5 w-3.5" />
+                      </div>
+                      <div className="text-lg font-bold">
+                        {perfTotals.spend > 0 ? (perfTotals.revenue / perfTotals.spend).toFixed(2) : "0.00"}x
+                      </div>
+                      <p className="text-[10px] text-primary-foreground/70 mt-0.5">Retorno sobre invest.</p>
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
+
+              {/* Gráficos — apenas dados da agência */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <Card className="border-none shadow-sm ring-1 ring-slate-200">
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-bold">Evolução da Performance</CardTitle>
+                    <CardTitle className="text-sm font-bold">Evolução da Performance — Agência</CardTitle>
+                    <CardDescription className="text-[10px]">Investimento vs Faturamento (últimos 30 dias)</CardDescription>
                   </CardHeader>
                   <CardContent className="h-[200px]">
                     <ResponsiveContainer width="100%" height="100%">
@@ -935,20 +1121,11 @@ export function DashboardPage() {
                           </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis 
-                          dataKey="date" 
-                          axisLine={false} 
-                          tickLine={false} 
-                          tick={{fill: '#94a3b8', fontSize: 10}}
-                          tickFormatter={(val) => format(parseISO(val), 'dd/MM')}
-                        />
+                        <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10}} tickFormatter={(val) => format(parseISO(val), 'dd/MM')} />
                         <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10}} />
-                        <Tooltip 
-                          contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontSize: '12px' }}
-                          formatter={(value: any) => [`R$ ${Number(value).toLocaleString('pt-BR')}`, '']}
-                        />
-                        <Area type="monotone" dataKey="spend" name="Investimento" stroke="#3b82f6" fillOpacity={1} fill="url(#colorSpendOp)" strokeWidth={2} />
+                        <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontSize: '12px' }} formatter={(value: any) => [`R$ ${Number(value).toLocaleString('pt-BR')}`, '']} />
                         <Area type="monotone" dataKey="revenue" name="Faturamento" stroke="#10b981" fillOpacity={1} fill="url(#colorRevenueOp)" strokeWidth={2} />
+                        <Area type="monotone" dataKey="spend" name="Investimento" stroke="#3b82f6" fillOpacity={1} fill="url(#colorSpendOp)" strokeWidth={2} />
                       </AreaChart>
                     </ResponsiveContainer>
                   </CardContent>
@@ -956,7 +1133,8 @@ export function DashboardPage() {
 
                 <Card className="border-none shadow-sm ring-1 ring-slate-200">
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-bold">Funil de Conversão Consolidado</CardTitle>
+                    <CardTitle className="text-sm font-bold">Funil de Conversão — Agência</CardTitle>
+                    <CardDescription className="text-[10px]">Da impressão à venda</CardDescription>
                   </CardHeader>
                   <CardContent className="flex-1 flex flex-col justify-center pt-4">
                     <SalesFunnel
@@ -966,6 +1144,70 @@ export function DashboardPage() {
                         rateLabel: idx === 0 ? "CTR" : idx === 1 ? "TX. LEAD" : idx === 2 ? "TX. VENDA" : undefined,
                       }))}
                     />
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          )}
+
+          {/* BLOCO: Saúde da Carteira */}
+          {canViewFinancial && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Activity className="h-5 w-5 text-primary" />
+                <h2 className="text-xl font-bold tracking-tight">Saúde da Carteira</h2>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <Card className="border-none shadow-sm ring-1 ring-slate-200">
+                  <CardContent className="pt-6">
+                    <div className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Inadimplência Total</p>
+                      <AlertTriangle className="h-4 w-4 text-red-500" />
+                    </div>
+                    <div className="text-xl font-bold text-red-600">{fmt(contractMetrics.overdueTotalValue)}</div>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      {contractMetrics.overdueOver30ContractIds.length} contratos +30 dias
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card className="border-none shadow-sm ring-1 ring-slate-200">
+                  <CardContent className="pt-6">
+                    <div className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Recuperado (Mês)</p>
+                      <TrendingUp className="h-4 w-4 text-emerald-500" />
+                    </div>
+                    <div className="text-xl font-bold text-emerald-600">{fmt(contractMetrics.delinquencyReceivedMonthValue)}</div>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      {contractMetrics.delinquencyReceivedMonthPercentOfOverdue !== null
+                        ? `${contractMetrics.delinquencyReceivedMonthPercentOfOverdue.toFixed(1)}% do total em aberto`
+                        : "Sem inadimplência registrada"}
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card className="border-none shadow-sm ring-1 ring-slate-200">
+                  <CardContent className="pt-6">
+                    <div className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Suspensos (Mês)</p>
+                      <PauseCircle className="h-4 w-4 text-orange-500" />
+                    </div>
+                    <div className="text-xl font-bold text-orange-600">{contractMetrics.suspendedMonth}</div>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Total suspenso: {contractMetrics.suspendedTotal}
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card className="border-none shadow-sm ring-1 ring-slate-200">
+                  <CardContent className="pt-6">
+                    <div className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Reativados (Mês)</p>
+                      <Activity className="h-4 w-4 text-emerald-500" />
+                    </div>
+                    <div className="text-xl font-bold text-emerald-600">{contractMetrics.reactivatedMonth}</div>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      {contractMetrics.reactivatedVsSuspendedPercent !== null
+                        ? `${contractMetrics.reactivatedVsSuspendedPercent.toFixed(0)}% dos suspensos no mês`
+                        : "Nenhuma suspensão no mês"}
+                    </p>
                   </CardContent>
                 </Card>
               </div>
@@ -1017,76 +1259,11 @@ export function DashboardPage() {
             </CardContent>
           </Card>
 
-          {/* Projetos Recentes / Status */}
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle>Projetos em Destaque</CardTitle>
-                <CardDescription>Acompanhamento de prazos e entregas</CardDescription>
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => navigate("/projects")}>Ver todos <ArrowRight className="ml-1 h-3 w-3" /></Button>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {projects.slice(0, 4).map((project) => (
-                  <div key={project.id} className="flex items-center justify-between border-b pb-4 last:border-0 last:pb-0">
-                    <div className="space-y-1">
-                      <p className="font-medium text-sm">{project.title}</p>
-                      <div className="flex items-center gap-2">
-                        <Badge variant={project.status === 'concluida' ? 'default' : 'secondary'} className="text-[10px] h-5">
-                          {project.status === 'backlog' ? 'Não iniciado' : project.status === 'em_andamento' ? 'Em andamento' : project.status === 'concluida' ? 'Concluído' : 'Bloqueado'}
-                        </Badge>
-                        {project.end_date && (
-                          <span className={`text-xs ${new Date(project.end_date) < new Date() && project.status !== 'concluida' ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}>
-                            Prazo: {format(new Date(project.end_date), "dd/MM", { locale: ptBR })}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    {/* Placeholder de progresso, já que não temos % real no banco ainda */}
-                    <div className="w-24 hidden sm:block">
-                      <Progress value={project.status === 'concluida' ? 100 : project.status === 'em_andamento' ? 50 : 0} className="h-2" />
-                    </div>
-                  </div>
-                ))}
-                {projects.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">Nenhum projeto ativo.</p>}
-              </div>
-            </CardContent>
-          </Card>
+          {/* Projetos Recentes / Status — movido para a coluna lateral */}
         </div>
 
         {/* Coluna Lateral (Direita) */}
         <div className="md:col-span-3 space-y-6">
-          {/* Agenda / Tarefas do Dia */}
-          <Card className="bg-slate-50 dark:bg-slate-900/50 border-l-4 border-l-primary">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Calendar className="h-5 w-5 text-primary" />
-                Agenda do Dia
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {nextTasks.map((item) => (
-                  <div key={item.id} className="flex items-start gap-3 bg-background p-3 rounded-lg border shadow-sm">
-                    <div className="flex flex-col items-center justify-center w-12 h-12 rounded bg-muted text-muted-foreground shrink-0">
-                      <span className="text-xs font-bold">{item.time}</span>
-                    </div>
-                    <div>
-                      <p className="font-medium text-sm">{item.title}</p>
-                      <Badge variant="outline" className="text-[10px] h-5 mt-1">
-                        {item.type === 'meeting' ? 'Reunião' : 'Tarefa'}
-                      </Badge>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <Button variant="link" className="w-full mt-2" size="sm" onClick={() => navigate("/agenda")}>
-                Ver agenda completa
-              </Button>
-            </CardContent>
-          </Card>
-
           {canViewFinancial && (
             <Card>
               <CardHeader>
@@ -1119,57 +1296,129 @@ export function DashboardPage() {
             </Card>
           )}
 
-          {/* Campanhas Ativas */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Campanhas Ativas</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {campaigns.slice(0, 3).filter(c => c.status === 'Ativa').map((camp) => (
-                  <div key={camp.id} className="space-y-1">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="font-medium">{camp.name}</span>
-                      <span className="text-muted-foreground">{camp.leads} leads</span>
-                    </div>
-                    <Progress value={70} className="h-1.5" />
+          {/* Próximos Recebimentos */}
+          {canViewFinancial && (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm">Próximos Recebimentos</CardTitle>
+                {payments.filter(p => p.status !== 'pago' && p.status !== 'cancelado' && new Date(p.due_date) >= new Date()).length > 5 && (
+                  <Button variant="ghost" size="sm" className="text-xs" onClick={() => navigate("/financial?tab=receivables")}>
+                    Ver todos <ArrowRight className="ml-1 h-3 w-3" />
+                  </Button>
+                )}
+              </CardHeader>
+              <CardContent>
+                {payments.filter(p => p.status !== 'pago' && p.status !== 'cancelado' && new Date(p.due_date) >= new Date()).length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">Nenhum recebimento futuro.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {payments
+                      .filter(p => p.status !== 'pago' && p.status !== 'cancelado' && new Date(p.due_date) >= new Date())
+                      .sort((a, b) => a.due_date.localeCompare(b.due_date))
+                      .slice(0, 5)
+                      .map((p) => {
+                        const clientName = (p as any).clients?.company || (p as any).clients?.name || "Cliente";
+                        return (
+                          <div key={p.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900/30 transition-colors">
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium text-sm truncate">{clientName}</p>
+                              <p className="text-xs text-muted-foreground">{format(new Date(p.due_date), "dd/MM/yyyy", { locale: ptBR })}</p>
+                            </div>
+                            <p className="text-sm font-bold text-emerald-600 shrink-0">{fmt(p.value)}</p>
+                          </div>
+                        );
+                      })}
                   </div>
-                ))}
-                <Button variant="ghost" size="sm" className="w-full text-xs" onClick={() => navigate("/campaign-reports")}>
-                  Ver todas as campanhas
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Inadimplentes */}
+          {canViewFinancial && (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-red-500" />
+                  Inadimplentes
+                </CardTitle>
+                {payments.filter(p => p.status !== 'pago' && p.status !== 'cancelado' && new Date(p.due_date) < new Date()).length > 5 && (
+                  <Button variant="ghost" size="sm" className="text-xs" onClick={() => navigate("/financial?tab=receivables")}>
+                    Ver todos <ArrowRight className="ml-1 h-3 w-3" />
+                  </Button>
+                )}
+              </CardHeader>
+              <CardContent>
+                {payments.filter(p => p.status !== 'pago' && p.status !== 'cancelado' && new Date(p.due_date) < new Date()).length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-6 text-center gap-2">
+                    <CheckSquare className="h-8 w-8 text-emerald-500" />
+                    <p className="text-sm text-muted-foreground">Nenhuma inadimplência!</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {payments
+                      .filter(p => p.status !== 'pago' && p.status !== 'cancelado' && new Date(p.due_date) < new Date())
+                      .sort((a, b) => a.due_date.localeCompare(b.due_date))
+                      .slice(0, 5)
+                      .map((p) => {
+                        const clientName = (p as any).clients?.company || (p as any).clients?.name || "Cliente";
+                        const daysOverdue = Math.floor((new Date().getTime() - new Date(p.due_date).getTime()) / (1000 * 60 * 60 * 24));
+                        return (
+                          <div key={p.id} className="flex items-center justify-between p-2 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-100 dark:border-red-900/40">
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium text-sm truncate">{clientName}</p>
+                              <p className="text-xs text-red-600 dark:text-red-400">
+                                {format(new Date(p.due_date), "dd/MM/yyyy", { locale: ptBR })} · {daysOverdue}d atraso
+                              </p>
+                            </div>
+                            <p className="text-sm font-bold text-red-600 shrink-0">{fmt(p.value)}</p>
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Ranking de Clientes (Performance) */}
           {canViewPerformance && clientRanking.length > 0 && (
             <Card className="border-none shadow-sm ring-1 ring-slate-200">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-bold">Ranking de Performance</CardTitle>
-                <CardDescription className="text-[10px]">Por investimento</CardDescription>
+                <CardTitle className="text-sm font-bold">Top Clientes — Performance</CardTitle>
+                <CardDescription className="text-[10px]">Por investimento em mídia</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-3">
-                {clientRanking.slice(0, 5).map((client: any, idx) => (
-                  <div key={idx} className="flex items-center justify-between group">
-                    <div className="space-y-0.5 truncate pr-2">
-                      <p className="font-bold text-[11px] text-slate-800 truncate" title={client.name}>{client.name}</p>
-                      <p className="text-[10px] text-slate-500">R$ {client.spend.toLocaleString('pt-BR')}</p>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <div className="text-right">
-                        <p className="text-[10px] font-bold text-emerald-600">{client.sales} V</p>
+              <CardContent className="space-y-2">
+                {clientRanking.slice(0, 5).map((client: any, idx) => {
+                  const roas = client.spend > 0 ? (client.revenue ?? 0) / client.spend : 0;
+                  return (
+                    <div key={idx} className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900/30 transition-colors group">
+                      <span className="text-xs font-black text-slate-400 w-4 shrink-0">{idx + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-[11px] text-slate-800 dark:text-slate-200 truncate">{client.name}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[10px] text-slate-500">{fmt(client.spend)}</span>
+                          <span className="text-[10px] text-slate-300">·</span>
+                          <span className={`text-[10px] font-bold ${roas >= 2 ? "text-emerald-600" : roas >= 1 ? "text-amber-600" : "text-slate-400"}`}>
+                            ROAS {roas.toFixed(1)}x
+                          </span>
+                        </div>
                       </div>
-                      {client.slug && (
-                        <Button variant="ghost" size="icon" className="h-5 w-5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" asChild>
-                          <a href={`/public/dashboard/${client.slug}`} target="_blank" rel="noopener noreferrer">
-                            <ExternalLink className="h-3 w-3" />
-                          </a>
-                        </Button>
-                      )}
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 px-1.5 py-0.5 rounded">
+                          {client.sales}V
+                        </span>
+                        {client.slug && (
+                          <Button variant="ghost" size="icon" className="h-5 w-5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" asChild>
+                            <a href={`/public/dashboard/${client.slug}`} target="_blank" rel="noopener noreferrer">
+                              <ExternalLink className="h-3 w-3" />
+                            </a>
+                          </Button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </CardContent>
             </Card>
           )}

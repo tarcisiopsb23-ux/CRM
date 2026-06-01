@@ -30,11 +30,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, ArrowRight, Trash2, Calendar, CheckSquare, Plus, Users, LayoutList, CalendarDays, GanttChart, Pencil, FileText, ExternalLink, Download, PauseCircle, RefreshCcw } from "lucide-react";
+import { ArrowLeft, ArrowRight, Trash2, Calendar, CheckSquare, Plus, Users, LayoutList, CalendarDays, GanttChart, Pencil, FileText, ExternalLink, Download, PauseCircle, RefreshCcw, MessageSquare } from "lucide-react";
 import { format, parseISO, isSameDay, isSameMonth, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, isWithinInterval, differenceInCalendarDays, isAfter, startOfWeek, endOfWeek, addWeeks, subWeeks, addDays, subDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import type { Database } from "@/types/supabase";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { useQuery } from "@tanstack/react-query";
@@ -42,6 +42,8 @@ import { supabase } from "@/lib/supabase";
 import { DocumentsCard } from "@/components/documents/DocumentsCard";
 import { DRIVE_AUTO_FOLDERS } from "@/constants/driveAutoFolders";
 import { ProjectMembersSection } from "@/components/projects/ProjectMembersSection";
+import { ClickupMembersModal } from "@/components/projects/ClickupMembersModal";
+import { TaskClickupComments } from "@/components/projects/TaskClickupComments";
 import { ProjectChatButton } from "@/components/projects/ProjectChatButton";
 import { TaskChatButton } from "@/components/projects/TaskChatButton";
 import { useChatContext } from "@/contexts/ChatContext";
@@ -57,12 +59,13 @@ export function ProjectDetailsPage() {
   const { data: profiles = [] } = useProfiles(organizationId);
   const { data: clients = [] } = useClients(organizationId);
   const { data: tasks = [], create: createTask, update: updateTask, remove: removeTask } = useTasks(projectId);
-  const { data: suppliers = [] } = useSuppliers(organizationId);
+  const { data: suppliers = [], create: createSupplierMutation } = useSuppliers(organizationId);
   const { pinProps, requirePin } = usePinConfirm();
   const { data: n8nIntegration } = useIntegration(organizationId, "n8n");
   const clickupWebhookUrl = (n8nIntegration as { config?: N8nConfig } | null)?.config?.clickupWebhookUrl ?? null;
   const clickupSyncWebhookUrl = (n8nIntegration as { config?: N8nConfig } | null)?.config?.clickupSyncWebhookUrl ?? null;
   const clickupMembersWebhookUrl = (n8nIntegration as { config?: N8nConfig } | null)?.config?.clickupMembersWebhookUrl ?? null;
+  const clickupCommentsWebhookUrl = (n8nIntegration as { config?: N8nConfig } | null)?.config?.clickupCommentsWebhookUrl ?? null;
   const { syncItem, syncing: clickupSyncing } = useClickupSync();
 
   // Busca conversation_ids das tasks deste projeto
@@ -97,11 +100,20 @@ export function ProjectDetailsPage() {
     responsible_id: "",
     priority: "",
     status: "",
+    is_freelancer: false,
+    supplier_id: null as string | null,
   });
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<any>(null);
   const [taskStatusFilter, setTaskStatusFilter] = useState<"all" | Database["public"]["Enums"]["task_status"]>("all");
   const [taskSearch, setTaskSearch] = useState("");
+  const [clickupMembersTask, setClickupMembersTask] = useState<any>(null);
+  const [clickupCommentsTask, setClickupCommentsTask] = useState<any>(null);
+  // Mapa de contagem de não lidos por tarefa
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+  const [showNewSupplier, setShowNewSupplier] = useState(false);
+  const [newSupplierForm, setNewSupplierForm] = useState({ name: "", service_category: "Serviços Terceirizados" });
+  const [creatingSupplier, setCreatingSupplier] = useState(false);
 
   const project = useMemo(() => projects.find((p) => p.id === projectId), [projects, projectId]);
   const { data: client } = useQuery({
@@ -175,6 +187,9 @@ export function ProjectDetailsPage() {
   }
 
   const handleSaveDetails = () => {
+    const wasFreelancer = (project as any).is_freelancer ?? false;
+    const isNowFreelancer = editForm.is_freelancer;
+
     update.mutate({
       id: project.id,
       title: editForm.title,
@@ -185,7 +200,32 @@ export function ProjectDetailsPage() {
       priority: editForm.priority as any,
       responsible_id: editForm.responsible_id === "unassigned" || editForm.responsible_id === "" ? null : editForm.responsible_id,
       client_id: (editForm as any).client_id === "none" || (editForm as any).client_id === "" ? null : (editForm as any).client_id,
+      is_freelancer: isNowFreelancer,
+      supplier_id: isNowFreelancer ? (editForm.supplier_id || null) : null,
       metadata: { ...((project as any).metadata || {}), notes: editForm.notes },
+    }, {
+      onSuccess: (updated) => {
+        // Se acabou de ser marcado como terceirizado e ainda não tem Lista no ClickUp,
+        // dispara a criação da Lista no ClickUp
+        if (!wasFreelancer && isNowFreelancer && clickupWebhookUrl) {
+          const projectClickupListId = (updated as any)?.clickup_task_id ?? (updated as any)?.clickup_list_id ?? null;
+          if (!projectClickupListId) {
+            fetch(clickupWebhookUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "create",
+                table: "projects",
+                item: {
+                  ...updated,
+                  id: project.id,
+                  title: editForm.title,
+                },
+              }),
+            }).catch(() => {});
+          }
+        }
+      }
     });
     setIsEditing(false);
   };
@@ -201,6 +241,8 @@ export function ProjectDetailsPage() {
       client_id: project.client_id || "none",
       priority: project.priority || "media",
       status: project.status,
+      is_freelancer: (project as any).is_freelancer ?? false,
+      supplier_id: (project as any).supplier_id ?? null,
     } as any);
     setIsEditing(true);
   };
@@ -216,6 +258,7 @@ export function ProjectDetailsPage() {
     em_andamento: "Em andamento",
     em_revisao: "Em revisão",
     bloqueada: "Parado",
+    parada: "Parado",
     concluida: "Concluído",
   };
 
@@ -254,6 +297,25 @@ export function ProjectDetailsPage() {
         });
     }
     setIsTaskModalOpen(true);
+  };
+
+  const handleCreateSupplier = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSupplierForm.name.trim()) return;
+    setCreatingSupplier(true);
+    try {
+      await createSupplierMutation.mutateAsync({
+        name: newSupplierForm.name,
+        service_category: newSupplierForm.service_category,
+      });
+      toast.success("Fornecedor cadastrado com sucesso!");
+      setShowNewSupplier(false);
+      setNewSupplierForm({ name: "", service_category: "Serviços Terceirizados" });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao cadastrar fornecedor");
+    } finally {
+      setCreatingSupplier(false);
+    }
   };
 
   return (
@@ -300,6 +362,25 @@ export function ProjectDetailsPage() {
               </span>
             )}
             {responsibleName && <span>• Resp: {responsibleName}</span>}
+            {/* Link ClickUp — projeto terceirizado com Lista criada */}
+            {(project as any).is_freelancer && ((project as any).clickup_list_id || (project as any).clickup_task_id) && (
+              <a
+                href={`https://app.clickup.com/90171128896/v/l/li/${(project as any).clickup_list_id || (project as any).clickup_task_id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-700 border border-blue-200 hover:border-blue-400 rounded px-2 py-0.5 transition-colors font-medium"
+                title="Abrir Lista no ClickUp"
+              >
+                <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                ClickUp
+              </a>
+            )}
+            {/* Badge terceirizado sem Lista ainda */}
+            {(project as any).is_freelancer && !(project as any).clickup_list_id && !(project as any).clickup_task_id && (
+              <span className="inline-flex items-center gap-1 text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-0.5">
+                Terceirizado · Não sincronizado
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -377,7 +458,7 @@ export function ProjectDetailsPage() {
                       <SelectContent>
                         <SelectItem value="backlog">Não Iniciado</SelectItem>
                         <SelectItem value="em_andamento">Em Andamento</SelectItem>
-                        <SelectItem value="bloqueada">Parado</SelectItem>
+                        <SelectItem value="parada">Parado</SelectItem>
                         <SelectItem value="concluida" disabled={!projectsPermission.isAdminOrOwner}>
                           Concluído
                         </SelectItem>
@@ -443,6 +524,43 @@ export function ProjectDetailsPage() {
                     <Label>Fim</Label>
                     <Input type="date" value={editForm.end_date} onChange={(e) => setEditForm({ ...editForm, end_date: e.target.value })} />
                   </div>
+
+                  {/* Terceirizado — ao marcar, cria Lista no ClickUp automaticamente ao salvar */}
+                  <div className="col-span-2 flex items-center gap-3 p-3 rounded-lg border bg-slate-50 dark:bg-slate-900/30">
+                    <Checkbox
+                      id="edit_is_freelancer"
+                      checked={editForm.is_freelancer}
+                      onCheckedChange={(v) => setEditForm({ ...editForm, is_freelancer: !!v, supplier_id: v ? editForm.supplier_id : null })}
+                      disabled={!projectsPermission.canEdit}
+                    />
+                    <div className="flex-1">
+                      <label htmlFor="edit_is_freelancer" className="text-sm font-medium cursor-pointer">
+                        Projeto terceirizado (ClickUp)
+                      </label>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        Ao salvar, cria automaticamente uma Lista no ClickUp para este projeto.
+                      </p>
+                    </div>
+                  </div>
+
+                  {editForm.is_freelancer && (
+                    <div className="col-span-2 space-y-2">
+                      <Label>Fornecedor / Terceirizado</Label>
+                      <Select
+                        value={editForm.supplier_id || "none"}
+                        onValueChange={(v) => setEditForm({ ...editForm, supplier_id: v === "none" ? null : v })}
+                        disabled={!projectsPermission.canEdit}
+                      >
+                        <SelectTrigger><SelectValue placeholder="Selecione o fornecedor..." /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Sem fornecedor</SelectItem>
+                          {suppliers.map((s) => (
+                            <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -464,7 +582,7 @@ export function ProjectDetailsPage() {
                       value={project.status}
                       onValueChange={(v) => {
                         if (v === "concluida" && !projectsPermission.isAdminOrOwner) return;
-                        if (v === "bloqueada") {
+                        if (v === "parada") {
                           const reason = window.prompt(
                             "Motivo do projeto estar parado (opcional):",
                             String((project as any).metadata?.pause_reason ?? "")
@@ -490,7 +608,7 @@ export function ProjectDetailsPage() {
                       <SelectContent>
                         <SelectItem value="backlog">Não Iniciado</SelectItem>
                         <SelectItem value="em_andamento">Em Andamento</SelectItem>
-                        <SelectItem value="bloqueada">Parado</SelectItem>
+                        <SelectItem value="parada">Parado</SelectItem>
                         <SelectItem value="concluida" disabled={!projectsPermission.isAdminOrOwner}>
                           Concluído
                         </SelectItem>
@@ -536,7 +654,7 @@ export function ProjectDetailsPage() {
                   </div>
                 </div>
 
-                {project.status === "bloqueada" && ((project as any).metadata?.pause_reason || (project as any).pause_reason) ? (
+                {(project.status === "parada" || project.status === "bloqueada") && ((project as any).metadata?.pause_reason || (project as any).pause_reason) ? (
                   <div className="rounded border p-3">
                     <div className="text-xs text-muted-foreground">Motivo</div>
                     <div className="text-sm mt-1 whitespace-pre-wrap">{String((project as any).metadata?.pause_reason || (project as any).pause_reason)}</div>
@@ -612,8 +730,8 @@ export function ProjectDetailsPage() {
                     </Button>
                     <Button
                       size="sm"
-                      variant={taskStatusFilter === "bloqueada" ? "secondary" : "outline"}
-                      onClick={() => setTaskStatusFilter("bloqueada")}
+                      variant={taskStatusFilter === "parada" || taskStatusFilter === "bloqueada" ? "secondary" : "outline"}
+                      onClick={() => setTaskStatusFilter("parada" as any)}
                     >
                       Parado
                     </Button>
@@ -682,8 +800,8 @@ export function ProjectDetailsPage() {
                               variant="ghost"
                               size="icon"
                               className="h-8 w-8 text-muted-foreground hover:text-primary"
-                              onClick={() => updateTask.mutate({ id: task.id, status: "bloqueada" })}
-                              disabled={!projectsPermission.canEdit || task.status === "bloqueada" || task.status === "concluida"}
+                              onClick={() => updateTask.mutate({ id: task.id, status: "parada" })}
+                              disabled={!projectsPermission.canEdit || task.status === "parada" || task.status === "bloqueada" || task.status === "concluida"}
                               aria-label="Interromper tarefa"
                             >
                               <PauseCircle className="h-4 w-4" />
@@ -713,15 +831,16 @@ export function ProjectDetailsPage() {
                                     table: "tasks",
                                     item: {
                                       ...task,
-                                      clickup_list_id: (project as any)?.clickup_list_id ?? null,
+                                      // clickup_task_id do projeto = ID da Lista no ClickUp (nomenclatura legada)
+                                      clickup_list_id: (project as any)?.clickup_task_id ?? (project as any)?.clickup_list_id ?? null,
                                       parent_project: {
                                         id: project.id,
                                         title: project.title,
-                                        clickup_list_id: (project as any)?.clickup_list_id ?? null,
+                                        clickup_list_id: (project as any)?.clickup_task_id ?? (project as any)?.clickup_list_id ?? null,
                                         is_freelancer: (project as any)?.is_freelancer ?? false,
                                       },
                                     },
-                                    parentClickupListId: (project as any)?.clickup_list_id ?? null,
+                                    parentClickupListId: (project as any)?.clickup_task_id ?? (project as any)?.clickup_list_id ?? null,
                                   });
                                 }}
                                 aria-label="Criar no ClickUp"
@@ -761,6 +880,48 @@ export function ProjectDetailsPage() {
                               size="icon"
                               onConversationReady={(convId) => chat.openConversationById(convId)}
                             />
+                            {/* Link direto para a Task no ClickUp */}
+                            {task.is_freelancer && task.clickup_task_id && (
+                              <a
+                                href={`https://app.clickup.com/t/${task.clickup_task_id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center justify-center h-8 w-8 rounded text-blue-600 hover:text-blue-700 hover:bg-blue-50 transition-colors"
+                                title="Abrir Task no ClickUp"
+                              >
+                                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                              </a>
+                            )}
+                            {/* Botão participantes ClickUp — só se terceirizado */}
+                            {task.is_freelancer && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                                onClick={(e) => { e.stopPropagation(); setClickupMembersTask(task); }}
+                                title="Gerenciar participantes no ClickUp"
+                              >
+                                <Users className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {/* Botão comentários ClickUp — só se terceirizado */}
+                            {task.is_freelancer && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 relative"
+                                onClick={(e) => { e.stopPropagation(); setClickupCommentsTask(task); }}
+                                title="Comentários ClickUp"
+                              >
+                                <MessageSquare className="h-4 w-4" />
+                                {(unreadCounts[task.id] ?? 0) > 0 && (
+                                  <span className="absolute -top-0.5 -right-0.5 h-3.5 w-3.5 rounded-full bg-emerald-600 text-white text-[8px] flex items-center justify-center font-bold">
+                                    {unreadCounts[task.id]}
+                                  </span>
+                                )}
+                              </Button>
+                            )}
                             <Button
                                 variant="ghost"
                                 size="icon"
@@ -952,11 +1113,11 @@ export function ProjectDetailsPage() {
                 >
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="backlog">Backlog</SelectItem>
+                    <SelectItem value="backlog">Não iniciado</SelectItem>
                     <SelectItem value="em_andamento">Em Andamento</SelectItem>
                     <SelectItem value="em_revisao">Em Revisão</SelectItem>
                     <SelectItem value="concluida">Concluída</SelectItem>
-                    <SelectItem value="bloqueada">Bloqueada</SelectItem>
+                    <SelectItem value="bloqueada">Parada</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1019,6 +1180,7 @@ export function ProjectDetailsPage() {
                       organizationId={organizationId}
                       value={newTask.supplier_id}
                       onChange={(id) => setNewTask({ ...newTask, supplier_id: id })}
+                      onAddNew={() => setShowNewSupplier(true)}
                     />
                   </div>
                 )}
@@ -1054,20 +1216,32 @@ export function ProjectDetailsPage() {
                   metadata: { notes: newTask.notes },
                   is_freelancer: newTask.is_freelancer,
                   supplier_id: newTask.is_freelancer ? (newTask.supplier_id || null) : null,
+                  // Salva o ID da Lista do ClickUp (projeto pai) diretamente na tarefa
+                  clickup_list_id: newTask.is_freelancer
+                    ? ((editingTask?.clickup_list_id) ||
+                       (project as any)?.clickup_task_id ||
+                       (project as any)?.clickup_list_id ||
+                       null)
+                    : null,
                 };
 
                 // Helper para disparar webhook ClickUp
-                // Regra: tarefa terceirizada sempre envia dados do projeto pai,
-                // mesmo que o projeto não seja terceirizado (projeto = lista no ClickUp)
-                const fireClickupWebhook = (action: "create" | "update", task: any) => {
-                  if (!newTask.is_freelancer || !clickupWebhookUrl) return;
+                // Recebe isFreelancer explicitamente para evitar dependência do estado do form
+                const fireClickupWebhook = (action: "create" | "update", task: any, isFreelancer: boolean) => {
+                  if (!isFreelancer || !clickupWebhookUrl) return;
+                  // Usa clickup_list_id da tarefa se já preenchido, senão busca do projeto pai
+                  const projectClickupListId =
+                    task?.clickup_list_id ||
+                    (project as any)?.clickup_task_id ||
+                    (project as any)?.clickup_list_id ||
+                    null;
                   const itemWithParent = {
                     ...task,
-                    clickup_list_id: (project as any)?.clickup_list_id ?? null,
+                    clickup_list_id: projectClickupListId,
                     parent_project: {
                       id: project.id,
                       title: project.title,
-                      clickup_list_id: (project as any)?.clickup_list_id ?? null,
+                      clickup_list_id: projectClickupListId,
                       is_freelancer: (project as any)?.is_freelancer ?? false,
                     },
                   };
@@ -1083,12 +1257,24 @@ export function ProjectDetailsPage() {
                         onSuccess: (updated) => {
                              setIsTaskModalOpen(false);
                              setEditingTask(null);
-                             fireClickupWebhook("update", updated);
+                             const wasFreelancer = editingTask.is_freelancer ?? false;
+                             const isNowFreelancer = newTask.is_freelancer;
+                             if (isNowFreelancer) {
+                               // Usa clickup_task_id do registro atualizado (fonte de verdade do banco)
+                               // "create" apenas se: nunca foi terceirizado OU nunca foi criado no ClickUp
+                               const hasClickupId = !!(updated as any)?.clickup_task_id;
+                               const action = (!wasFreelancer || !hasClickupId) ? "create" : "update";
+                               fireClickupWebhook(action, updated, isNowFreelancer);
+                             }
                         }
                     });
                 } else {
                     createTask.mutate(taskData, {
                       onSuccess: (created) => {
+                        // Captura is_freelancer ANTES de resetar o form
+                        const wasFreelancer = newTask.is_freelancer;
+                        // O hook retorna { task, orgId } — extrai a tarefa
+                        const createdTask = (created as any)?.task ?? created;
                         setNewTask({ 
                           title: "", 
                           priority: "media", 
@@ -1104,8 +1290,8 @@ export function ProjectDetailsPage() {
                           supplier_id: null,
                         });
                         setIsTaskModalOpen(false);
-                        fireClickupWebhook("create", created);
-                        if (newTask.is_freelancer) {
+                        if (wasFreelancer && clickupWebhookUrl) {
+                          fireClickupWebhook("create", createdTask, wasFreelancer);
                           toast.success("Tarefa criada e enviada para o ClickUp!");
                         }
                       }
@@ -1118,6 +1304,127 @@ export function ProjectDetailsPage() {
         </DialogContent>
       </Dialog>
       <PinAuthDialog {...pinProps} />
+
+      {/* Modal de participantes ClickUp para tarefas */}
+      {clickupMembersTask && (
+        <ClickupMembersModal
+          open={!!clickupMembersTask}
+          onOpenChange={(open) => { if (!open) setClickupMembersTask(null); }}
+          projectId={project.id}
+          projectTitle={clickupMembersTask.title}
+          clickupId={clickupMembersTask.clickup_task_id ?? null}
+          clickupType="task"
+          clickupUrl={clickupMembersTask.clickup_task_id ? `https://app.clickup.com/t/${clickupMembersTask.clickup_task_id}` : null}
+          webhookUrl={clickupMembersWebhookUrl ?? null}
+        />
+      )}
+
+      {/* Dialog de comentários ClickUp para tarefas */}
+      {clickupCommentsTask && (
+        <Dialog open={!!clickupCommentsTask} onOpenChange={(open) => { if (!open) setClickupCommentsTask(null); }}>
+          <DialogContent className="max-w-lg h-[600px] flex flex-col p-0">
+            <DialogHeader className="px-4 pt-4 pb-0 shrink-0">
+              <DialogTitle className="flex items-center gap-2 text-base">
+                <MessageSquare className="h-4 w-4 text-emerald-600" />
+                {clickupCommentsTask.title}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="flex-1 overflow-hidden px-4 pb-4 pt-2">
+              <TaskClickupComments
+                taskId={clickupCommentsTask.id}
+                taskTitle={clickupCommentsTask.title}
+                organizationId={organizationId!}
+                clickupTaskId={clickupCommentsTask.clickup_task_id ?? null}
+                clickupWebhookUrl={clickupCommentsWebhookUrl ?? null}
+                onUnreadCountChange={(count) =>
+                  setUnreadCounts(prev => ({ ...prev, [clickupCommentsTask.id]: count }))
+                }
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Dialog de comentários ClickUp para tarefas */}
+      {clickupCommentsTask && (
+        <Dialog open={!!clickupCommentsTask} onOpenChange={(open) => { if (!open) setClickupCommentsTask(null); }}>
+          <DialogContent className="max-w-lg h-[600px] flex flex-col p-0">
+            <DialogHeader className="px-4 pt-4 pb-0 shrink-0">
+              <DialogTitle className="flex items-center gap-2 text-base">
+                <MessageSquare className="h-4 w-4 text-emerald-600" />
+                {clickupCommentsTask.title}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="flex-1 overflow-hidden px-4 pb-4 pt-2">
+              <TaskClickupComments
+                taskId={clickupCommentsTask.id}
+                taskTitle={clickupCommentsTask.title}
+                organizationId={organizationId!}
+                clickupTaskId={clickupCommentsTask.clickup_task_id ?? null}
+                clickupWebhookUrl={clickupCommentsWebhookUrl ?? null}
+                onUnreadCountChange={(count) =>
+                  setUnreadCounts(prev => ({ ...prev, [clickupCommentsTask.id]: count }))
+                }
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Dialog: Novo Fornecedor */}
+      <Dialog open={showNewSupplier} onOpenChange={setShowNewSupplier}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Cadastrar Novo Fornecedor</DialogTitle>
+            <DialogDescription>
+              Cadastre um novo fornecedor para atribuir à tarefa.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleCreateSupplier} className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="new-supplier-name">Nome do Fornecedor *</Label>
+              <Input
+                id="new-supplier-name"
+                placeholder="Ex: Fornecedor Ltda"
+                value={newSupplierForm.name}
+                onChange={(e) => setNewSupplierForm((f) => ({ ...f, name: e.target.value }))}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Categoria de Serviço</Label>
+              <Select
+                value={newSupplierForm.service_category}
+                onValueChange={(v) => setNewSupplierForm((f) => ({ ...f, service_category: v }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione uma categoria" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Serviços Terceirizados">Serviços Terceirizados</SelectItem>
+                  <SelectItem value="Eletro/Eletrônicos">Eletro/Eletrônicos</SelectItem>
+                  <SelectItem value="Tecnologia">Tecnologia</SelectItem>
+                  <SelectItem value="Assinaturas">Assinaturas</SelectItem>
+                  <SelectItem value="Marketing">Marketing</SelectItem>
+                  <SelectItem value="Outros">Outros</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => {
+                setShowNewSupplier(false);
+                setNewSupplierForm({ name: "", service_category: "Serviços Terceirizados" });
+              }} disabled={creatingSupplier}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={creatingSupplier || createSupplierMutation.isPending || !newSupplierForm.name.trim()}>
+                {(creatingSupplier || createSupplierMutation.isPending) ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                Cadastrar
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

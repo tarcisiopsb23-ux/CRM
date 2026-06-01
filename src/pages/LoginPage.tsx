@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { logger } from "@/lib/logger";
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
@@ -63,7 +64,10 @@ export function LoginPage() {
 
       navigate(from, { replace: true });
     } catch (err: any) {
-      console.error("Erro no login:", err);
+      logger.error("Erro no login", { 
+        error: err.message,
+        type: err.constructor.name 
+      }, 'AUTH');
       const msg = err.message ?? "";
       if (msg.includes("user not found") || msg.includes("User not found") || msg.includes("invalid_grant")) {
         setErr("Este e-mail não está cadastrado no sistema. Verifique o endereço ou solicite um convite ao administrador.");

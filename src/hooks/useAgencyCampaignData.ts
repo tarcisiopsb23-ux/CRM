@@ -19,46 +19,51 @@ export interface PeriodRange {
 export function useAgencyClientId() {
   const organizationId = useOrganization();
 
-  // Detecta automaticamente o client_id da agência:
-  // busca o primeiro cliente da organização que tem integração de ads (meta ou google)
-  // e que NÃO tem dashboard_slug (clientes externos têm slug; a agência não)
+  // Lê o override manual configurado nas Settings → n8n → adsClientId
+  // Tem prioridade máxima: se o usuário configurou manualmente, usa sempre.
+  const n8nIntegration = useIntegration(organizationId, "n8n");
+  const settingsLoading = n8nIntegration.isLoading;
+  const manualClientId = ((n8nIntegration.data?.config ?? {}) as N8nConfig).adsClientId?.trim() || null;
+
+  // Detecção automática: busca o primeiro cliente com integração de ads (meta ou google)
+  // que NÃO tem dashboard_slug (clientes externos têm slug; a agência não tem).
+  // Só roda se não houver override manual e as settings já carregaram.
   const autoQuery = useQuery({
     queryKey: ["agency_client_id_auto", organizationId],
     queryFn: async () => {
       if (!organizationId) return null;
 
-      // Busca integrações de ads da organização
+      // Filtra diretamente no banco: clientes sem dashboard_slug com integração de ads
       const { data, error } = await supabase
         .from("client_integrations")
-        .select("client_id, platform, clients!inner(dashboard_slug)")
+        .select("client_id, platform, clients!inner(id, dashboard_slug)")
         .eq("organization_id", organizationId)
         .in("platform", ["meta", "google"])
+        .is("clients.dashboard_slug", null)
         .order("created_at", { ascending: true })
-        .limit(20);
+        .limit(5);
 
       if (error || !data || data.length === 0) return null;
 
-      // Prefere clientes sem dashboard_slug (são da agência, não clientes externos)
-      const agencyRow = (data as any[]).find(r => !r.clients?.dashboard_slug);
-      if (agencyRow) return agencyRow.client_id as string;
-
-      // Fallback: usa o primeiro encontrado
       return (data[0] as any).client_id as string;
     },
-    enabled: !!organizationId,
+    enabled: !!organizationId && !settingsLoading && !manualClientId,
     staleTime: 10 * 60 * 1000,
   });
 
-  // Fallback: lê do campo manual nas Settings do n8n (legado)
-  const n8nIntegration = useIntegration(organizationId, "n8n");
-  const manualClientId = ((n8nIntegration.data?.config ?? {}) as N8nConfig).adsClientId?.trim() || null;
+  // Prioridade: manual (Settings) > automático (detecção por slug)
+  const clientId = manualClientId ?? autoQuery.data ?? null;
 
-  return autoQuery.data ?? manualClientId;
+  // isResolved: true quando sabemos com certeza o resultado (mesmo que seja null)
+  // Evita que consumidores busquem dados antes de saber o client_id correto
+  const isResolved = !settingsLoading && (!!manualClientId || !autoQuery.isLoading);
+
+  return { clientId, isResolved };
 }
 
 export function useAgencyCampaignData(range?: PeriodRange) {
   const organizationId = useOrganization();
-  const agencyClientId = useAgencyClientId();
+  const { clientId: agencyClientId, isResolved: agencyClientIdResolved } = useAgencyClientId();
 
   const rawQuery = useQuery({
     queryKey: ["agency_campaign_data", organizationId, agencyClientId, range?.from, range?.to],
@@ -84,7 +89,8 @@ export function useAgencyCampaignData(range?: PeriodRange) {
       }
       return data ?? [];
     },
-    enabled: !!organizationId,
+    // Só busca quando o client_id já foi resolvido (evita buscar todos os clientes enquanto carrega)
+    enabled: !!organizationId && agencyClientIdResolved,
     staleTime: 2 * 60 * 1000,
   });
 
@@ -207,6 +213,6 @@ export function useAgencyCampaignData(range?: PeriodRange) {
     metrics,
     agencyClientId,
     isConfigured: !!agencyClientId,
-    isLoading: rawQuery.isLoading,
+    isLoading: rawQuery.isLoading || !agencyClientIdResolved,
   };
 }

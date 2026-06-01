@@ -9,6 +9,7 @@ import { useProfiles } from "@/hooks/useProfiles";
 import { useLeadsKanban } from "@/hooks/useLeadsKanban";
 import { usePayments } from "@/hooks/useFinancial";
 import { useContractsByClient, useContractsWithC8, useCreateContract, useDeleteContract, useEndContract, useReactivateContract, useSuspendContract, useUpdateContract, useSetDashboardReference } from "@/hooks/useContracts";
+import type { ContractRow } from "@/hooks/useContracts";
 import { useContractMetrics } from "@/hooks/useContractMetrics";
 import { useModulePermission } from "@/hooks/usePermissions";
 import { getDriveFoldersFromOrganizationSettings, useOrganizationSettings } from "@/hooks/useSettings";
@@ -48,6 +49,7 @@ import { Eye, Pencil, Plus, UserCheck, Loader2, Trash2, PauseCircle, RotateCw, S
 import { Switch } from "@/components/ui/switch";
 import { fetchAddressByCep } from "@/lib/viacep";
 import { toast } from "sonner";
+import { logger } from "@/lib/logger";
 import type { Client } from "@/types/crm";
 import { formatCpfCnpj, formatPhoneBR, formatEntityCode } from "@/lib/formatters";
 import { addMonths, endOfMonth, format, isWithinInterval, parseISO, startOfMonth } from "date-fns";
@@ -624,7 +626,10 @@ export default function ClientsPage() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Erro desconhecido";
       setSubmitError(msg);
-      console.error("[ClientsPage] handleSubmit error:", err);
+      logger.error("Erro no handleSubmit", { 
+        error: msg,
+        context: 'client_form' 
+      }, 'CRM');
     } finally {
       setSubmitting(false);
     }
@@ -1707,7 +1712,7 @@ export default function ClientsPage() {
           </TabsContent>
 
           <TabsContent value="kpis">
-            <ClientKPIsTab organizationId={organizationId} clientId={viewing.id} />
+            <ClientKPIsTab organizationId={organizationId} clientId={viewing.id} clientName={viewing.company || viewing.name} />
           </TabsContent>
 
           <TabsContent value="performance">
@@ -1807,8 +1812,14 @@ export default function ClientsPage() {
               const isEventual = contractForm.contract_type === "eventual";
               const duration = isEventual ? 1 : Number(contractForm.duration_months || 0);
               const contractDate = contractForm.contract_date;
-              if (!contractForm.client_id || !contractDate) return;
-              if (!isEventual && duration <= 0) return;
+              if (!contractForm.client_id || !contractDate) {
+                toast.error("Preencha o cliente e a data do contrato.");
+                return;
+              }
+              if (!isEventual && duration <= 0) {
+                toast.error("Informe a duração do contrato em meses.");
+                return;
+              }
               const end = addMonths(new Date(contractDate), duration);
               const endDisplay = format(end, "yyyy-MM-dd");
               const installments = Math.min(12, Math.max(1, Number(contractForm.first_payment_installments || 1)));
@@ -1828,6 +1839,8 @@ export default function ClientsPage() {
                   start_date: contractDate,
                   end_date: endDisplay,
                   duration_months: duration,
+                  contract_type: contractForm.contract_type as ContractRow["contract_type"],
+                  periodicity: isEventual ? "pagamento_unico" : "mensal",
                   first_payment_value: contractForm.first_payment_value ? Number(contractForm.first_payment_value) : null,
                   first_payment_due_date: contractForm.first_payment_due_date || null,
                   first_payment_method: contractForm.first_payment_method || null,

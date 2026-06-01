@@ -45,8 +45,9 @@ import {
 } from "@/components/ui/select";
 
 import { KPISummary } from "./KPISummary";
+import { KPIImportExport } from "./KPIImportExport";
 
-export function KPIPreviousHistory({ organizationId, clientId, contractStartDate }: { organizationId: string, clientId: string, contractStartDate: Date | null }) {
+export function KPIPreviousHistory({ organizationId, clientId, clientName, contractStartDate }: { organizationId: string, clientId: string, clientName?: string, contractStartDate: Date | null }) {
   const { data: kpis = [], isLoading: loadingKPIs } = useClientKPIs(organizationId, clientId);
   const { data: history = [], isLoading: loadingHistory, upsert, update, remove } = useClientKPIHistory(organizationId, clientId);
   
@@ -195,14 +196,27 @@ export function KPIPreviousHistory({ organizationId, clientId, contractStartDate
   return (
     <>
     <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="bg-[#2D8CC7]/10 border border-[#2D8CC7]/20 p-4 rounded-lg flex items-start gap-3">
-        <AlertCircle className="h-5 w-5 text-[#2D8CC7] mt-0.5" />
-        <div className="space-y-1">
-          <p className="text-sm font-bold text-[#1e5a8a]">Histórico Pré-Contrato</p>
-          <p className="text-xs text-[#2D8CC7] leading-relaxed">
-            Utilize esta área para registrar os resultados do cliente <strong>antes</strong> do início da parceria. 
-            Você pode preencher até 12 meses de dados históricos para cada indicador.
-          </p>
+      <div className="flex items-start justify-between gap-4">
+        <div className="bg-[#2D8CC7]/10 border border-[#2D8CC7]/20 p-4 rounded-lg flex items-start gap-3 flex-1">
+          <AlertCircle className="h-5 w-5 text-[#2D8CC7] mt-0.5" />
+          <div className="space-y-1">
+            <p className="text-sm font-bold text-[#1e5a8a]">Histórico Pré-Contrato</p>
+            <p className="text-xs text-[#2D8CC7] leading-relaxed">
+              Utilize esta área para registrar os resultados do cliente <strong>antes</strong> do início da parceria. 
+              Você pode preencher até 12 meses de dados históricos para cada indicador.
+            </p>
+          </div>
+        </div>
+        <div className="shrink-0 pt-1">
+          <KPIImportExport
+            kpis={kpis}
+            clientName={clientName ?? ""}
+            mode="pre"
+            contractStartDate={contractStartDate}
+            onUpsert={async (kpiId, monthYear, value) => {
+              await upsert.mutateAsync({ kpi_id: kpiId, month_year: monthYear, value, client_id: clientId, organization_id: organizationId });
+            }}
+          />
         </div>
       </div>
 

@@ -8,6 +8,7 @@ import { addMonths, format } from "date-fns";
 
 type ContractStatus = Database["public"]["Enums"]["contract_status"];
 type PaymentStatus = Database["public"]["Enums"]["payment_status"];
+type ContractTypeEnum = Database["public"]["Enums"]["contract_type_enum"];
 
 export type ContractRow = {
   id: string;
@@ -22,6 +23,7 @@ export type ContractRow = {
   end_date: string | null;
   billing_cycle: string | null;
   service_contracted: string | null;
+  contract_type: ContractTypeEnum | null;
   periodicity: Database["public"]["Enums"]["payment_periodicity"] | null;
   contract_date: string | null;
   duration_months: number | null;
@@ -122,6 +124,10 @@ export function useCreateContract(organizationId: string | undefined) {
     }) => {
       if (!organizationId) throw new Error("Sem organização");
 
+      // Lê o contract_type do metadata para determinar periodicity e comportamento
+      const contractType = (input.metadata?.contract_type as string) ?? "mensal";
+      const isEventual = contractType === "eventual";
+
       const start = new Date(input.contract_date);
       const end = addMonths(start, Math.max(0, Number(input.duration_months ?? 0)));
 
@@ -138,7 +144,8 @@ export function useCreateContract(organizationId: string | undefined) {
         contract_date: input.contract_date,
         end_date: toIsoDate(end),
         service_contracted: input.service_contracted ?? null,
-        periodicity: "mensal",
+        contract_type: contractType,
+        periodicity: isEventual ? "pagamento_unico" : "mensal",
         value: input.recurring_value,
         duration_months: input.duration_months,
         first_payment_value: input.first_payment_value,
@@ -216,6 +223,8 @@ export function useUpdateContract(organizationId: string | undefined) {
   return useMutation({
     mutationFn: async (input: Partial<ContractRow> & { id: string; client_id: string }) => {
       const { id, client_id, ...rest } = input;
+
+      // ── 1. Atualiza o contrato ────────────────────────────────────────────
       const payload: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(rest)) {
         if (v !== undefined) payload[k] = v;
@@ -223,9 +232,68 @@ export function useUpdateContract(organizationId: string | undefined) {
       if (payload.metadata !== undefined) payload.metadata = toJson(payload.metadata as Record<string, unknown>);
       const { data, error } = await supabaseUntyped.from("contracts").update(payload).eq("id", id).select("*").single();
       if (error) throw error;
-      return data as unknown as ContractRow;
+      const updated = data as unknown as ContractRow;
+
+      // ── 2. Sincroniza pagamentos futuros pendentes ────────────────────────
+      // Determina o tipo do contrato a partir do campo ou do metadata
+      const contractType = (updated.contract_type as string)
+        ?? ((updated.metadata as Record<string, unknown> | null)?.contract_type as string)
+        ?? "mensal";
+      const isEventual = contractType === "eventual";
+
+      const today = toIsoDate(new Date());
+
+      // Cancela todos os pagamentos futuros pendentes vinculados a este contrato
+      const { error: cancelErr } = await supabase
+        .from("payments")
+        .update({ status: "cancelado" as PaymentStatus })
+        .eq("contract_id", id)
+        .gt("due_date", today)
+        .neq("status", "pago");
+      if (cancelErr) throw cancelErr;
+
+      // Recria os pagamentos futuros com base nos novos dados do contrato
+      if (!isEventual && organizationId) {
+        const recurringValue = Number(updated.value ?? 0);
+        const recurringDue = updated.recurring_due_date ?? updated.contract_date ?? today;
+        const duration = Math.max(0, Number(updated.duration_months ?? 0));
+        const title = updated.title ?? "Contrato";
+        const baseMeta = toJson({ source: "contract_update", contract_id: id }) ?? null;
+
+        // Gera parcelas mensais a partir de hoje (não recria parcelas já vencidas)
+        const newPayments: Database["public"]["Tables"]["payments"]["Insert"][] = [];
+        const baseDate = new Date(recurringDue);
+
+        for (let i = 0; i < duration; i++) {
+          const dueDate = toIsoDate(addMonths(baseDate, i));
+          // Só cria parcelas futuras (após hoje)
+          if (dueDate <= today) continue;
+          newPayments.push({
+            organization_id: organizationId!,
+            contract_id: id,
+            client_id,
+            description: `Contrato • ${title}`,
+            value: recurringValue,
+            due_date: dueDate,
+            status: "pendente" as PaymentStatus,
+            metadata: baseMeta,
+          });
+        }
+
+        if (newPayments.length > 0) {
+          const { error: insertErr } = await supabase.from("payments").insert(newPayments);
+          if (insertErr) throw insertErr;
+        }
+      }
+      // Se eventual: apenas cancela os futuros (já feito acima), sem recriar
+
+      return updated;
     },
-    onSuccess: (_c, vars) => qc.invalidateQueries({ queryKey: ["contracts", organizationId, vars.client_id] }),
+    onSuccess: (_c, vars) => {
+      qc.invalidateQueries({ queryKey: ["contracts", organizationId, vars.client_id] });
+      qc.invalidateQueries({ queryKey: ["contracts_with_c8", organizationId, vars.client_id] });
+      qc.invalidateQueries({ queryKey: ["payments", organizationId] });
+    },
   });
 }
 

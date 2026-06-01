@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { logger } from "@/lib/logger";
 import { useNavigate, useParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -19,6 +20,9 @@ type DashboardClientRow = {
   favicon_url: string | null;
   dashboard_performance: boolean;
   dashboard_atendimento: boolean;
+  show_ia_content: boolean;           // NOVO
+  client_supabase_url: string | null; // NOVO
+  client_supabase_anon_key: string | null; // NOVO
 };
 
 export function PublicDashboardLoginPage() {
@@ -40,34 +44,37 @@ export function PublicDashboardLoginPage() {
     e.preventDefault();
     const cleanSlug = slug?.trim();
     if (!cleanSlug) {
-      console.error("[Login] Slug ausente na URL");
+      logger.error("Slug ausente na URL", { slug }, 'PUBLIC_DASHBOARD');
       toast.error("URL inválida.");
       return;
     }
     setLoading(true);
 
     try {
-      console.log("[Login] Buscando dashboard para o slug:", cleanSlug);
+      logger.info("Buscando dashboard para o slug", { slug: cleanSlug }, 'PUBLIC_DASHBOARD');
       // 1. Busca info básica do cliente via RPC (Bypassa RLS e não expõe password)
       const { data: clients, error: fetchError } = await supabase
         .rpc('get_client_by_slug', { p_slug: cleanSlug });
 
       if (fetchError) {
-        console.error("[Login] Erro ao buscar dashboard via RPC:", fetchError);
+        logger.error("Erro ao buscar dashboard via RPC", { error: fetchError.message, slug: cleanSlug }, 'PUBLIC_DASHBOARD');
         toast.error(`Erro de conexão com o banco: ${fetchError.message}`);
         setLoading(false);
         return;
       }
 
       if (!clients || clients.length === 0) {
-        console.warn("[Login] Nenhum cliente encontrado para o slug:", cleanSlug);
+        logger.warn("Nenhum cliente encontrado para o slug", { slug: cleanSlug }, 'PUBLIC_DASHBOARD');
         toast.error("Dashboard não encontrado. Verifique se o slug está correto no cadastro do cliente.");
         setLoading(false);
         return;
       }
 
       const client = clients[0] as DashboardClientRow;
-      console.log("[Login] Cliente encontrado:", client.name);
+      logger.info("Cliente encontrado", { 
+        clientName: client.name,
+        clientId: client.id 
+      }, 'PUBLIC_DASHBOARD');
 
       // 2. Valida a senha via RPC (Seguro)
       const { data: isValid, error: authError } = await supabase
@@ -77,7 +84,7 @@ export function PublicDashboardLoginPage() {
         });
       
       if (authError) {
-        console.error("[Login] Erro ao validar senha via RPC:", authError);
+        logger.error("Erro ao validar senha via RPC", { error: authError.message, clientId: client.id }, 'PUBLIC_DASHBOARD');
         toast.error("Erro ao validar acesso.");
         setLoading(false);
         return;
@@ -212,6 +219,9 @@ export function PublicDashboardLoginPage() {
       company: client.company,
       favicon_url: client.favicon_url ?? null,
       authenticated: true,
+      show_ia_content: client.show_ia_content ?? false,           // NOVO
+      client_supabase_url: client.client_supabase_url ?? null,   // NOVO
+      client_supabase_anon_key: client.client_supabase_anon_key ?? null, // NOVO
       metadata: {
         dashboard_performance: client.dashboard_performance ?? true,
         dashboard_atendimento: client.dashboard_atendimento ?? false,

@@ -11,6 +11,7 @@ import { supabase } from "@/lib/supabase";
 import { useOrganization } from "@/hooks/useOrganization";
 import { cn } from "@/lib/utils";
 import { Copy, Check, Mail, Link as LinkIcon } from "lucide-react";
+import { logger } from "@/lib/logger";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
 
@@ -103,8 +104,8 @@ export function InviteMemberDialog({ open, onOpenChange, initialMode = "email" }
       if (data.success === false) {
         // Se falhou no e-mail mas criou o token, avisamos o usuário e mostramos o link
         setSuccess(data.message);
-        // Podemos adicionar um log com o link se for necessário
-        console.warn("Link de convite manual:", data.link);
+        // Log seguro sem expor link completo em produção
+        logger.warn("Link de convite manual gerado", { hasLink: !!data.link }, 'TEAM');
         if (data.link) {
           setError(`Você pode copiar este link manualmente para o convidado: ${data.link}`);
         }
@@ -120,7 +121,10 @@ export function InviteMemberDialog({ open, onOpenChange, initialMode = "email" }
       }, 2000);
 
     } catch (e) {
-      console.error("[InviteMemberDialog] Error:", e);
+      logger.error("Erro ao enviar convite", { 
+        error: e instanceof Error ? e.message : "Erro desconhecido",
+        type: e instanceof Error ? e.constructor.name : 'Unknown'
+      }, 'TEAM');
       const msg = e instanceof Error ? e.message : "Erro ao enviar convite";
       
       if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {

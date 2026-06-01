@@ -54,10 +54,19 @@ export async function fireN8nWebhook(
   const config = await getN8nConfig(organizationId);
   if (!config) return;
 
+  // Regras de disparo para projetos e tarefas:
+  // - delete: sempre dispara (independente de is_freelancer) — precisa remover do ClickUp se existir
+  // - create/update de tarefas terceirizadas: bloqueado aqui, feito pelo ProjectDetailsPage com parent_project
+  // - create/update de projetos não-terceirizados: bloqueado (sem ClickUp)
+  if (action !== "delete") {
+    if (table === "tasks" && record.is_freelancer) return;
+    if ((table === "projects" || table === "tasks") && !record.is_freelancer) return;
+  }
+
   // Resolve a URL correta por tabela
   const urlMap: Record<N8nWebhookTable, string | undefined> = {
     clients:   config.clientWebhookUrl,
-    suppliers: config.financialWebhookUrl, // reutiliza financeiro ou configure um dedicado
+    suppliers: config.financialWebhookUrl,
     projects:  config.clickupWebhookUrl,
     tasks:     config.clickupWebhookUrl,
   };

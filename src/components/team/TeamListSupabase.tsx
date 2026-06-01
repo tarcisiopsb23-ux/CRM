@@ -13,6 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/lib/supabase";
 import { useChatContext } from "@/contexts/ChatContext";
 import { toast } from "sonner";
+import { logger } from "@/lib/logger";
 
 interface Props {
   teams: TeamRow[];
@@ -46,8 +47,11 @@ function TeamChatButton({ teamId, teamName }: { teamId: string; teamName: string
       toast.success("Grupo de chat da equipe criado!");
       chat.openConversationById(convId);
     } catch (err) {
+      logger.error("Erro ao criar grupo de chat", { 
+        error: err instanceof Error ? err.message : "Erro desconhecido",
+        teamId 
+      }, 'TEAM');
       toast.error("Erro ao criar grupo de chat");
-      console.error(err);
     } finally {
       setLoading(false);
     }

@@ -45,12 +45,11 @@ const navItems: {
   { title: "C8 Control", url: "/c8control", icon: Package, module: "c8control" },
   { title: "Fornecedores", url: "/suppliers", icon: Truck, module: "clients" },
   { title: "Financeiro", url: "/financial", icon: DollarSign, module: "financial" },
-  { title: "Fiscal / NFS-e", url: "/fiscal", icon: FileText, module: "fiscal" },
   { title: "Agenda", url: "/agenda", icon: Calendar, module: "agenda" },
   { title: "Projetos", url: "/projects", icon: FolderKanban, module: "projects" },
   { title: "Metas", url: "/goals", icon: Target, module: "goals" },
   { title: "WhatsApp", url: "/whatsapp", icon: MessageCircle, module: "whatsapp" },
-  { title: "Reuniões IA", url: "/meetings", icon: Sparkles, module: "meetings" },
+  // { title: "Reuniões IA", url: "/meetings", icon: Sparkles, module: "meetings" }, // módulo desativado
   { title: "Gestão de Pessoas", url: "/team", icon: UsersRound, module: "team" },
   { title: "Campanhas", url: "/campaign-reports", icon: Megaphone, module: "campaigns" },
   { title: "Relatórios", url: "/reports", icon: FileBarChart, module: "reports" },

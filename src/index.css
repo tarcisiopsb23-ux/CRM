@@ -176,6 +176,143 @@
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   PUBLIC DASHBOARD — tema dark premium (ember-booth)
+   Aplicado apenas dentro de .public-dashboard-root
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.public-dashboard-root {
+  /* Backgrounds */
+  --pd-bg:          220 27% 8%;   /* #0F1115 */
+  --pd-bg-elevated: 222 26% 12%;  /* #151922 */
+  --pd-card:        222 24% 16%;  /* #1B2230 */
+
+  /* Primary: violeta */
+  --pd-primary:     270 65% 60%;  /* oklch ~0.65 0.18 285 */
+  --pd-primary-fg:  0 0% 98%;
+
+  /* Secondary surface */
+  --pd-secondary:   222 22% 20%;
+
+  /* Muted */
+  --pd-muted:       222 22% 20%;
+  --pd-muted-fg:    215 16% 55%;
+
+  /* Border */
+  --pd-border:      222 20% 22%;
+
+  /* Success */
+  --pd-success:     145 60% 45%;
+
+  /* Warning */
+  --pd-warning:     38 92% 50%;
+
+  /* Destructive */
+  --pd-destructive: 0 72% 51%;
+
+  /* Sidebar */
+  --pd-sidebar:     222 25% 13%;
+  --pd-sidebar-border: 222 22% 18%;
+
+  /* Gradiente ember (violeta → roxo) */
+  --pd-gradient-ember: linear-gradient(135deg, hsl(270 65% 60%), hsl(285 70% 68%));
+  --pd-gradient-surface: linear-gradient(180deg, hsl(222 24% 16%), hsl(222 24% 14%));
+  --pd-gradient-glow: radial-gradient(circle at 50% 0%, hsl(270 65% 60% / 0.18), transparent 70%);
+  --pd-shadow-glow: 0 10px 40px -10px hsl(270 65% 60% / 0.35);
+  --pd-shadow-elevated: 0 8px 30px -12px hsl(0 0% 0% / 0.6);
+
+  /* Sobrescreve as CSS vars do shadcn dentro do public dashboard */
+  --background:   var(--pd-bg);
+  --foreground:   0 0% 95%;
+  --card:         var(--pd-card);
+  --card-foreground: 0 0% 95%;
+  --popover:      var(--pd-card);
+  --popover-foreground: 0 0% 95%;
+  --primary:      var(--pd-primary);
+  --primary-foreground: var(--pd-primary-fg);
+  --secondary:    var(--pd-secondary);
+  --secondary-foreground: 0 0% 90%;
+  --muted:        var(--pd-muted);
+  --muted-foreground: var(--pd-muted-fg);
+  --accent:       var(--pd-secondary);
+  --accent-foreground: 0 0% 90%;
+  --destructive:  var(--pd-destructive);
+  --destructive-foreground: 0 0% 100%;
+  --border:       var(--pd-border);
+  --input:        var(--pd-border);
+  --ring:         var(--pd-primary);
+  --success:      var(--pd-success);
+  --success-foreground: 0 0% 100%;
+  --warning:      var(--pd-warning);
+  --warning-foreground: 0 0% 100%;
+  --sidebar-background: var(--pd-sidebar);
+  --sidebar-foreground: 0 0% 90%;
+  --sidebar-primary: var(--pd-primary);
+  --sidebar-primary-foreground: var(--pd-primary-fg);
+  --sidebar-accent: var(--pd-secondary);
+  --sidebar-accent-foreground: 0 0% 90%;
+  --sidebar-border: var(--pd-sidebar-border);
+  --sidebar-ring:  var(--pd-primary);
+
+  background-color: hsl(var(--pd-bg));
+  color: hsl(0 0% 95%);
+  color-scheme: dark;
+  background-image:
+    radial-gradient(ellipse at top, hsl(270 65% 60% / 0.06), transparent 60%),
+    radial-gradient(ellipse at bottom right, hsl(280 50% 40% / 0.04), transparent 60%);
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+/* Utilitários do tema ember */
+.public-dashboard-root .bg-gradient-ember,
+.public-dashboard-root .bg-gradient-ember {
+  background: var(--pd-gradient-ember) !important;
+}
+
+.public-dashboard-root .text-gradient-ember {
+  background: var(--pd-gradient-ember);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.public-dashboard-root .shadow-glow {
+  box-shadow: var(--pd-shadow-glow);
+}
+
+.public-dashboard-root .shadow-elevated {
+  box-shadow: var(--pd-shadow-elevated);
+}
+
+.public-dashboard-root .card-surface {
+  background: var(--pd-gradient-surface);
+  border: 1px solid hsl(var(--pd-border));
+  border-radius: var(--radius);
+}
+
+/* font-display = Space Grotesk */
+.public-dashboard-root .font-display,
+.public-dashboard-root h1,
+.public-dashboard-root h2,
+.public-dashboard-root h3,
+.public-dashboard-root h4 {
+  font-family: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+  letter-spacing: -0.02em;
+}
+
+/* Botões com gradiente ember */
+.public-dashboard-root .bg-gradient-ember {
+  background: var(--pd-gradient-ember) !important;
+  color: hsl(var(--pd-primary-fg)) !important;
+}
+
+/* ── Scrollbar do public dashboard ── */
+.public-dashboard-root *::-webkit-scrollbar { width: 6px; height: 6px; }
+.public-dashboard-root *::-webkit-scrollbar-track { background: hsl(var(--pd-bg-elevated)); border-radius: 999px; }
+.public-dashboard-root *::-webkit-scrollbar-thumb { background: hsl(var(--pd-border)); border-radius: 999px; }
+.public-dashboard-root *::-webkit-scrollbar-thumb:hover { background: hsl(var(--pd-muted-fg)); }
+
 /* ── Scrollbar customization ── */
 
 /* Dashboard interno (fundo claro) */

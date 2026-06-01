@@ -4650,6 +4650,7 @@ export type Database = {
         | "em_revisao"
         | "concluida"
         | "bloqueada"
+        | "parada"
       user_role: "owner" | "admin" | "manager" | "member" | "viewer"
     }
     CompositeTypes: {
@@ -4926,6 +4927,7 @@ export const Constants = {
         "em_revisao",
         "concluida",
         "bloqueada",
+        "parada",
       ],
       user_role: ["owner", "admin", "manager", "member", "viewer"],
     },

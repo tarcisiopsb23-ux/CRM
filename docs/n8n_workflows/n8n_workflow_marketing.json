@@ -3,53 +3,6 @@
   "nodes": [
     {
       "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "edd295fb-d8a6-4eb4-adf5-db0f020369db",
-              "name": "supabase_url",
-              "value": "https://owwaulaenabbdalycusx.supabase.co",
-              "type": "string"
-            },
-            {
-              "id": "404ebb6c-dae0-456e-95fc-ef939f0b1ba2",
-              "name": "supabase_secret_hole",
-              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im93d2F1bGFlbmFiYmRhbHljdXN4Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2OTg3Nzc3OCwiZXhwIjoyMDg1NDUzNzc4fQ.Wo-u89LNCAoCaI7gicog3uzEyLI9FVjgE5MPfrykzuY",
-              "type": "string"
-            },
-            {
-              "id": "dc60cf44-2b80-4232-980b-cf654d43f397",
-              "name": "organization_id",
-              "value": "={{ $json.organization_id }}",
-              "type": "string"
-            },
-            {
-              "id": "1d78da61-4547-4f9e-beca-31e9bacfd8e9",
-              "name": "client_id",
-              "value": "={{ $json.client_id }}",
-              "type": "string"
-            },
-            {
-              "id": "3b911d07-41e1-438c-9caf-36f181de4d29",
-              "name": "integration_id",
-              "value": "={{ $json.integration_id }}",
-              "type": "string"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
-      "position": [
-        -3344,
-        3248
-      ],
-      "id": "bb009f6b-64a6-4102-984b-07f489abe7a2",
-      "name": "Credenciais"
-    },
-    {
-      "parameters": {
         "rule": {
           "interval": [
             {
@@ -64,8 +17,8 @@
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1,
       "position": [
-        -4112,
-        3248
+        -3008,
+        4144
       ]
     },
     {
@@ -80,28 +33,34 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
       "position": [
-        -4112,
-        3504
+        -3008,
+        4336
       ],
       "webhookId": "sync-ads-metrics"
     },
     {
       "parameters": {
-        "url": "={{ $json.supabase_url }}/rest/v1/client_integrations",
+        "jsCode": "const integrationId = $('Separar por Integração').first().json.id;\nconst count = $('Preparar Records1').first().json.count ?? 0;\nreturn [{ json: { integration_id: integrationId, count } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        4592
+      ],
+      "id": "71edd41e-a7ae-4aff-bb43-a2d3abc8901a",
+      "name": "Preparar Integration1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Credenciais1').first().json.supabase_url }}/rest/v1/daily_metrics",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
             {
-              "name": "select",
-              "value": "id,client_id,platform,account_id,access_token,refresh_token,settings,last_sync_at,organization_id,clients(id,name,company)"
-            },
-            {
-              "name": "organization_id",
-              "value": "=eq.{{ $('Resolver Organização1').item.json.organization_id }}"
-            },
-            {
-              "name": "account_id",
-              "value": "not.is.null"
+              "name": "on_conflict",
+              "value": "client_id,date"
             }
           ]
         },
@@ -110,28 +69,397 @@
           "parameters": [
             {
               "name": "apikey",
-              "value": "={{ $json.supabase_secret_hole }}"
+              "value": "={{ $('Credenciais1').first().json.supabase_secret_hole }}"
             },
             {
               "name": "Authorization",
-              "value": "=Bearer {{ $json.supabase_secret_hole }}"
+              "value": "=Bearer {{ $('Credenciais1').first().json.supabase_secret_hole }}"
             },
             {
-              "name": "Accept",
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates,return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.daily_rows) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "dd7d1bfd-4b09-4b6b-b7cb-226f71d1f3e5",
+      "name": "Upsert daily_metrics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1312,
+        4592
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $('Preparar Records1').item.json;\nconst records = item.records || [];\nconst byDate = {};\n\nfor (const r of records) {\n  if (!r.date) continue;\n  if (!byDate[r.date]) {\n    byDate[r.date] = {\n      client_id:        r.client_id,\n      organization_id:  r.organization_id,\n      date:             r.date,\n      total_spend:      0,\n      total_leads:      0,\n      total_sales:      0,\n      total_revenue:    0,\n      total_impressions:0,\n      total_clicks:     0\n    };\n  }\n  byDate[r.date].total_spend       += r.spend       || 0;\n  byDate[r.date].total_leads       += r.leads       || 0;\n  byDate[r.date].total_sales       += r.sales       || 0;\n  byDate[r.date].total_revenue     += r.revenue     || 0;\n  byDate[r.date].total_impressions += r.impressions || 0;\n  byDate[r.date].total_clicks      += r.clicks      || 0;\n}\n\nconst daily_rows = Object.values(byDate).map(d => ({\n  ...d,\n  cpl:  d.total_leads  > 0 ? +(d.total_spend / d.total_leads).toFixed(4)   : 0,\n  cpa:  d.total_sales  > 0 ? +(d.total_spend / d.total_sales).toFixed(4)   : 0,\n  roas: d.total_spend  > 0 ? +(d.total_revenue / d.total_spend).toFixed(4) : 0\n}));\n\nreturn [{ json: { daily_rows, integration_id: item.integration_id, count: item.count } }];"
+      },
+      "id": "c692649a-3774-49ce-807a-65f5c65eee8e",
+      "name": "Consolidar daily_metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1088,
+        4592
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Credenciais1').first().json.supabase_url }}/rest/v1/rpc/upsert_campaign_data",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Credenciais1').first().json.supabase_secret_hole }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Credenciais1').first().json.supabase_secret_hole }}"
+            },
+            {
+              "name": "Content-Type",
               "value": "application/json"
             }
           ]
         },
-        "options": {}
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: $json.records }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
       },
-      "id": "1d5f8363-ccee-4bff-a21e-228f0900a231",
-      "name": "Buscar Integrações Ativas",
+      "id": "30b84240-6551-49ea-af44-3fa7711337b8",
+      "name": "Upsert campaign_data",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -3088,
-        3248
+        864,
+        4592
       ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Credenciais1').first().json.supabase_url }}/rest/v1/client_integrations",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "=eq.{{ $json.integration_id }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Credenciais1').first().json.supabase_secret_hole }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Credenciais1').first().json.supabase_secret_hole }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ sync_status: 'success', last_sync_at: new Date().toISOString(), last_sync_records: $json.count, sync_error: null, updated_at: new Date().toISOString() }) }}\n",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "f45e4eac-26d2-45b3-bd50-d460bca291d4",
+      "name": "Status: Sucesso1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1728,
+        4592
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Garante que os records chegam como array independente do formato de entrada\n// O IF pode passar um item { records: [...] } ou múltiplos itens individuais\nconst allItems = $input.all();\nlet records = [];\nlet integration_id = null;\nlet client_id = null;\nlet organization_id = null;\nlet count = 0;\n\nif (allItems.length === 1 && Array.isArray(allItems[0].json.records)) {\n  // Formato esperado: um item com array records\n  records = allItems[0].json.records;\n  integration_id = allItems[0].json.integration_id;\n  client_id = allItems[0].json.client_id;\n  organization_id = allItems[0].json.organization_id;\n  count = allItems[0].json.count ?? records.length;\n} else {\n  // Múltiplos itens individuais (cada item é um record)\n  records = allItems.map(i => i.json).filter(r => r.client_id);\n  if (records.length > 0) {\n    integration_id = allItems[0].json.integration_id ?? null;\n    client_id = records[0].client_id;\n    organization_id = records[0].organization_id;\n  }\n  count = records.length;\n}\n\nreturn [{ json: { records, integration_id, client_id, organization_id, count } }];"
+      },
+      "id": "4a5a2b6a-eca6-4114-8b48-f8c5dbbf1d8a",
+      "name": "Preparar Records1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        656,
+        4592
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.facebook.com/v19.0/{{ $json.account_id }}/insights",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "campaign_id,campaign_name,spend,impressions,reach,clicks,actions,action_values,date_start,video_30_sec_watched_actions"
+            },
+            {
+              "name": "date_preset",
+              "value": "last_7d"
+            },
+            {
+              "name": "level",
+              "value": "campaign"
+            },
+            {
+              "name": "time_increment",
+              "value": "1"
+            },
+            {
+              "name": "limit",
+              "value": "500"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "dc8357ad-3f6d-4804-b3e2-92757ec0e090",
+      "name": "Meta Ads API1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -864,
+        4112
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.facebook.com/v19.0/{{ $('Roteador por Plataforma1').item.json.account_id }}/campaigns",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "id,name,objective"
+            },
+            {
+              "name": "limit",
+              "value": "500"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Roteador por Plataforma1').item.json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "23eb23c6-3a94-4ca7-be8c-431cc9c12201",
+      "name": "Meta Campanhas (Objetivos)1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -864,
+        4384
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Credenciais1').first().json.supabase_url }}/rest/v1/client_integrations",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "=eq.{{ $json.integration_id }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Credenciais1').first().json.supabase_secret_hole }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Credenciais1').first().json.supabase_secret_hole }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  sync_status:       $json._error ? 'error' : 'no_data',\n  sync_error:        $json._error || null,\n  last_sync_at:      new Date().toISOString(),\n  last_sync_records: 0,\n  updated_at:        new Date().toISOString()\n}) }}\n",
+        "options": {}
+      },
+      "id": "4b5135a5-7f18-4aa1-a5a3-e112a8439441",
+      "name": "Status: Sem dados / Erro",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        656,
+        4192
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json._skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              },
+              "id": "cfedb28c-0a60-4bdc-b76f-8344ff8ee8da"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "268a4872-b9f1-426a-a28e-74c07cb96ffb",
+      "name": "Tem dados?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        240,
+        4400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Resolver Organização').first().json;\n\n// Pega TODOS os itens do input (não só o primeiro)\nconst allItems = $input.all();\nconst rawItems = allItems.map(i => i.json);\n\n// Normaliza: suporta array direto, wrapper {data: []}, ou item único\nlet integrations = [];\nfor (const item of rawItems) {\n  if (Array.isArray(item)) {\n    integrations.push(...item);\n  } else if (Array.isArray(item?.data)) {\n    integrations.push(...item.data);\n  } else if (item?.id) {\n    integrations.push(item);\n  }\n}\n\n// Filtra apenas registros com account_id e access_token OU refresh_token (Google usa refresh_token)\nintegrations = integrations.filter(i => i.id && i.account_id && (i.access_token || i.refresh_token));\n\n// Aplica filtro por integration_id ou client_id se vieram no payload\n// Garante que null/\"null\"/undefined são tratados como ausentes\nconst integrationId = ctx.integration_id && ctx.integration_id !== 'null' ? ctx.integration_id : null;\nconst clientId = ctx.client_id && ctx.client_id !== 'null' ? ctx.client_id : null;\n\nif (integrationId) {\n  integrations = integrations.filter(i => i.id === integrationId);\n} else if (clientId) {\n  integrations = integrations.filter(i => i.client_id === clientId);\n}\n\nif (integrations.length === 0) {\n  return [{ json: { _empty: true, message: 'Nenhuma integração ativa encontrada' } }];\n}\n\nreturn integrations.map(i => ({ json: { ...i, organization_id: ctx.organization_id } }));\n"
+      },
+      "id": "b6943563-50cf-4c51-ac1f-a9f649f1277f",
+      "name": "Separar por Integração",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1456,
+        4336
+      ],
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"success\": true, \"message\": \"Sync iniciado\", \"timestamp\": \"{{ $now.toISO() }}\" }",
+        "options": {}
+      },
+      "id": "1c33abfe-de69-4f77-8f68-37c72a2217c7",
+      "name": "Resposta Imediata",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -1936,
+        4144
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Determina o organization_id: vem do body (webhook) ou da env var (schedule)\nconst input = $input.first()?.json ?? {};\n// n8n 2.x: webhook coloca o body em input.body; schedule chega direto\nconst body = (input.body && typeof input.body === 'object') ? input.body : input;\nconst orgId = body.organization_id ?? $env.ORGANIZATION_ID ?? '';\nconst clientId = body.client_id ?? null;\nconst integrationId = body.integration_id ?? null;\n\nif (!orgId) throw new Error('organization_id nao encontrado no payload nem em ORGANIZATION_ID env var');\n\nreturn [{ json: { organization_id: orgId, client_id: clientId, integration_id: integrationId } }];"
+      },
+      "id": "07583bf0-b585-43c7-9316-cdeb794ded9f",
+      "name": "Resolver Organização",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2256,
+        4336
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const integration = $('Roteador por Plataforma1').first().json;\nconst insights    = $('Meta Ads API1').first().json;\nconst objetivos   = $('Meta Campanhas (Objetivos)1').first().json;\n\nconst rows = insights.data || [];\nif (rows.length === 0) return [{ json: { _skip: true, integration_id: integration.id } }];\n\nconst OBJECTIVE_LABELS = {\n  OUTCOME_AWARENESS:     'Reconhecimento',\n  OUTCOME_TRAFFIC:       'Tráfego',\n  OUTCOME_ENGAGEMENT:    'Engajamento',\n  OUTCOME_LEADS:         'Geração de Leads',\n  OUTCOME_APP_PROMOTION: 'Promoção de App',\n  OUTCOME_SALES:         'Vendas',\n  REACH:                 'Alcance',\n  BRAND_AWARENESS:       'Reconhecimento de Marca',\n  VIDEO_VIEWS:           'Visualizações de Vídeo',\n  LINK_CLICKS:           'Cliques no Link',\n  POST_ENGAGEMENT:       'Engajamento com Post',\n  PAGE_LIKES:            'Curtidas na Página',\n  EVENT_RESPONSES:       'Respostas a Eventos',\n  MESSAGES:              'Mensagens',\n  CONVERSIONS:           'Conversões',\n  PRODUCT_CATALOG_SALES: 'Vendas do Catálogo',\n  STORE_VISITS:          'Visitas à Loja',\n};\n\nconst OBJECTIVE_ACTION_MAP = {\n  OUTCOME_TRAFFIC:       ['landing_page_view', 'link_click'],\n  OUTCOME_ENGAGEMENT:    ['post_engagement', 'page_engagement', 'post_reaction', 'comment', 'post'],\n  OUTCOME_LEADS:         ['lead', 'leadgen_grouped'],\n  OUTCOME_SALES:         ['purchase', 'omni_purchase'],\n  OUTCOME_APP_PROMOTION: ['app_install', 'mobile_app_install'],\n  VIDEO_VIEWS:           ['video_view'],\n  LINK_CLICKS:           ['link_click'],\n  POST_ENGAGEMENT:       ['post_engagement'],\n  MESSAGES:              ['onsite_conversion.messaging_conversation_started_7d'],\n  CONVERSIONS:           ['purchase', 'omni_purchase'],\n  PRODUCT_CATALOG_SALES: ['purchase', 'omni_purchase'],\n};\n\nconst OBJECTIVE_METRIC_LABEL = {\n  OUTCOME_TRAFFIC:       'Visualizações da Pág. de Destino',\n  OUTCOME_AWARENESS:     'Alcance',\n  OUTCOME_ENGAGEMENT:    'Engajamentos',\n  OUTCOME_LEADS:         'Leads',\n  OUTCOME_SALES:         'Compras',\n  OUTCOME_APP_PROMOTION: 'Instalações de App',\n  VIDEO_VIEWS:           'ThruPlays',\n  REACH:                 'Alcance',\n  LINK_CLICKS:           'Cliques no Link',\n  POST_ENGAGEMENT:       'Engajamentos com Post',\n  MESSAGES:              'Conversas Iniciadas',\n  CONVERSIONS:           'Conversões',\n  PRODUCT_CATALOG_SALES: 'Vendas do Catálogo',\n};\n\nfunction getObjectiveMetric(objective, actions, row) {\n  actions = actions || [];\n  row = row || {};\n  if (!objective) return null;\n\n  if (objective === 'VIDEO_VIEWS') {\n    const thruplay = actions.find(a => a.action_type === 'video_view');\n    if (thruplay) return parseInt(thruplay.value || 0);\n    const v30 = (row.video_30_sec_watched_actions || []).find(a => a.action_type === 'video_view');\n    if (v30) return parseInt(v30.value || 0);\n    return 0;\n  }\n\n  // Reach e impressions vêm como campos diretos, não dentro de actions[]\n  if (objective === 'OUTCOME_AWARENESS' || objective === 'REACH') {\n    return parseInt(row.reach || 0);\n  }\n\n  const relevantTypes = OBJECTIVE_ACTION_MAP[objective] || [];\n  for (const type of relevantTypes) {\n    const found = actions.find(a => a.action_type === type);\n    if (found) return parseInt(found.value || 0);\n  }\n\n  return null;\n}\n\n// Formato: { data: [ { id, name, objective }, ... ] }\nconst objectiveMap = {};\nfor (const c of (objetivos.data || [])) {\n  if (c.id && c.objective) {\n    objectiveMap[c.id] = c.objective;\n  }\n}\n\nconst records = rows.map(c => {\n  const rawObjective   = objectiveMap[c.campaign_id] ?? null;\n  const objectiveLabel = rawObjective ? (OBJECTIVE_LABELS[rawObjective] ?? rawObjective) : null;\n\n  const actions      = c.actions || [];\n  const actionValues = c.action_values || [];\n\n  const objectiveMetricValue = getObjectiveMetric(rawObjective, actions, c);\n  const objectiveMetricLabel = rawObjective ? (OBJECTIVE_METRIC_LABEL[rawObjective] ?? null) : null;\n\n  return {\n    client_id:              integration.client_id,\n    organization_id:        integration.organization_id,\n    platform:               'meta',\n    date:                   c.date_start,\n    campaign_id:            c.campaign_id,\n    campaign_name:          c.campaign_name || 'Sem nome',\n    objective:              objectiveLabel,\n    objective_metric_label: objectiveMetricLabel,\n    objective_metric_value: objectiveMetricValue,\n    spend:                  parseFloat(c.spend || 0),\n    impressions:            parseInt(c.impressions || 0),\n    reach:                  parseInt(c.reach || 0),\n    clicks:                 parseInt(c.clicks || 0),\n    leads:                  parseInt(actions.find(a => a.action_type === 'lead')?.value || 0),\n    sales:                  parseInt(actions.find(a => a.action_type === 'purchase')?.value || 0),\n    revenue:                parseFloat(actionValues.find(a => a.action_type === 'purchase')?.value || 0),\n  };\n});\n\nreturn records.map(record => ({ \n  json: { ...record, integration_id: integration.id } \n}));"
+      },
+      "id": "86e8c679-01bd-4262-81ba-2f5a3b47e257",
+      "name": "Normalizar Meta1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -512,
+        4240
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
@@ -191,438 +519,113 @@
           "fallbackOutput": "none"
         }
       },
-      "id": "fe7a85d9-09a9-422a-9982-9808555cbf83",
-      "name": "Roteador por Plataforma",
+      "id": "def0b59e-9f10-4e3f-8d2f-50bbd8634676",
+      "name": "Roteador por Plataforma1",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        -2624,
-        3248
+        -1216,
+        4336
       ]
     },
     {
       "parameters": {
-        "jsCode": "const integration = $('Roteador por Plataforma').first().json;\nconst insights    = $('Meta Ads API').first().json;\nconst objetivos   = $('Meta Campanhas (Objetivos)').first().json;\n\nconst rows = insights.data || [];\nif (rows.length === 0) return [{ json: { _skip: true, integration_id: integration.id } }];\n\nconst OBJECTIVE_LABELS = {\n  OUTCOME_AWARENESS:     'Reconhecimento',\n  OUTCOME_TRAFFIC:       'Tráfego',\n  OUTCOME_ENGAGEMENT:    'Engajamento',\n  OUTCOME_LEADS:         'Geração de Leads',\n  OUTCOME_APP_PROMOTION: 'Promoção de App',\n  OUTCOME_SALES:         'Vendas',\n  REACH:                 'Alcance',\n  BRAND_AWARENESS:       'Reconhecimento de Marca',\n  VIDEO_VIEWS:           'Visualizações de Vídeo',\n  LINK_CLICKS:           'Cliques no Link',\n  POST_ENGAGEMENT:       'Engajamento com Post',\n  PAGE_LIKES:            'Curtidas na Página',\n  EVENT_RESPONSES:       'Respostas a Eventos',\n  MESSAGES:              'Mensagens',\n  CONVERSIONS:           'Conversões',\n  PRODUCT_CATALOG_SALES: 'Vendas do Catálogo',\n  STORE_VISITS:          'Visitas à Loja',\n};\n\nconst OBJECTIVE_ACTION_MAP = {\n  OUTCOME_TRAFFIC:       ['landing_page_view', 'link_click'],\n  OUTCOME_ENGAGEMENT:    ['post_engagement', 'page_engagement', 'post_reaction', 'comment', 'post'],\n  OUTCOME_LEADS:         ['lead', 'leadgen_grouped'],\n  OUTCOME_SALES:         ['purchase', 'omni_purchase'],\n  OUTCOME_APP_PROMOTION: ['app_install', 'mobile_app_install'],\n  VIDEO_VIEWS:           ['video_view'],\n  LINK_CLICKS:           ['link_click'],\n  POST_ENGAGEMENT:       ['post_engagement'],\n  MESSAGES:              ['onsite_conversion.messaging_conversation_started_7d'],\n  CONVERSIONS:           ['purchase', 'omni_purchase'],\n  PRODUCT_CATALOG_SALES: ['purchase', 'omni_purchase'],\n};\n\nconst OBJECTIVE_METRIC_LABEL = {\n  OUTCOME_TRAFFIC:       'Visualizações da Pág. de Destino',\n  OUTCOME_AWARENESS:     'Alcance',\n  OUTCOME_ENGAGEMENT:    'Engajamentos',\n  OUTCOME_LEADS:         'Leads',\n  OUTCOME_SALES:         'Compras',\n  OUTCOME_APP_PROMOTION: 'Instalações de App',\n  VIDEO_VIEWS:           'ThruPlays',\n  REACH:                 'Alcance',\n  LINK_CLICKS:           'Cliques no Link',\n  POST_ENGAGEMENT:       'Engajamentos com Post',\n  MESSAGES:              'Conversas Iniciadas',\n  CONVERSIONS:           'Conversões',\n  PRODUCT_CATALOG_SALES: 'Vendas do Catálogo',\n};\n\nfunction getObjectiveMetric(objective, actions, row) {\n  actions = actions || [];\n  row = row || {};\n  if (!objective) return null;\n\n  if (objective === 'VIDEO_VIEWS') {\n    const thruplay = actions.find(a => a.action_type === 'video_view');\n    if (thruplay) return parseInt(thruplay.value || 0);\n    const v30 = (row.video_30_sec_watched_actions || []).find(a => a.action_type === 'video_view');\n    if (v30) return parseInt(v30.value || 0);\n    return 0;\n  }\n\n  // Reach e impressions vêm como campos diretos, não dentro de actions[]\n  if (objective === 'OUTCOME_AWARENESS' || objective === 'REACH') {\n    return parseInt(row.reach || 0);\n  }\n\n  const relevantTypes = OBJECTIVE_ACTION_MAP[objective] || [];\n  for (const type of relevantTypes) {\n    const found = actions.find(a => a.action_type === type);\n    if (found) return parseInt(found.value || 0);\n  }\n\n  return null;\n}\n\n// Formato: { data: [ { id, name, objective }, ... ] }\nconst objectiveMap = {};\nfor (const c of (objetivos.data || [])) {\n  if (c.id && c.objective) {\n    objectiveMap[c.id] = c.objective;\n  }\n}\n\nconst records = rows.map(c => {\n  const rawObjective   = objectiveMap[c.campaign_id] ?? null;\n  const objectiveLabel = rawObjective ? (OBJECTIVE_LABELS[rawObjective] ?? rawObjective) : null;\n\n  const actions      = c.actions || [];\n  const actionValues = c.action_values || [];\n\n  const objectiveMetricValue = getObjectiveMetric(rawObjective, actions, c);\n  const objectiveMetricLabel = rawObjective ? (OBJECTIVE_METRIC_LABEL[rawObjective] ?? null) : null;\n\n  return {\n    client_id:              integration.client_id,\n    organization_id:        integration.organization_id,\n    platform:               'meta',\n    date:                   c.date_start,\n    campaign_id:            c.campaign_id,\n    campaign_name:          c.campaign_name || 'Sem nome',\n    objective:              objectiveLabel,\n    objective_metric_label: objectiveMetricLabel,\n    objective_metric_value: objectiveMetricValue,\n    spend:                  parseFloat(c.spend || 0),\n    impressions:            parseInt(c.impressions || 0),\n    reach:                  parseInt(c.reach || 0),\n    clicks:                 parseInt(c.clicks || 0),\n    leads:                  parseInt(actions.find(a => a.action_type === 'lead')?.value || 0),\n    sales:                  parseInt(actions.find(a => a.action_type === 'purchase')?.value || 0),\n    revenue:                parseFloat(actionValues.find(a => a.action_type === 'purchase')?.value || 0),\n  };\n});\n\nreturn records.map(record => ({ \n  json: { ...record, integration_id: integration.id } \n}));"
+        "url": "={{ $json.supabase_url }}/rest/v1/client_integrations",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "select",
+              "value": "id,client_id,platform,account_id,access_token,refresh_token,settings,last_sync_at,organization_id,clients(id,name,company)"
+            },
+            {
+              "name": "organization_id",
+              "value": "=eq.{{ $('Resolver Organização').item.json.organization_id }}"
+            },
+            {
+              "name": "account_id",
+              "value": "not.is.null"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $json.supabase_secret_hole }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.supabase_secret_hole }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
       },
-      "id": "b4ad725f-69ea-4a5e-b40c-603f6f51ceb9",
-      "name": "Normalizar Meta",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "id": "b49edf30-9fae-48de-ac9f-e5ad57fb62d1",
+      "name": "Buscar Integrações Ativas1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
-        -1920,
-        3152
+        -1680,
+        4336
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "edd295fb-d8a6-4eb4-adf5-db0f020369db",
+              "name": "supabase_url",
+              "value": "https://owwaulaenabbdalycusx.supabase.co",
+              "type": "string"
+            },
+            {
+              "id": "404ebb6c-dae0-456e-95fc-ef939f0b1ba2",
+              "name": "supabase_secret_hole",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im93d2F1bGFlbmFiYmRhbHljdXN4Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2OTg3Nzc3OCwiZXhwIjoyMDg1NDUzNzc4fQ.Wo-u89LNCAoCaI7gicog3uzEyLI9FVjgE5MPfrykzuY",
+              "type": "string"
+            },
+            {
+              "id": "dc60cf44-2b80-4232-980b-cf654d43f397",
+              "name": "organization_id",
+              "value": "={{ $json.organization_id }}",
+              "type": "string"
+            },
+            {
+              "id": "1d78da61-4547-4f9e-beca-31e9bacfd8e9",
+              "name": "client_id",
+              "value": "={{ $json.client_id }}",
+              "type": "string"
+            },
+            {
+              "id": "3b911d07-41e1-438c-9caf-36f181de4d29",
+              "name": "integration_id",
+              "value": "={{ $json.integration_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1936,
+        4336
       ],
-      "retryOnFail": true,
-      "maxTries": 3,
-      "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {
-        "jsCode": "// Determina o organization_id: vem do body (webhook) ou da env var (schedule)\nconst input = $input.first()?.json ?? {};\n// n8n 2.x: webhook coloca o body em input.body; schedule chega direto\nconst body = (input.body && typeof input.body === 'object') ? input.body : input;\nconst orgId = body.organization_id ?? $env.ORGANIZATION_ID ?? '';\nconst clientId = body.client_id ?? null;\nconst integrationId = body.integration_id ?? null;\n\nif (!orgId) throw new Error('organization_id nao encontrado no payload nem em ORGANIZATION_ID env var');\n\nreturn [{ json: { organization_id: orgId, client_id: clientId, integration_id: integrationId } }];"
-      },
-      "id": "872f80b1-d7d8-4d4d-964c-c4de1865b7b9",
-      "name": "Resolver Organização1",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -3664,
-        3248
-      ]
-    },
-    {
-      "parameters": {
-        "respondWith": "json",
-        "responseBody": "={ \"success\": true, \"message\": \"Sync iniciado\", \"timestamp\": \"{{ $now.toISO() }}\" }",
-        "options": {}
-      },
-      "id": "cd804d31-f87b-44f0-90f6-cf937c487ac9",
-      "name": "Resposta Imediata1",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.1,
-      "position": [
-        -3344,
-        3056
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "const ctx = $('Resolver Organização1').first().json;\nconst items = $input.first().json;\n\n// O HTTP Request pode retornar o array direto ou dentro de um wrapper\nlet integrations = Array.isArray(items) ? items : (Array.isArray(items?.data) ? items.data : [items]);\n\n// Filtra registros com account_id e access_token OU refresh_token (Google usa refresh_token)\nintegrations = integrations.filter(i => i.id && i.account_id && (i.access_token || i.refresh_token));\n\n// Aplica filtro por integration_id ou client_id se vieram no payload\n// Garante que null/\"null\"/undefined são tratados como ausentes\nconst integrationId = ctx.integration_id && ctx.integration_id !== 'null' ? ctx.integration_id : null;\nconst clientId = ctx.client_id && ctx.client_id !== 'null' ? ctx.client_id : null;\n\nif (integrationId) {\n  integrations = integrations.filter(i => i.id === integrationId);\n} else if (clientId) {\n  integrations = integrations.filter(i => i.client_id === clientId);\n}\n\nif (integrations.length === 0) {\n  return [{ json: { _empty: true, message: 'Nenhuma integração ativa encontrada' } }];\n}\n\nreturn integrations.map(i => ({ json: { ...i, organization_id: ctx.organization_id } }));\n"
-      },
-      "id": "c326aa29-e1f6-491f-8925-0d7cd5427710",
-      "name": "Separar por Integração1",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -2848,
-        3248
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "leftValue": "={{ $json._skip }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equals"
-              },
-              "id": "cfedb28c-0a60-4bdc-b76f-8344ff8ee8da"
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "fc6ba7b9-86a0-4b5c-84c4-3ab35e4d2fd1",
-      "name": "Tem dados?1",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        -1168,
-        3312
-      ]
-    },
-    {
-      "parameters": {
-        "url": "={{ $('Credenciais').item.json.supabase_url }}/rest/v1/client_integrations",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            {
-              "name": "id",
-              "value": "=eq.{{ $('Resolver Organização1').item.json.integration_id }}"
-            }
-          ]
-        },
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "apikey",
-              "value": "={{ $('Credenciais').item.json.supabase_secret_hole }}"
-            },
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{ $('Credenciais').item.json.supabase_secret_hole }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            },
-            {
-              "name": "Prefer",
-              "value": "return=minimal"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ sync_status: $json._error ? 'error' : 'pending', sync_error: $json._error || null, updated_at: new Date().toISOString() }) }}",
-        "options": {}
-      },
-      "id": "1ece59d5-ab36-494f-9d27-5f01a1580949",
-      "name": "Status: Sem dados / Erro1",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        -752,
-        3104
-      ]
-    },
-    {
-      "parameters": {
-        "url": "=https://graph.facebook.com/v19.0/{{ $('Roteador por Plataforma').item.json.account_id }}/campaigns",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            {
-              "name": "fields",
-              "value": "id,name,objective"
-            },
-            {
-              "name": "limit",
-              "value": "500"
-            }
-          ]
-        },
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{ $('Roteador por Plataforma').item.json.access_token }}"
-            }
-          ]
-        },
-        "options": {
-          "response": {
-            "response": {
-              "neverError": true
-            }
-          }
-        }
-      },
-      "id": "baeeea88-452a-4825-a905-617b2a203490",
-      "name": "Meta Campanhas (Objetivos)",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        -2272,
-        3296
-      ]
-    },
-    {
-      "parameters": {
-        "url": "=https://graph.facebook.com/v19.0/{{ $json.account_id }}/insights",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            {
-              "name": "fields",
-              "value": "campaign_id,campaign_name,spend,impressions,reach,clicks,actions,action_values,date_start,video_30_sec_watched_actions"
-            },
-            {
-              "name": "date_preset",
-              "value": "last_7d"
-            },
-            {
-              "name": "level",
-              "value": "campaign"
-            },
-            {
-              "name": "time_increment",
-              "value": "1"
-            },
-            {
-              "name": "limit",
-              "value": "500"
-            }
-          ]
-        },
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{ $json.access_token }}"
-            }
-          ]
-        },
-        "options": {
-          "response": {
-            "response": {
-              "neverError": true
-            }
-          }
-        }
-      },
-      "id": "1f9b418c-19b9-45ee-b20d-22e6f1c38dc1",
-      "name": "Meta Ads API",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        -2272,
-        3024
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "// Garante que os records chegam como array independente do formato de entrada\n// O IF pode passar um item { records: [...] } ou múltiplos itens individuais\nconst allItems = $input.all();\nlet records = [];\nlet integration_id = null;\nlet client_id = null;\nlet organization_id = null;\nlet count = 0;\n\nif (allItems.length === 1 && Array.isArray(allItems[0].json.records)) {\n  // Formato esperado: um item com array records\n  records = allItems[0].json.records;\n  integration_id = allItems[0].json.integration_id;\n  client_id = allItems[0].json.client_id;\n  organization_id = allItems[0].json.organization_id;\n  count = allItems[0].json.count ?? records.length;\n} else {\n  // Múltiplos itens individuais (cada item é um record)\n  records = allItems.map(i => i.json).filter(r => r.client_id);\n  if (records.length > 0) {\n    integration_id = allItems[0].json.integration_id ?? null;\n    client_id = records[0].client_id;\n    organization_id = records[0].organization_id;\n  }\n  count = records.length;\n}\n\nreturn [{ json: { records, integration_id, client_id, organization_id, count } }];"
-      },
-      "id": "9ad10b5d-ab6a-426e-8924-6056152a9bc1",
-      "name": "Preparar Records",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -752,
-        3504
-      ]
-    },
-    {
-      "parameters": {
-        "method": "PATCH",
-        "url": "={{ $('Credenciais').first().json.supabase_url }}/rest/v1/client_integrations",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            {
-              "name": "id",
-              "value": "=eq.{{ $json.integration_id }}"
-            }
-          ]
-        },
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "apikey",
-              "value": "={{ $('Credenciais').first().json.supabase_secret_hole }}"
-            },
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{ $('Credenciais').first().json.supabase_secret_hole }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            },
-            {
-              "name": "Prefer",
-              "value": "return=minimal"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ sync_status: 'success', last_sync_at: new Date().toISOString(), last_sync_records: $json.count, sync_error: null, updated_at: new Date().toISOString() }) }}\n",
-        "options": {
-          "response": {
-            "response": {
-              "neverError": true
-            }
-          }
-        }
-      },
-      "id": "085b17b0-8832-4a99-a872-b19263a24580",
-      "name": "Status: Sucesso",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        320,
-        3504
-      ]
+      "id": "200080a2-abbf-446f-be8e-9b85f5f8628c",
+      "name": "Credenciais1"
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $('Credenciais').first().json.supabase_url }}/rest/v1/rpc/upsert_campaign_data",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "apikey",
-              "value": "={{ $('Credenciais').first().json.supabase_secret_hole }}"
-            },
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{ $('Credenciais').first().json.supabase_secret_hole }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ records: $json.records }) }}",
-        "options": {
-          "response": {
-            "response": {
-              "neverError": true
-            }
-          }
-        }
-      },
-      "id": "f182f8ee-cc17-4528-bdb7-d4eff31ad81f",
-      "name": "Upsert campaign_data1",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        -544,
-        3504
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "const item = $('Preparar Records').item.json;\nconst records = item.records || [];\nconst byDate = {};\n\nfor (const r of records) {\n  if (!r.date) continue;\n  if (!byDate[r.date]) {\n    byDate[r.date] = {\n      client_id:        r.client_id,\n      organization_id:  r.organization_id,\n      date:             r.date,\n      total_spend:      0,\n      total_leads:      0,\n      total_sales:      0,\n      total_revenue:    0,\n      total_impressions:0,\n      total_clicks:     0\n    };\n  }\n  byDate[r.date].total_spend       += r.spend       || 0;\n  byDate[r.date].total_leads       += r.leads       || 0;\n  byDate[r.date].total_sales       += r.sales       || 0;\n  byDate[r.date].total_revenue     += r.revenue     || 0;\n  byDate[r.date].total_impressions += r.impressions || 0;\n  byDate[r.date].total_clicks      += r.clicks      || 0;\n}\n\nconst daily_rows = Object.values(byDate).map(d => ({\n  ...d,\n  cpl:  d.total_leads  > 0 ? +(d.total_spend / d.total_leads).toFixed(4)   : 0,\n  cpa:  d.total_sales  > 0 ? +(d.total_spend / d.total_sales).toFixed(4)   : 0,\n  roas: d.total_spend  > 0 ? +(d.total_revenue / d.total_spend).toFixed(4) : 0\n}));\n\nreturn [{ json: { daily_rows, integration_id: item.integration_id, count: item.count } }];"
-      },
-      "id": "d58b89ef-1ef6-4f6e-9bbf-58a8af0dc1aa",
-      "name": "Consolidar daily_metrics1",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -320,
-        3504
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $('Credenciais').first().json.supabase_url }}/rest/v1/daily_metrics",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            {
-              "name": "on_conflict",
-              "value": "client_id,date"
-            }
-          ]
-        },
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "apikey",
-              "value": "={{ $('Credenciais').first().json.supabase_secret_hole }}"
-            },
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{ $('Credenciais').first().json.supabase_secret_hole }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            },
-            {
-              "name": "Prefer",
-              "value": "resolution=merge-duplicates,return=minimal"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify($json.daily_rows) }}",
-        "options": {
-          "response": {
-            "response": {
-              "neverError": true
-            }
-          }
-        }
-      },
-      "id": "3f0dfc93-c720-4065-a3d8-97796f26fb94",
-      "name": "Upsert daily_metrics1",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        -96,
-        3504
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "const integrationId = $('Separar por Integração1').first().json.id;\nconst count = $('Preparar Records').first().json.count ?? 0;\nreturn [{ json: { integration_id: integrationId, count } }];\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        112,
-        3504
-      ],
-      "id": "205e9027-b472-493b-8763-cfa587c8d076",
-      "name": "Preparar Integration"
-    },
-    {
-      "parameters": {
         "url": "https://oauth2.googleapis.com/token",
         "sendHeaders": true,
         "headerParameters": {
@@ -634,8 +637,27 @@
           ]
         },
         "sendBody": true,
-        "specifyBody": "string",
-        "body": "=client_id={{ $json.settings.client_id }}&client_secret={{ $json.settings.client_secret }}&refresh_token={{ $json.refresh_token }}&grant_type=refresh_token",
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "client_id",
+              "value": "={{ $json.settings.client_id }}"
+            },
+            {
+              "name": "client_secret",
+              "value": "={{ $json.settings.client_secret }}"
+            },
+            {
+              "name": "refresh_token",
+              "value": "={{ $json.refresh_token }}"
+            },
+            {
+              "name": "grant_type",
+              "value": "refresh_token"
+            }
+          ]
+        },
         "options": {
           "response": {
             "response": {
@@ -644,31 +666,32 @@
           }
         }
       },
-      "id": "31abf794-b286-4718-b3ad-ae65ee9a3fa4",
+      "id": "c835f675-8305-460a-95cd-91325ddfd329",
       "name": "Refresh Google Token",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -2272,
-        3504
+        -864,
+        4592
       ]
     },
     {
       "parameters": {
         "jsCode": "const integration = $('Roteador por Plataforma1').item.json;\nconst tokenResp = $input.item.json;\nconst accessToken = tokenResp.access_token;\nif (!accessToken) {\n  const errMsg = tokenResp.error_description || tokenResp.error || 'unknown';\n  return [{ json: { _skip: true, _error: 'Falha ao renovar token Google: ' + errMsg, integration_id: integration.id } }];\n}\nreturn [{ json: { ...integration, access_token: accessToken } }];"
       },
-      "id": "9d496b5e-5684-42ec-8c96-a52fbdff3024",
+      "id": "6d101447-a3b2-4048-87f5-1c9ec1068c8b",
       "name": "Merge Google Token",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -2080,
-        3504
+        -672,
+        4592
       ]
     },
     {
       "parameters": {
-        "url": "=https://googleads.googleapis.com/v16/customers/{{ $json.account_id.replace(/-/g, '') }}/googleAds:search",
+        "method": "POST",
+        "url": "=https://googleads.googleapis.com/v21/customers/{{ $json.account_id }}/googleAds:searchStream",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -692,7 +715,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"query\": \"SELECT campaign.name, metrics.cost_micros, metrics.impressions, metrics.clicks, metrics.conversions, metrics.conversions_value, segments.date FROM campaign WHERE segments.date DURING LAST_7_DAYS AND campaign.status = 'ENABLED' ORDER BY segments.date DESC LIMIT 1000\"\n}",
+        "jsonBody": "={\n  \"query\": \"SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type, campaign.start_date, metrics.cost_micros, metrics.impressions, metrics.clicks, metrics.conversions, metrics.conversions_value, metrics.ctr, metrics.average_cpc, metrics.all_conversions, metrics.all_conversions_value, segments.date FROM campaign WHERE campaign.status = 'ENABLED' AND segments.date DURING LAST_7_DAYS ORDER BY segments.date DESC LIMIT 10000\"\n  }",
         "options": {
           "response": {
             "response": {
@@ -701,91 +724,78 @@
           }
         }
       },
-      "id": "00b4004a-d30c-47a1-b12e-2cc95d4a5d03",
+      "id": "ac3c1c9c-8614-482f-9c3e-2c9d00fb5010",
       "name": "Google Ads API1",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -1888,
-        3504
+        -480,
+        4592
       ]
     },
     {
       "parameters": {
         "jsCode": "const integration = $('Roteador por Plataforma1').item.json;\nconst response = $input.item.json;\n\nif (response.error || response.errors) {\n  const msg = response.error?.message || JSON.stringify(response.errors);\n  return [{ json: { _skip: true, _error: msg, integration_id: integration.id } }];\n}\n\nconst results = response.results || [];\nif (results.length === 0) return [{ json: { _skip: true, integration_id: integration.id } }];\n\nconst records = results.map(r => ({\n  client_id:       integration.client_id,\n  organization_id: integration.organization_id,\n  platform:        'google',\n  date:            r.segments?.date,\n  campaign_name:   r.campaign?.name || 'Sem nome',\n  spend:           (r.metrics?.costMicros || 0) / 1_000_000,\n  impressions:     parseInt(r.metrics?.impressions || 0),\n  clicks:          parseInt(r.metrics?.clicks || 0),\n  leads:           0,\n  sales:           Math.round(parseFloat(r.metrics?.conversions || 0)),\n  revenue:         parseFloat(r.metrics?.conversionsValue || 0)\n}));\n\nreturn [{ json: { records, integration_id: integration.id, client_id: integration.client_id, organization_id: integration.organization_id, count: records.length } }];"
       },
-      "id": "e0daf6bf-dc99-4f7a-9ffc-131e8d03a123",
+      "id": "27efd082-d2bf-416b-9e9c-e33eb249edd8",
       "name": "Normalizar Google1",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -1680,
-        3504
-      ]
-    }
-  ],
-  "pinData": {
-    "Webhook (Sync Manual)": [
-      {
-        "json": {
-          "headers": {
-            "host": "ia-n8n.whlwlh.easypanel.host",
-            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0",
-            "content-length": "165",
-            "accept": "*/*",
-            "accept-encoding": "gzip, deflate, br, zstd",
-            "accept-language": "pt-BR,pt;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6,pt-PT;q=0.5",
-            "content-type": "application/json",
-            "dnt": "1",
-            "origin": "http://localhost:8080",
-            "priority": "u=1, i",
-            "referer": "http://localhost:8080/",
-            "sec-ch-ua": "\"Microsoft Edge\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": "\"Windows\"",
-            "sec-fetch-dest": "empty",
-            "sec-fetch-mode": "cors",
-            "sec-fetch-site": "cross-site",
-            "x-forwarded-for": "132.255.153.173",
-            "x-forwarded-host": "ia-n8n.whlwlh.easypanel.host",
-            "x-forwarded-port": "443",
-            "x-forwarded-proto": "https",
-            "x-forwarded-server": "8d767468e9cc",
-            "x-real-ip": "132.255.153.173"
-          },
-          "params": {},
-          "query": {},
-          "body": {
-            "organization_id": "5fb8e8ee-81a6-402b-ab7b-315d1cca6407",
-            "client_id": "7219cd53-9ab6-45ff-9fdf-b233f7f84c26",
-            "integration_id": "2526ea08-90cf-4bda-a221-8db167723ba4"
-          },
-          "webhookUrl": "https://ia-n8n.whlwlh.easypanel.host/webhook/sync-ads-metrics",
-          "executionMode": "production"
-        },
-        "pairedItem": {
-          "item": 0
-        }
-      }
-    ]
-  },
-  "connections": {
-    "Credenciais": {
-      "main": [
-        [
-          {
-            "node": "Buscar Integrações Ativas",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        -208,
+        4592
       ]
     },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "client_integrations",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "organization_id",
+              "condition": "eq",
+              "keyValue": "5fb8e8ee-81a6-402b-ab7b-315d1cca6407"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -2784,
+        4144
+      ],
+      "id": "7a37e7cb-4104-44fa-b43a-df6f3d6f37a4",
+      "name": "Buscar Integrações",
+      "credentials": {
+        "supabaseApi": {
+          "id": "yDtu96eQqnPXpyAM",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Recebe o array de integrações e extrai apenas os campos necessários\nconst integrations = $input.all().map(item => item.json);\n\nreturn integrations.map(integration => ({\n  json: {\n    integration_id:              integration.id,\n    organization_id: integration.organization_id,\n    client_id:       integration.client_id,\n    platform:        integration.platform,\n  }\n}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2576,
+        4144
+      ],
+      "id": "2e1d32e6-e614-4c04-9419-fa214780033a",
+      "name": "Preparar Integrações"
+    }
+  ],
+  "pinData": {},
+  "connections": {
     "Schedule (A cada 6h)": {
       "main": [
         [
           {
-            "node": "Resolver Organização1",
+            "node": "Buscar Integrações",
             "type": "main",
             "index": 0
           }
@@ -796,29 +806,156 @@
       "main": [
         [
           {
-            "node": "Resolver Organização1",
+            "node": "Resolver Organização",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Buscar Integrações Ativas": {
+    "Upsert daily_metrics": {
       "main": [
         [
           {
-            "node": "Separar por Integração1",
+            "node": "Preparar Integration1",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Roteador por Plataforma": {
+    "Consolidar daily_metrics": {
       "main": [
         [
           {
-            "node": "Meta Ads API",
+            "node": "Upsert daily_metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert campaign_data": {
+      "main": [
+        [
+          {
+            "node": "Consolidar daily_metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Integration1": {
+      "main": [
+        [
+          {
+            "node": "Status: Sucesso1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Records1": {
+      "main": [
+        [
+          {
+            "node": "Upsert campaign_data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meta Ads API1": {
+      "main": [
+        [
+          {
+            "node": "Meta Campanhas (Objetivos)1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Normalizar Meta1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meta Campanhas (Objetivos)1": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Meta1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tem dados?": {
+      "main": [
+        [
+          {
+            "node": "Status: Sem dados / Erro",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preparar Records1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Separar por Integração": {
+      "main": [
+        [
+          {
+            "node": "Roteador por Plataforma1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolver Organização": {
+      "main": [
+        [
+          {
+            "node": "Resposta Imediata",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Credenciais1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar Meta1": {
+      "main": [
+        [
+          {
+            "node": "Tem dados?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Roteador por Plataforma1": {
+      "main": [
+        [
+          {
+            "node": "Meta Ads API1",
             "type": "main",
             "index": 0
           }
@@ -832,138 +969,22 @@
         ]
       ]
     },
-    "Normalizar Meta": {
+    "Buscar Integrações Ativas1": {
       "main": [
         [
           {
-            "node": "Tem dados?1",
+            "node": "Separar por Integração",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Resolver Organização1": {
+    "Credenciais1": {
       "main": [
         [
           {
-            "node": "Resposta Imediata1",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Credenciais",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Separar por Integração1": {
-      "main": [
-        [
-          {
-            "node": "Roteador por Plataforma",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Tem dados?1": {
-      "main": [
-        [
-          {
-            "node": "Status: Sem dados / Erro1",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Preparar Records",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Meta Campanhas (Objetivos)": {
-      "main": [
-        [
-          {
-            "node": "Normalizar Meta",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Meta Ads API": {
-      "main": [
-        [
-          {
-            "node": "Meta Campanhas (Objetivos)",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Normalizar Meta",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Preparar Records": {
-      "main": [
-        [
-          {
-            "node": "Upsert campaign_data1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Upsert campaign_data1": {
-      "main": [
-        [
-          {
-            "node": "Consolidar daily_metrics1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Consolidar daily_metrics1": {
-      "main": [
-        [
-          {
-            "node": "Upsert daily_metrics1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Upsert daily_metrics1": {
-      "main": [
-        [
-          {
-            "node": "Preparar Integration",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Preparar Integration": {
-      "main": [
-        [
-          {
-            "node": "Status: Sucesso",
+            "node": "Buscar Integrações Ativas1",
             "type": "main",
             "index": 0
           }
@@ -1007,7 +1028,29 @@
       "main": [
         [
           {
-            "node": "Tem dados?1",
+            "node": "Tem dados?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Integrações": {
+      "main": [
+        [
+          {
+            "node": "Preparar Integrações",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Integrações": {
+      "main": [
+        [
+          {
+            "node": "Resolver Organização",
             "type": "main",
             "index": 0
           }
@@ -1020,7 +1063,7 @@
     "executionOrder": "v1",
     "availableInMCP": false
   },
-  "versionId": "fb24ce84-5f59-45c5-af3b-bf2435e5fca0",
+  "versionId": "0308eebb-784f-4288-a761-7b893976ae8a",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "2578bc35b6bdc499db10723a4b7f8f3a18d5bc2bb18bff2484fc584b5c1bf2ee"

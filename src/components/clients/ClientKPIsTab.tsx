@@ -9,7 +9,8 @@ import { KPIGoals } from "./kpi-subtabs/KPIGoals";
 import { useContractsByClient } from "@/hooks/useContracts";
 import { startOfMonth, parseISO } from "date-fns";
 
-export function ClientKPIsTab({ organizationId, clientId }: { organizationId: string, clientId: string }) {
+// ClientKPIsTab — gerenciamento de KPIs do cliente
+export function ClientKPIsTab({ organizationId, clientId, clientName = "" }: { organizationId: string; clientId: string; clientName?: string }) {
   const [activeSubTab, setActiveSubTab] = useState("indicadores");
   
   // Buscar contratos para determinar a data de início (regra de negócio)
@@ -55,6 +56,7 @@ export function ClientKPIsTab({ organizationId, clientId }: { organizationId: st
           <KPIPreviousHistory 
             organizationId={organizationId} 
             clientId={clientId} 
+            clientName={clientName ?? ""}
             contractStartDate={contractStartDate}
           />
         </TabsContent>
@@ -67,6 +69,7 @@ export function ClientKPIsTab({ organizationId, clientId }: { organizationId: st
           <KPIActiveMonitoring 
             organizationId={organizationId} 
             clientId={clientId} 
+            clientName={clientName ?? ""}
             contractStartDate={contractStartDate}
           />
         </TabsContent>

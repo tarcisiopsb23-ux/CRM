@@ -44,8 +44,9 @@ import {
 } from "@/components/ui/select";
 
 import { KPISummary } from "./KPISummary";
+import { KPIImportExport } from "./KPIImportExport";
 
-export function KPIActiveMonitoring({ organizationId, clientId, contractStartDate }: { organizationId: string, clientId: string, contractStartDate: Date | null }) {
+export function KPIActiveMonitoring({ organizationId, clientId, clientName, contractStartDate }: { organizationId: string, clientId: string, clientName?: string, contractStartDate: Date | null }) {
   const { data: kpis = [], isLoading: loadingKPIs } = useClientKPIs(organizationId, clientId);
   const { data: history = [], isLoading: loadingHistory, upsert, update, remove } = useClientKPIHistory(organizationId, clientId);
   
@@ -190,6 +191,22 @@ export function KPIActiveMonitoring({ organizationId, clientId, contractStartDat
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
+      {/* Botões de importação/exportação */}
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          Registros a partir de {contractStartDate ? format(contractStartDate, "MMMM/yyyy", { locale: ptBR }) : "início do contrato"}
+        </p>
+        <KPIImportExport
+          kpis={kpis}
+          clientName={clientName ?? ""}
+          mode="post"
+          contractStartDate={contractStartDate}
+          onUpsert={async (kpiId, monthYear, value) => {
+            await upsert.mutateAsync({ kpi_id: kpiId, month_year: monthYear, value, client_id: clientId, organization_id: organizationId });
+          }}
+        />
+      </div>
+
       <Tabs value={selectedKpiId} onValueChange={setSelectedKpiId} className="w-full">
         <div className="flex overflow-x-auto pb-2 scrollbar-none">
           <TabsList className="bg-muted/50 p-1 h-auto flex-nowrap">

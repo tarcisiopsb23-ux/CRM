@@ -3,268 +3,1225 @@
   "nodes": [
     {
       "parameters": {
-        "rule": {
-          "interval": [{ "field": "minutes", "minutesInterval": 15 }]
-        }
-      },
-      "id": "schedule-trigger",
-      "name": "A cada 15 minutos",
-      "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1,
-      "position": [240, 280]
-    },
-    {
-      "parameters": {
         "httpMethod": "POST",
-        "path": "clickup-sync-trigger",
-        "responseMode": "responseNode"
+        "path": "clickup-to-maestria",
+        "responseMode": "responseNode",
+        "options": {}
       },
-      "id": "webhook-manual-trigger",
-      "name": "Trigger Manual (Webhook)",
+      "id": "41d49e31-6402-4313-83c3-02891e21d42a",
+      "name": "Webhook — ClickUp",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [240, 520],
-      "webhookId": "clickup-sync-trigger"
+      "position": [
+        -2048,
+        1376
+      ],
+      "webhookId": "clickup-to-maestria"
     },
     {
       "parameters": {
-        "url": "={{ $env.SUPABASE_URL }}/rest/v1/projects?is_freelancer=eq.true&clickup_task_id=not.is.null&select=id,title,status,clickup_task_id,clickup_synced_at",
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true }) }}",
+        "options": {}
+      },
+      "id": "6e319587-6cc2-4de3-9e7b-3adf80c79bb1",
+      "name": "Resposta",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        832,
+        -96
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "url": "=https://owwaulaenabbdalycusx.supabase.co/rest/v1/{{ $json.table }}?id=eq.{{ $json.id }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
+            {
+              "name": "apikey",
+              "value": "=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im93d2F1bGFlbmFiYmRhbHljdXN4Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2OTg3Nzc3OCwiZXhwIjoyMDg1NDUzNzc4fQ.Wo-u89LNCAoCaI7gicog3uzEyLI9FVjgE5MPfrykzuY"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im93d2F1bGFlbmFiYmRhbHljdXN4Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2OTg3Nzc3OCwiZXhwIjoyMDg1NDUzNzc4fQ.Wo-u89LNCAoCaI7gicog3uzEyLI9FVjgE5MPfrykzuY"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
           ]
-        }
+        },
+        "options": {}
       },
-      "id": "fetch-projects",
-      "name": "Buscar Projetos com ClickUp ID",
+      "id": "3e322af2-90f9-49eb-b0a3-5065bab0fc79",
+      "name": "Excluir Registro no Maestr.ia",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [460, 280]
+      "position": [
+        32,
+        96
+      ],
+      "disabled": true
     },
     {
       "parameters": {
-        "url": "={{ $env.SUPABASE_URL }}/rest/v1/tasks?is_freelancer=eq.true&clickup_task_id=not.is.null&select=id,title,status,clickup_task_id,clickup_synced_at",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
-          ]
-        }
+        "jsCode": "const projects = $('Buscar Projeto para Excluir').item.json;\nconst tasks    = $('Buscar Tarefa para Excluir').item.json;\nconst clickupId = $('Parsear Evento ClickUp').item.json.clickup_task_id;\n\nconst deletes = [];\n\nif (Array.isArray(projects) && projects.length > 0) {\n  deletes.push({ table: 'projects', id: projects[0].id });\n}\nif (Array.isArray(tasks) && tasks.length > 0) {\n  deletes.push({ table: 'tasks', id: tasks[0].id });\n}\n\nif (deletes.length === 0) {\n  console.log(`[delete] clickup_task_id=${clickupId} não encontrado em projects nem tasks — nada a excluir`);\n  return [{ json: { skip: true, reason: 'not found: ' + clickupId } }];\n}\n\nreturn deletes.map(d => ({ json: d }));"
       },
-      "id": "fetch-tasks",
-      "name": "Buscar Tasks com ClickUp ID",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
-      "position": [460, 520]
-    },
-    {
-      "parameters": {
-        "jsCode": "// Combina projetos e tasks em uma lista única para processar\nconst projects = Array.isArray($('Buscar Projetos com ClickUp ID').item.json)\n  ? $('Buscar Projetos com ClickUp ID').item.json\n  : [];\nconst tasks = Array.isArray($('Buscar Tasks com ClickUp ID').item.json)\n  ? $('Buscar Tasks com ClickUp ID').item.json\n  : [];\n\nconst items = [\n  ...projects.map(p => ({ ...p, _table: 'projects' })),\n  ...tasks.map(t => ({ ...t, _table: 'tasks' }))\n];\n\nif (items.length === 0) {\n  return [{ json: { skip: true, reason: 'no items to sync' } }];\n}\n\nreturn items.map(item => ({ json: item }));"
-      },
-      "id": "merge-items",
-      "name": "Combinar Itens",
+      "id": "c52956cb-cda6-430a-97c3-163a558a49a1",
+      "name": "Consolidar Registros para Excluir",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [680, 400]
+      "position": [
+        -192,
+        96
+      ],
+      "disabled": true
     },
     {
       "parameters": {
-        "conditions": {
-          "boolean": [{ "value1": "={{ $json.skip }}", "value2": true }]
-        }
-      },
-      "id": "skip-check",
-      "name": "Tem itens?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 1,
-      "position": [900, 400]
-    },
-    {
-      "parameters": {
-        "url": "=https://api.clickup.com/api/v2/task/{{ $json.clickup_task_id }}",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/tasks?clickup_task_id=eq.{{ $('Parsear Evento ClickUp').item.json.clickup_task_id }}&select=id",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "={{ $env.CLICKUP_API_KEY }}" }
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}"
+            }
           ]
-        }
+        },
+        "options": {}
       },
-      "id": "fetch-clickup-task",
-      "name": "Buscar Task no ClickUp",
+      "id": "c9e279ae-c4be-4f8c-86e0-e1747b73ef32",
+      "name": "Buscar Tarefa para Excluir",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [1120, 400]
+      "position": [
+        -400,
+        176
+      ],
+      "disabled": true
     },
     {
       "parameters": {
-        "jsCode": "// Compara status do ClickUp com o Maestr.ia e decide se precisa atualizar\nconst clickupTask = $input.item.json;\nconst maestriaItem = $('Combinar Itens').item.json;\n\n// Map ClickUp status → Maestr.ia status\nconst statusMap = {\n  'to do':      'backlog',\n  'open':       'backlog',\n  'in progress':'em_andamento',\n  'in review':  'em_revisao',\n  'complete':   'concluida',\n  'closed':     'concluida',\n  'blocked':    'bloqueada',\n};\n\nconst clickupStatusRaw = (clickupTask?.status?.status || '').toLowerCase();\nconst newStatus = statusMap[clickupStatusRaw] || null;\n\n// Sem status mapeado ou status igual — pula\nif (!newStatus || newStatus === maestriaItem.status) {\n  return [{ json: { skip: true, reason: `status unchanged: ${clickupStatusRaw} → ${maestriaItem.status}` } }];\n}\n\n// Verifica se a task foi atualizada no ClickUp após a última sync\nconst clickupUpdatedMs = clickupTask?.date_updated ? Number(clickupTask.date_updated) : 0;\nconst lastSyncMs = maestriaItem.clickup_synced_at\n  ? new Date(maestriaItem.clickup_synced_at).getTime()\n  : 0;\n\nif (clickupUpdatedMs > 0 && clickupUpdatedMs <= lastSyncMs) {\n  return [{ json: { skip: true, reason: 'not updated since last sync' } }];\n}\n\nreturn [{ json: {\n  skip: false,\n  table: maestriaItem._table,\n  id: maestriaItem.id,\n  old_status: maestriaItem.status,\n  new_status: newStatus,\n  clickup_task_id: maestriaItem.clickup_task_id,\n  clickup_updated_at: clickupTask?.date_updated\n    ? new Date(Number(clickupTask.date_updated)).toISOString()\n    : null\n}}];"
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/projects?clickup_task_id=eq.{{ $json.clickup_task_id }}&select=id",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}"
+            }
+          ]
+        },
+        "options": {}
       },
-      "id": "compare-status",
-      "name": "Comparar Status",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [1340, 400]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "boolean": [{ "value1": "={{ $json.skip }}", "value2": true }]
-        }
-      },
-      "id": "skip-update",
-      "name": "Precisa atualizar?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 1,
-      "position": [1560, 400]
+      "id": "e12e0766-d34e-4705-8322-413741aa8e45",
+      "name": "Buscar Projeto para Excluir",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -400,
+        16
+      ],
+      "disabled": true
     },
     {
       "parameters": {
         "url": "={{ $env.SUPABASE_URL }}/rest/v1/{{ $json.table }}?id=eq.{{ $json.id }}",
-        "requestMethod": "PATCH",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
-            { "name": "Content-Type", "value": "application/json" },
-            { "name": "Prefer", "value": "return=minimal" }
+            {
+              "name": "apikey",
+              "value": "=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im93d2F1bGFlbmFiYmRhbHljdXN4Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2OTg3Nzc3OCwiZXhwIjoyMDg1NDUzNzc4fQ.Wo-u89LNCAoCaI7gicog3uzEyLI9FVjgE5MPfrykzuY"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im93d2F1bGFlbmFiYmRhbHljdXN4Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2OTg3Nzc3OCwiZXhwIjoyMDg1NDUzNzc4fQ.Wo-u89LNCAoCaI7gicog3uzEyLI9FVjgE5MPfrykzuY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
           ]
         },
         "sendBody": true,
-        "bodyContentType": "json",
-        "jsonBody": "={{ JSON.stringify({ status: $json.new_status, clickup_synced_at: new Date().toISOString() }) }}"
+        "bodyParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "options": {}
       },
-      "id": "update-maestria",
+      "id": "e2c18857-8649-43a2-b140-563cf3308684",
       "name": "Atualizar Status no Maestr.ia",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [1780, 280]
+      "position": [
+        32,
+        480
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const projects = $('Buscar Projeto no Maestr.ia').item.json;\nconst tasks = $('Buscar Tarefa no Maestr.ia').item.json;\nconst newStatus = $('Parsear Evento ClickUp').item.json.new_status;\nconst clickupId = $('Parsear Evento ClickUp').item.json.clickup_task_id;\n\nconst updates = [];\n\nif (Array.isArray(projects) && projects.length > 0) {\n  updates.push({ table: 'projects', id: projects[0].id, status: newStatus });\n}\nif (Array.isArray(tasks) && tasks.length > 0) {\n  updates.push({ table: 'tasks', id: tasks[0].id, status: newStatus });\n}\n\nif (updates.length === 0) return [{ json: { skip: true, reason: 'not found: ' + clickupId } }];\n\nreturn updates.map(u => ({ json: u }));"
+      },
+      "id": "33c9b5de-44b3-4b0b-b594-f4743cec6f4d",
+      "name": "Consolidar Resultados",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -192,
+        480
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/tasks?clickup_task_id=eq.{{ $('Parsear Evento ClickUp').item.json.clickup_task_id }}&select=id,status",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "cae3e389-e481-4481-8ca9-0a3942805dc9",
+      "name": "Buscar Tarefa no Maestr.ia",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -400,
+        576
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/projects?clickup_task_id=eq.{{ $json.clickup_task_id }}&select=id,status",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7b2e12e1-3497-47a9-a07e-8334e968c7e5",
+      "name": "Buscar Projeto no Maestr.ia",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -400,
+        384
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.is_delete }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "637aec5c-711b-4d94-bee9-676696e1cfe0",
+      "name": "É Exclusão?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -800,
+        32
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.skip }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "9015be6d-935f-42eb-87a5-6bf9713324d4",
+      "name": "Verificar Skip",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -1008,
+        -80
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// ClickUp webhook payload\nconst body = $input.item.json;\nconst event = body.event; // 'taskStatusUpdated' | 'taskUpdated' | 'taskDeleted'\nconst task  = body.task_id;\nconst historyItems = body.history_items || [];\n\nif (!task) return [{ json: { skip: true, reason: 'no task_id' } }];\n\n// Map ClickUp status → Maestr.ia status\nconst statusMap = {\n  'to do': 'backlog',\n  'in progress': 'em_andamento',\n  'in review': 'em_revisao',\n  'complete': 'concluida',\n  'blocked': 'bloqueada',\n  'closed': 'concluida',\n};\n\nlet newStatus = null;\nfor (const h of historyItems) {\n  if (h.field === 'status' && h.after?.status) {\n    newStatus = statusMap[h.after.status.toLowerCase()] || null;\n  }\n}\n\n// Detecta exclusão\nconst isDelete = event === 'taskDeleted';\n\n// Pula se não é delete e não tem mudança de status\nif (!isDelete && !newStatus) {\n  return [{ json: { skip: true, reason: 'no status change' } }];\n}\n\nreturn [{ json: {\n  event,\n  clickup_task_id: task,\n  new_status: newStatus,\n  is_delete: isDelete,\n  skip: false\n}}];"
+      },
+      "id": "7bf3dd72-9806-49d3-ac1b-8d40dbe567d9",
+      "name": "Parsear Evento ClickUp",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1232,
+        -80
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Usa $input para pegar os dados que chegam diretamente\n// Em vez de referenciar nós por nome (que pode mudar)\nconst input = $input.all();\n\n// Tenta pegar de ambos os nós por nome com fallback\nlet projects = [];\nlet tasks = [];\n\ntry { projects = $('Buscar Projetos com ClickUp ID').all().map(i => i.json); } catch(_) {}\ntry { tasks = $('Buscar Tasks com ClickUp ID').all().map(i => i.json); } catch(_) {}\n\n// Se não conseguiu pelos nomes, usa o input direto\nif (projects.length === 0 && tasks.length === 0) {\n  const all = input.map(i => i.json);\n  projects = all.filter(i => !i.project_id); // projetos não têm project_id\n  tasks = all.filter(i => i.project_id);\n}\n\nconst items = [\n  ...projects.map(p => ({ ...p, _table: 'projects' })),\n  ...tasks.map(t => ({ ...t, _table: 'tasks' }))\n];\n\nif (items.length === 0) {\n  return [{ json: { skip: true, reason: 'no items to sync' } }];\n}\n\nreturn items.map(item => ({ json: item }));\n"
+      },
+      "id": "bd57ba7c-4370-4124-9bc1-47bd3818f1f1",
+      "name": "Combinar Itens",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -896,
+        1520
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.skip }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "eaa27d0d-be29-412e-8a63-6d7008fe6c34",
+      "name": "Tem itens?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -688,
+        1520
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Compara status do ClickUp com o Maestr.ia e decide se precisa atualizar\nconst clickupTask = $input.item.json;\nconst maestriaItem = $('Combinar Itens').item.json;\n\n// Map ClickUp status → Maestr.ia status\nconst statusMap = {\n  'null':       'backlog',\n  'to do':      'backlog',\n  'open':       'backlog',\n  'in progress':'em_andamento',\n  'in review':  'em_revisao',\n  'complete':   'concluida',\n  'closed':     'concluida',\n  'blocked':    'bloqueada',\n};\n\nconst clickupStatusRaw = (clickupTask?.status?.status || '').toLowerCase();\nconst newStatus = statusMap[clickupStatusRaw] || null;\n\n// Sem status mapeado ou status igual — pula\nif (!newStatus || newStatus === maestriaItem.status) {\n  return [{ json: { skip: true, reason: `status unchanged: ${clickupStatusRaw} → ${maestriaItem.status}` } }];\n}\n\n// Verifica se a task foi atualizada no ClickUp após a última sync\nconst clickupUpdatedMs = clickupTask?.date_updated ? Number(clickupTask.date_updated) : 0;\nconst lastSyncMs = maestriaItem.clickup_synced_at\n  ? new Date(maestriaItem.clickup_synced_at).getTime()\n  : 0;\n\nif (clickupUpdatedMs > 0 && clickupUpdatedMs <= lastSyncMs) {\n  return [{ json: { skip: true, reason: 'not updated since last sync' } }];\n}\n\nreturn [{ json: {\n  skip: false,\n  table: maestriaItem._table,\n  id: maestriaItem.id,\n  old_status: maestriaItem.status,\n  new_status: newStatus,\n  clickup_task_id: maestriaItem.clickup_task_id,\n  clickup_updated_at: clickupTask?.date_updated\n    ? new Date(Number(clickupTask.date_updated)).toISOString()\n    : null\n}}];"
+      },
+      "id": "4d4e79c6-4386-4b5c-89e5-ca2cf35b2852",
+      "name": "Comparar Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        256,
+        1296
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.skip }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "dc3eb311-3a5a-4673-9169-41d9411ea52d",
+      "name": "Precisa atualizar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        480,
+        1296
+      ]
     },
     {
       "parameters": {
         "jsCode": "// Log de itens sem mudança (opcional — pode remover em produção)\nconst item = $input.item.json;\nconsole.log(`[polling-skip] ${item.reason || 'no change'}`);\nreturn [{ json: { skipped: true } }];"
       },
-      "id": "log-skip",
+      "id": "a3e2eaae-bc3b-4f4b-bd44-7282f943dff8",
       "name": "Log Skip",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1780, 520]
+      "position": [
+        896,
+        1152
+      ]
     },
     {
       "parameters": {
-        "respondWith": "json",
-        "responseBody": "={{ JSON.stringify({ success: true, triggered: 'manual' }) }}"
+        "content": "## ClickUp Pro - Automação em tempo real\n\n**Double click** to edit me. [Guide](https://docs.n8n.io/workflows/components/sticky-notes/)",
+        "height": 1104,
+        "width": 2592
       },
-      "id": "respond-webhook",
-      "name": "Resposta Webhook",
-      "type": "n8n-nodes-base.respondToWebhook",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1536,
+        -240
+      ],
       "typeVersion": 1,
-      "position": [460, 680]
+      "id": "3787d37c-683f-4968-ba8a-0cceceeba16a",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "projects",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "organization_id",
+              "condition": "eq",
+              "keyValue": "=5fb8e8ee-81a6-402b-ab7b-315d1cca6407"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1248,
+        1376
+      ],
+      "id": "9cfabfa5-0d15-4978-a899-912f144e89f8",
+      "name": "Buscar Projetos com ClickUp ID",
+      "credentials": {
+        "supabaseApi": {
+          "id": "yDtu96eQqnPXpyAM",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "tasks",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "organization_id",
+              "keyValue": "=5fb8e8ee-81a6-402b-ab7b-315d1cca6407"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1248,
+        1648
+      ],
+      "id": "a83da883-8aa4-49ca-a4cf-808c9f2b4ad9",
+      "name": "Buscar Tasks com ClickUp ID",
+      "credentials": {
+        "supabaseApi": {
+          "id": "yDtu96eQqnPXpyAM",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "list",
+        "operation": "getAll",
+        "team": "90171128896",
+        "space": "90175185199",
+        "folder": "90178483896",
+        "filters": {
+          "archived": false
+        }
+      },
+      "type": "n8n-nodes-base.clickUp",
+      "typeVersion": 1,
+      "position": [
+        48,
+        1296
+      ],
+      "id": "5e514113-1c97-4230-985c-1f8326741dbc",
+      "name": "Get many lists",
+      "credentials": {
+        "clickUpOAuth2Api": {
+          "id": "rrDozti8ukcNsUvY",
+          "name": "ClickUp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._table }}",
+                    "rightValue": "projects",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "325dd57f-5ccd-479c-ba53-dc3e41ecb35d"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Projetos"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "925b08da-fcaf-4637-96c7-c5d0af8bb1da",
+                    "leftValue": "={{ $json._table }}",
+                    "rightValue": "tasks",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Tarefas"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -480,
+        1616
+      ],
+      "id": "cd361604-abde-4590-b632-70b022b20f99",
+      "name": "Direcionamento"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Compara status do ClickUp com o Maestr.ia e decide se precisa atualizar\nconst clickupTask = $input.item.json;\nconst maestriaItem = $('Combinar Itens').item.json;\n\n// Map ClickUp status → Maestr.ia status\nconst statusMap = {\n  'to do':      'backlog',\n  'open':       'backlog',\n  'in progress':'em_andamento',\n  'in review':  'em_revisao',\n  'complete':   'concluida',\n  'closed':     'concluida',\n  'blocked':    'bloqueada',\n};\n\nconst clickupStatusRaw = (clickupTask?.status?.status || '').toLowerCase();\nconst newStatus = statusMap[clickupStatusRaw] || null;\n\n// Sem status mapeado ou status igual — pula\nif (!newStatus || newStatus === maestriaItem.status) {\n  return [{ json: { skip: true, reason: `status unchanged: ${clickupStatusRaw} → ${maestriaItem.status}` } }];\n}\n\n// Verifica se a task foi atualizada no ClickUp após a última sync\nconst clickupUpdatedMs = clickupTask?.date_updated ? Number(clickupTask.date_updated) : 0;\nconst lastSyncMs = maestriaItem.clickup_synced_at\n  ? new Date(maestriaItem.clickup_synced_at).getTime()\n  : 0;\n\nif (clickupUpdatedMs > 0 && clickupUpdatedMs <= lastSyncMs) {\n  return [{ json: { skip: true, reason: 'not updated since last sync' } }];\n}\n\nreturn [{ json: {\n  skip: false,\n  table: maestriaItem._table,\n  id: maestriaItem.id,\n  old_status: maestriaItem.status,\n  new_status: newStatus,\n  clickup_task_id: maestriaItem.clickup_task_id,\n  clickup_updated_at: clickupTask?.date_updated\n    ? new Date(Number(clickupTask.date_updated)).toISOString()\n    : null\n}}];"
+      },
+      "id": "2550154a-2145-415d-b4b9-32b1f8a6e9ca",
+      "name": "Comparar Status1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        1904
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.skip }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "a5d245a9-f489-4887-84f6-412c00912294",
+      "name": "Precisa atualizar?1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        496,
+        1904
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log de itens sem mudança (opcional — pode remover em produção)\nconst item = $input.item.json;\nconsole.log(`[polling-skip] ${item.reason || 'no change'}`);\nreturn [{ json: { skipped: true } }];"
+      },
+      "id": "3a88ba97-96e6-43aa-b4e3-5c9f20a56bc4",
+      "name": "Log Skip1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        848,
+        1760
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "operation": "getAll",
+        "team": "90171128896",
+        "space": "90175185199",
+        "folder": "90178483896",
+        "list": "={{ $json.clickup_list_id }}",
+        "filters": {}
+      },
+      "type": "n8n-nodes-base.clickUp",
+      "typeVersion": 1,
+      "position": [
+        64,
+        1904
+      ],
+      "id": "e277ea2c-f153-4be6-91d0-4b3ebc01b1a5",
+      "name": "Get many tasks",
+      "credentials": {
+        "clickUpOAuth2Api": {
+          "id": "rrDozti8ukcNsUvY",
+          "name": "ClickUp account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "projects",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "={{ $json.status }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        896,
+        1456
+      ],
+      "id": "48ba68cb-2913-46aa-87c0-2c6e1e5a4bfc",
+      "name": "Update a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "yDtu96eQqnPXpyAM",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "tasks",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "={{ $json.status }}"
+            },
+            {
+              "fieldId": "progress",
+              "fieldValue": "={{ $json.progress }}"
+            },
+            {
+              "fieldId": "actual_hours",
+              "fieldValue": "={{ $json.actual_hours }}"
+            },
+            {
+              "fieldId": "clickup_synced_at",
+              "fieldValue": "={{ $now }}"
+            },
+            {
+              "fieldId": "end_date",
+              "fieldValue": "={{ $json.end_date }}"
+            },
+            {
+              "fieldId": "priority",
+              "fieldValue": "={{ $json.priority }}"
+            },
+            {
+              "fieldId": "position",
+              "fieldValue": "={{ $json.position }}"
+            },
+            {
+              "fieldId": "dependencies",
+              "fieldValue": "={{ $json.dependencies }}"
+            },
+            {
+              "fieldId": "team_id",
+              "fieldValue": "={{ $json.team_id }}"
+            },
+            {
+              "fieldId": "metadata",
+              "fieldValue": "={{ $json.metadata }}"
+            },
+            {
+              "fieldId": "assigned_to",
+              "fieldValue": "={{ $json.assigned_to }}"
+            },
+            {
+              "fieldId": "description",
+              "fieldValue": "={{ $json.description }}"
+            },
+            {
+              "fieldId": "title",
+              "fieldValue": "={{ $json.title }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        896,
+        2144
+      ],
+      "id": "6cd6777f-b59b-46a9-b38a-e17207332dd2",
+      "name": "Update a row1",
+      "credentials": {
+        "supabaseApi": {
+          "id": "yDtu96eQqnPXpyAM",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "team": "90171128896",
+        "events": [
+          "taskUpdated",
+          "taskTimeTrackedUpdated",
+          "taskTimeEstimateUpdated",
+          "taskStatusUpdated",
+          "taskDueDateUpdated",
+          "taskDeleted",
+          "taskCreated",
+          "taskCommentUpdated",
+          "taskCommentPosted",
+          "taskAssigneeUpdated",
+          "listUpdated",
+          "listDeleted",
+          "listCreated"
+        ],
+        "filters": {
+          "folderId": "90178483896"
+        }
+      },
+      "type": "n8n-nodes-base.clickUpTrigger",
+      "typeVersion": 1,
+      "position": [
+        -2048,
+        1648
+      ],
+      "id": "0a92c63b-cb97-442d-96ab-eb76d9a20186",
+      "name": "ClickUp Trigger",
+      "webhookId": "dc6f6bac-bf76-4ce4-93c4-b22423e0ed98",
+      "credentials": {
+        "clickUpOAuth2Api": {
+          "id": "rrDozti8ukcNsUvY",
+          "name": "ClickUp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "96e83d61-4c4e-474c-820f-9a02b0683446",
+                    "leftValue": "={{ $json.event }}",
+                    "rightValue": "list",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Projeto"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.event }}",
+                    "rightValue": "task",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    },
+                    "id": "609b605a-9201-4821-a4b9-9e9f35e97c1a"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Tarefa"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "cf9da9fc-5db7-40df-9179-550cee5d1901",
+                    "leftValue": "={{ $json.event }}",
+                    "rightValue": "comment ",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Comentário"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -1840,
+        1632
+      ],
+      "id": "af838d7d-d279-4a09-8374-114ad4be7661",
+      "name": "Switch"
     }
   ],
+  "pinData": {},
   "connections": {
-    "A cada 15 minutos": {
-      "main": [[
-        { "node": "Buscar Projetos com ClickUp ID", "type": "main", "index": 0 },
-        { "node": "Buscar Tasks com ClickUp ID", "type": "main", "index": 0 }
-      ]]
+    "Webhook — ClickUp": {
+      "main": [
+        [
+          {
+            "node": "Buscar Projetos com ClickUp ID",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Buscar Tasks com ClickUp ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "Trigger Manual (Webhook)": {
-      "main": [[
-        { "node": "Buscar Projetos com ClickUp ID", "type": "main", "index": 0 },
-        { "node": "Buscar Tasks com ClickUp ID", "type": "main", "index": 0 },
-        { "node": "Resposta Webhook", "type": "main", "index": 0 }
-      ]]
+    "Excluir Registro no Maestr.ia": {
+      "main": [
+        [
+          {
+            "node": "Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "Buscar Projetos com ClickUp ID": { "main": [[{ "node": "Combinar Itens", "type": "main", "index": 0 }]] },
-    "Buscar Tasks com ClickUp ID": { "main": [[{ "node": "Combinar Itens", "type": "main", "index": 0 }]] },
-    "Combinar Itens": { "main": [[{ "node": "Tem itens?", "type": "main", "index": 0 }]] },
+    "Consolidar Registros para Excluir": {
+      "main": [
+        [
+          {
+            "node": "Excluir Registro no Maestr.ia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Tarefa para Excluir": {
+      "main": [
+        [
+          {
+            "node": "Consolidar Registros para Excluir",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Projeto para Excluir": {
+      "main": [
+        [
+          {
+            "node": "Consolidar Registros para Excluir",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Atualizar Status no Maestr.ia": {
+      "main": [
+        [
+          {
+            "node": "Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consolidar Resultados": {
+      "main": [
+        [
+          {
+            "node": "Atualizar Status no Maestr.ia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Tarefa no Maestr.ia": {
+      "main": [
+        [
+          {
+            "node": "Consolidar Resultados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Projeto no Maestr.ia": {
+      "main": [
+        [
+          {
+            "node": "Consolidar Resultados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "É Exclusão?": {
+      "main": [
+        [
+          {
+            "node": "Buscar Tarefa para Excluir",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Buscar Projeto para Excluir",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Buscar Tarefa no Maestr.ia",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Buscar Projeto no Maestr.ia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar Skip": {
+      "main": [
+        [
+          {
+            "node": "Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "É Exclusão?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear Evento ClickUp": {
+      "main": [
+        [
+          {
+            "node": "Verificar Skip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combinar Itens": {
+      "main": [
+        [
+          {
+            "node": "Tem itens?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Tem itens?": {
       "main": [
         [],
-        [{ "node": "Buscar Task no ClickUp", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Direcionamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Buscar Task no ClickUp": { "main": [[{ "node": "Comparar Status", "type": "main", "index": 0 }]] },
-    "Comparar Status": { "main": [[{ "node": "Precisa atualizar?", "type": "main", "index": 0 }]] },
+    "Comparar Status": {
+      "main": [
+        [
+          {
+            "node": "Precisa atualizar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Precisa atualizar?": {
       "main": [
-        [{ "node": "Log Skip", "type": "main", "index": 0 }],
-        [{ "node": "Atualizar Status no Maestr.ia", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Log Skip",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Projetos com ClickUp ID": {
+      "main": [
+        [
+          {
+            "node": "Combinar Itens",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Tasks com ClickUp ID": {
+      "main": [
+        [
+          {
+            "node": "Combinar Itens",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many lists": {
+      "main": [
+        [
+          {
+            "node": "Comparar Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Direcionamento": {
+      "main": [
+        [
+          {
+            "node": "Get many lists",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get many tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Comparar Status1": {
+      "main": [
+        [
+          {
+            "node": "Precisa atualizar?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Precisa atualizar?1": {
+      "main": [
+        [
+          {
+            "node": "Log Skip1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update a row1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many tasks": {
+      "main": [
+        [
+          {
+            "node": "Comparar Status1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update a row": {
+      "main": [
+        []
+      ]
+    },
+    "ClickUp Trigger": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Buscar Projetos com ClickUp ID",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Buscar Tasks com ClickUp ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
-  "active": false,
-  "settings": { "executionOrder": "v1" },
-  "_readme": {
-    "env_vars": [
-      "CLICKUP_API_KEY — Personal token do ClickUp (pk_...)",
-      "SUPABASE_URL — URL do Supabase",
-      "SUPABASE_SERVICE_KEY — Service role key"
-    ],
-    "triggers": {
-      "schedule": "Automático a cada 15 minutos — não requer plano pago do ClickUp",
-      "webhook": "POST {N8N_URL}/webhook/clickup-sync-trigger — disparo manual via botão no Maestr.ia ou via configurações"
-    },
-    "logic": "Busca todos os projetos e tasks com clickup_task_id preenchido, consulta cada um na API do ClickUp, compara o status e atualiza no Maestr.ia apenas se houve mudança após a última sincronização",
-    "status_map": {
-      "to do / open": "backlog",
-      "in progress": "em_andamento",
-      "in review": "em_revisao",
-      "complete / closed": "concluida",
-      "blocked": "bloqueada"
-    },
-    "free_plan": "Funciona 100% no plano Free do ClickUp — usa apenas GET /task/{id} que não requer plano pago"
-  }
-}
-    }
-  ],
-  "connections": {
-    "A cada 5 minutos": {
-      "main": [[
-        { "node": "Buscar Projetos com ClickUp ID", "type": "main", "index": 0 },
-        { "node": "Buscar Tasks com ClickUp ID", "type": "main", "index": 0 }
-      ]]
-    },
-    "Buscar Projetos com ClickUp ID": { "main": [[{ "node": "Combinar Itens", "type": "main", "index": 0 }]] },
-    "Buscar Tasks com ClickUp ID": { "main": [[{ "node": "Combinar Itens", "type": "main", "index": 0 }]] },
-    "Combinar Itens": { "main": [[{ "node": "Tem itens?", "type": "main", "index": 0 }]] },
-    "Tem itens?": {
-      "main": [
-        [],
-        [{ "node": "Buscar Task no ClickUp", "type": "main", "index": 0 }]
-      ]
-    },
-    "Buscar Task no ClickUp": { "main": [[{ "node": "Comparar Status", "type": "main", "index": 0 }]] },
-    "Comparar Status": { "main": [[{ "node": "Precisa atualizar?", "type": "main", "index": 0 }]] },
-    "Precisa atualizar?": {
-      "main": [
-        [{ "node": "Log Skip", "type": "main", "index": 0 }],
-        [{ "node": "Atualizar Status no Maestr.ia", "type": "main", "index": 0 }]
-      ]
-    }
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
   },
-  "active": false,
-  "settings": { "executionOrder": "v1" },
-  "_readme": {
-    "env_vars": [
-      "CLICKUP_API_KEY — Personal token do ClickUp (pk_...)",
-      "SUPABASE_URL — URL do Supabase",
-      "SUPABASE_SERVICE_KEY — Service role key"
-    ],
-    "trigger": "Schedule automático a cada 5 minutos — não requer plano pago do ClickUp",
-    "logic": "Busca todos os projetos e tasks com clickup_task_id preenchido, consulta cada um na API do ClickUp, compara o status e atualiza no Maestr.ia apenas se houve mudança após a última sincronização",
-    "status_map": {
-      "to do / open": "backlog",
-      "in progress": "em_andamento",
-      "in review": "em_revisao",
-      "complete / closed": "concluida",
-      "blocked": "bloqueada"
-    },
-    "optimization": "Usa clickup_synced_at para evitar atualizações desnecessárias — só processa tasks que foram modificadas no ClickUp após a última sync",
-    "free_plan": "Funciona 100% no plano Free do ClickUp — usa apenas GET /task/{id} que não requer plano pago"
-  }
+  "versionId": "c81afc29-cdda-4d40-b1fd-023f6a916ab4",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "2578bc35b6bdc499db10723a4b7f8f3a18d5bc2bb18bff2484fc584b5c1bf2ee"
+  },
+  "id": "1a63G9g0S0Ry0Rq3cU42C",
+  "tags": []
 }

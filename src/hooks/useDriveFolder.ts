@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
+import { useRef, useEffect } from "react";
 import type { N8nConfig } from "@/types/settings";
 import { getDriveFoldersFromOrganizationSettings } from "@/hooks/useSettings";
 import { useN8nConfig } from "@/hooks/useN8nConfig";
@@ -58,6 +59,13 @@ export function useDriveFolder(organizationId: string | undefined) {
 
   // Usa useN8nConfig para leitura imediata do localStorage + sync com banco
   const n8nConfig = useN8nConfig(organizationId);
+
+  // Ref sempre atualizada — garante que autoCreateFolder usa o valor mais recente
+  // mesmo quando chamado logo após a criação do registro (antes do próximo render)
+  const n8nConfigRef = useRef<N8nConfig | null>(n8nConfig);
+  useEffect(() => {
+    n8nConfigRef.current = n8nConfig;
+  }, [n8nConfig]);
 
   const { data: orgSettings } = useQuery({
     queryKey: ["organizations", organizationId, "settings"],
@@ -125,13 +133,21 @@ export function useDriveFolder(organizationId: string | undefined) {
   const autoCreateFolder = (
     module: DriveFolderModule,
     record: { id: string; name?: string; company?: string; title?: string; full_name?: string; code?: number | null },
-    /** React Query key to invalidate after n8n saves folder_id (e.g. ["clients", orgId]) */
     pollQueryKey?: unknown[]
   ) => {
     const key = MODULE_WEBHOOK_KEY[module];
-    const webhookUrl = n8nConfig?.[key] as string | undefined;
-    if (!webhookUrl) return; // not configured — skip silently
+    // Usa a ref para garantir o valor mais recente, mesmo em closures antigas
+    const config = n8nConfigRef.current ?? n8nConfig;
+    const webhookUrl = config?.[key] as string | undefined;
+
+    console.log(`[autoCreateFolder] module=${module} key=${key} webhookUrl=${webhookUrl ?? "VAZIO"} config_keys=${Object.keys(config ?? {}).join(",")}`);
+
+    if (!webhookUrl) {
+      console.warn(`[autoCreateFolder] Webhook não configurado para módulo "${module}" (chave: ${key}). Configure em Configurações → n8n.`);
+      return;
+    }
     const rootFolderId = getRootFolderId(module);
+    console.log(`[autoCreateFolder] Disparando webhook para ${module}: ${webhookUrl}`);
 
     fetch(resolveWebhookUrl(webhookUrl), {
       method: "POST",

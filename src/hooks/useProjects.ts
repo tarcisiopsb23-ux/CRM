@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { fireN8nWebhook } from "@/lib/n8nWebhook";
 import type { Database } from "@/types/supabase";
 
-type TaskStatus = "backlog" | "em_andamento" | "em_revisao" | "concluida" | "bloqueada";
+type TaskStatus = "backlog" | "em_andamento" | "em_revisao" | "concluida" | "parada";
 type TaskPriority = "baixa" | "media" | "alta" | "urgente";
 
 export interface Project {
@@ -54,6 +54,7 @@ export interface Task {
   is_freelancer?: boolean;
   supplier_id?: string | null;
   clickup_task_id?: string | null;
+  clickup_list_id?: string | null;
   clickup_synced_at?: string | null;
 }
 
@@ -126,17 +127,8 @@ export function useProjects(organizationId: string | undefined) {
       if (organizationId) {
         void fireN8nWebhook(organizationId, "projects", "create", project as unknown as Record<string, unknown>);
       }
-      // Fire ClickUp webhook for freelancer projects
-      if ((project as Project)?.is_freelancer) {
-        const webhookUrl = import.meta.env.VITE_N8N_WEBHOOK_CLICKUP;
-        if (webhookUrl) {
-          fetch(webhookUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "create", table: "projects", item: project }),
-          }).catch(() => {});
-        }
-      }
+      // Nota: o disparo para o ClickUp na criação é feito pelo ProjectsPage via autoCreateFolder
+      // e pelo ProjectDetailsPage quando is_freelancer é marcado.
     },
   });
 
@@ -181,17 +173,8 @@ export function useProjects(organizationId: string | undefined) {
       if (organizationId) {
         void fireN8nWebhook(organizationId, "projects", "update", project as unknown as Record<string, unknown>);
       }
-      // Fire ClickUp webhook for freelancer projects on update
-      if ((project as Project)?.is_freelancer) {
-        const webhookUrl = import.meta.env.VITE_N8N_WEBHOOK_CLICKUP;
-        if (webhookUrl) {
-          fetch(webhookUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "update", table: "projects", item: project }),
-          }).catch(() => {});
-        }
-      }
+      // Nota: o disparo para o ClickUp é feito pelo handleSaveDetails no ProjectDetailsPage
+      // apenas quando is_freelancer muda de false → true, para evitar disparos duplicados.
     },
   });
 
@@ -259,7 +242,12 @@ export function useTasks(projectId: string | undefined) {
     },
     onSuccess: ({ task, orgId }) => {
       qc.invalidateQueries({ queryKey: ["tasks", projectId] });
-      if (orgId) void fireN8nWebhook(orgId, "tasks", "create", task as unknown as Record<string, unknown>);
+      // Disparo para o ClickUp é feito pelo ProjectDetailsPage via fireClickupWebhook,
+      // que inclui parent_project com o clickup_list_id necessário para criar a task na lista correta.
+      // Não disparar aqui para evitar duplicidade.
+      if (orgId && !(task as any).is_freelancer) {
+        void fireN8nWebhook(orgId, "tasks", "create", task as unknown as Record<string, unknown>);
+      }
     },
   });
 
@@ -271,9 +259,10 @@ export function useTasks(projectId: string | undefined) {
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["tasks", projectId] });
-      // Busca orgId do projeto para disparar webhook
+      // Disparo para o ClickUp é feito pelo ProjectDetailsPage via fireClickupWebhook para tarefas terceirizadas.
+      // Aqui só dispara para tarefas não-terceirizadas (outros webhooks de notificação).
       const projId = (data as any)?.project_id;
-      if (projId) {
+      if (projId && !(data as any).is_freelancer) {
         supabase.from("projects").select("organization_id").eq("id", projId).single().then(({ data: proj }) => {
           if (proj?.organization_id) void fireN8nWebhook(proj.organization_id, "tasks", "update", data as unknown as Record<string, unknown>);
         });

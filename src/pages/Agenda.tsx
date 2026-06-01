@@ -6,6 +6,7 @@ import { useEvents, type EventRow } from "@/hooks/useEvents";
 import { useTeams } from "@/hooks/useTeams";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useModulePermission } from "@/hooks/usePermissions";
+import { logger } from "@/lib/logger";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -590,12 +591,18 @@ export default function Agenda() {
         if (recurrenceConfig && parentEvent?.id) {
           await supabase.from("events").update({ recurrence_group_id: parentEvent.id }).eq("id", parentEvent.id);
         }
-        console.log("[Agenda] parentEvent criado:", parentEvent?.id, "recurrenceConfig:", recurrenceConfig);
+        logger.debug("Parent event criado", { 
+          parentEventId: parentEvent?.id,
+          hasRecurrenceConfig: !!recurrenceConfig 
+        }, 'AGENDA');
 
         // Gera e salva as ocorrências recorrentes via insert batch direto (sem webhook)
         if (recurrenceConfig && orgId && parentEvent?.id) {
           const occurrences = generateOccurrences(start, end, recurrenceConfig as Parameters<typeof generateOccurrences>[2]);
-          console.log("[Agenda] ocorrências geradas:", occurrences.length);
+          logger.debug("Ocorrências geradas", { 
+            count: occurrences.length,
+            hasRecurrence: !!recurrenceConfig 
+          }, 'AGENDA');
           if (occurrences.length > 0) {
             const { data: { user } } = await supabase.auth.getUser();
             const occurrenceMeta = { ...metadata, is_recurrence_child: true };
@@ -621,7 +628,10 @@ export default function Agenda() {
               const { error: batchErr } = await supabase
                 .from("events")
                 .insert(batch as never[]);
-              if (batchErr) console.error("[Agenda] Erro ao inserir ocorrencias batch", i, batchErr);
+              if (batchErr) logger.error("Erro ao inserir ocorrências batch", { 
+                batchIndex: i,
+                error: batchErr.message 
+              }, 'AGENDA');
             }
             // Invalida cache após inserção em batch
             qc.invalidateQueries({ queryKey: ["events", orgId] });
@@ -637,7 +647,10 @@ export default function Agenda() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Erro ao criar evento";
       setSubmitError(msg);
-      console.error("[Agenda] handleSubmit:", msg);
+      logger.error("Erro no handleSubmit", { 
+        error: msg,
+        context: 'submit_event' 
+      }, 'AGENDA');
     } finally {
       setSubmitting(false);
     }
@@ -804,7 +817,7 @@ export default function Agenda() {
 
           for (let i = 0; i < occurrencePayloads.length; i += 50) {
             const { error } = await supabase.from("events").insert(occurrencePayloads.slice(i, i + 50) as never[]);
-            if (error) console.error("[Agenda] Erro ao recriar ocorrencias:", error);
+            if (error) logger.error("Erro ao recriar ocorrências", { error: error.message }, 'AGENDA');
           }
         }
       }
@@ -839,7 +852,11 @@ export default function Agenda() {
       .eq("title", ev.title)
       .order("start_at", { ascending: true });
 
-    console.log("[resolveGroupId]", { ev_id: ev.id, candidates_count: candidates?.length, first: candidates?.[0] });
+    logger.debug("Resolvendo group ID", { 
+      eventId: ev.id,
+      candidatesCount: candidates?.length,
+      firstCandidateId: candidates?.[0]?.id 
+    }, 'AGENDA');
 
     if (!candidates || candidates.length === 0) return ev.id;
 
@@ -858,9 +875,14 @@ export default function Agenda() {
     // Nenhum tem — pai é o mais antigo (primeiro da lista)
     const parentId = candidates[0].id;
     const allIds = candidates.map(c => c.id);
-    console.log("[resolveGroupId] updating all with parentId:", parentId, "allIds:", allIds);
+    logger.debug("Atualizando todos com parent ID", { 
+      parentId,
+      allIds 
+    }, 'AGENDA');
     const { error: updateErr } = await supabase.from("events").update({ recurrence_group_id: parentId }).in("id", allIds);
-    console.log("[resolveGroupId] update result:", updateErr);
+    logger.debug("Update result", { 
+      error: updateErr?.message 
+    }, 'AGENDA');
     return parentId;
   };
 
@@ -882,14 +904,18 @@ export default function Agenda() {
       .delete()
       .eq("recurrence_group_id", groupId)
       .gte("start_at", startAt);
-    if (error) console.error("[Agenda] Erro ao excluir seguintes:", error);
+    if (error) logger.error("Erro ao excluir seguintes", { error: error.message }, 'AGENDA');
     qc.invalidateQueries({ queryKey: ["events", orgId] });
   };
 
   const handleDeleteAllSeries = async (ev: EventRow) => {
     setDeleteSeriesDialog({ open: false, event: null });
     const groupId = await resolveGroupId(ev);
-    console.log("[handleDeleteAllSeries]", { ev_id: ev.id, groupId, same: groupId === ev.id });
+    logger.debug("Delete all series", { 
+      eventId: ev.id,
+      groupId,
+      isSameGroup: groupId === ev.id 
+    }, 'AGENDA');
     const parentGcalEventId = await getParentGcalEventId(groupId, ev.gcal_event_id);
 
     // 1. Deleta todos os filhos (recurrence_group_id = groupId)
@@ -897,7 +923,11 @@ export default function Agenda() {
       .from("events")
       .delete()
       .eq("recurrence_group_id", groupId);
-    console.log("[handleDeleteAllSeries] delete result", { deleteErr, count, groupId });
+    logger.debug("Delete result", { 
+      error: deleteErr?.message,
+      count,
+      groupId 
+    }, 'AGENDA');
 
     // 2. Dispara webhook para o Google Calendar
     await removeWithScope(groupId, parentGcalEventId, "all", parentGcalEventId);
@@ -907,7 +937,13 @@ export default function Agenda() {
 
   const openDelete = (ev: EventRow) => {
     const isInSeries = !!(ev.recurrence_group_id || (ev.metadata as any)?.is_recurrence_child || (ev.metadata as any)?.recurrence);
-    console.log("[openDelete]", { id: ev.id, recurrence_group_id: ev.recurrence_group_id, is_recurrence_child: (ev.metadata as any)?.is_recurrence_child, recurrence: (ev.metadata as any)?.recurrence, isInSeries });
+    logger.debug("Abrir delete", { 
+      eventId: ev.id,
+      recurrenceGroupId: ev.recurrence_group_id,
+      isRecurrenceChild: !!(ev.metadata as any)?.is_recurrence_child,
+      hasRecurrence: !!(ev.metadata as any)?.recurrence,
+      isInSeries 
+    }, 'AGENDA');
     if (isInSeries) {
       setDeleteSeriesDialog({ open: true, event: ev });
     } else {

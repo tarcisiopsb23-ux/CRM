@@ -33,6 +33,7 @@ const FIELD_DEFS: {
   { key: "clickupSyncWebhookUrl",      label: "Webhook URL: ClickUp → Maestria (sync manual/polling)",                       placeholder: "https://n8n.dominio.com/webhook/clickup-sync-trigger",  section: "clickup" },
   { key: "clickupMembersWebhookUrl",   label: "Webhook URL: Participantes ClickUp (convidar/remover)",                       placeholder: "https://n8n.dominio.com/webhook/clickup-members",        section: "clickup" },
   { key: "adsWebhookUrl",              label: "Webhook URL: Sync de Ads (Meta + Google)",                                     placeholder: "https://n8n.dominio.com/webhook/sync-ads",               section: "ads"     },
+  { key: "clickupCommentsWebhookUrl",  label: "Webhook URL: Comentarios ClickUp (Maestr.ia → ClickUp)",                      placeholder: "https://n8n.dominio.com/webhook/clickup-comment-from-maestria", section: "clickup" },
 ];
 
 const CACHE_PREFIX = "n8n_cfg_";
@@ -63,7 +64,7 @@ function writeCache(orgId: string, config: Record<string, unknown>) {
 
 export function N8nSection() {
   const orgId = useOrganization();
-  const agencyClientId = useAgencyClientId();
+  const { clientId: agencyClientId } = useAgencyClientId();
 
   // ── Estado local dos campos — fonte única de verdade para a UI ──────────────
   const [values, setValues] = useState<Partial<Record<keyof N8nConfig, string>>>({});
@@ -287,12 +288,12 @@ export function N8nSection() {
             <SettingsInput key={key} label={label} value={v(key)} onChange={(val) => setValue(key, val)} placeholder={placeholder} />
           ))}
 
-          {/* Client ID da agência — detectado automaticamente, somente leitura */}
+          {/* Client ID da agência — somente leitura, detectado automaticamente */}
           <div className="rounded-lg border bg-muted/30 p-3 space-y-1.5">
             <div className="flex items-center gap-1.5">
               <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
               <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                Client ID da Agência (detectado automaticamente)
+                Client ID da Agência
               </p>
             </div>
             {agencyClientId ? (
@@ -314,11 +315,11 @@ export function N8nSection() {
               </div>
             ) : (
               <p className="text-[10px] text-amber-600 dark:text-amber-400">
-                Nenhuma integração de Meta Ads ou Google Ads encontrada. Configure as integrações no cadastro do cliente que representa a agência.
+                Nenhuma integração de Meta Ads ou Google Ads encontrada sem dashboard externo. Adicione a integração no cadastro do cliente da agência.
               </p>
             )}
             <p className="text-[10px] text-slate-400 italic">
-              Identificado pelo primeiro cliente da organização com integração de Meta ou Google Ads sem dashboard externo configurado.
+              Identificado automaticamente pelo primeiro cliente sem dashboard externo com integração de Meta ou Google Ads.
               Usado para filtrar campanhas no Dashboard e módulo Campanhas.
             </p>
           </div>

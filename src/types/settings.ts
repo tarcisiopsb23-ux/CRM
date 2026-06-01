@@ -57,6 +57,7 @@ export interface N8nConfig {
   // Ads — sincronização de campanhas (Meta Ads + Google Ads)
   adsWebhookUrl?: string;           // Webhook n8n para sync de campanhas de todos os clientes
   adsClientId?: string;             // client_id da agência no CRM (usado para filtrar campanhas próprias no Dashboard e módulo Campanhas)
+  clickupCommentsWebhookUrl?: string; // Webhook n8n para comentários ClickUp (Maestr.ia → ClickUp)
 }
 
 export interface WhatsAppConfig {
