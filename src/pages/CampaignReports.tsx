@@ -83,9 +83,9 @@ export default function CampaignReports() {
   const organizationId = useOrganization();
 
   // Period filter
-  const [preset, setPreset] = useState<Preset>("30d");
-  const [customFrom, setCustomFrom] = useState(iso(subDays(new Date(), 29)));
-  const [customTo,   setCustomTo]   = useState(iso(new Date()));
+  const [preset, setPreset] = useState<Preset>("month");
+  const [customFrom, setCustomFrom] = useState(iso(startOfMonth(new Date())));
+  const [customTo,   setCustomTo]   = useState(iso(endOfMonth(new Date())));
   const range = useMemo(() => buildRange(preset, customFrom, customTo), [preset, customFrom, customTo]);
 
   // Tabs

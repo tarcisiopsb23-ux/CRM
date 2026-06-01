@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 import { ModernFunnel } from "@/components/ui/modern-funnel";
 import { HorizontalScroll } from "@/components/ui/horizontal-scroll";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { format, subDays, startOfMonth, subMonths, parseISO, isBefore, subYears } from "date-fns";
+import { format, subDays, startOfMonth, endOfMonth, subMonths, parseISO, isBefore, subYears } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useClientKPIs, useClientKPIHistory } from "@/hooks/useClientKPIs";
 import { useClientConversationKpis } from "@/hooks/useClientConversationKpis";
@@ -163,23 +163,24 @@ function CampaignDetailModal({ campaign, onClose }: { campaign: any; onClose: ()
 }
 const KPI_COLORS = ["#10b981","#2D8CC7","#f59e0b","#a855f7","#f43f5e","#06b6d4","#e879f9","#34d399"];
 
-type Period = "7d" | "30d" | "90d" | "180d" | "1y" | "custom";
+type Period = "7d" | "30d" | "month" | "90d" | "180d" | "1y" | "custom";
 
 function getPeriodRange(period: Period): { from: string; to: string } {
   const today = new Date();
   const to = format(today, "yyyy-MM-dd");
-  if (period === "7d")   return { from: format(subDays(today, 7), "yyyy-MM-dd"), to };
-  if (period === "30d")  return { from: format(subDays(today, 30), "yyyy-MM-dd"), to };
-  if (period === "90d")  return { from: format(subDays(today, 90), "yyyy-MM-dd"), to };
-  if (period === "180d") return { from: format(subDays(today, 180), "yyyy-MM-dd"), to };
-  if (period === "1y")   return { from: format(subYears(today, 1), "yyyy-MM-dd"), to };
-  return { from: format(subDays(today, 30), "yyyy-MM-dd"), to };
+  if (period === "7d")    return { from: format(subDays(today, 7), "yyyy-MM-dd"), to };
+  if (period === "30d")   return { from: format(subDays(today, 30), "yyyy-MM-dd"), to };
+  if (period === "month") return { from: format(startOfMonth(today), "yyyy-MM-dd"), to: format(endOfMonth(today), "yyyy-MM-dd") };
+  if (period === "90d")   return { from: format(subDays(today, 90), "yyyy-MM-dd"), to };
+  if (period === "180d")  return { from: format(subDays(today, 180), "yyyy-MM-dd"), to };
+  if (period === "1y")    return { from: format(subYears(today, 1), "yyyy-MM-dd"), to };
+  return { from: format(startOfMonth(today), "yyyy-MM-dd"), to: format(endOfMonth(today), "yyyy-MM-dd") };
 }
 
 export function ClientPerformanceTab({ organizationId, clientId }: { organizationId: string; clientId: string }) {
-  const [period, setPeriod] = useState<Period>("30d");
-  const [customFrom, setCustomFrom] = useState(format(subDays(new Date(), 30), "yyyy-MM-dd"));
-  const [customTo, setCustomTo] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [period, setPeriod] = useState<Period>("month");
+  const [customFrom, setCustomFrom] = useState(format(startOfMonth(new Date()), "yyyy-MM-dd"));
+  const [customTo, setCustomTo] = useState(format(endOfMonth(new Date()), "yyyy-MM-dd"));
   const [contractStartDate, setContractStartDate] = useState<Date | null>(null);
   const [activeKpiId, setActiveKpiId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"performance" | "atendimento">("performance");
@@ -410,6 +411,7 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
             <SelectContent>
               <SelectItem value="7d">Últimos 7 dias</SelectItem>
               <SelectItem value="30d">Últimos 30 dias</SelectItem>
+              <SelectItem value="month">Este mês</SelectItem>
               <SelectItem value="90d">Últimos 90 dias</SelectItem>
               <SelectItem value="180d">Últimos 180 dias</SelectItem>
               <SelectItem value="1y">Último ano</SelectItem>

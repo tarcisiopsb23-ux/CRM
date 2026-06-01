@@ -22,14 +22,14 @@ import { Badge } from "@/components/ui/badge";
 import { PinAuthDialog } from "@/components/shared/PinAuthDialog";
 import { usePinConfirm } from "@/hooks/usePinConfirm";
 import { Download, FileDown, Users, DollarSign, Target, Kanban, FolderKanban, TrendingUp, AlertTriangle, Megaphone } from "lucide-react";
-import { startOfDay, subDays, startOfYear, endOfDay, isWithinInterval, format, addDays, subMonths, parseISO } from "date-fns";
+import { startOfDay, subDays, startOfYear, endOfDay, startOfMonth, endOfMonth, isWithinInterval, format, addDays, subMonths, parseISO } from "date-fns";
 import { ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, Legend, BarChart, Bar } from "recharts";
 import { useTimeClockState, useRegisterPunch, useRepPRequestOvertime } from "@/hooks/useTimeClock";
 import { usePermissionForScope } from "@/hooks/usePermissions";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 
-type PeriodPreset = "today" | "7d" | "30d" | "90d" | "ytd" | "custom";
+type PeriodPreset = "today" | "7d" | "30d" | "month" | "90d" | "ytd" | "custom";
 type ReportTemplate = "macro" | "financeiro" | "projetos" | "campanhas" | "crm" | "metas" | "ponto_eletronico";
 
 type RepPDailyRow = {
@@ -146,7 +146,7 @@ export default function ReportsPage() {
   const { leads } = useLeadsKanban(orgId, { includeConverted: true });
   const { campaigns, totals: campTotals, metrics: campMetrics } = useCampaigns();
 
-  const [preset, setPreset] = useState<PeriodPreset>("30d");
+  const [preset, setPreset] = useState<PeriodPreset>("month");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [teamFilter, setTeamFilter] = useState("all");
@@ -195,9 +195,10 @@ export default function ReportsPage() {
     const end = endOfDay(new Date());
     if (preset === "today") return { start: startOfDay(new Date()), end };
     if (preset === "7d") return { start: startOfDay(subDays(new Date(), 7)), end };
+    if (preset === "month") return { start: startOfMonth(new Date()), end: endOfMonth(new Date()) };
     if (preset === "90d") return { start: startOfDay(subDays(new Date(), 90)), end };
     if (preset === "ytd") return { start: startOfYear(new Date()), end };
-    return { start: startOfDay(subDays(new Date(), 30)), end };
+    return { start: startOfMonth(new Date()), end: endOfMonth(new Date()) };
   }, [preset, from, to]);
 
   const repPFrom = interval.start.toISOString().split("T")[0];
@@ -837,6 +838,7 @@ export default function ReportsPage() {
                 <SelectItem value="today">Hoje</SelectItem>
                 <SelectItem value="7d">Últimos 7 dias</SelectItem>
                 <SelectItem value="30d">Últimos 30 dias</SelectItem>
+                <SelectItem value="month">Este mês</SelectItem>
                 <SelectItem value="90d">Últimos 90 dias</SelectItem>
                 <SelectItem value="ytd">Este ano</SelectItem>
                 <SelectItem value="custom">Personalizado</SelectItem>

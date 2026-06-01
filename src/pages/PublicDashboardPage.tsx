@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { logger } from "@/lib/logger";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line,
@@ -98,8 +99,8 @@ export function PublicDashboardPage() {
   const [newPassword, setNewPassword] = useState("");
   const [contractStartDate, setContractStartDate] = useState<Date | null>(null);
   const [dateRange, setDateRange] = useState({
-    from: format(subDays(new Date(), 30), "yyyy-MM-dd"),
-    to: format(new Date(), "yyyy-MM-dd"),
+    from: format(startOfMonth(new Date()), "yyyy-MM-dd"),
+    to: format(endOfMonth(new Date()), "yyyy-MM-dd"),
   });
   const [activeKpiId, setActiveKpiId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"performance" | "atendimento">("performance");
@@ -174,7 +175,10 @@ export function PublicDashboardPage() {
         const { data: allContracts, error: contractsError } = await supabase
           .rpc('get_client_contracts_public', { p_client_id: parsedData.id });
 
-        console.log('[Dashboard] allContracts via RPC:', allContracts, 'error:', contractsError);
+        logger.debug('Contratos via RPC', { 
+          contracts: allContracts, 
+          error: contractsError?.message 
+        }, 'PUBLIC_DASHBOARD');
 
         // Fallback: query direta (caso RPC ainda não exista)
         let contracts = (allContracts ?? []) as any[];
@@ -184,7 +188,7 @@ export function PublicDashboardPage() {
             .select("id, start_date, contract_date, is_dashboard_reference")
             .eq("client_id", parsedData.id)
             .order("start_date", { ascending: true });
-          console.log('[Dashboard] allContracts via direct query:', directContracts);
+          logger.debug('Contratos via query direta', { contracts: directContracts }, 'PUBLIC_DASHBOARD');
           contracts = (directContracts ?? []) as any[];
         }
 
@@ -192,15 +196,21 @@ export function PublicDashboardPage() {
           const refContract = contracts.find((c: any) => c.is_dashboard_reference === true)
             ?? contracts[0];
 
-          console.log('[Dashboard] refContract chosen:', refContract);
+          logger.debug('Contrato de referência escolhido', { 
+            contractId: refContract.id,
+            isReference: refContract.is_dashboard_reference 
+          }, 'PUBLIC_DASHBOARD');
 
           const rawDate = String(refContract.contract_date ?? refContract.start_date).substring(0, 10);
           const contractDate = parseISO(rawDate);
           const effectiveStart = startOfMonth(contractDate);
-          console.log('[Dashboard] rawDate:', rawDate, '→ effectiveStart:', effectiveStart.toISOString());
+          logger.debug('Data do contrato processada', { 
+            rawDate,
+            effectiveStart: effectiveStart.toISOString() 
+          }, 'PUBLIC_DASHBOARD');
           setContractStartDate(effectiveStart);
         } else {
-          console.warn('[Dashboard] No contracts found for client', parsedData.id);
+          logger.warn('Nenhum contrato encontrado para o cliente', { clientId: parsedData.id }, 'PUBLIC_DASHBOARD');
         }
       }
       setLoading(false);
@@ -253,7 +263,7 @@ export function PublicDashboardPage() {
     enabled: !!clientData?.id,
   });
   const kpiHistory = (kpiHistoryRaw ?? []) as any[];
-  const { campaignDataQuery, dailyMetricsQuery } = useClientReports(clientData?.organization_id, clientData?.id, stableDateRange, true);
+  const { campaignDataQuery } = useClientReports(clientData?.organization_id, clientData?.id, stableDateRange, true);
   const realCampaigns = useMemo(() => aggregateCampaigns((campaignDataQuery.data ?? []) as any[]), [campaignDataQuery.data]);
   const [campaignFilter, setCampaignFilter] = useState<"Todas" | "meta" | "google">("Todas");
   const filteredRealCampaigns = useMemo(() =>
@@ -261,7 +271,36 @@ export function PublicDashboardPage() {
     [realCampaigns, campaignFilter]
   );
   const [selectedCampaign, setSelectedCampaign] = useState<any>(null);
-  const realDailyMetrics = (dailyMetricsQuery.data ?? []) as any[];
+
+  // Agrega campaign_data por data para o gráfico de Evolução Diária.
+  // Usamos campaign_data (não daily_metrics) porque é a única tabela que tem o campo revenue.
+  // daily_metrics é uma tabela legada que não possui total_revenue.
+  const realDailyMetrics = useMemo(() => {
+    const rows = (campaignDataQuery.data ?? []) as any[];
+    const byDate: Record<string, any> = {};
+    for (const r of rows) {
+      const d = r.date;
+      if (!d) continue;
+      if (!byDate[d]) {
+        byDate[d] = {
+          date: d,
+          total_spend:       0,
+          total_leads:       0,
+          total_sales:       0,
+          total_revenue:     0,
+          total_impressions: 0,
+          total_clicks:      0,
+        };
+      }
+      byDate[d].total_spend       += Number(r.spend       ?? 0);
+      byDate[d].total_leads       += Number(r.leads       ?? 0);
+      byDate[d].total_sales       += Number(r.sales       ?? 0);
+      byDate[d].total_revenue     += Number(r.revenue     ?? 0);
+      byDate[d].total_impressions += Number(r.impressions ?? 0);
+      byDate[d].total_clicks      += Number(r.clicks      ?? 0);
+    }
+    return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
+  }, [campaignDataQuery.data]);
 
   // Debug log quando dados chegam
   console.log('[Dashboard] State:', {
@@ -294,12 +333,12 @@ export function PublicDashboardPage() {
   };
 
   const totals = useMemo(() => realDailyMetrics.reduce((acc, curr) => ({
-    spend: acc.spend + (curr.total_spend || 0),
-    leads: acc.leads + (curr.total_leads || 0),
-    sales: acc.sales + (curr.total_sales || 0),
-    revenue: acc.revenue + (curr.total_revenue || curr.revenue || 0),
-    impressions: acc.impressions + (curr.total_impressions || curr.impressions || 0),
-    clicks: acc.clicks + (curr.total_clicks || curr.clicks || 0),
+    spend:       acc.spend       + (curr.total_spend       || 0),
+    leads:       acc.leads       + (curr.total_leads       || 0),
+    sales:       acc.sales       + (curr.total_sales       || 0),
+    revenue:     acc.revenue     + (curr.total_revenue     || 0),
+    impressions: acc.impressions + (curr.total_impressions || 0),
+    clicks:      acc.clicks      + (curr.total_clicks      || 0),
   }), { spend: 0, leads: 0, sales: 0, revenue: 0, impressions: 0, clicks: 0 }), [realDailyMetrics]);
 
   // KPI cards — mês atual vs anterior com regras de comparação:

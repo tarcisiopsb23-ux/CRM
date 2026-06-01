@@ -320,9 +320,9 @@ function GoalsReport() {
 
 function ClientsCampaignsReport() {
   const iso = (d: Date) => fmtDate(d, "yyyy-MM-dd");
-  const [preset, setPreset] = useState("30d");
-  const [customFrom, setCustomFrom] = useState(iso(subDays(new Date(), 29)));
-  const [customTo, setCustomTo]     = useState(iso(new Date()));
+  const [preset, setPreset] = useState("month");
+  const [customFrom, setCustomFrom] = useState(iso(startOfMonth(new Date())));
+  const [customTo, setCustomTo]     = useState(iso(endOfMonth(new Date())));
   const [clientFilter, setClientFilter] = useState("all");
   const [platformFilter, setPlatformFilter] = useState("all");
 
@@ -332,7 +332,7 @@ function ClientsCampaignsReport() {
     if (preset === "month") return { from: iso(startOfMonth(now)),                  to: iso(endOfMonth(now)) };
     if (preset === "90d")   return { from: iso(subDays(now, 89)),                   to: iso(now) };
     if (preset === "custom") return { from: customFrom, to: customTo };
-    return { from: iso(subDays(now, 29)), to: iso(now) };
+    return { from: iso(startOfMonth(now)), to: iso(endOfMonth(now)) };
   }, [preset, customFrom, customTo]);
 
   const { summaries, totals, byClient, byPlatform, isLoading } = useAllClientsCampaigns(range);
