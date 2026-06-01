@@ -51,8 +51,9 @@ CREATE TABLE IF NOT EXISTS public.ai_events (
 CREATE TABLE IF NOT EXISTS public.ai_notices (
     id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     message     TEXT        NOT NULL,
-    priority    TEXT        NOT NULL CHECK (priority IN ('alta', 'média', 'baixa')),
-    validity    TEXT,
+    priority    TEXT        NOT NULL CHECK (priority IN ('alta', 'média', 'media', 'baixa')),
+    valid_from  DATE,
+    valid_to    DATE,
     status      TEXT        NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );

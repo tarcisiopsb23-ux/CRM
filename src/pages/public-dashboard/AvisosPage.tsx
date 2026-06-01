@@ -27,14 +27,10 @@ interface AiNotice {
   id: string;
   message: string;
   priority: "alta" | "média" | "baixa";
-  validity: string | null; // armazenado como JSON: { from: "YYYY-MM-DD", to: "YYYY-MM-DD" } ou texto legado
+  valid_from: string | null; // "YYYY-MM-DD"
+  valid_to:   string | null; // "YYYY-MM-DD"
   status: "active" | "inactive";
   created_at: string;
-}
-
-interface ValidityPeriod {
-  from: string; // "YYYY-MM-DD"
-  to: string;   // "YYYY-MM-DD"
 }
 
 interface FormState {
@@ -47,33 +43,16 @@ interface FormState {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function parseValidity(raw: string | null): ValidityPeriod {
-  if (!raw) return { from: "", to: "" };
+function formatPeriod(from: string | null, to: string | null): string {
+  if (!from && !to) return "";
   try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object" && "from" in parsed && "to" in parsed) {
-      return { from: parsed.from ?? "", to: parsed.to ?? "" };
-    }
+    const parts: string[] = [];
+    if (from) parts.push(format(parseISO(from), "dd/MM/yyyy", { locale: ptBR }));
+    if (to)   parts.push(format(parseISO(to),   "dd/MM/yyyy", { locale: ptBR }));
+    return parts.join(" até ");
   } catch {
-    // texto legado — ignora
+    return "";
   }
-  return { from: "", to: "" };
-}
-
-function formatPeriod(raw: string | null): string {
-  if (!raw) return "";
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed?.from && parsed?.to) {
-      const from = format(parseISO(parsed.from), "dd/MM/yyyy", { locale: ptBR });
-      const to   = format(parseISO(parsed.to),   "dd/MM/yyyy", { locale: ptBR });
-      return `${from} até ${to}`;
-    }
-  } catch {
-    // texto legado — exibe como está
-    return raw;
-  }
-  return "";
 }
 
 const defaultForm: FormState = {
@@ -154,12 +133,11 @@ export function AvisosPage() {
 
   function openEdit(item: AiNotice) {
     setEditingItem(item);
-    const period = parseValidity(item.validity);
     setForm({
       message: item.message,
       priority: item.priority,
-      validityFrom: period.from,
-      validityTo: period.to,
+      validityFrom: item.valid_from ?? "",
+      validityTo:   item.valid_to   ?? "",
       status: item.status === "active",
     });
     setDialogOpen(true);
@@ -173,17 +151,12 @@ export function AvisosPage() {
       return;
     }
 
-    // Serializa o período como JSON se ambas as datas estiverem preenchidas
-    const validity =
-      form.validityFrom && form.validityTo
-        ? JSON.stringify({ from: form.validityFrom, to: form.validityTo })
-        : null;
-
     const payload = {
-      message: form.message.trim(),
-      priority: form.priority as AiNotice["priority"],
-      validity,
-      status: form.status ? ("active" as const) : ("inactive" as const),
+      message:    form.message.trim(),
+      priority:   form.priority as AiNotice["priority"],
+      valid_from: form.validityFrom || null,
+      valid_to:   form.validityTo   || null,
+      status:     form.status ? ("active" as const) : ("inactive" as const),
     };
 
     if (editingItem) {
@@ -233,7 +206,7 @@ export function AvisosPage() {
       {!isLoading && items.length > 0 && (
         <div className="card-surface divide-y divide-border rounded-xl">
           {items.map((n) => {
-            const period = formatPeriod(n.validity);
+            const period = formatPeriod(n.valid_from, n.valid_to);
             return (
               <div
                 key={n.id}
