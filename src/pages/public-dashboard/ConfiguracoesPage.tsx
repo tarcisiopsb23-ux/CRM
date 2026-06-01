@@ -369,7 +369,6 @@ export function ConfiguracoesPage() {
     }) => {
       if (!dc) throw new Error("Cliente não conectado");
 
-      // Monta o payload sem o opening_hours do form (é gerenciado pelo estado hours)
       const payload: Record<string, unknown> = {
         phone: values.phone,
         instagram: values.instagram,
@@ -380,21 +379,23 @@ export function ConfiguracoesPage() {
       };
 
       if (settings?.id) {
-        // Registro existente — faz UPDATE direto pelo id
         const { error } = await dc
           .from("ai_settings")
           .update(payload)
           .eq("id", settings.id);
         if (error) throw error;
       } else {
-        // Primeiro registro — faz INSERT
         const { error } = await dc.from("ai_settings").insert(payload);
         if (error) throw error;
       }
+
+      // Retorna o payload salvo para atualizar o cache sem refetch
+      return { ...settings, ...payload } as AiSettings;
     },
-    onSuccess: () => {
+    onSuccess: (saved) => {
       toast.success("Configurações salvas com sucesso!");
-      queryClient.invalidateQueries({ queryKey: ["ai_settings"] });
+      // Atualiza o cache diretamente — evita refetch que sobrescreveria o estado local
+      queryClient.setQueryData(["ai_settings"], saved);
     },
     onError: (e: any) => toast.error("Erro ao salvar: " + e.message),
   });
