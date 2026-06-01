@@ -140,9 +140,9 @@ export function useAgencyCampaignData(range?: PeriodRange) {
       budgetPct: 0,
       // Para compatibilidade com useCampaigns
       account:   "Conta Principal",
-      qualified: Math.round((Number(r?.leads ?? 0)) * 0.4),
-      meetings:  Math.round((Number(r?.leads ?? 0)) * 0.1),
-      contracts: Math.round((Number(r?.leads ?? 0)) * 0.05),
+      qualified: Math.round(c.leads * 0.4),
+      meetings:  Math.round(c.leads * 0.1),
+      contracts: Math.round(c.leads * 0.05),
     })).sort((a, b) => b.spend - a.spend);
   }, [rows]);
 
