@@ -200,12 +200,13 @@ export function useClientReports(organizationId?: string, clientId?: string, dat
     queryKey: ["campaign_data", organizationId, clientId, dateRange, usePublicRpc],
     queryFn: async () => {
       if (!clientId || !dateRange) return [];
-      // Dashboard público: usa RPC SECURITY DEFINER que bypassa RLS
+      // Dashboard público: tenta RPC SECURITY DEFINER primeiro, cai na query direta se falhar
       if (usePublicRpc) {
         const { data, error } = await supabase
           .rpc('get_campaign_data_public', { p_client_id: clientId, p_from: dateRange.from, p_to: dateRange.to });
-        if (error) { console.error('[useClientReports] campaign_data RPC error:', error); return []; }
-        return (data || []) as CampaignData[];
+        if (!error) return (data || []) as CampaignData[];
+        // RPC não existe ou falhou — fallback para query direta (funciona se RLS permitir anon)
+        console.warn('[useClientReports] RPC get_campaign_data_public indisponível, usando query direta:', error.message);
       }
       let q = supabase
         .from("campaign_data")
@@ -225,12 +226,13 @@ export function useClientReports(organizationId?: string, clientId?: string, dat
     queryKey: ["daily_metrics", organizationId, clientId, dateRange, usePublicRpc],
     queryFn: async () => {
       if (!clientId || !dateRange) return [];
-      // Dashboard público: usa RPC SECURITY DEFINER que bypassa RLS
+      // Dashboard público: tenta RPC SECURITY DEFINER primeiro, cai na query direta se falhar
       if (usePublicRpc) {
         const { data, error } = await supabase
           .rpc('get_daily_metrics_public', { p_client_id: clientId, p_from: dateRange.from, p_to: dateRange.to });
-        if (error) { console.error('[useClientReports] daily_metrics RPC error:', error); return []; }
-        return (data || []) as DailyMetrics[];
+        if (!error) return (data || []) as DailyMetrics[];
+        // RPC não existe ou falhou — fallback para query direta
+        console.warn('[useClientReports] RPC get_daily_metrics_public indisponível, usando query direta:', error.message);
       }
       let q = supabase
         .from("daily_metrics")
