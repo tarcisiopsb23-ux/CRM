@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,13 +13,15 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Pencil, Trash2, Plus, Loader2, UtensilsCrossed } from "lucide-react";
+import { Pencil, Trash2, Plus, Loader2, UtensilsCrossed, ImagePlus, X } from "lucide-react";
 import { useClientAuth } from "@/hooks/useClientAuth";
 import { useDynamicClient } from "@/hooks/useDynamicClient";
 import { PageHeader } from "./components/PageHeader";
 import { StatusBadge } from "./components/StatusBadge";
 import { CredentialsErrorState } from "./components/CredentialsErrorState";
 import { DeleteConfirmDialog } from "./components/DeleteConfirmDialog";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface AiSuggestion {
   id: string;
@@ -36,7 +38,7 @@ interface FormState {
   description: string;
   price: string;
   image_url: string;
-  status: boolean; // true = active
+  status: boolean;
 }
 
 const defaultForm: FormState = {
@@ -47,10 +49,138 @@ const defaultForm: FormState = {
   status: true,
 };
 
+const BUCKET = "branding";
+
+// ─── Componente de upload de imagem ──────────────────────────────────────────
+
+interface ImageUploaderProps {
+  currentUrl: string;
+  onChange: (url: string) => void;
+  dc: ReturnType<typeof useDynamicClient>;
+}
+
+function ImageUploader({ currentUrl, onChange, dc }: ImageUploaderProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [preview, setPreview] = useState<string>(currentUrl);
+
+  useEffect(() => { setPreview(currentUrl); }, [currentUrl]);
+
+  const handleFile = async (file: File) => {
+    if (!dc) return;
+    if (!file.type.startsWith("image/")) { toast.error("Selecione um arquivo de imagem."); return; }
+    if (file.size > 5 * 1024 * 1024) { toast.error("A imagem deve ter no máximo 5 MB."); return; }
+
+    setUploading(true);
+    try {
+      const ext = file.name.split(".").pop() ?? "jpg";
+      const filePath = `suggestions/${Date.now()}.${ext}`;
+
+      const { error: uploadError } = await dc.storage
+        .from(BUCKET)
+        .upload(filePath, file, { upsert: true, contentType: file.type });
+
+      if (uploadError) {
+        if ((uploadError as any).statusCode === "404" || uploadError.message.includes("Bucket not found")) {
+          throw new Error('Bucket "branding" não encontrado. Execute o SQL de migration no Supabase do cliente.');
+        }
+        throw uploadError;
+      }
+
+      const { data: { publicUrl } } = dc.storage.from(BUCKET).getPublicUrl(filePath);
+
+      setPreview(publicUrl);
+      onChange(publicUrl);
+      toast.success("Imagem carregada. Salve para confirmar.");
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleRemove = () => {
+    setPreview("");
+    onChange("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  return (
+    <div className="space-y-2">
+      {/* Preview */}
+      {preview ? (
+        <div className="relative h-40 w-full overflow-hidden rounded-lg border border-border bg-secondary/20">
+          <img src={preview} alt="Preview" className="h-full w-full object-cover" />
+          <button
+            type="button"
+            onClick={handleRemove}
+            className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow"
+            title="Remover imagem"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+          {/* URL pública copiável */}
+          <div className="absolute inset-x-0 bottom-0 bg-black/60 px-2 py-1">
+            <p className="truncate text-[10px] text-white/70">{preview}</p>
+          </div>
+        </div>
+      ) : (
+        <div
+          className="flex h-40 w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border bg-secondary/10 text-muted-foreground transition-colors hover:border-primary/40 hover:bg-secondary/20"
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <ImagePlus className="h-8 w-8 opacity-40" />
+          <p className="text-xs">Clique para enviar uma imagem</p>
+          <p className="text-[10px] opacity-60">PNG, JPG, WEBP · máx. 5 MB</p>
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={uploading}
+          onClick={() => fileInputRef.current?.click()}
+          className="border-border flex-1"
+        >
+          {uploading ? (
+            <><Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />Enviando...</>
+          ) : (
+            <><ImagePlus className="h-3.5 w-3.5 mr-2" />{preview ? "Trocar imagem" : "Enviar imagem"}</>
+          )}
+        </Button>
+        {preview && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => { navigator.clipboard.writeText(preview); toast.success("URL copiada!"); }}
+            className="text-xs text-muted-foreground"
+            title="Copiar URL pública"
+          >
+            Copiar URL
+          </Button>
+        )}
+      </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+      />
+    </div>
+  );
+}
+
+// ─── Página principal ─────────────────────────────────────────────────────────
+
 export function SugestoesPage() {
   const dc = useDynamicClient();
   const queryClient = useQueryClient();
-  useClientAuth(); // ensure context is available
+  useClientAuth();
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<AiSuggestion | null>(null);
@@ -59,21 +189,16 @@ export function SugestoesPage() {
 
   if (!dc) return <CredentialsErrorState />;
 
-  // ── Query ──────────────────────────────────────────────────────────────────
   const { data: items = [], isLoading } = useQuery({
     queryKey: ["ai_suggestions"],
     queryFn: async () => {
-      const { data, error } = await dc
-        .from("ai_suggestions")
-        .select("*")
-        .order("created_at", { ascending: false });
+      const { data, error } = await dc.from("ai_suggestions").select("*").order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as AiSuggestion[];
     },
     staleTime: 60_000,
   });
 
-  // ── Mutations ──────────────────────────────────────────────────────────────
   const createMutation = useMutation({
     mutationFn: async (payload: Omit<AiSuggestion, "id" | "created_at">) => {
       const { error } = await dc.from("ai_suggestions").insert(payload);
@@ -84,13 +209,7 @@ export function SugestoesPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({
-      id,
-      payload,
-    }: {
-      id: string;
-      payload: Partial<Omit<AiSuggestion, "id" | "created_at">>;
-    }) => {
+    mutationFn: async ({ id, payload }: { id: string; payload: Partial<Omit<AiSuggestion, "id" | "created_at">> }) => {
       const { error } = await dc.from("ai_suggestions").update(payload).eq("id", id);
       if (error) throw error;
     },
@@ -116,12 +235,7 @@ export function SugestoesPage() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
-  function openCreate() {
-    setEditingItem(null);
-    setForm(defaultForm);
-    setDialogOpen(true);
-  }
+  function openCreate() { setEditingItem(null); setForm(defaultForm); setDialogOpen(true); }
 
   function openEdit(item: AiSuggestion) {
     setEditingItem(item);
@@ -136,18 +250,9 @@ export function SugestoesPage() {
   }
 
   function handleSubmit() {
-    if (!form.name.trim()) {
-      toast.error("O campo nome é obrigatório.");
-      return;
-    }
-
-    const parsedPrice =
-      form.price.trim() !== "" ? parseFloat(form.price) : null;
-
-    if (parsedPrice !== null && isNaN(parsedPrice)) {
-      toast.error("O preço informado é inválido.");
-      return;
-    }
+    if (!form.name.trim()) { toast.error("O campo nome é obrigatório."); return; }
+    const parsedPrice = form.price.trim() !== "" ? parseFloat(form.price) : null;
+    if (parsedPrice !== null && isNaN(parsedPrice)) { toast.error("O preço informado é inválido."); return; }
 
     const payload = {
       name: form.name.trim(),
@@ -158,36 +263,18 @@ export function SugestoesPage() {
     };
 
     if (editingItem) {
-      updateMutation.mutate(
-        { id: editingItem.id, payload },
-        { onSuccess: () => setDialogOpen(false) }
-      );
+      updateMutation.mutate({ id: editingItem.id, payload }, { onSuccess: () => setDialogOpen(false) });
     } else {
       createMutation.mutate(payload, { onSuccess: () => setDialogOpen(false) });
     }
   }
 
-  function handleToggleStatus(item: AiSuggestion) {
-    const newStatus = item.status === "active" ? "inactive" : "active";
-    toggleStatusMutation.mutate({ id: item.id, status: newStatus });
-  }
-
-  function handleDeleteConfirm() {
-    if (!deleteTarget) return;
-    deleteMutation.mutate(deleteTarget.id, {
-      onSuccess: () => setDeleteTarget(null),
-    });
-  }
-
   function formatPrice(price: number | null): string {
-    return price !== null
-      ? price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
-      : "—";
+    return price !== null ? price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "—";
   }
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
-  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-6">
       <PageHeader
@@ -247,10 +334,22 @@ export function SugestoesPage() {
                 {item.description && (
                   <p className="text-sm leading-relaxed text-muted-foreground line-clamp-2">{item.description}</p>
                 )}
+                {/* URL pública para compartilhamento */}
+                {item.image_url && (
+                  <button
+                    type="button"
+                    onClick={() => { navigator.clipboard.writeText(item.image_url!); toast.success("URL da imagem copiada!"); }}
+                    className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-primary transition-colors"
+                    title="Copiar URL da imagem para compartilhar"
+                  >
+                    <ImagePlus className="h-3 w-3" />
+                    Copiar URL da imagem
+                  </button>
+                )}
                 <div className="flex items-center justify-between border-t border-border/60 pt-3">
                   <Switch
                     checked={item.status === "active"}
-                    onCheckedChange={() => handleToggleStatus(item)}
+                    onCheckedChange={() => toggleStatusMutation.mutate({ id: item.id, status: item.status === "active" ? "inactive" : "active" })}
                     disabled={toggleStatusMutation.isPending}
                   />
                   <div className="flex gap-1">
@@ -268,7 +367,7 @@ export function SugestoesPage() {
         </div>
       )}
 
-      {/* Create / Edit Dialog */}
+      {/* Dialog criar / editar */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="bg-card border-border text-foreground sm:max-w-md">
           <DialogHeader>
@@ -276,13 +375,21 @@ export function SugestoesPage() {
               {editingItem ? "Editar Sugestão" : "Nova Sugestão"}
             </DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              {editingItem
-                ? "Atualize as informações da sugestão da semana."
-                : "Preencha os dados para cadastrar uma nova sugestão."}
+              {editingItem ? "Atualize as informações da sugestão." : "Preencha os dados para cadastrar uma nova sugestão."}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
+            {/* Imagem */}
+            <div className="space-y-1.5">
+              <Label className="text-foreground/90">Imagem</Label>
+              <ImageUploader
+                currentUrl={form.image_url}
+                onChange={(url) => setForm((f) => ({ ...f, image_url: url }))}
+                dc={dc}
+              />
+            </div>
+
             {/* Nome */}
             <div className="space-y-1.5">
               <Label htmlFor="name" className="text-foreground/90">
@@ -293,31 +400,25 @@ export function SugestoesPage() {
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                 placeholder="Nome da sugestão"
-                className="bg-background border-border text-foreground placeholder:text-muted-foreground focus-visible:ring-primary"
+                className="bg-background border-border text-foreground placeholder:text-muted-foreground"
               />
             </div>
 
             {/* Descrição */}
             <div className="space-y-1.5">
-              <Label htmlFor="description" className="text-foreground/90">
-                Descrição
-              </Label>
+              <Label htmlFor="description" className="text-foreground/90">Descrição</Label>
               <Input
                 id="description"
                 value={form.description}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, description: e.target.value }))
-                }
+                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
                 placeholder="Descrição da sugestão (opcional)"
-                className="bg-background border-border text-foreground placeholder:text-muted-foreground focus-visible:ring-primary"
+                className="bg-background border-border text-foreground placeholder:text-muted-foreground"
               />
             </div>
 
             {/* Preço */}
             <div className="space-y-1.5">
-              <Label htmlFor="price" className="text-foreground/90">
-                Preço
-              </Label>
+              <Label htmlFor="price" className="text-foreground/90">Preço</Label>
               <Input
                 id="price"
                 type="number"
@@ -326,23 +427,7 @@ export function SugestoesPage() {
                 value={form.price}
                 onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))}
                 placeholder="0,00"
-                className="bg-background border-border text-foreground placeholder:text-muted-foreground focus-visible:ring-primary"
-              />
-            </div>
-
-            {/* URL de imagem */}
-            <div className="space-y-1.5">
-              <Label htmlFor="image_url" className="text-foreground/90">
-                URL de imagem
-              </Label>
-              <Input
-                id="image_url"
-                value={form.image_url}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, image_url: e.target.value }))
-                }
-                placeholder="https://..."
-                className="bg-background border-border text-foreground placeholder:text-muted-foreground focus-visible:ring-primary"
+                className="bg-background border-border text-foreground placeholder:text-muted-foreground"
               />
             </div>
 
@@ -350,33 +435,22 @@ export function SugestoesPage() {
             <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
               <div className="space-y-0.5">
                 <Label className="text-foreground/90 text-sm">Status ativo</Label>
-                <p className="text-xs text-muted-foreground">
-                  Sugestão visível para o agente IA
-                </p>
+                <p className="text-xs text-muted-foreground">Sugestão visível para o agente IA</p>
               </div>
               <Switch
                 checked={form.status}
-                onCheckedChange={(checked) =>
-                  setForm((f) => ({ ...f, status: checked }))
-                }
+                onCheckedChange={(checked) => setForm((f) => ({ ...f, status: checked }))}
               />
             </div>
           </div>
 
           <DialogFooter>
-            <Button
-              variant="ghost"
-              onClick={() => setDialogOpen(false)}
-              disabled={isSaving}
-              className="text-foreground/90 hover:text-foreground hover:bg-secondary"
-            >
+            <Button variant="ghost" onClick={() => setDialogOpen(false)} disabled={isSaving}
+              className="text-foreground/90 hover:text-foreground hover:bg-secondary">
               Cancelar
             </Button>
-            <Button
-              onClick={handleSubmit}
-              disabled={isSaving}
-              className="bg-gradient-ember hover:opacity-90 text-primary-foreground shadow-glow"
-            >
+            <Button onClick={handleSubmit} disabled={isSaving}
+              className="bg-gradient-ember hover:opacity-90 text-primary-foreground shadow-glow">
               {isSaving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               {editingItem ? "Salvar alterações" : "Cadastrar"}
             </Button>
@@ -384,11 +458,10 @@ export function SugestoesPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirm Dialog */}
       <DeleteConfirmDialog
         open={!!deleteTarget}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
-        onConfirm={handleDeleteConfirm}
+        onConfirm={() => { if (deleteTarget) deleteMutation.mutate(deleteTarget.id, { onSuccess: () => setDeleteTarget(null) }); }}
         itemName={deleteTarget?.name}
         isLoading={deleteMutation.isPending}
       />
