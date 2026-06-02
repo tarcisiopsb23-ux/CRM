@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { fireN8nWebhook } from "@/lib/n8nWebhook";
 import type { Database } from "@/types/supabase";
 
-type TaskStatus = "backlog" | "em_andamento" | "em_revisao" | "concluida" | "parada";
+type TaskStatus = "backlog" | "em_andamento" | "em_revisao" | "concluida" | "parada" | "bloqueada";
 type TaskPriority = "baixa" | "media" | "alta" | "urgente";
 
 export interface Project {

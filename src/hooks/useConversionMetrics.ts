@@ -298,7 +298,7 @@ export function useConversionMetricsEntries(
               value: leadsManual,
             },
             { onConflict: "kpi_id, month_year" }
-          )
+          ).then(r => r)
         );
       }
 
@@ -313,7 +313,7 @@ export function useConversionMetricsEntries(
               value: salesManual,
             },
             { onConflict: "kpi_id, month_year" }
-          )
+          ).then(r => r)
         );
       }
 

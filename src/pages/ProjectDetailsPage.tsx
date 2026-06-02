@@ -30,7 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, ArrowRight, Trash2, Calendar, CheckSquare, Plus, Users, LayoutList, CalendarDays, GanttChart, Pencil, FileText, ExternalLink, Download, PauseCircle, RefreshCcw, MessageSquare } from "lucide-react";
+import { ArrowLeft, ArrowRight, Trash2, Calendar, CheckSquare, Plus, Users, LayoutList, CalendarDays, GanttChart, Pencil, FileText, ExternalLink, Download, PauseCircle, RefreshCcw, MessageSquare, Loader2 } from "lucide-react";
 import { format, parseISO, isSameDay, isSameMonth, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, isWithinInterval, differenceInCalendarDays, isAfter, startOfWeek, endOfWeek, addWeeks, subWeeks, addDays, subDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import type { Database } from "@/types/supabase";

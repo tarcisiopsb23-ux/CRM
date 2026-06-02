@@ -177,14 +177,14 @@ export function useAsaasCharges(organizationId: string | undefined, options?: {
   });
 
   const cancelCharge = useMutation({
-    mutationFn: async (asaas_id: string, reason?: string) => {
+    mutationFn: async (asaas_id: string) => {
       if (!organizationId) throw new Error("Sem organização");
 
-      logger.info("Cancelando cobrança Asaas", { asaas_id, reason }, 'ASAAS');
+      logger.info("Cancelando cobrança Asaas", { asaas_id }, 'ASAAS');
 
       const { data, error } = await supabase.rpc("cancel_asaas_charge", {
         p_asaas_id: asaas_id,
-        p_reason: reason || "Cancelado pelo usuário"
+        p_reason: "Cancelado pelo usuário"
       });
 
       if (error) throw error;
