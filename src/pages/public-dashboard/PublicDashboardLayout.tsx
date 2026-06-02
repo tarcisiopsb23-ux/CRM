@@ -56,6 +56,21 @@ function PublicDashboardLayoutInner({ slug }: { slug: string }) {
           metadata: {
             dashboard_performance: fresh.dashboard_performance ?? true,
             dashboard_atendimento: fresh.dashboard_atendimento ?? false,
+            ...(fresh.conversion_metrics && Object.keys(fresh.conversion_metrics).length > 0
+              ? { conversion_metrics: fresh.conversion_metrics }
+              : auth.metadata?.conversion_metrics
+                ? { conversion_metrics: auth.metadata.conversion_metrics }
+                : {}),
+            ...(Array.isArray(fresh.dashboard_kpis) && fresh.dashboard_kpis.length > 0
+              ? { dashboard_kpis: fresh.dashboard_kpis }
+              : auth.metadata?.dashboard_kpis?.length
+                ? { dashboard_kpis: auth.metadata.dashboard_kpis }
+                : {}),
+            ...(Array.isArray(fresh.geral_dashboard_cards) && fresh.geral_dashboard_cards.length > 0
+              ? { geral_dashboard_cards: fresh.geral_dashboard_cards }
+              : auth.metadata?.geral_dashboard_cards?.length
+                ? { geral_dashboard_cards: auth.metadata.geral_dashboard_cards }
+                : {}),
           },
         });
       }

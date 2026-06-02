@@ -20,9 +20,12 @@ type DashboardClientRow = {
   favicon_url: string | null;
   dashboard_performance: boolean;
   dashboard_atendimento: boolean;
-  show_ia_content: boolean;           // NOVO
-  client_supabase_url: string | null; // NOVO
-  client_supabase_anon_key: string | null; // NOVO
+  show_ia_content: boolean;
+  client_supabase_url: string | null;
+  client_supabase_anon_key: string | null;
+  conversion_metrics?: { lead_fields?: string[]; sale_fields?: string[] } | null;
+  dashboard_kpis?: string[] | null;
+  geral_dashboard_cards?: string[] | null;
 };
 
 export function PublicDashboardLoginPage() {
@@ -219,12 +222,21 @@ export function PublicDashboardLoginPage() {
       company: client.company,
       favicon_url: client.favicon_url ?? null,
       authenticated: true,
-      show_ia_content: client.show_ia_content ?? false,           // NOVO
-      client_supabase_url: client.client_supabase_url ?? null,   // NOVO
-      client_supabase_anon_key: client.client_supabase_anon_key ?? null, // NOVO
+      show_ia_content: client.show_ia_content ?? false,
+      client_supabase_url: client.client_supabase_url ?? null,
+      client_supabase_anon_key: client.client_supabase_anon_key ?? null,
       metadata: {
         dashboard_performance: client.dashboard_performance ?? true,
         dashboard_atendimento: client.dashboard_atendimento ?? false,
+        ...(client.conversion_metrics && Object.keys(client.conversion_metrics).length > 0
+          ? { conversion_metrics: client.conversion_metrics }
+          : {}),
+        ...(Array.isArray(client.dashboard_kpis) && client.dashboard_kpis.length > 0
+          ? { dashboard_kpis: client.dashboard_kpis }
+          : {}),
+        ...(Array.isArray(client.geral_dashboard_cards) && client.geral_dashboard_cards.length > 0
+          ? { geral_dashboard_cards: client.geral_dashboard_cards }
+          : {}),
       },
     }));
     navigate(`/public/dashboard/${slug}`);

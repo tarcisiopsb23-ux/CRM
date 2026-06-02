@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useClientReports } from "@/hooks/useHubPerformance";
+import { usePartnershipImpact, fmtImpact, isLowerBetterImpact } from "@/hooks/usePartnershipImpact";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line,
@@ -215,8 +217,19 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
   const dailyMetrics = (dailyMetricsQuery.data ?? []) as any[];
   const { data: kpis = [] } = useClientKPIs(organizationId, clientId);
   const { data: kpiHistory = [] } = useClientKPIHistory(organizationId, clientId);
-  const kpisArr = kpis as any[];
+  const kpisArr = (kpis as any[]).filter((k: any) => k.name !== "__lead_manual" && k.name !== "__sale_manual");
   const historyArr = kpiHistory as any[];
+
+  // Busca metadata do cliente para filtrar KPIs no dashboard
+  const { data: clientMetadata } = useQuery({
+    queryKey: ["client_metadata_dashboard_kpis", clientId],
+    queryFn: async () => {
+      if (!clientId) return null;
+      const { data } = await supabase.from("clients").select("metadata").eq("id", clientId).single();
+      return (data?.metadata ?? {}) as Record<string, unknown>;
+    },
+    enabled: !!clientId,
+  });
 
   const conversationKpis = useClientConversationKpis(organizationId, clientId, dateRange);
 
@@ -236,7 +249,13 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
   const cpm = totals.impressions > 0 ? ((totals.spend / totals.impressions) * 1000).toFixed(2) : "0.00";
   const cpl = totals.leads > 0 ? (totals.spend / totals.leads).toFixed(2) : "0.00";
   const ticketMedio = totals.sales > 0 ? (totals.revenue / totals.sales).toFixed(0) : "0";
-  const conversionRate = totals.leads > 0 ? ((totals.sales / totals.leads) * 100).toFixed(1) : "0.0";
+  // Se não há leads, usa cliques como denominador (igual ao funil adaptativo)
+  const conversionRate = totals.leads > 0
+    ? ((totals.sales / totals.leads) * 100).toFixed(1)
+    : totals.clicks > 0
+      ? ((totals.sales / totals.clicks) * 100).toFixed(1)
+      : "0.0";
+  const conversionLabel = totals.leads > 0 ? "Leads → Vendas" : totals.clicks > 0 ? "Cliques → Vendas" : "Conversão";
 
   const fmtVal = (v: number | null | undefined, unit: string) => fmtKpiValue(v, unit);
 
@@ -270,6 +289,14 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
     });
   }, [kpisArr, historyArr, contractStartDate]);
 
+  // Filtra pelos IDs selecionados para o dashboard (vazio = exibe todos)
+  const visibleKpiCards = useMemo(() => {
+    const dashboardKpis = Array.isArray(clientMetadata?.dashboard_kpis)
+      ? (clientMetadata.dashboard_kpis as string[]) : [];
+    if (dashboardKpis.length === 0) return kpiCards;
+    return kpiCards.filter((k: any) => dashboardKpis.includes(k.id));
+  }, [kpiCards, clientMetadata]);
+
   // Sparkline (6 meses) por KPI
   const kpiSparkline = useMemo(() => {
     const monthKeys = Array.from({ length: 6 }).map((_, i) => format(subMonths(new Date(), i), "yyyy-MM")).reverse();
@@ -302,24 +329,8 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
     });
   }, [kpisArr, historyArr, contractStartDate]);
 
-  // Impacto da parceria — mesmo padrão do public/dashboard
-  const partnershipImpact = useMemo(() => {
-    if (!contractStartDate || historyArr.length === 0) return [];
-    const splitDate = startOfMonth(contractStartDate);
-    return kpisArr.map(kpi => {
-      const kpiEntries = historyArr
-        .filter((h: any) => h.kpi_id === kpi.id)
-        .sort((a: any, b: any) => String(a.month_year).localeCompare(String(b.month_year)));
-      if (kpiEntries.length < 2) return null;
-      const pre = kpiEntries.filter((h: any) => isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), splitDate));
-      const post = kpiEntries.filter((h: any) => !isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), splitDate));
-      if (pre.length === 0 || post.length === 0) return null;
-      const preLast12 = pre.slice(-12);
-      const preAvg = preLast12.reduce((a: number, h: any) => a + Number(h.value), 0) / preLast12.length;
-      const postAvg = post.reduce((a: number, h: any) => a + Number(h.value), 0) / post.length;
-      return { name: kpi.name, unit: kpi.unit, pre: preAvg, post: postAvg, postMonths: post.length, growth: preAvg !== 0 ? ((postAvg - preAvg) / preAvg) * 100 : null };
-    }).filter(Boolean);
-  }, [kpisArr, historyArr, contractStartDate]);
+  // Impacto da parceria — dois cards para faturamento, um para os demais
+  const partnershipImpact = usePartnershipImpact(kpisArr, historyArr, contractStartDate);
 
   // Comparativo de performance — mesmo padrão do public/dashboard
   const perfRows = useMemo(() => {
@@ -439,11 +450,13 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
         {/* ── 1. MÉTRICAS DE CAMPANHA ── */}
         <div>
           <SectionTitle icon={<DollarSign className="h-4 w-4 text-blue-500" />} label="Métricas de Campanha" />
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mt-3">
+          <div className={`grid gap-4 mt-3 ${totals.leads > 0 ? "grid-cols-2 md:grid-cols-3 lg:grid-cols-6" : "grid-cols-2 md:grid-cols-3 lg:grid-cols-5"}`}>
             <MetricCard label="Investimento" value={`R$ ${totals.spend.toLocaleString("pt-BR")}`} icon={<DollarSign className="h-5 w-5 text-blue-500" />} info="Valor total investido em mídia paga no período selecionado." />
-            <MetricCard label="Leads" value={totals.leads} icon={<Users className="h-5 w-5 text-indigo-500" />} info="Total de leads gerados pelas campanhas no período." />
+            {totals.leads > 0 && (
+              <MetricCard label="Leads" value={totals.leads} icon={<Users className="h-5 w-5 text-indigo-500" />} info="Total de leads gerados pelas campanhas no período." />
+            )}
             <MetricCard label="Vendas" value={totals.sales} icon={<Target className="h-5 w-5 text-emerald-500" />} info="Total de vendas atribuídas às campanhas no período." />
-            <MetricCard label="Conversão" value={`${conversionRate}%`} icon={<CheckCircle2 className="h-5 w-5 text-emerald-600" />} info="Taxa de conversão de leads em vendas (vendas ÷ leads × 100)." />
+            <MetricCard label="Conversão" value={`${conversionRate}%`} icon={<CheckCircle2 className="h-5 w-5 text-emerald-600" />} info={`Taxa de conversão: ${conversionLabel}.`} />
             <MetricCard label="Faturamento Est." value={`R$ ${totals.revenue.toLocaleString("pt-BR")}`} icon={<TrendingUp className="h-5 w-5 text-white" />} info="Receita estimada gerada pelas vendas atribuídas às campanhas." highlight />
             <MetricCard label="ROAS" value={`${roas}x`} icon={<PieChart className="h-5 w-5 text-orange-500" />} info="Retorno sobre investimento em anúncios (faturamento ÷ investimento)." />
           </div>
@@ -492,12 +505,20 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
               <InfoTooltip text="Visualize como os usuários avançam em cada etapa da jornada: de impressões até vendas. As taxas entre etapas revelam onde há maior perda e onde focar otimizações." />
             </CardHeader>
             <CardContent className="flex-1 flex flex-col justify-center pt-2">
-              <ModernFunnel textVariant="white" steps={[
-                { label: "Impressões", value: totals.impressions.toLocaleString("pt-BR"), color: "bg-slate-400", width: "w-full", percentage: ((totals.clicks / (totals.impressions || 1)) * 100).toFixed(1) + "%", rateLabel: "CTR" },
-                { label: "Cliques", value: totals.clicks.toLocaleString("pt-BR"), color: "bg-blue-400", width: "w-[85%]", percentage: ((totals.leads / (totals.clicks || 1)) * 100).toFixed(1) + "%", rateLabel: "TX. CONV." },
-                { label: "Leads", value: totals.leads, color: "bg-indigo-500", width: "w-[70%]", percentage: ((totals.sales / (totals.leads || 1)) * 100).toFixed(1) + "%", rateLabel: "TX. FECH." },
-                { label: "Vendas", value: totals.sales, color: "bg-emerald-500", width: "w-[55%]" },
-              ]} />
+              <ModernFunnel textVariant="white" steps={(() => {
+                const hasLeads = totals.leads > 0;
+                return [
+                  { label: "Impressões", value: totals.impressions.toLocaleString("pt-BR"), color: "bg-slate-400", width: "w-full", percentage: ((totals.clicks / (totals.impressions || 1)) * 100).toFixed(1) + "%", rateLabel: "CTR" },
+                  ...(hasLeads ? [
+                    { label: "Cliques", value: totals.clicks.toLocaleString("pt-BR"), color: "bg-blue-400", width: "w-[85%]", percentage: ((totals.leads / (totals.clicks || 1)) * 100).toFixed(1) + "%", rateLabel: "TX. CONV." },
+                    { label: "Leads", value: totals.leads, color: "bg-indigo-500", width: "w-[70%]", percentage: ((totals.sales / (totals.leads || 1)) * 100).toFixed(1) + "%", rateLabel: "TX. FECH." },
+                    { label: "Vendas", value: totals.sales, color: "bg-emerald-500", width: "w-[55%]" },
+                  ] : [
+                    { label: "Cliques", value: totals.clicks.toLocaleString("pt-BR"), color: "bg-blue-400", width: "w-[85%]", percentage: ((totals.sales / (totals.clicks || 1)) * 100).toFixed(1) + "%", rateLabel: "TX. CONV." },
+                    { label: "Vendas", value: totals.sales, color: "bg-emerald-500", width: "w-[70%]" },
+                  ]),
+                ];
+              })()} />
               <div className="mt-6 pt-5 border-t border-slate-100 text-center">
                 <p className="text-slate-400 text-[10px] uppercase font-black tracking-widest">Faturamento Estimado</p>
                 <p className="text-2xl font-black text-emerald-600 mt-1">R$ {totals.revenue.toLocaleString("pt-BR")}</p>
@@ -604,7 +625,60 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
           </CardContent>
         </Card>
 
-        {/* ── 5. INDICADORES DE NEGÓCIO (KPIs manuais) ── */}
+        {/* ── 5. IMPACTO DA PARCERIA ── */}
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <SectionTitle icon={<Activity className="h-4 w-4 text-emerald-500" />} label="Impacto da Parceria" />
+            <InfoTooltip text="Comparação entre a média dos indicadores antes e depois do início do contrato com a agência. O percentual mostra o crescimento (ou redução) médio após a parceria." />
+          </div>
+          {partnershipImpact.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 gap-3 text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+              <Activity className="h-8 w-8 opacity-20" />
+              <p className="text-sm text-center">Dados insuficientes para calcular o impacto.<br />São necessários registros antes e após o início do contrato.</p>
+            </div>
+          ) : (
+            <HorizontalScroll>
+              {partnershipImpact.map((item) => {
+                const isPositive = isLowerBetterImpact(item.kpiName)
+                  ? (item.growth ?? 0) <= 0
+                  : (item.growth ?? 0) >= 0;
+                return (
+                  <div key={item.id} className="flex-none min-w-[325px] bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-[10px] uppercase font-black tracking-widest text-slate-500">{item.label}</p>
+                        <p className="text-[9px] text-slate-400 mt-0.5">{item.subtitle}</p>
+                      </div>
+                      <InfoTooltip text={`${item.label}: ${item.subtitle}`} />
+                    </div>
+                    <div className="flex items-end justify-between gap-4">
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">Antes</p>
+                        <p className="text-lg font-black text-slate-400">{fmtImpact(item.pre, item.unit)}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[10px] font-bold text-slate-500 uppercase">
+                          {item.type === "ultimo_mes" ? "Último Mês" : "Atual"}
+                        </p>
+                        <p className="text-2xl font-black text-slate-900">{fmtImpact(item.post, item.unit)}</p>
+                      </div>
+                    </div>
+                    {item.growth !== null && (
+                      <div className={cn("inline-flex items-center gap-1 text-[11px] font-black px-2.5 py-1 rounded-full",
+                        isPositive ? "bg-emerald-500/10 text-emerald-600" : "bg-red-500/10 text-red-500"
+                      )}>
+                        {(item.growth ?? 0) >= 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+                        {Math.abs(item.growth ?? 0).toFixed(1)}% vs antes
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </HorizontalScroll>
+          )}
+        </div>
+
+        {/* ── 6. INDICADORES DE NEGÓCIO (KPIs manuais) ── */}
         <div>
           <div className="flex items-center justify-between mb-3">
             <SectionTitle icon={<Briefcase className="h-4 w-4 text-violet-500" />} label="Indicadores de Negócio" />
@@ -616,8 +690,8 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
               <p className="text-sm text-center">Nenhum indicador cadastrado ainda.<br />Configure os KPIs na aba de configurações do cliente.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {kpiCards.map(kpi => (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+              {visibleKpiCards.map(kpi => (
                 <Card key={kpi.id} className="border-none shadow-sm ring-1 ring-slate-200 overflow-hidden">
                   <div className="p-4 space-y-3">
                     <div className="flex items-center justify-between">
@@ -728,54 +802,7 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
           </CardContent>
         </Card>
 
-        {/* ── 7. IMPACTO DA PARCERIA ── */}
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <SectionTitle icon={<Activity className="h-4 w-4 text-emerald-500" />} label="Impacto da Parceria" />
-            <InfoTooltip text="Comparação entre a média dos indicadores antes e depois do início do contrato com a agência. O percentual mostra o crescimento (ou redução) médio após a parceria." />
-          </div>
-          {partnershipImpact.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-10 gap-3 text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-              <Activity className="h-8 w-8 opacity-20" />
-              <p className="text-sm text-center">Dados insuficientes para calcular o impacto.<br />São necessários registros antes e após o início do contrato.</p>
-            </div>
-          ) : (
-            <HorizontalScroll>
-              {(partnershipImpact as any[]).map((item, idx) => {
-                const lower = isLowerBetter(item.name);
-                const isPositive = lower ? (item.growth ?? 0) <= 0 : (item.growth ?? 0) >= 0;
-                return (
-                  <div key={idx} className="flex-none min-w-[325px] bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <p className="text-[10px] uppercase font-black tracking-widest text-slate-500">{item.name}</p>
-                      <InfoTooltip text={`${item.name}: comparação entre a média antes do contrato (${item.pre.toFixed(1)}) e a média após o início da parceria (${item.post.toFixed(1)}).`} />
-                    </div>
-                    <div className="flex items-end justify-between gap-4">
-                      <div>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">Antes</p>
-                        <p className="text-lg font-black text-slate-400">{fmtVal(item.pre, item.unit)}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-[10px] font-bold text-slate-500 uppercase">Atual</p>
-                        <p className="text-2xl font-black text-slate-900">{fmtVal(item.post, item.unit)}</p>
-                      </div>
-                    </div>
-                    {item.growth !== null && (
-                      <div className={cn("inline-flex items-center gap-1 text-[11px] font-black px-2.5 py-1 rounded-full",
-                        isPositive ? "bg-emerald-500/10 text-emerald-600" : "bg-red-500/10 text-red-500"
-                      )}>
-                        {(item.growth ?? 0) >= 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
-                        {Math.abs(item.growth ?? 0).toFixed(1)}% vs antes
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </HorizontalScroll>
-          )}
-        </div>
-
-        {/* ── 8. COMPARATIVO DE PERFORMANCE ── */}
+        {/* ── 5. INDICADORES DE NEGÓCIO (KPIs manuais) ── */}
         <Card className="border-none shadow-sm ring-1 ring-slate-200 overflow-hidden">
           <CardHeader className="flex flex-row items-center justify-between">
             <div className="flex items-center gap-2">
@@ -853,9 +880,9 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-slate-50">
-                      <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-500 min-w-[200px] sticky left-0 bg-slate-50 z-10">Indicador</TableHead>
+                      <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-500 min-w-[200px] sticky left-0 bg-slate-50 z-10 pr-6">Indicador</TableHead>
                       {consolidadoMonths.map(m => (
-                        <TableHead key={m.toISOString()} className="text-center font-black text-[10px] uppercase tracking-widest text-slate-500 min-w-[110px] px-4">
+                        <TableHead key={m.toISOString()} className="text-center font-black text-[10px] uppercase tracking-widest text-slate-500 min-w-[130px] px-6">
                           {format(m, "MMM/yy", { locale: ptBR })}
                         </TableHead>
                       ))}
@@ -863,13 +890,13 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
                   </TableHeader>
                   <TableBody>
                     {kpisArr.map(kpi => (
-                      <TableRow key={kpi.id} className="hover:bg-slate-50">
-                        <TableCell className="font-bold text-slate-800 sticky left-0 bg-white z-10 border-r border-slate-100">{kpi.name}</TableCell>
+                      <TableRow key={kpi.id} className="group hover:bg-violet-50 transition-colors">
+                        <TableCell className="font-bold text-slate-800 sticky left-0 bg-white group-hover:bg-violet-50 z-10 border-r border-slate-100 transition-colors">{kpi.name}</TableCell>
                         {consolidadoMonths.map(m => {
                           const mk = format(m, "yyyy-MM");
                           const v = historyArr.find(h => h.kpi_id === kpi.id && String(h.month_year).startsWith(mk))?.value;
                           return (
-                            <TableCell key={mk} className="text-center text-slate-600 text-sm px-4 whitespace-nowrap">
+                            <TableCell key={mk} className="text-center text-slate-600 text-sm px-6 whitespace-nowrap group-hover:text-slate-900 transition-colors">
                               {v !== undefined ? fmtVal(v, kpi.unit) : <span className="text-slate-300">—</span>}
                             </TableCell>
                           );

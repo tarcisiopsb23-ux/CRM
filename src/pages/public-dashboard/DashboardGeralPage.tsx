@@ -8,44 +8,47 @@ import {
 } from "recharts";
 import {
   BarChart3, Users, DollarSign, TrendingUp, Tag,
-  UtensilsCrossed, CalendarDays, Megaphone, AlertCircle, Activity, Clock, Info,
+  UtensilsCrossed, CalendarDays, Megaphone, AlertCircle, Activity,
+  Clock, Info, ArrowUp, ArrowDown, CheckCircle2, Target, Zap,
 } from "lucide-react";
-import { format, startOfMonth, endOfMonth } from "date-fns";
+import { format, startOfMonth, endOfMonth, subMonths, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { supabase } from "@/lib/supabase";
 import { useClientAuth } from "@/hooks/useClientAuth";
 import { useDynamicClient } from "@/hooks/useDynamicClient";
 import { useClientReports } from "@/hooks/useHubPerformance";
+import {
+  usePartnershipImpact, fmtImpact, isLowerBetterImpact,
+  type ImpactCard,
+} from "@/hooks/usePartnershipImpact";
+import { useClientKPIs, useClientKPIHistory } from "@/hooks/useClientKPIs";
+import { fmtKpiValue } from "@/lib/formatters";
 import { cn } from "@/lib/utils";
+
+const KPI_COLORS = ["#10b981","#2D8CC7","#f59e0b","#a855f7","#f43f5e","#06b6d4","#e879f9","#34d399"];
 
 export function DashboardGeralPage() {
   const { auth } = useClientAuth();
   const dc = useDynamicClient();
   const [searchParams] = useSearchParams();
 
-  // Filtro padrão: mês atual
   const dateRange = useMemo(() => ({
     from: searchParams.get("from") ?? format(startOfMonth(new Date()), "yyyy-MM-dd"),
     to:   searchParams.get("to")   ?? format(endOfMonth(new Date()),   "yyyy-MM-dd"),
   }), [searchParams.get("from"), searchParams.get("to")]);
 
-  // ── Dados de campanhas (CRM Supabase) ──────────────────────────────────────
-  const { campaignDataQuery } = useClientReports(
-    auth?.organization_id,
-    auth?.id,
-    dateRange,
-    true
-  );
+  // ── Dados de campanhas ─────────────────────────────────────────────────────
+  const { campaignDataQuery } = useClientReports(auth?.organization_id, auth?.id, dateRange, true);
 
-  const { totalLeads, totalSpend, totalRevenue, activeCampaigns, dailyData } = useMemo(() => {
+  const { totalLeads, totalSales, totalSpend, totalRevenue, activeCampaigns, dailyData } = useMemo(() => {
     const rows = (campaignDataQuery.data ?? []) as any[];
     const campaignSet = new Set<string>();
-    const byDate: Record<string, { date: string; total_leads: number; total_spend: number; total_revenue: number }> = {};
-    let totalLeads = 0, totalSpend = 0, totalRevenue = 0;
-
+    const byDate: Record<string, any> = {};
+    let totalLeads = 0, totalSales = 0, totalSpend = 0, totalRevenue = 0;
     for (const r of rows) {
       if (r.campaign_name) campaignSet.add(`${r.platform}||${r.campaign_name}`);
       totalLeads   += Number(r.leads   ?? 0);
+      totalSales   += Number(r.sales   ?? 0);
       totalSpend   += Number(r.spend   ?? 0);
       totalRevenue += Number(r.revenue ?? 0);
       const d = r.date;
@@ -56,19 +59,22 @@ export function DashboardGeralPage() {
         byDate[d].total_revenue += Number(r.revenue ?? 0);
       }
     }
-
-    const dailyData = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
-
-    return { totalLeads, totalSpend, totalRevenue, activeCampaigns: campaignSet.size, dailyData };
+    return {
+      totalLeads, totalSales, totalSpend, totalRevenue,
+      activeCampaigns: campaignSet.size,
+      dailyData: Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date)),
+    };
   }, [campaignDataQuery.data]);
 
   const roas = totalSpend > 0 ? (totalRevenue / totalSpend).toFixed(1) : "0.0";
+  const conversionRate = totalLeads > 0
+    ? ((totalSales / totalLeads) * 100).toFixed(1)
+    : "—";
 
-  // Detecta se os dados do período estão zerados (após carregamento)
   const isLoaded = !campaignDataQuery.isLoading;
   const isZero   = isLoaded && totalLeads === 0 && totalSpend === 0 && totalRevenue === 0;
 
-  // ── KPIs do CRM ───────────────────────────────────────────────────────────
+  // ── KPIs e histórico ──────────────────────────────────────────────────────
   const { data: kpisRaw } = useQuery({
     queryKey: ["public_client_kpis", auth?.id],
     queryFn: async () => {
@@ -80,9 +86,69 @@ export function DashboardGeralPage() {
     },
     enabled: !!auth?.id,
   });
-  const kpis = (kpisRaw ?? []) as any[];
+  const kpis = ((kpisRaw ?? []) as any[]).filter((k: any) => k.name !== "__lead_manual" && k.name !== "__sale_manual");
 
-  // ── Contagens IA (Dynamic_Client) ─────────────────────────────────────────
+  const { data: kpiHistoryRaw } = useQuery({
+    queryKey: ["public_client_kpi_history", auth?.id],
+    queryFn: async () => {
+      if (!auth?.id) return [];
+      const { data: rpcData, error: rpcError } = await supabase.rpc('get_client_kpi_history_public', { p_client_id: auth.id });
+      if (!rpcError && rpcData?.length) return rpcData;
+      const { data } = await supabase.from("client_kpi_history").select("*").eq("client_id", auth.id).order("month_year", { ascending: false });
+      return data ?? [];
+    },
+    enabled: !!auth?.id,
+  });
+  const kpiHistory = (kpiHistoryRaw ?? []) as any[];
+
+  // Data de início do contrato (para calcular impacto)
+  const { data: contractStartDate } = useQuery({
+    queryKey: ["public_contract_start", auth?.id],
+    queryFn: async () => {
+      if (!auth?.id) return null;
+      const { data: allContracts } = await supabase.rpc('get_client_contracts_public', { p_client_id: auth.id });
+      const contracts = (allContracts ?? []) as any[];
+      if (contracts.length === 0) return null;
+      const refContract = contracts.find((c: any) => c.is_dashboard_reference) ?? contracts[0];
+      const rawDate = String(refContract.contract_date ?? refContract.start_date).substring(0, 10);
+      return startOfMonth(parseISO(rawDate));
+    },
+    enabled: !!auth?.id,
+  });
+
+  // ── Impacto da Parceria ────────────────────────────────────────────────────
+  const allImpactCards = usePartnershipImpact(kpis, kpiHistory, contractStartDate ?? null);
+
+  // ── Seleção configurada em metadata ───────────────────────────────────────
+  const geralCards: string[] = useMemo(() => {
+    const meta = (auth?.metadata ?? {}) as Record<string, any>;
+    return Array.isArray(meta.geral_dashboard_cards) ? meta.geral_dashboard_cards : [];
+  }, [auth?.metadata]);
+
+  // 4 cards selecionados — se nada configurado, exibe os primeiros 4 disponíveis
+  const selectedImpactCards: ImpactCard[] = useMemo(() => {
+    if (geralCards.length === 0) return allImpactCards.slice(0, 4);
+    return geralCards
+      .map(id => allImpactCards.find(c => c.id === id))
+      .filter(Boolean) as ImpactCard[];
+  }, [geralCards, allImpactCards]);
+
+  // KPI cards — valor do mês mais recente vs anterior
+  const kpiCards = useMemo(() => {
+    const monthKeys = Array.from({ length: 6 }).map((_, i) => format(subMonths(new Date(), i), "yyyy-MM")).reverse();
+    return kpis.map((kpi, idx) => {
+      const history = kpiHistory
+        .filter(h => h.kpi_id === kpi.id)
+        .sort((a, b) => String(b.month_year).localeCompare(String(a.month_year)));
+      const current = history[0]?.value ?? null;
+      const prev = history[1]?.value ?? null;
+      const growth = current !== null && prev !== null && prev !== 0
+        ? ((current - prev) / prev) * 100 : null;
+      return { ...kpi, current, prev, growth, color: KPI_COLORS[idx % KPI_COLORS.length] };
+    });
+  }, [kpis, kpiHistory]);
+
+  // ── IA ────────────────────────────────────────────────────────────────────
   const iaEnabled = !!(dc && auth?.show_ia_content);
   const iaCounts = useQueries({
     queries: iaEnabled ? [
@@ -92,63 +158,99 @@ export function DashboardGeralPage() {
       { queryKey: ["ia_count", "ai_notices"],     queryFn: async () => { const { count } = await dc!.from("ai_notices").select("id", { count: "exact", head: true }).eq("status", "active"); return count ?? 0; }, staleTime: 60_000 },
     ] : ([] as { queryKey: string[]; queryFn: () => Promise<number>; staleTime: number }[]),
   });
-
-  // ── Próximo evento (ai_events) ────────────────────────────────────────────
   const { data: nextEvent } = useQuery({
     queryKey: ["ia_next_event"],
     queryFn: async () => {
       const today = format(new Date(), "yyyy-MM-dd");
-      const { data } = await dc!
-        .from("ai_events")
-        .select("*")
-        .eq("status", "active")
-        .gte("date", today)
-        .order("date", { ascending: true })
-        .limit(1)
-        .maybeSingle();
-      return data as { id: string; title: string; description: string | null; date: string; time: string | null; type: string | null } | null;
+      const { data } = await dc!.from("ai_events").select("*").eq("status", "active").gte("date", today).order("date", { ascending: true }).limit(1).maybeSingle();
+      return data as any;
     },
     enabled: !!dc && !!auth?.show_ia_content,
     staleTime: 60_000,
   });
-
-  // ── Avisos alta prioridade ─────────────────────────────────────────────────
   const { data: highPriorityNotices } = useQuery({
     queryKey: ["ia_high_notices"],
-    queryFn: async () => {
-      const { data } = await dc!.from("ai_notices").select("*").eq("status", "active").eq("priority", "alta").limit(5);
-      return data ?? [];
-    },
+    queryFn: async () => { const { data } = await dc!.from("ai_notices").select("*").eq("status", "active").eq("priority", "alta").limit(5); return data ?? []; },
     enabled: !!dc && !!auth?.show_ia_content,
     staleTime: 60_000,
   });
-
   const iaCountLabels = [
-    { label: "Eventos",   icon: CalendarDays,    color: "text-emerald-400" },
-    { label: "Promoções", icon: Tag,              color: "text-violet-400" },
-    { label: "Sugestões", icon: UtensilsCrossed,  color: "text-amber-400" },
-    { label: "Avisos",    icon: Megaphone,        color: "text-red-400" },
+    { label: "Eventos",   icon: CalendarDays,   color: "text-emerald-400" },
+    { label: "Promoções", icon: Tag,             color: "text-violet-400" },
+    { label: "Sugestões", icon: UtensilsCrossed, color: "text-amber-400" },
+    { label: "Avisos",    icon: Megaphone,       color: "text-red-400" },
   ];
 
   return (
     <div className="space-y-8 max-w-[1600px] mx-auto">
 
-      {/* ── Banner: dados zerados no mês atual ── */}
+      {/* ── Banner dados zerados ── */}
       {isZero && (
         <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
           <Info className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
           <p className="text-sm text-amber-200">
-            Nenhum dado encontrado para o mês atual. Use o filtro de período no canto superior direito para selecionar uma data anterior.
+            Nenhum dado encontrado para o período selecionado. Use o filtro no canto superior direito para selecionar o mês atual ou meses anteriores.
           </p>
         </div>
       )}
 
-      {/* ── Cards de resumo ── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <SummaryCard label="Campanhas Ativas"  value={activeCampaigns}                          icon={<BarChart3   className="h-5 w-5 text-[#2D8CC7]"    />} />
-        <SummaryCard label="Total de Leads"    value={totalLeads.toLocaleString("pt-BR")}       icon={<Users       className="h-5 w-5 text-blue-400"     />} />
-        <SummaryCard label="Faturamento Est."  value={`R$ ${totalRevenue.toLocaleString("pt-BR")}`} icon={<TrendingUp className="h-5 w-5 text-emerald-400" />} highlight />
-        <SummaryCard label="ROAS"              value={`${roas}x`}                               icon={<DollarSign  className="h-5 w-5 text-orange-400"   />} />
+      {/* ── 1. CARDS SELECIONADOS DE IMPACTO DA PARCERIA ── */}
+      {selectedImpactCards.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+          {selectedImpactCards.map(item => {
+            const positive = isLowerBetterImpact(item.kpiName)
+              ? (item.growth ?? 0) <= 0
+              : (item.growth ?? 0) >= 0;
+            return (
+              <Card key={item.id} className="bg-card border-border shadow-lg relative overflow-hidden">
+                <CardContent className="p-4 flex flex-col gap-2">
+                  {/* Header: label + subtitle */}
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase font-black tracking-widest text-muted-foreground flex items-center gap-1.5 flex-wrap">
+                      <Zap className="h-3 w-3 text-yellow-400 shrink-0" />
+                      <span className="break-words leading-tight">{item.label}</span>
+                    </p>
+                    <p className="text-[9px] text-muted-foreground/60 mt-0.5 break-words leading-snug">{item.subtitle}</p>
+                  </div>
+                  {/* Valor Atual — destaque principal, no topo */}
+                  <div className="min-w-0">
+                    <p className="text-[9px] text-primary uppercase font-bold">
+                      {item.type === "ultimo_mes" ? "Último Mês" : "Atual"}
+                    </p>
+                    <p className="text-xl font-black text-foreground break-all leading-tight">{fmtImpact(item.post, item.unit)}</p>
+                  </div>
+                  {/* Linha inferior: Antes + badge % */}
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <div className="min-w-0">
+                      <p className="text-[9px] text-muted-foreground uppercase font-bold">Antes</p>
+                      <p className="text-sm font-black text-muted-foreground break-all leading-tight">{fmtImpact(item.pre, item.unit)}</p>
+                    </div>
+                    {item.growth !== null && (
+                      <div className={cn("inline-flex items-center gap-1 text-[11px] font-black px-2 py-0.5 rounded-full whitespace-nowrap shrink-0",
+                        positive ? "bg-emerald-500/15 text-emerald-500" : "bg-red-500/15 text-red-500"
+                      )}>
+                        {(item.growth ?? 0) >= 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+                        {Math.abs(item.growth ?? 0).toFixed(0)}% vs antes
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── 2. CARDS DE CAMPANHA ── */}
+      <div className={`grid gap-4 ${totalLeads > 0 ? "grid-cols-2 md:grid-cols-3 lg:grid-cols-6" : "grid-cols-2 md:grid-cols-3 lg:grid-cols-5"}`}>
+        <SummaryCard label="Campanhas Ativas" value={activeCampaigns}                              icon={<BarChart3    className="h-5 w-5 text-[#2D8CC7]"   />} />
+        {totalLeads > 0 && (
+          <SummaryCard label="Leads"           value={totalLeads.toLocaleString("pt-BR")}          icon={<Users        className="h-5 w-5 text-blue-400"    />} />
+        )}
+        <SummaryCard label="Vendas"            value={totalSales.toLocaleString("pt-BR")}          icon={<Target       className="h-5 w-5 text-emerald-500" />} />
+        <SummaryCard label="Conversão"         value={conversionRate === "—" ? "—" : `${conversionRate}%`} icon={<CheckCircle2 className="h-5 w-5 text-emerald-400" />} />
+        <SummaryCard label="Faturamento Est."  value={`R$ ${totalRevenue.toLocaleString("pt-BR")}`} icon={<TrendingUp  className="h-5 w-5 text-emerald-400" />} highlight />
+        <SummaryCard label="ROAS"              value={`${roas}x`}                                  icon={<DollarSign   className="h-5 w-5 text-orange-400"  />} />
       </div>
 
       {/* ── Cards IA (condicional) ── */}
@@ -174,12 +276,12 @@ export function DashboardGeralPage() {
         </div>
       )}
 
-      {/* ── Evolução Diária + Próximo evento ── */}
+      {/* ── 3. EVOLUÇÃO DIÁRIA + PRÓXIMO EVENTO ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2 bg-card border-border shadow-2xl">
           <CardHeader>
             <CardTitle className="text-foreground text-lg font-bold">Evolução Diária</CardTitle>
-            <p className="text-muted-foreground text-sm">Investimento vs Faturamento vs Leads — período selecionado</p>
+            <p className="text-muted-foreground text-sm">Investimento vs Faturamento vs Leads</p>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={280}>
@@ -195,20 +297,10 @@ export function DashboardGeralPage() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
-                <XAxis
-                  dataKey="date"
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fill: "#94a3b8", fontSize: 12 }}
-                  tickFormatter={(s) => {
-                    try { return format(new Date(String(s)), "dd/MM"); } catch { return s; }
-                  }}
-                />
+                <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: "#94a3b8", fontSize: 12 }}
+                  tickFormatter={(s) => { try { return format(new Date(String(s)), "dd/MM"); } catch { return s; } }} />
                 <YAxis axisLine={false} tickLine={false} tick={{ fill: "#94a3b8", fontSize: 12 }} />
-                <Tooltip
-                  contentStyle={{ backgroundColor: "#0F172A", border: "1px solid #334155", borderRadius: "12px" }}
-                  itemStyle={{ fontSize: "12px", fontWeight: "bold" }}
-                />
+                <Tooltip contentStyle={{ backgroundColor: "#0F172A", border: "1px solid #334155", borderRadius: "12px" }} itemStyle={{ fontSize: "12px", fontWeight: "bold" }} />
                 <Legend verticalAlign="top" align="right" height={36} iconType="circle" />
                 <Area type="monotone" dataKey="total_revenue" name="Faturamento Est. (R$)" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#gRev)" />
                 <Area type="monotone" dataKey="total_spend"   name="Investimento (R$)"     stroke="#2D8CC7" strokeWidth={3} fillOpacity={1} fill="url(#gSpend)" />
@@ -217,13 +309,10 @@ export function DashboardGeralPage() {
             </ResponsiveContainer>
           </CardContent>
         </Card>
-
-        {/* Próximo evento */}
         <Card className="bg-card border-border shadow-2xl">
           <CardHeader>
             <CardTitle className="text-foreground text-lg font-bold flex items-center gap-2">
-              <CalendarDays className="h-5 w-5 text-[#2D8CC7]" />
-              Próximo Evento
+              <CalendarDays className="h-5 w-5 text-[#2D8CC7]" />Próximo Evento
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -235,31 +324,14 @@ export function DashboardGeralPage() {
             ) : nextEvent ? (
               <div className="space-y-3">
                 <p className="text-xl font-black text-foreground">{nextEvent.title}</p>
-                {nextEvent.description && (
-                  <p className="text-muted-foreground text-sm">{nextEvent.description}</p>
-                )}
+                {nextEvent.description && <p className="text-muted-foreground text-sm">{nextEvent.description}</p>}
                 <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
                   <span className="flex items-center gap-1.5">
                     <CalendarDays className="h-4 w-4" />
                     {format(new Date(nextEvent.date + "T00:00:00"), "dd 'de' MMMM", { locale: ptBR })}
                   </span>
-                  {nextEvent.time && (
-                    <span className="flex items-center gap-1.5">
-                      <Clock className="h-4 w-4" />
-                      {nextEvent.time}
-                    </span>
-                  )}
+                  {nextEvent.time && <span className="flex items-center gap-1.5"><Clock className="h-4 w-4" />{nextEvent.time}</span>}
                 </div>
-                {nextEvent.type && (
-                  <span className={cn(
-                    "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1",
-                    nextEvent.type === "musica_ao_vivo"
-                      ? "bg-primary/10 text-primary ring-primary/20"
-                      : "bg-amber-500/10 text-amber-500 ring-amber-500/20"
-                  )}>
-                    {nextEvent.type === "musica_ao_vivo" ? "Música ao Vivo" : "Dia Especial"}
-                  </span>
-                )}
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-8 gap-2 text-muted-foreground">
@@ -271,30 +343,26 @@ export function DashboardGeralPage() {
         </Card>
       </div>
 
-      {/* ── Avisos de alta prioridade ── */}
+      {/* ── Avisos ── */}
       {auth?.show_ia_content && dc && highPriorityNotices && highPriorityNotices.length > 0 && (
         <div className="space-y-3">
           <h3 className="text-foreground font-bold flex items-center gap-2">
-            <AlertCircle className="h-5 w-5 text-red-400" />
-            Avisos de Alta Prioridade
+            <AlertCircle className="h-5 w-5 text-red-400" />Avisos de Alta Prioridade
           </h3>
-          {(highPriorityNotices as any[]).map((notice: any) => (
-            <div key={notice.id} className="flex items-start gap-3 p-4 bg-red-500/10 border border-red-500/20 rounded-xl">
+          {(highPriorityNotices as any[]).map((n: any) => (
+            <div key={n.id} className="flex items-start gap-3 p-4 bg-red-500/10 border border-red-500/20 rounded-xl">
               <AlertCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm text-red-200 font-medium">{notice.message}</p>
-              </div>
+              <p className="text-sm text-red-200 font-medium">{n.message}</p>
             </div>
           ))}
         </div>
       )}
 
-      {/* ── Feed de atividade recente ── */}
+      {/* ── Feed ── */}
       <Card className="bg-card border-border shadow-2xl">
         <CardHeader>
           <CardTitle className="text-foreground text-lg font-bold flex items-center gap-2">
-            <Activity className="h-5 w-5 text-muted-foreground" />
-            Atividade Recente
+            <Activity className="h-5 w-5 text-muted-foreground" />Atividade Recente
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -305,15 +373,9 @@ export function DashboardGeralPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {totalLeads > 0 && (
-                <FeedItem color="bg-blue-400" text={`${totalLeads.toLocaleString("pt-BR")} leads gerados no período`} time="período selecionado" />
-              )}
-              {activeCampaigns > 0 && (
-                <FeedItem color="bg-[#2D8CC7]" text={`${activeCampaigns} campanhas ativas monitoradas`} time="período selecionado" />
-              )}
-              {Number(roas) > 0 && (
-                <FeedItem color="bg-emerald-400" text={`ROAS de ${roas}x — R$ ${totalRevenue.toLocaleString("pt-BR")} em faturamento estimado`} time="período selecionado" />
-              )}
+              {totalLeads > 0 && <FeedItem color="bg-blue-400" text={`${totalLeads.toLocaleString("pt-BR")} leads gerados no período`} time="período selecionado" />}
+              {activeCampaigns > 0 && <FeedItem color="bg-[#2D8CC7]" text={`${activeCampaigns} campanhas ativas monitoradas`} time="período selecionado" />}
+              {Number(roas) > 0 && <FeedItem color="bg-emerald-400" text={`ROAS de ${roas}x — R$ ${totalRevenue.toLocaleString("pt-BR")} em faturamento estimado`} time="período selecionado" />}
             </div>
           )}
         </CardContent>
@@ -324,7 +386,9 @@ export function DashboardGeralPage() {
 
 // ── Sub-componentes ──────────────────────────────────────────────────────────
 
-function SummaryCard({ label, value, icon, highlight = false }: { label: string; value: string | number; icon: React.ReactNode; highlight?: boolean }) {
+function SummaryCard({ label, value, icon, highlight = false }: {
+  label: string; value: string | number; icon: React.ReactNode; highlight?: boolean;
+}) {
   return (
     <Card className={cn("border-border shadow-lg", highlight ? "bg-primary/20 border-emerald-500/30" : "bg-card")}>
       <CardContent className="p-5 space-y-3">

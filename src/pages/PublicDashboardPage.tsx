@@ -37,6 +37,7 @@ import { ptBR } from "date-fns/locale";
 import { useQuery } from "@tanstack/react-query";
 import { useClientReports } from "@/hooks/useHubPerformance";
 import { useClientConversationKpis } from "@/hooks/useClientConversationKpis";
+import { usePartnershipImpact, fmtImpact, isLowerBetterImpact } from "@/hooks/usePartnershipImpact";
 import { ConversationKpiDashboard } from "@/components/whatsapp/ConversationKpiDashboard";
 import { fmtKpiValue } from "@/lib/formatters";
 
@@ -104,9 +105,9 @@ export function PublicDashboardPage() {
   });
   const [activeKpiId, setActiveKpiId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"performance" | "atendimento">("performance");
+  const [autoFallbackApplied, setAutoFallbackApplied] = useState(false);
 
   // Garante que o dateRange é estável e não cria novo objeto a cada render
-  // O React Query só re-executa quando clientData?.id muda (não quando dateRange recria objeto)
   const stableDateRange = useMemo(() => dateRange, [dateRange.from, dateRange.to]);
 
   // Auto-signout após 30 minutos de inatividade
@@ -164,6 +165,15 @@ export function PublicDashboardPage() {
               ...(parsedData.metadata ?? {}),
               dashboard_performance: fresh.dashboard_performance ?? true,
               dashboard_atendimento: fresh.dashboard_atendimento ?? false,
+              ...(fresh.conversion_metrics && Object.keys(fresh.conversion_metrics).length > 0
+                ? { conversion_metrics: fresh.conversion_metrics }
+                : {}),
+              ...(Array.isArray(fresh.dashboard_kpis) && fresh.dashboard_kpis.length > 0
+                ? { dashboard_kpis: fresh.dashboard_kpis }
+                : {}),
+              ...(Array.isArray(fresh.geral_dashboard_cards) && fresh.geral_dashboard_cards.length > 0
+                ? { geral_dashboard_cards: fresh.geral_dashboard_cards }
+                : {}),
             },
           };
           setClientData(merged);
@@ -240,7 +250,7 @@ export function PublicDashboardPage() {
     },
     enabled: !!clientData?.id,
   });
-  const kpis = (kpisRaw ?? []) as any[];
+  const kpis = ((kpisRaw ?? []) as any[]).filter((k: any) => k.name !== "__lead_manual" && k.name !== "__sale_manual");
 
   const { data: kpiHistoryRaw } = useQuery({
     queryKey: ["public_client_kpi_history", clientData?.id],
@@ -262,7 +272,7 @@ export function PublicDashboardPage() {
     },
     enabled: !!clientData?.id,
   });
-  const kpiHistory = (kpiHistoryRaw ?? []) as any[];
+  const kpiHistory = ((kpiHistoryRaw ?? []) as any[]);
   const { campaignDataQuery } = useClientReports(clientData?.organization_id, clientData?.id, stableDateRange, true);
   const realCampaigns = useMemo(() => aggregateCampaigns((campaignDataQuery.data ?? []) as any[]), [campaignDataQuery.data]);
   const [campaignFilter, setCampaignFilter] = useState<"Todas" | "meta" | "google">("Todas");
@@ -272,35 +282,105 @@ export function PublicDashboardPage() {
   );
   const [selectedCampaign, setSelectedCampaign] = useState<any>(null);
 
+  // ── Mapeamento de métricas de conversão ─────────────────────────────────────
+  // Lê a configuração salva no metadata do cliente.
+  const conversionConfig = useMemo(() => {
+    const meta = (clientData?.metadata ?? {}) as Record<string, any>;
+    const cfg = meta.conversion_metrics ?? {};
+    // Suporta formato novo (arrays) e antigo (campo único)
+    const leadFields: string[] = Array.isArray(cfg.lead_fields) ? cfg.lead_fields
+      : (cfg.lead_field && cfg.lead_field !== "none") ? [cfg.lead_field] : ["leads"];
+    const saleFields: string[] = Array.isArray(cfg.sale_fields) ? cfg.sale_fields
+      : (cfg.sale_field && cfg.sale_field !== "none") ? [cfg.sale_field] : ["sales"];
+    // IDs de KPIs selecionados para cards no dashboard (vazio = todos)
+    const dashboardKpis: string[] = Array.isArray(meta.dashboard_kpis) ? meta.dashboard_kpis : [];
+    return { leadFields, saleFields, dashboardKpis };
+  }, [clientData?.metadata]);
+
+  // Busca registros manuais de lead/venda quando configurado como "manual"
+  const { data: manualKpiHistory } = useQuery({
+    queryKey: ["public_manual_kpi_history", clientData?.id],
+    queryFn: async () => {
+      if (!clientData?.id) return [];
+      const { data, error } = await supabase
+        .from("client_kpi_history")
+        .select("kpi_id, month_year, value")
+        .eq("client_id", clientData.id);
+      if (error) return [];
+      return data || [];
+    },
+    enabled: !!clientData?.id && (conversionConfig.leadFields?.includes("manual") ?? false),
+  });
+
+  // Busca IDs dos KPIs especiais de manual quando necessário
+  const { data: manualKpiIds } = useQuery({
+    queryKey: ["public_manual_kpi_ids", clientData?.id],
+    queryFn: async () => {
+      if (!clientData?.id) return null;
+      const { data } = await supabase
+        .from("client_kpis")
+        .select("id, name")
+        .eq("client_id", clientData.id)
+        .in("name", ["__lead_manual", "__sale_manual"]);
+      const leadKpi = data?.find((k: any) => k.name === "__lead_manual");
+      const saleKpi = data?.find((k: any) => k.name === "__sale_manual");
+      return { leadKpiId: leadKpi?.id ?? null, saleKpiId: saleKpi?.id ?? null };
+    },
+    enabled: !!clientData?.id && ((conversionConfig.leadFields?.includes("manual") ?? false) || (conversionConfig.saleFields?.includes("manual") ?? false)),
+  });
+
   // Agrega campaign_data por data para o gráfico de Evolução Diária.
   // Usamos campaign_data (não daily_metrics) porque é a única tabela que tem o campo revenue.
   // daily_metrics é uma tabela legada que não possui total_revenue.
   const realDailyMetrics = useMemo(() => {
     const rows = (campaignDataQuery.data ?? []) as any[];
+    const { leadFields, saleFields } = conversionConfig;
+    const hasManualLead = leadFields.includes("manual");
+    const hasManualSale = saleFields.includes("manual");
+    const fixedFields = ["leads","clicks","sales","revenue","impressions","reach","spend","objective_metric_value"];
     const byDate: Record<string, any> = {};
     for (const r of rows) {
       const d = r.date;
       if (!d) continue;
-      if (!byDate[d]) {
-        byDate[d] = {
-          date: d,
-          total_spend:       0,
-          total_leads:       0,
-          total_sales:       0,
-          total_revenue:     0,
-          total_impressions: 0,
-          total_clicks:      0,
-        };
-      }
-      byDate[d].total_spend       += Number(r.spend       ?? 0);
-      byDate[d].total_leads       += Number(r.leads       ?? 0);
-      byDate[d].total_sales       += Number(r.sales       ?? 0);
-      byDate[d].total_revenue     += Number(r.revenue     ?? 0);
+      if (!byDate[d]) byDate[d] = { date: d, total_spend: 0, total_leads: 0, total_sales: 0, total_revenue: 0, total_impressions: 0, total_clicks: 0 };
+      byDate[d].total_spend       += Number(r.spend ?? 0);
+      byDate[d].total_revenue     += Number(r.revenue ?? 0);
       byDate[d].total_impressions += Number(r.impressions ?? 0);
-      byDate[d].total_clicks      += Number(r.clicks      ?? 0);
+      byDate[d].total_clicks      += Number(r.clicks ?? 0);
+      // Lead: soma campos fixos + eventos dinâmicos (objective_metric_label)
+      if (!hasManualLead) {
+        for (const f of leadFields) {
+          if (!f || f === "none") continue;
+          if (fixedFields.includes(f)) byDate[d].total_leads += Number(r[f] ?? 0);
+          else if (r.objective_metric_label === f) byDate[d].total_leads += Number(r.objective_metric_value ?? 0);
+        }
+      }
+      // Venda
+      if (!hasManualSale) {
+        for (const f of saleFields) {
+          if (!f || f === "none") continue;
+          if (fixedFields.includes(f)) byDate[d].total_sales += Number(r[f] ?? 0);
+          else if (r.objective_metric_label === f) byDate[d].total_sales += Number(r.objective_metric_value ?? 0);
+        }
+      }
     }
-    return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
-  }, [campaignDataQuery.data]);
+    const result = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
+    // Sobrepõe com dados manuais se configurado
+    if ((hasManualLead || hasManualSale) && manualKpiHistory && manualKpiIds) {
+      const { leadKpiId, saleKpiId } = manualKpiIds;
+      for (const entry of (manualKpiHistory as any[])) {
+        const monthPrefix = String(entry.month_year).substring(0, 7);
+        const daysInMonth = result.filter((d: any) => d.date.startsWith(monthPrefix));
+        if (daysInMonth.length === 0) continue;
+        const perDay = entry.value / daysInMonth.length;
+        daysInMonth.forEach((day: any) => {
+          if (hasManualLead && entry.kpi_id === leadKpiId) day.total_leads += perDay;
+          if (hasManualSale && entry.kpi_id === saleKpiId) day.total_sales += perDay;
+        });
+      }
+    }
+    return result;
+  }, [campaignDataQuery.data, conversionConfig, manualKpiHistory, manualKpiIds]);
 
   // Debug log quando dados chegam
   console.log('[Dashboard] State:', {
@@ -385,6 +465,13 @@ export function PublicDashboardPage() {
     });
   }, [kpis, kpiHistory, contractStartDate]);
 
+  // Filtra kpiCards pelos IDs selecionados para o dashboard (vazio = exibe todos)
+  const visibleKpiCards = useMemo(() => {
+    const { dashboardKpis } = conversionConfig;
+    if (!dashboardKpis || dashboardKpis.length === 0) return kpiCards as any[];
+    return (kpiCards as any[]).filter((k: any) => dashboardKpis.includes(k.id));
+  }, [kpiCards, conversionConfig]);
+
   // Sparkline (6 meses) por KPI
   const kpiSparkline = useMemo(() => {
     const monthKeys = Array.from({ length: 6 }).map((_, i) => format(subMonths(new Date(), i), "yyyy-MM")).reverse();
@@ -421,43 +508,8 @@ export function PublicDashboardPage() {
     return points;
   }, [kpis, kpiHistory, contractStartDate]);
 
-  // Impacto da parceria — só calcula quando contractStartDate estiver definido
-  const partnershipImpact = useMemo(() => {
-    if (kpiHistory.length === 0 || !contractStartDate) return [];
-
-    const splitDate = startOfMonth(contractStartDate);
-    console.log('[Partnership] splitDate:', splitDate);
-
-    return kpis.map(kpi => {
-      const kpiEntries = kpiHistory
-        .filter(h => h.kpi_id === kpi.id)
-        .sort((a, b) => String(a.month_year).localeCompare(String(b.month_year)));
-
-      if (kpiEntries.length < 2) return null;
-
-      const pre = kpiEntries.filter(h => isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), splitDate));
-      const post = kpiEntries.filter(h => !isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), splitDate));
-
-      console.log(`[Partnership] ${kpi.name}: pre=${pre.length} meses, post=${post.length} meses`, post.map(h => String(h.month_year).substring(0, 7)));
-
-      if (post.length === 0 || pre.length === 0) return null;
-
-      const preLast12 = pre.slice(-12);
-      const preAvg = preLast12.reduce((a, h) => a + Number(h.value), 0) / preLast12.length;
-      const postAvg = post.reduce((a, h) => a + Number(h.value), 0) / post.length;
-
-      console.log(`[Partnership] ${kpi.name}: preAvg=${preAvg.toFixed(0)}, postAvg=${postAvg.toFixed(0)}`);
-
-      return {
-        name: kpi.name,
-        unit: kpi.unit,
-        pre: preAvg,
-        post: postAvg,
-        postMonths: post.length,
-        growth: preAvg !== 0 ? ((postAvg - preAvg) / preAvg) * 100 : null,
-      };
-    }).filter(Boolean);
-  }, [kpis, kpiHistory, contractStartDate]);
+  // Impacto da parceria — dois cards para faturamento, um para os demais
+  const partnershipImpact = usePartnershipImpact(kpis, kpiHistory, contractStartDate);
 
   // Tabela comparativa de performance
   // - Média Histórica: últimos 12 meses do histórico ANTERIOR ao contrato (base para meta)
@@ -527,7 +579,30 @@ export function PublicDashboardPage() {
 
   const roas = totals.spend > 0 ? (totals.revenue / totals.spend).toFixed(1) : "0.0";
   const cpa = totals.sales > 0 ? (totals.spend / totals.sales).toFixed(0) : "0";
-  const conversionRate = totals.leads > 0 ? ((totals.sales / totals.leads) * 100).toFixed(1) : "0.0";
+  // Se não há leads, usa cliques como denominador (igual ao funil adaptativo)
+  const conversionRate = totals.leads > 0
+    ? ((totals.sales / totals.leads) * 100).toFixed(1)
+    : totals.clicks > 0
+      ? ((totals.sales / totals.clicks) * 100).toFixed(1)
+      : "0.0";
+  const conversionLabel = totals.leads > 0 ? "Leads → Vendas" : totals.clicks > 0 ? "Cliques → Vendas" : "Conversão";
+  const isZero = totals.spend === 0 && totals.revenue === 0 && totals.clicks === 0;
+
+  // Fallback automático: se mês atual sem dados, recua para mês anterior (só uma vez)
+  useEffect(() => {
+    if (
+      !campaignDataQuery.isLoading &&
+      isZero &&
+      !autoFallbackApplied &&
+      dateRange.from === format(startOfMonth(new Date()), "yyyy-MM-dd")
+    ) {
+      setAutoFallbackApplied(true);
+      setDateRange({
+        from: format(startOfMonth(subMonths(new Date(), 1)), "yyyy-MM-dd"),
+        to:   format(endOfMonth(subMonths(new Date(), 1)),   "yyyy-MM-dd"),
+      });
+    }
+  }, [campaignDataQuery.isLoading, isZero, autoFallbackApplied, dateRange.from]);
 
   // KPI padrão: faturamento bruto tem prioridade, senão o primeiro da lista
   const defaultKpi = kpis.find(k => /faturamento/i.test(k.name)) ?? kpis[0];
@@ -646,17 +721,74 @@ export function PublicDashboardPage() {
           {resolvedTab === "performance" && (
           <div className="space-y-8">
 
-          {/* ── 1. MÉTRICAS DE ANÚNCIOS ── */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            <MetricCard label="Investimento" value={`R$ ${totals.spend.toLocaleString("pt-BR")}`} icon={<DollarSign className="h-5 w-5 text-[#2D8CC7]" />} info="Valor total investido em mídia paga (Meta Ads, Google Ads, etc.) no período selecionado. Representa o custo direto das campanhas ativas." />
-            <MetricCard label="Leads" value={totals.leads} icon={<Users className="h-5 w-5 text-blue-400" />} info="Número total de leads gerados pelas campanhas no período. Um lead é um potencial cliente que demonstrou interesse e deixou seus dados de contato." />
-            <MetricCard label="Vendas" value={totals.sales} icon={<Target className="h-5 w-5 text-emerald-400" />} info="Total de vendas fechadas e atribuídas às campanhas de mídia paga no período. Indica o resultado comercial direto das ações de marketing." />
-            <MetricCard label="Conversão" value={`${conversionRate}%`} icon={<CheckCircle2 className="h-5 w-5 text-emerald-400" />} info="Percentual de leads que se tornaram clientes (vendas ÷ leads × 100). Mede a eficiência do processo comercial em transformar interesse em receita." />
-            <MetricCard label="Faturamento Estimado" value={`R$ ${totals.revenue.toLocaleString("pt-BR")}`} icon={<TrendingUp className="h-5 w-5 text-white" />} info="Receita total estimada gerada pelas vendas atribuídas às campanhas no período. Calculado com base no ticket médio das vendas registradas." highlight />
-            <MetricCard label="ROAS" value={`${roas}x`} icon={<PieChart className="h-5 w-5 text-orange-400" />} info="Return on Ad Spend — retorno sobre o investimento em anúncios. Um ROAS de 4x significa que cada R$ 1 investido gerou R$ 4 em faturamento estimado." />
-          </div>
+          {/* ── BANNER: dados zerados ── */}
+          {isZero && (
+            <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+              <Info className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+              <p className="text-sm text-amber-200">
+                Nenhum dado encontrado para o período selecionado. Use o filtro de período acima para selecionar o mês atual ou meses anteriores.
+              </p>
+            </div>
+          )}
 
-          {/* ── 2. EVOLUÇÃO DIÁRIA + FUNIL ── */}
+          {/* ── 1. IMPACTO DA PARCERIA ── */}
+          {partnershipImpact.length > 0 && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 px-1">
+                <Zap className="h-5 w-5 text-yellow-400" />
+                <h2 className="text-xl font-bold text-white uppercase tracking-tight">Impacto da Parceria</h2>
+                <InfoTooltip text="Compara a média dos indicadores de negócio antes e depois do início do contrato com a agência." />
+              </div>
+              <HorizontalScroll>
+                {partnershipImpact.map((item) => (
+                  <Card key={item.id} className="bg-[#1E293B] border-slate-800 shadow-2xl p-7 relative overflow-hidden flex-none w-auto min-w-[411px]">
+                    <div className="flex items-center justify-between gap-6">
+                      <div className="flex-1 space-y-3">
+                        <div>
+                          <p className="text-[11px] uppercase font-black tracking-widest text-slate-400">{item.label}</p>
+                          <p className="text-[10px] text-slate-600 mt-0.5">{item.subtitle}</p>
+                        </div>
+                        <div className="flex items-end gap-6">
+                          <div className="space-y-1">
+                            <p className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">Média Antes</p>
+                            <p className="text-base font-black text-slate-400">{fmtImpact(item.pre, item.unit)}</p>
+                          </div>
+                          <ArrowUp className="h-4 w-4 text-slate-600 mb-1" />
+                          <div className="space-y-1">
+                            <p className="text-[9px] text-[#2D8CC7] uppercase font-bold tracking-wider">
+                              {item.type === "ultimo_mes" ? "Último Mês" : "Média Atual"}
+                            </p>
+                            <p className="text-2xl font-black text-white">{fmtImpact(item.post, item.unit)}</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className={cn("flex flex-col items-center justify-center h-20 w-20 rounded-2xl border shadow-lg shrink-0",
+                        (isLowerBetterImpact(item.kpiName) ? (item.growth ?? 0) <= 0 : (item.growth ?? 0) >= 0)
+                          ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                          : "bg-red-500/10 border-red-500/20 text-red-400"
+                      )}>
+                        <span className="text-sm font-black">{(item.growth ?? 0) >= 0 ? "+" : ""}{Number(item.growth ?? 0).toFixed(0)}%</span>
+                        <span className="text-[9px] font-bold uppercase opacity-70 mt-0.5">Cresc.</span>
+                      </div>
+                    </div>
+                    <div className="absolute top-0 right-0 h-full w-32 bg-gradient-to-l from-[#2D8CC7]/5 to-transparent pointer-events-none" />
+                  </Card>
+                ))}
+              </HorizontalScroll>
+            </div>
+          )}
+
+          {/* ── 2. MÉTRICAS DE ANÚNCIOS ── */}
+          <div className={`grid gap-4 ${totals.leads > 0 ? "grid-cols-2 md:grid-cols-3 lg:grid-cols-6" : "grid-cols-2 md:grid-cols-3 lg:grid-cols-5"}`}>
+            <MetricCard label="Investimento" value={`R$ ${totals.spend.toLocaleString("pt-BR")}`} icon={<DollarSign className="h-5 w-5 text-[#2D8CC7]" />} info="Valor total investido em mídia paga (Meta Ads, Google Ads, etc.) no período selecionado." />
+            {totals.leads > 0 && (
+              <MetricCard label="Leads" value={totals.leads} icon={<Users className="h-5 w-5 text-blue-400" />} info="Número total de leads gerados pelas campanhas no período." />
+            )}
+            <MetricCard label="Vendas" value={totals.sales} icon={<Target className="h-5 w-5 text-emerald-400" />} info="Total de vendas fechadas e atribuídas às campanhas de mídia paga no período." />
+            <MetricCard label="Conversão" value={`${conversionRate}%`} icon={<CheckCircle2 className="h-5 w-5 text-emerald-400" />} info={`Taxa de conversão: ${conversionLabel}.`} />
+            <MetricCard label="Faturamento Estimado" value={`R$ ${totals.revenue.toLocaleString("pt-BR")}`} icon={<TrendingUp className="h-5 w-5 text-white" />} info="Receita total estimada gerada pelas vendas atribuídas às campanhas no período." highlight />
+            <MetricCard label="ROAS" value={`${roas}x`} icon={<PieChart className="h-5 w-5 text-orange-400" />} info="Return on Ad Spend — retorno sobre o investimento em anúncios." />
+          </div>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-stretch">
             <div className="lg:col-span-2">
               <Card className="bg-[#1E293B] border-slate-800 shadow-2xl h-full flex flex-col">
@@ -701,12 +833,21 @@ export function PublicDashboardPage() {
                 <InfoTooltip text="Visualize como os usuários avançam em cada etapa da jornada de compra: de impressões até vendas fechadas. As taxas entre etapas revelam onde há maior perda e onde focar otimizações." />
               </CardHeader>
               <CardContent className="flex-1 flex flex-col justify-center pt-6">
-                <ModernFunnel textVariant="white" steps={[
-                  { label: "Impressões", value: totals.impressions.toLocaleString("pt-BR"), color: "bg-slate-700", width: "w-full", percentage: ((totals.clicks / (totals.impressions || 1)) * 100).toFixed(1) + "%", rateLabel: "CTR" },
-                  { label: "Cliques", value: totals.clicks.toLocaleString("pt-BR"), color: "bg-[#2D8CC7]/40", width: "w-[85%]", percentage: ((totals.leads / (totals.clicks || 1)) * 100).toFixed(1) + "%", rateLabel: "TX. CONV." },
-                  { label: "Leads", value: totals.leads, color: "bg-blue-500/40", width: "w-[70%]", percentage: ((totals.sales / (totals.leads || 1)) * 100).toFixed(1) + "%", rateLabel: "TX. FECH." },
-                  { label: "Vendas", value: totals.sales, color: "bg-emerald-500/40", width: "w-[55%]" },
-                ]} />
+                <ModernFunnel textVariant="white" steps={(() => {
+                  const hasLeads = totals.leads > 0;
+                  const steps = [
+                    { label: "Impressões", value: totals.impressions.toLocaleString("pt-BR"), color: "bg-slate-700", width: "w-full", percentage: ((totals.clicks / (totals.impressions || 1)) * 100).toFixed(1) + "%", rateLabel: "CTR" },
+                    ...(hasLeads ? [
+                      { label: "Cliques", value: totals.clicks.toLocaleString("pt-BR"), color: "bg-[#2D8CC7]/40", width: "w-[85%]", percentage: ((totals.leads / (totals.clicks || 1)) * 100).toFixed(1) + "%", rateLabel: "TX. CONV." },
+                      { label: "Leads", value: totals.leads, color: "bg-blue-500/40", width: "w-[70%]", percentage: ((totals.sales / (totals.leads || 1)) * 100).toFixed(1) + "%", rateLabel: "TX. FECH." },
+                      { label: "Vendas", value: totals.sales, color: "bg-emerald-500/40", width: "w-[55%]" },
+                    ] : [
+                      { label: "Cliques", value: totals.clicks.toLocaleString("pt-BR"), color: "bg-[#2D8CC7]/40", width: "w-[85%]", percentage: ((totals.sales / (totals.clicks || 1)) * 100).toFixed(1) + "%", rateLabel: "TX. CONV." },
+                      { label: "Vendas", value: totals.sales, color: "bg-emerald-500/40", width: "w-[70%]" },
+                    ]),
+                  ];
+                  return steps;
+                })()} />
                 <div className="mt-8 pt-6 border-t border-slate-700 text-center w-full">
                   <p className="text-slate-400 text-xs uppercase font-black tracking-widest">Resultado Final</p>
                   <p className="text-3xl font-black text-emerald-400 mt-2">R$ {totals.revenue.toLocaleString("pt-BR")}</p>
@@ -907,7 +1048,7 @@ export function PublicDashboardPage() {
             </Card>
           </div>
 
-          {/* ── 4. INDICADORES DE NEGÓCIO (KPIs manuais) — linha toda ── */}
+          {/* ── 5. INDICADORES DE NEGÓCIO (KPIs manuais) — linha toda ── */}
           <Card className="bg-[#1E293B] border-slate-800 shadow-2xl">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-xl font-bold text-white flex items-center gap-2">
@@ -917,14 +1058,14 @@ export function PublicDashboardPage() {
               <InfoTooltip text="Indicadores-chave de negócio registrados manualmente pela equipe. Cada card exibe o valor do mês atual e o badge colorido mostra a variação percentual em relação ao mês anterior (MoM — Month over Month)." />
             </CardHeader>
             <CardContent>
-              {kpis.length === 0 ? (
+              {visibleKpiCards.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 gap-3 text-slate-500">
                   <BarChart3 className="h-10 w-10 opacity-20" />
                   <p className="text-sm text-center">Nenhum indicador cadastrado ainda.<br />Os KPIs aparecerão aqui após serem configurados.</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                  {kpiCards.map(kpi => (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                  {visibleKpiCards.map(kpi => (
                     <Card key={kpi.id} className="bg-slate-900/30 border-slate-800 p-5">
                       <div className="flex items-start justify-between">
                         <div className="h-8 w-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: kpi.color + "18" }}>
@@ -1043,58 +1184,7 @@ export function PublicDashboardPage() {
             </Card>
           </div>
 
-          {/* ── 5. IMPACTO DA PARCERIA ── */}
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 px-1">
-              <Zap className="h-5 w-5 text-yellow-400" />
-              <h2 className="text-xl font-bold text-white uppercase tracking-tight">Impacto da Parceria</h2>
-              <InfoTooltip text="Compara a média dos indicadores de negócio antes e depois do início do contrato com a agência. Permite mensurar objetivamente o impacto das estratégias aplicadas em cada KPI ao longo da parceria." />
-            </div>
-            {partnershipImpact.length === 0 ? (
-              <Card className="bg-[#1E293B] border-slate-800 shadow-2xl">
-                <CardContent className="flex flex-col items-center justify-center py-12 gap-3 text-slate-500">
-                  <Zap className="h-10 w-10 opacity-20" />
-                  <p className="text-sm text-center">Os cards de impacto aparecerão quando houver dados<br />registrados antes e depois do início do contrato.</p>
-                </CardContent>
-              </Card>
-            ) : (
-              <HorizontalScroll>
-                {(partnershipImpact as any[]).map((item: any) => (
-                  <Card key={item.name} className="bg-[#1E293B] border-slate-800 shadow-2xl p-7 relative overflow-hidden flex-none w-auto min-w-[411px]">
-                    <div className="flex items-center justify-between gap-6">
-                      <div className="flex-1 space-y-4">
-                        <p className="text-[11px] uppercase font-black tracking-widest text-slate-400">{item.name}</p>
-                        <div className="flex items-end gap-6">
-                          <div className="space-y-1">
-                            <p className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">Média Antes</p>
-                            <p className="text-base font-black text-slate-400">
-                              {fmtVal(item.pre, item.unit)}
-                            </p>
-                          </div>
-                          <ArrowUp className="h-4 w-4 text-slate-600 mb-1" />
-                          <div className="space-y-1">
-                            <p className="text-[9px] text-[#2D8CC7] uppercase font-bold tracking-wider">Média Atual</p>
-                            <p className="text-2xl font-black text-white">{fmtVal(item.post, item.unit)}</p>
-                          </div>
-                        </div>
-                      </div>
-                      <div className={cn("flex flex-col items-center justify-center h-20 w-20 rounded-2xl border shadow-lg shrink-0",
-                        (isLowerBetter(item.name) ? (item.growth ?? 0) <= 0 : (item.growth ?? 0) >= 0)
-                          ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
-                          : "bg-red-500/10 border-red-500/20 text-red-400"
-                      )}>
-                        <span className="text-sm font-black">{(item.growth ?? 0) >= 0 ? "+" : ""}{Number(item.growth ?? 0).toFixed(0)}%</span>
-                        <span className="text-[9px] font-bold uppercase opacity-70 mt-0.5">Cresc.</span>
-                      </div>
-                    </div>
-                    <div className="absolute top-0 right-0 h-full w-32 bg-gradient-to-l from-[#2D8CC7]/5 to-transparent pointer-events-none" />
-                  </Card>
-                ))}
-              </HorizontalScroll>
-            )}
-          </div>
-
-          {/* ── 6. TABELA COMPARATIVA DE PERFORMANCE ── */}
+          {/* ── 6. COMPARATIVO DE PERFORMANCE ── */}
           <div className="space-y-4">
             <div className="flex items-center gap-2 px-1">
               <ListFilter className="h-5 w-5 text-[#2D8CC7]" />
@@ -1201,9 +1291,9 @@ export function PublicDashboardPage() {
                       <table className="w-full text-left border-collapse">
                         <thead>
                           <tr className="text-slate-500 text-[10px] uppercase font-black tracking-widest border-b border-slate-800">
-                            <th className="pb-4 pl-5 min-w-[160px]">Indicador</th>
+                            <th className="pb-4 pl-5 min-w-[180px] sticky left-0 bg-[#1E293B] z-10">Indicador</th>
                             {months.map(m => (
-                              <th key={m.toISOString()} className="pb-4 text-center min-w-[90px]">
+                              <th key={m.toISOString()} className="pb-4 px-5 text-center min-w-[110px]">
                                 {format(m, "MMM/yy", { locale: ptBR })}
                               </th>
                             ))}
@@ -1211,14 +1301,14 @@ export function PublicDashboardPage() {
                         </thead>
                         <tbody className="divide-y divide-slate-800/50">
                           {kpis.map(kpi => (
-                            <tr key={kpi.id} className="text-sm hover:bg-slate-800/20 transition-colors">
-                              <td className="py-4 pl-5 font-bold text-slate-200">{kpi.name}</td>
+                            <tr key={kpi.id} className="text-sm group hover:bg-[#2d3f55] transition-colors">
+                              <td className="py-4 pl-5 pr-4 font-bold text-slate-200 sticky left-0 bg-[#1E293B] group-hover:bg-[#2d3f55] z-10 border-r border-slate-800 group-hover:text-white transition-colors">{kpi.name}</td>
                               {months.map(m => {
                                 const mk = format(m, "yyyy-MM");
                                 const val = kpiHistory.find(h => h.kpi_id === kpi.id && String(h.month_year).startsWith(mk))?.value;
                                 return (
-                                  <td key={mk} className="py-4 text-center text-slate-300 font-bold">
-                                    {val !== undefined ? fmtVal(val, kpi.unit) : <span className="text-slate-700">—</span>}
+                                  <td key={mk} className="py-4 px-5 text-center text-slate-300 font-bold group-hover:text-white transition-colors">
+                                    {val !== undefined ? fmtVal(val, kpi.unit) : <span className="text-slate-700 group-hover:text-slate-500">—</span>}
                                   </td>
                                 );
                               })}

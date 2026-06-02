@@ -27,6 +27,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useClientReports } from "@/hooks/useHubPerformance";
 import { fmtKpiValue } from "@/lib/formatters";
 import { useClientAuth } from "@/hooks/useClientAuth";
+import { usePartnershipImpact, fmtImpact, isLowerBetterImpact } from "@/hooks/usePartnershipImpact";
 
 const isLowerBetter = (name: string) => /cac|cpa|cpl|cpc|cpm|custo|inadimpl|churn|cancelamento|devolução|reclamação|tempo.*espera|prazo.*entrega/i.test(name);
 const KPI_COLORS = ["#10b981","#2D8CC7","#f59e0b","#a855f7","#f43f5e","#06b6d4","#e879f9","#34d399"];
@@ -70,15 +71,16 @@ function aggregateCampaigns(rows: any[]) {
 
 export function PerformancePage() {
   const { auth } = useClientAuth();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const dateRange = {
-    from: searchParams.get('from') ?? format(subDays(new Date(), 30), 'yyyy-MM-dd'),
-    to: searchParams.get('to') ?? format(new Date(), 'yyyy-MM-dd'),
+    from: searchParams.get('from') ?? format(startOfMonth(new Date()), 'yyyy-MM-dd'),
+    to: searchParams.get('to') ?? format(endOfMonth(new Date()), 'yyyy-MM-dd'),
   };
   const stableDateRange = useMemo(() => dateRange, [dateRange.from, dateRange.to]);
 
   const [contractStartDate, setContractStartDate] = useState<Date | null>(null);
   const [activeKpiId, setActiveKpiId] = useState<string | null>(null);
+  const [autoFallbackApplied, setAutoFallbackApplied] = useState(false);
   const [campaignFilter, setCampaignFilter] = useState<"Todas" | "meta" | "google">("Todas");
   const [selectedCampaign, setSelectedCampaign] = useState<any>(null);
 
@@ -117,7 +119,7 @@ export function PerformancePage() {
     },
     enabled: !!auth?.id,
   });
-  const kpis = (kpisRaw ?? []) as any[];
+  const kpis = ((kpisRaw ?? []) as any[]).filter((k: any) => k.name !== "__lead_manual" && k.name !== "__sale_manual");
 
   const { data: kpiHistoryRaw } = useQuery({
     queryKey: ["public_client_kpi_history", auth?.id],
@@ -140,18 +142,93 @@ export function PerformancePage() {
     [realCampaigns, campaignFilter]
   );
 
+  // ── Mapeamento de métricas de conversão ─────────────────────────────────────
+  const conversionConfig = useMemo(() => {
+    const meta = (auth?.metadata ?? {}) as Record<string, any>;
+    const cfg = meta.conversion_metrics ?? {};
+    const leadFields: string[] = Array.isArray(cfg.lead_fields) ? cfg.lead_fields
+      : (cfg.lead_field && cfg.lead_field !== "none") ? [cfg.lead_field] : ["leads"];
+    const saleFields: string[] = Array.isArray(cfg.sale_fields) ? cfg.sale_fields
+      : (cfg.sale_field && cfg.sale_field !== "none") ? [cfg.sale_field] : ["sales"];
+    const dashboardKpis: string[] = Array.isArray(meta.dashboard_kpis) ? meta.dashboard_kpis : [];
+    return { leadFields, saleFields, dashboardKpis };
+  }, [auth?.metadata]);
+
+  const { data: manualKpiHistory } = useQuery({
+    queryKey: ["public_manual_kpi_history", auth?.id],
+    queryFn: async () => {
+      if (!auth?.id) return [];
+      const { data, error } = await supabase
+        .from("client_kpi_history")
+        .select("kpi_id, month_year, value")
+        .eq("client_id", auth.id);
+      if (error) return [];
+      return data || [];
+    },
+    enabled: !!auth?.id && (conversionConfig.leadFields?.includes("manual") ?? false),
+  });
+
+  const { data: manualKpiIds } = useQuery({
+    queryKey: ["public_manual_kpi_ids", auth?.id],
+    queryFn: async () => {
+      if (!auth?.id) return null;
+      const { data } = await supabase
+        .from("client_kpis")
+        .select("id, name")
+        .eq("client_id", auth.id)
+        .in("name", ["__lead_manual", "__sale_manual"]);
+      const leadKpi = data?.find((k: any) => k.name === "__lead_manual");
+      const saleKpi = data?.find((k: any) => k.name === "__sale_manual");
+      return { leadKpiId: leadKpi?.id ?? null, saleKpiId: saleKpi?.id ?? null };
+    },
+    enabled: !!auth?.id && ((conversionConfig.leadFields?.includes("manual") ?? false) || (conversionConfig.saleFields?.includes("manual") ?? false)),
+  });
+
   const realDailyMetrics = useMemo(() => {
     const rows = (campaignDataQuery.data ?? []) as any[];
+    const { leadFields, saleFields } = conversionConfig;
+    const hasManualLead = leadFields.includes("manual");
+    const hasManualSale = saleFields.includes("manual");
+    const fixedFields = ["leads","clicks","sales","revenue","impressions","reach","spend","objective_metric_value"];
     const byDate: Record<string, any> = {};
     for (const r of rows) {
       const d = r.date; if (!d) continue;
       if (!byDate[d]) byDate[d] = { date: d, total_spend: 0, total_leads: 0, total_sales: 0, total_revenue: 0, total_impressions: 0, total_clicks: 0 };
-      byDate[d].total_spend += Number(r.spend ?? 0); byDate[d].total_leads += Number(r.leads ?? 0);
-      byDate[d].total_sales += Number(r.sales ?? 0); byDate[d].total_revenue += Number(r.revenue ?? 0);
-      byDate[d].total_impressions += Number(r.impressions ?? 0); byDate[d].total_clicks += Number(r.clicks ?? 0);
+      byDate[d].total_spend       += Number(r.spend ?? 0);
+      byDate[d].total_revenue     += Number(r.revenue ?? 0);
+      byDate[d].total_impressions += Number(r.impressions ?? 0);
+      byDate[d].total_clicks      += Number(r.clicks ?? 0);
+      if (!hasManualLead) {
+        for (const f of leadFields) {
+          if (!f || f === "none") continue;
+          if (fixedFields.includes(f)) byDate[d].total_leads += Number(r[f] ?? 0);
+          else if (r.objective_metric_label === f) byDate[d].total_leads += Number(r.objective_metric_value ?? 0);
+        }
+      }
+      if (!hasManualSale) {
+        for (const f of saleFields) {
+          if (!f || f === "none") continue;
+          if (fixedFields.includes(f)) byDate[d].total_sales += Number(r[f] ?? 0);
+          else if (r.objective_metric_label === f) byDate[d].total_sales += Number(r.objective_metric_value ?? 0);
+        }
+      }
     }
-    return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
-  }, [campaignDataQuery.data]);
+    const result = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
+    if ((hasManualLead || hasManualSale) && manualKpiHistory && manualKpiIds) {
+      const { leadKpiId, saleKpiId } = manualKpiIds;
+      for (const entry of (manualKpiHistory as any[])) {
+        const monthPrefix = String(entry.month_year).substring(0, 7);
+        const daysInMonth = result.filter((d: any) => d.date.startsWith(monthPrefix));
+        if (daysInMonth.length === 0) continue;
+        const perDay = entry.value / daysInMonth.length;
+        daysInMonth.forEach((day: any) => {
+          if (hasManualLead && entry.kpi_id === leadKpiId) day.total_leads += perDay;
+          if (hasManualSale && entry.kpi_id === saleKpiId) day.total_sales += perDay;
+        });
+      }
+    }
+    return result;
+  }, [campaignDataQuery.data, conversionConfig, manualKpiHistory, manualKpiIds]);
 
   const totals = useMemo(() => realDailyMetrics.reduce((acc, curr) => ({
     spend: acc.spend + (curr.total_spend || 0), leads: acc.leads + (curr.total_leads || 0),
@@ -175,6 +252,13 @@ export function PerformancePage() {
     });
   }, [kpis, kpiHistory, contractStartDate]);
 
+  // Filtra pelos IDs selecionados para o dashboard (vazio = exibe todos)
+  const visibleKpiCards = useMemo(() => {
+    const { dashboardKpis } = conversionConfig;
+    if (!dashboardKpis || dashboardKpis.length === 0) return kpiCards as any[];
+    return (kpiCards as any[]).filter((k: any) => dashboardKpis.includes(k.id));
+  }, [kpiCards, conversionConfig]);
+
   const longTermData = useMemo(() => {
     const contractStart = contractStartDate ? startOfMonth(contractStartDate) : null;
     return Array.from({ length: 12 }).map((_, i) => {
@@ -190,21 +274,8 @@ export function PerformancePage() {
     });
   }, [kpis, kpiHistory, contractStartDate]);
 
-  const partnershipImpact = useMemo(() => {
-    if (kpiHistory.length === 0 || !contractStartDate) return [];
-    const splitDate = startOfMonth(contractStartDate);
-    return kpis.map(kpi => {
-      const kpiEntries = kpiHistory.filter(h => h.kpi_id === kpi.id).sort((a, b) => String(a.month_year).localeCompare(String(b.month_year)));
-      if (kpiEntries.length < 2) return null;
-      const pre = kpiEntries.filter(h => isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), splitDate));
-      const post = kpiEntries.filter(h => !isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), splitDate));
-      if (post.length === 0 || pre.length === 0) return null;
-      const preLast12 = pre.slice(-12);
-      const preAvg = preLast12.reduce((a, h) => a + Number(h.value), 0) / preLast12.length;
-      const postAvg = post.reduce((a, h) => a + Number(h.value), 0) / post.length;
-      return { name: kpi.name, unit: kpi.unit, pre: preAvg, post: postAvg, postMonths: post.length, growth: preAvg !== 0 ? ((postAvg - preAvg) / preAvg) * 100 : null };
-    }).filter(Boolean);
-  }, [kpis, kpiHistory, contractStartDate]);
+  // Impacto da parceria — dois cards para faturamento, um para os demais
+  const partnershipImpact = usePartnershipImpact(kpis, kpiHistory, contractStartDate);
 
   const perfRows = useMemo(() => {
     const contractStart = contractStartDate ? startOfMonth(contractStartDate) : null;
@@ -237,7 +308,34 @@ export function PerformancePage() {
 
   const roas = totals.spend > 0 ? (totals.revenue / totals.spend).toFixed(1) : "0.0";
   const cpa = totals.sales > 0 ? (totals.spend / totals.sales).toFixed(0) : "0";
-  const conversionRate = totals.leads > 0 ? ((totals.sales / totals.leads) * 100).toFixed(1) : "0.0";
+  // Se não há leads, usa cliques como denominador (igual ao funil adaptativo)
+  const conversionRate = totals.leads > 0
+    ? ((totals.sales / totals.leads) * 100).toFixed(1)
+    : totals.clicks > 0
+      ? ((totals.sales / totals.clicks) * 100).toFixed(1)
+      : "0.0";
+  const conversionLabel = totals.leads > 0 ? "Leads → Vendas" : totals.clicks > 0 ? "Cliques → Vendas" : "Conversão";
+  const isZero = totals.spend === 0 && totals.revenue === 0 && totals.clicks === 0;
+
+  // Fallback automático: se mês atual sem dados, recua para mês anterior (só uma vez)
+  useEffect(() => {
+    const isCurrentMonth = !searchParams.get('from') ||
+      searchParams.get('from') === format(startOfMonth(new Date()), 'yyyy-MM-dd');
+    if (
+      !campaignDataQuery.isLoading &&
+      isZero &&
+      !autoFallbackApplied &&
+      isCurrentMonth
+    ) {
+      setAutoFallbackApplied(true);
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        next.set('from', format(startOfMonth(subMonths(new Date(), 1)), 'yyyy-MM-dd'));
+        next.set('to',   format(endOfMonth(subMonths(new Date(), 1)),   'yyyy-MM-dd'));
+        return next;
+      });
+    }
+  }, [campaignDataQuery.isLoading, isZero, autoFallbackApplied, searchParams]);
   const fmtVal = (v: number, unit: string) => fmtKpiValue(v, unit);
   const defaultKpi = kpis.find(k => /faturamento/i.test(k.name)) ?? kpis[0];
   const sortedKpis = [...kpis.filter(k => /faturamento/i.test(k.name)), ...kpis.filter(k => !/faturamento/i.test(k.name))];
@@ -247,12 +345,66 @@ export function PerformancePage() {
   return (
     <TooltipProvider>
       <div className="space-y-8 max-w-[1600px] mx-auto">
-        {/* ── 1. MÉTRICAS DE ANÚNCIOS ── */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+
+        {/* ── BANNER: dados zerados ── */}
+        {isZero && (
+          <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+            <Info className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+            <p className="text-sm text-amber-200">
+              Nenhum dado encontrado para o período selecionado. Use o filtro no canto superior direito para selecionar o mês atual ou períodos anteriores.
+            </p>
+          </div>
+        )}
+
+        {/* ── 1. IMPACTO DA PARCERIA ── */}
+        {partnershipImpact.length > 0 && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 px-1">
+              <Zap className="h-5 w-5 text-yellow-400" />
+              <h2 className="text-xl font-bold text-white uppercase tracking-tight">Impacto da Parceria</h2>
+              <InfoTooltip text="Compara a média dos indicadores antes e depois do início do contrato." />
+            </div>
+            <HorizontalScroll>
+              {partnershipImpact.map((item) => (
+                <Card key={item.id} className="bg-[#1E293B] border-slate-800 shadow-2xl p-7 relative overflow-hidden flex-none w-auto min-w-[411px]">
+                  <div className="flex items-center justify-between gap-6">
+                    <div className="flex-1 space-y-3">
+                      <div>
+                        <p className="text-[11px] uppercase font-black tracking-widest text-slate-400">{item.label}</p>
+                        <p className="text-[10px] text-slate-600 mt-0.5">{item.subtitle}</p>
+                      </div>
+                      <div className="flex items-end gap-6">
+                        <div className="space-y-1"><p className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">Média Antes</p><p className="text-base font-black text-slate-400">{fmtImpact(item.pre, item.unit)}</p></div>
+                        <ArrowUp className="h-4 w-4 text-slate-600 mb-1" />
+                        <div className="space-y-1">
+                          <p className="text-[9px] text-[#2D8CC7] uppercase font-bold tracking-wider">
+                            {item.type === "ultimo_mes" ? "Último Mês" : "Média Atual"}
+                          </p>
+                          <p className="text-2xl font-black text-white">{fmtImpact(item.post, item.unit)}</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className={cn("flex flex-col items-center justify-center h-20 w-20 rounded-2xl border shadow-lg shrink-0",
+                      (isLowerBetterImpact(item.kpiName) ? (item.growth ?? 0) <= 0 : (item.growth ?? 0) >= 0) ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-red-500/10 border-red-500/20 text-red-400")}>
+                      <span className="text-sm font-black">{(item.growth ?? 0) >= 0 ? "+" : ""}{Number(item.growth ?? 0).toFixed(0)}%</span>
+                      <span className="text-[9px] font-bold uppercase opacity-70 mt-0.5">Cresc.</span>
+                    </div>
+                  </div>
+                  <div className="absolute top-0 right-0 h-full w-32 bg-gradient-to-l from-[#2D8CC7]/5 to-transparent pointer-events-none" />
+                </Card>
+              ))}
+            </HorizontalScroll>
+          </div>
+        )}
+
+        {/* ── 2. MÉTRICAS DE ANÚNCIOS ── */}
+        <div className={`grid gap-4 ${totals.leads > 0 ? "grid-cols-2 md:grid-cols-3 lg:grid-cols-6" : "grid-cols-2 md:grid-cols-3 lg:grid-cols-5"}`}>
           <MetricCard label="Investimento" value={`R$ ${totals.spend.toLocaleString("pt-BR")}`} icon={<DollarSign className="h-5 w-5 text-[#2D8CC7]" />} info="Valor total investido em mídia paga no período." />
-          <MetricCard label="Leads" value={totals.leads} icon={<Users className="h-5 w-5 text-blue-400" />} info="Número total de leads gerados pelas campanhas no período." />
+          {totals.leads > 0 && (
+            <MetricCard label="Leads" value={totals.leads} icon={<Users className="h-5 w-5 text-blue-400" />} info="Número total de leads gerados pelas campanhas no período." />
+          )}
           <MetricCard label="Vendas" value={totals.sales} icon={<Target className="h-5 w-5 text-emerald-400" />} info="Total de vendas fechadas e atribuídas às campanhas no período." />
-          <MetricCard label="Conversão" value={`${conversionRate}%`} icon={<CheckCircle2 className="h-5 w-5 text-emerald-400" />} info="Percentual de leads que se tornaram clientes." />
+          <MetricCard label="Conversão" value={`${conversionRate}%`} icon={<CheckCircle2 className="h-5 w-5 text-emerald-400" />} info={`Taxa de conversão: ${conversionLabel}.`} />
           <MetricCard label="Faturamento Estimado" value={`R$ ${totals.revenue.toLocaleString("pt-BR")}`} icon={<TrendingUp className="h-5 w-5 text-white" />} info="Receita total estimada gerada pelas vendas atribuídas às campanhas." highlight />
           <MetricCard label="ROAS" value={`${roas}x`} icon={<PieChart className="h-5 w-5 text-orange-400" />} info="Return on Ad Spend — retorno sobre o investimento em anúncios." />
         </div>
@@ -300,12 +452,20 @@ export function PerformancePage() {
               <InfoTooltip text="Visualize como os usuários avançam em cada etapa da jornada de compra." />
             </CardHeader>
             <CardContent className="flex-1 flex flex-col justify-center pt-6">
-              <ModernFunnel textVariant="white" steps={[
-                { label: "Impressões", value: totals.impressions.toLocaleString("pt-BR"), color: "bg-slate-700", width: "w-full", percentage: ((totals.clicks / (totals.impressions || 1)) * 100).toFixed(1) + "%", rateLabel: "CTR" },
-                { label: "Cliques", value: totals.clicks.toLocaleString("pt-BR"), color: "bg-[#2D8CC7]/40", width: "w-[85%]", percentage: ((totals.leads / (totals.clicks || 1)) * 100).toFixed(1) + "%", rateLabel: "TX. CONV." },
-                { label: "Leads", value: totals.leads, color: "bg-blue-500/40", width: "w-[70%]", percentage: ((totals.sales / (totals.leads || 1)) * 100).toFixed(1) + "%", rateLabel: "TX. FECH." },
-                { label: "Vendas", value: totals.sales, color: "bg-emerald-500/40", width: "w-[55%]" },
-              ]} />
+              <ModernFunnel textVariant="white" steps={(() => {
+                const hasLeads = totals.leads > 0;
+                return [
+                  { label: "Impressões", value: totals.impressions.toLocaleString("pt-BR"), color: "bg-slate-700", width: "w-full", percentage: ((totals.clicks / (totals.impressions || 1)) * 100).toFixed(1) + "%", rateLabel: "CTR" },
+                  ...(hasLeads ? [
+                    { label: "Cliques", value: totals.clicks.toLocaleString("pt-BR"), color: "bg-[#2D8CC7]/40", width: "w-[85%]", percentage: ((totals.leads / (totals.clicks || 1)) * 100).toFixed(1) + "%", rateLabel: "TX. CONV." },
+                    { label: "Leads", value: totals.leads, color: "bg-blue-500/40", width: "w-[70%]", percentage: ((totals.sales / (totals.leads || 1)) * 100).toFixed(1) + "%", rateLabel: "TX. FECH." },
+                    { label: "Vendas", value: totals.sales, color: "bg-emerald-500/40", width: "w-[55%]" },
+                  ] : [
+                    { label: "Cliques", value: totals.clicks.toLocaleString("pt-BR"), color: "bg-[#2D8CC7]/40", width: "w-[85%]", percentage: ((totals.sales / (totals.clicks || 1)) * 100).toFixed(1) + "%", rateLabel: "TX. CONV." },
+                    { label: "Vendas", value: totals.sales, color: "bg-emerald-500/40", width: "w-[70%]" },
+                  ]),
+                ];
+              })()} />
               <div className="mt-8 pt-6 border-t border-slate-700 text-center w-full">
                 <p className="text-slate-400 text-xs uppercase font-black tracking-widest">Resultado Final</p>
                 <p className="text-3xl font-black text-emerald-400 mt-2">R$ {totals.revenue.toLocaleString("pt-BR")}</p>
@@ -474,7 +634,7 @@ export function PerformancePage() {
           </Card>
         </div>
 
-        {/* ── 4. INDICADORES DE NEGÓCIO ── */}
+        {/* ── 5. INDICADORES DE NEGÓCIO ── */}
         <Card className="bg-[#1E293B] border-slate-800 shadow-2xl">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-xl font-bold text-white flex items-center gap-2">
@@ -483,14 +643,14 @@ export function PerformancePage() {
             <InfoTooltip text="Indicadores-chave de negócio registrados manualmente pela equipe." />
           </CardHeader>
           <CardContent>
-            {kpis.length === 0 ? (
+            {visibleKpiCards.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 gap-3 text-slate-500">
                 <BarChart3 className="h-10 w-10 opacity-20" />
                 <p className="text-sm text-center">Nenhum indicador cadastrado ainda.<br />Os KPIs aparecerão aqui após serem configurados.</p>
               </div>
             ) : (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                {kpiCards.map(kpi => (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                {visibleKpiCards.map(kpi => (
                   <Card key={kpi.id} className="bg-slate-900/30 border-slate-800 p-5">
                     <div className="flex items-start justify-between">
                       <div className="h-8 w-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: kpi.color + "18" }}>
@@ -590,47 +750,7 @@ export function PerformancePage() {
           </Card>
         </div>
 
-        {/* ── 6. IMPACTO DA PARCERIA ── */}
-        <div className="space-y-4">
-          <div className="flex items-center gap-2 px-1">
-            <Zap className="h-5 w-5 text-yellow-400" />
-            <h2 className="text-xl font-bold text-white uppercase tracking-tight">Impacto da Parceria</h2>
-            <InfoTooltip text="Compara a média dos indicadores antes e depois do início do contrato." />
-          </div>
-          {partnershipImpact.length === 0 ? (
-            <Card className="bg-[#1E293B] border-slate-800 shadow-2xl">
-              <CardContent className="flex flex-col items-center justify-center py-12 gap-3 text-slate-500">
-                <Zap className="h-10 w-10 opacity-20" />
-                <p className="text-sm text-center">Os cards de impacto aparecerão quando houver dados registrados antes e depois do início do contrato.</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <HorizontalScroll>
-              {(partnershipImpact as any[]).map((item: any) => (
-                <Card key={item.name} className="bg-[#1E293B] border-slate-800 shadow-2xl p-7 relative overflow-hidden flex-none w-auto min-w-[411px]">
-                  <div className="flex items-center justify-between gap-6">
-                    <div className="flex-1 space-y-4">
-                      <p className="text-[11px] uppercase font-black tracking-widest text-slate-400">{item.name}</p>
-                      <div className="flex items-end gap-6">
-                        <div className="space-y-1"><p className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">Média Antes</p><p className="text-base font-black text-slate-400">{fmtVal(item.pre, item.unit)}</p></div>
-                        <ArrowUp className="h-4 w-4 text-slate-600 mb-1" />
-                        <div className="space-y-1"><p className="text-[9px] text-[#2D8CC7] uppercase font-bold tracking-wider">Média Atual</p><p className="text-2xl font-black text-white">{fmtVal(item.post, item.unit)}</p></div>
-                      </div>
-                    </div>
-                    <div className={cn("flex flex-col items-center justify-center h-20 w-20 rounded-2xl border shadow-lg shrink-0",
-                      (isLowerBetter(item.name) ? (item.growth ?? 0) <= 0 : (item.growth ?? 0) >= 0) ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-red-500/10 border-red-500/20 text-red-400")}>
-                      <span className="text-sm font-black">{(item.growth ?? 0) >= 0 ? "+" : ""}{Number(item.growth ?? 0).toFixed(0)}%</span>
-                      <span className="text-[9px] font-bold uppercase opacity-70 mt-0.5">Cresc.</span>
-                    </div>
-                  </div>
-                  <div className="absolute top-0 right-0 h-full w-32 bg-gradient-to-l from-[#2D8CC7]/5 to-transparent pointer-events-none" />
-                </Card>
-              ))}
-            </HorizontalScroll>
-          )}
-        </div>
-
-        {/* ── 7. TABELA COMPARATIVA ── */}
+        {/* ── 4. INDICADORES DE NEGÓCIO ── */}
         <div className="space-y-4">
           <div className="flex items-center gap-2 px-1">
             <ListFilter className="h-5 w-5 text-[#2D8CC7]" />
@@ -700,18 +820,18 @@ export function PerformancePage() {
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="text-slate-500 text-[10px] uppercase font-black tracking-widest border-b border-slate-800">
-                          <th className="pb-4 pl-5 min-w-[160px]">Indicador</th>
-                          {months.map(m => (<th key={m.toISOString()} className="pb-4 text-center min-w-[90px]">{format(m, "MMM/yy", { locale: ptBR })}</th>))}
+                          <th className="pb-4 pl-5 min-w-[180px] sticky left-0 bg-[#1E293B] z-10">Indicador</th>
+                          {months.map(m => (<th key={m.toISOString()} className="pb-4 px-5 text-center min-w-[110px]">{format(m, "MMM/yy", { locale: ptBR })}</th>))}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/50">
                         {kpis.map(kpi => (
-                          <tr key={kpi.id} className="text-sm hover:bg-slate-800/20 transition-colors">
-                            <td className="py-4 pl-5 font-bold text-slate-200">{kpi.name}</td>
+                          <tr key={kpi.id} className="text-sm group hover:bg-[#2d3f55] transition-colors">
+                            <td className="py-4 pl-5 pr-4 font-bold text-slate-200 sticky left-0 bg-[#1E293B] group-hover:bg-[#2d3f55] z-10 border-r border-slate-800 group-hover:text-white transition-colors">{kpi.name}</td>
                             {months.map(m => {
                               const mk = format(m, "yyyy-MM");
                               const val = kpiHistory.find(h => h.kpi_id === kpi.id && String(h.month_year).startsWith(mk))?.value;
-                              return (<td key={mk} className="py-4 text-center text-slate-300 font-bold">{val !== undefined ? fmtVal(val, kpi.unit) : <span className="text-slate-700">—</span>}</td>);
+                              return (<td key={mk} className="py-4 px-5 text-center text-slate-300 font-bold group-hover:text-white transition-colors">{val !== undefined ? fmtVal(val, kpi.unit) : <span className="text-slate-700 group-hover:text-slate-500">—</span>}</td>);
                             })}
                           </tr>
                         ))}

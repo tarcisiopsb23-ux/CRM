@@ -37,6 +37,7 @@ export function useClientKPIs(organizationId?: string, clientId?: string) {
         .select("*")
         .eq("organization_id", organizationId)
         .eq("client_id", clientId)
+        .not("name", "in", '("__lead_manual","__sale_manual")')
         .order("name", { ascending: true });
       if (error) throw error;
       return data || [];
