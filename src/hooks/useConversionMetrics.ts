@@ -289,31 +289,35 @@ export function useConversionMetricsEntries(
 
       if (leadsManual !== null) {
         ops.push(
-          supabase.from("client_kpi_history").upsert(
-            {
-              organization_id: organizationId,
-              client_id: clientId,
-              kpi_id: leadKpiId,
-              month_year: monthYear,
-              value: leadsManual,
-            },
-            { onConflict: "kpi_id, month_year" }
-          ).then(r => r)
+          Promise.resolve(
+            supabase.from("client_kpi_history").upsert(
+              {
+                organization_id: organizationId,
+                client_id: clientId,
+                kpi_id: leadKpiId,
+                month_year: monthYear,
+                value: leadsManual,
+              },
+              { onConflict: "kpi_id, month_year" }
+            )
+          )
         );
       }
 
       if (salesManual !== null) {
         ops.push(
-          supabase.from("client_kpi_history").upsert(
-            {
-              organization_id: organizationId,
-              client_id: clientId,
-              kpi_id: saleKpiId,
-              month_year: monthYear,
-              value: salesManual,
-            },
-            { onConflict: "kpi_id, month_year" }
-          ).then(r => r)
+          Promise.resolve(
+            supabase.from("client_kpi_history").upsert(
+              {
+                organization_id: organizationId,
+                client_id: clientId,
+                kpi_id: saleKpiId,
+                month_year: monthYear,
+                value: salesManual,
+              },
+              { onConflict: "kpi_id, month_year" }
+            )
+          )
         );
       }
 
