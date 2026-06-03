@@ -92,39 +92,39 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <DynamicFavicon />
-      <DynamicTitle />
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter
-          future={{ 
-            v7_startTransition: true,
-            v7_relativeSplatPath: true,
-          }}
-        >
-          <Routes>
-            {/* ── Rotas do Dashboard Público — fora do UserPreferencesProvider, sempre dark ── */}
-            <Route path="/demo/dashboard" element={<PublicDemoDashboardPage />} />
-            <Route path="/public/dashboard/:slug" element={<PublicDashboardLayout />}>
-              <Route index element={<Suspense fallback={<PageLoader />}><DashboardGeralPage /></Suspense>} />
-              <Route path="performance" element={<Suspense fallback={<PageLoader />}><PerformancePage /></Suspense>} />
-              <Route path="atendimento" element={<Suspense fallback={<PageLoader />}><AtendimentoPage /></Suspense>} />
-              <Route path="agenda" element={<Suspense fallback={<PageLoader />}><AgendaPage /></Suspense>} />
-              <Route path="promocoes" element={<Suspense fallback={<PageLoader />}><PromocoesPage /></Suspense>} />
-              <Route path="sugestoes" element={<Suspense fallback={<PageLoader />}><SugestoesPage /></Suspense>} />
-              <Route path="avisos" element={<Suspense fallback={<PageLoader />}><AvisosPage /></Suspense>} />
-              <Route path="configuracoes" element={<Suspense fallback={<PageLoader />}><ConfiguracoesPage /></Suspense>} />
-            </Route>
-            <Route path="/public/dashboard/:slug/login" element={<PublicDashboardLoginPage />} />
-            <Route path="/public/dashboard/:slug/crm/login" element={<C8ControlLoginPage />} />
-            <Route path="/vagas/*" element={<PublicVagasRouter />} />
+      <AuthProvider>
+        <PendingAuthProvider>
+          <DynamicFavicon />
+          <DynamicTitle />
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter
+              future={{ 
+                v7_startTransition: true,
+                v7_relativeSplatPath: true,
+              }}
+            >
+              <Routes>
+                {/* ── Rotas do Dashboard Público — sem UserPreferencesProvider, sempre dark ── */}
+                <Route path="/demo/dashboard" element={<PublicDemoDashboardPage />} />
+                <Route path="/public/dashboard/:slug" element={<PublicDashboardLayout />}>
+                  <Route index element={<Suspense fallback={<PageLoader />}><DashboardGeralPage /></Suspense>} />
+                  <Route path="performance" element={<Suspense fallback={<PageLoader />}><PerformancePage /></Suspense>} />
+                  <Route path="atendimento" element={<Suspense fallback={<PageLoader />}><AtendimentoPage /></Suspense>} />
+                  <Route path="agenda" element={<Suspense fallback={<PageLoader />}><AgendaPage /></Suspense>} />
+                  <Route path="promocoes" element={<Suspense fallback={<PageLoader />}><PromocoesPage /></Suspense>} />
+                  <Route path="sugestoes" element={<Suspense fallback={<PageLoader />}><SugestoesPage /></Suspense>} />
+                  <Route path="avisos" element={<Suspense fallback={<PageLoader />}><AvisosPage /></Suspense>} />
+                  <Route path="configuracoes" element={<Suspense fallback={<PageLoader />}><ConfiguracoesPage /></Suspense>} />
+                </Route>
+                <Route path="/public/dashboard/:slug/login" element={<PublicDashboardLoginPage />} />
+                <Route path="/public/dashboard/:slug/crm/login" element={<C8ControlLoginPage />} />
+                <Route path="/vagas/*" element={<PublicVagasRouter />} />
 
-            {/* ── Rotas internas — com UserPreferencesProvider e AuthProvider ── */}
-            <Route path="/*" element={
-              <UserPreferencesProvider>
-                <AuthProvider>
-                  <PendingAuthProvider>
+                {/* ── Rotas internas — com UserPreferencesProvider ── */}
+                <Route path="/*" element={
+                  <UserPreferencesProvider>
                     <Routes>
                       <Route path="/login" element={<LoginPage />} />
                       <Route path="/complete-registration" element={<CompleteRegistrationPage />} />
@@ -189,13 +189,13 @@ function App() {
                       </Route>
                       <Route path="*" element={<NotFound />} />
                     </Routes>
-                  </PendingAuthProvider>
-                </AuthProvider>
-              </UserPreferencesProvider>
-            } />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
+                  </UserPreferencesProvider>
+                } />
+              </Routes>
+            </BrowserRouter>
+          </TooltipProvider>
+        </PendingAuthProvider>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }
