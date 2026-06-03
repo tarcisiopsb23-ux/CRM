@@ -15,6 +15,12 @@ interface UserPreferencesContextType {
 
 const UserPreferencesContext = createContext<UserPreferencesContextType | undefined>(undefined);
 
+/** Retorna true se a rota atual é do dashboard público (nunca deve ter tema do CRM aplicado) */
+function isPublicDashboardRoute() {
+  const path = window.location.pathname;
+  return path.startsWith('/public/dashboard/') || path.startsWith('/demo/dashboard');
+}
+
 export function UserPreferencesProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>(() => {
     const saved = localStorage.getItem('maestr-ia-theme');
@@ -31,8 +37,9 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
     return (saved as SidebarColor) || 'default';
   });
 
-  // Persistência e aplicação do tema
+  // Persistência e aplicação do tema — ignora rotas do dashboard público
   useEffect(() => {
+    if (isPublicDashboardRoute()) return;
     const root = window.document.documentElement;
     root.classList.remove('light', 'dark');
 
@@ -59,19 +66,21 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
     localStorage.setItem('maestr-ia-font-size', fontSize);
   }, [fontSize]);
 
-  // Aplicação da cor da sidebar
+  // Aplicação da cor da sidebar — ignora rotas do dashboard público
   useEffect(() => {
+    if (isPublicDashboardRoute()) return;
     const root = window.document.documentElement;
     root.setAttribute('data-sidebar-color', sidebarColor);
     localStorage.setItem('maestr-ia-sidebar-color', sidebarColor);
   }, [sidebarColor]);
 
-  // Listener para mudança de tema do sistema
+  // Listener para mudança de tema do sistema — ignora rotas do dashboard público
   useEffect(() => {
     if (theme !== 'system') return;
 
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     const handleChange = () => {
+      if (isPublicDashboardRoute()) return;
       const root = window.document.documentElement;
       root.classList.remove('light', 'dark');
       root.classList.add(mediaQuery.matches ? 'dark' : 'light');
