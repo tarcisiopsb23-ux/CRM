@@ -15,6 +15,28 @@
           }
         });
       }
+
+      // Dashboard público: força dark + reseta cor da sidebar antes do primeiro render
+      // Evita flash de tema claro em rotas /public/dashboard/*
+      (function() {
+        var path = window.location.pathname;
+        if (path.indexOf('/public/dashboard/') === 0 || path.indexOf('/demo/dashboard') === 0) {
+          var root = document.documentElement;
+          root.classList.remove('light');
+          root.classList.add('dark');
+          root.removeAttribute('data-sidebar-color');
+        } else {
+          // Rotas internas: aplica tema salvo antes do React montar (evita flash)
+          try {
+            var saved = localStorage.getItem('maestr-ia-theme');
+            var theme = saved === 'light' || saved === 'dark' ? saved
+              : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            document.documentElement.classList.add(theme);
+            var sidebarColor = localStorage.getItem('maestr-ia-sidebar-color');
+            if (sidebarColor) document.documentElement.setAttribute('data-sidebar-color', sidebarColor);
+          } catch(e) {}
+        }
+      })();
     </script>
   </head>
   <body>

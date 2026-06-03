@@ -37,6 +37,7 @@ export function PublicDashboardLoginPage() {
     const root = document.documentElement;
     root.classList.remove("light");
     root.classList.add("dark");
+    root.removeAttribute("data-sidebar-color");
   }, []);
   
   const [view, setView] = useState<'login' | 'recovery' | 'first-access' | 'success'>('login');

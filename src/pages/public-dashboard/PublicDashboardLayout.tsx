@@ -29,6 +29,7 @@ function PublicDashboardLayoutInner({ slug }: { slug: string }) {
     const root = document.documentElement;
     root.classList.remove("light");
     root.classList.add("dark");
+    root.removeAttribute("data-sidebar-color");
   }, []);
 
   // Guard de rota IA
