@@ -92,111 +92,110 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <UserPreferencesProvider>
-        <AuthProvider>
-          <PendingAuthProvider>
-          <DynamicFavicon />
-          <DynamicTitle />
-          <TooltipProvider>
-            <Toaster />
-            <Sonner />
-            <BrowserRouter
-              future={{ 
-                v7_startTransition: true,
-                v7_relativeSplatPath: true,
-              }}
-            >
-              <Routes>
-                {/* Rotas Públicas - Devem vir PRIMEIRO para evitar conflitos */}
-                <Route path="/demo/dashboard" element={<PublicDemoDashboardPage />} />
-                <Route path="/public/dashboard/:slug" element={<PublicDashboardLayout />}>
-                  <Route index element={<Suspense fallback={<PageLoader />}><DashboardGeralPage /></Suspense>} />
-                  <Route path="performance" element={<Suspense fallback={<PageLoader />}><PerformancePage /></Suspense>} />
-                  <Route path="atendimento" element={<Suspense fallback={<PageLoader />}><AtendimentoPage /></Suspense>} />
-                  <Route path="agenda" element={<Suspense fallback={<PageLoader />}><AgendaPage /></Suspense>} />
-                  <Route path="promocoes" element={<Suspense fallback={<PageLoader />}><PromocoesPage /></Suspense>} />
-                  <Route path="sugestoes" element={<Suspense fallback={<PageLoader />}><SugestoesPage /></Suspense>} />
-                  <Route path="avisos" element={<Suspense fallback={<PageLoader />}><AvisosPage /></Suspense>} />
-                  <Route path="configuracoes" element={<Suspense fallback={<PageLoader />}><ConfiguracoesPage /></Suspense>} />
-                </Route>
-                <Route path="/public/dashboard/:slug/login" element={<PublicDashboardLoginPage />} />
-                <Route path="/public/dashboard/:slug/crm/login" element={<C8ControlLoginPage />} />
-                <Route path="/vagas/*" element={<PublicVagasRouter />} />
-                <Route path="/login" element={<LoginPage />} />
-                <Route path="/complete-registration" element={<CompleteRegistrationPage />} />
-                <Route path="/set-password" element={<SetPasswordPage />} />
-                <Route path="/profile-setup" element={
-                  <ProtectedRoute>
-                    <ProfileSetupPage />
-                  </ProtectedRoute>
-                } />
-                {/* Tela de registro de ponto — fora do AppLayout, sem sidebar */}
-                <Route path="/timeclock/entry" element={
-                  <ProtectedRoute>
-                    <TimeclockEntryPage />
-                  </ProtectedRoute>
-                } />
-                {/* Tela de ponto encerrado — fora do AppLayout, sem sidebar */}
-                <Route path="/timeclock/locked" element={
-                  <ProtectedRoute>
-                    <TimeClockLockedPage />
-                  </ProtectedRoute>
-                } />
-                <Route
-                  element={ 
-                    <ProtectedRoute>
-                      <TimeclockGuard>
-                        <AppLayout />
-                      </TimeclockGuard>
-                    </ProtectedRoute>
-                  }
-                >
-                  {/* Rotas pessoais/operacionais — sem verificação de módulo */}
-                  <Route path="/timeclock/punch" element={<TimeClockPunchPage />} />
-                  <Route
-                    path="/team/me"
-                    element={<MyProfilePage />}
-                  />
+      <DynamicFavicon />
+      <DynamicTitle />
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter
+          future={{ 
+            v7_startTransition: true,
+            v7_relativeSplatPath: true,
+          }}
+        >
+          <Routes>
+            {/* ── Rotas do Dashboard Público — fora do UserPreferencesProvider, sempre dark ── */}
+            <Route path="/demo/dashboard" element={<PublicDemoDashboardPage />} />
+            <Route path="/public/dashboard/:slug" element={<PublicDashboardLayout />}>
+              <Route index element={<Suspense fallback={<PageLoader />}><DashboardGeralPage /></Suspense>} />
+              <Route path="performance" element={<Suspense fallback={<PageLoader />}><PerformancePage /></Suspense>} />
+              <Route path="atendimento" element={<Suspense fallback={<PageLoader />}><AtendimentoPage /></Suspense>} />
+              <Route path="agenda" element={<Suspense fallback={<PageLoader />}><AgendaPage /></Suspense>} />
+              <Route path="promocoes" element={<Suspense fallback={<PageLoader />}><PromocoesPage /></Suspense>} />
+              <Route path="sugestoes" element={<Suspense fallback={<PageLoader />}><SugestoesPage /></Suspense>} />
+              <Route path="avisos" element={<Suspense fallback={<PageLoader />}><AvisosPage /></Suspense>} />
+              <Route path="configuracoes" element={<Suspense fallback={<PageLoader />}><ConfiguracoesPage /></Suspense>} />
+            </Route>
+            <Route path="/public/dashboard/:slug/login" element={<PublicDashboardLoginPage />} />
+            <Route path="/public/dashboard/:slug/crm/login" element={<C8ControlLoginPage />} />
+            <Route path="/vagas/*" element={<PublicVagasRouter />} />
 
-                  <Route element={<ModuleGuard />}>
-                    <Route path="/" element={<DashboardPage />} />
-                    <Route path="/performance" element={<Navigate to="/?tab=performance" replace />} />
-                    <Route path="/kanban" element={<LeadsKanbanPage />} />
-                    <Route path="/leads" element={<Navigate to="/kanban" replace />} />
-                    <Route path="/clients" element={<ClientsPage />} />
-                    <Route path="/clients/:clientId" element={<ClientsPage />} />
-                    <Route path="/integrations" element={<IntegrationsPage />} />
-                    <Route path="/suppliers" element={<SuppliersModulePage />} />
-                    <Route path="/financial" element={<FinancialPage />} />
-                    <Route path="/agenda" element={<Agenda />} />
-                    <Route path="/projects" element={<ProjectsPage />} />
-                    <Route path="/projects/:projectId" element={<ProjectDetailsPage />} />
-                    <Route path="/goals" element={<GoalsPage />} />
-                    <Route path="/whatsapp" element={<WhatsApp />} />
-                    <Route path="/meetings" element={<Navigate to="/" replace />} />
-                    <Route path="/team" element={<TeamPage />} />
-                    <Route path="/team/360" element={<Avaliacao360Page />} />
-                    <Route path="/team/edit/:id" element={<EditCollaboratorPage />} />
-                    <Route path="/team/employees/:profileId" element={<TeamPage />} />
-                    <Route path="/campaign-reports" element={<CampaignReports />} />
-                    <Route path="/general-reports" element={<GeneralReports />} />
-                    <Route path="/reports" element={<ReportsPage />} />
-                    <Route path="/sales-analytics" element={<SalesDashboardPage />} />
-                    <Route path="/audit" element={<AuditPage />} />
-                    <Route path="/fiscal" element={<Navigate to="/financial?tab=nfse" replace />} />
-                    <Route path="/recruitment" element={<Navigate to="/team" replace />} />
-                    <Route path="/authorizations" element={<AuthorizationsPage />} />
-                    <Route path="/c8control" element={<C8ControlPage />} />
-                    <Route path="/settings" element={<SettingsPage />} />
-                  </Route>
-                </Route>
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </BrowserRouter>
-          </TooltipProvider>
-        </PendingAuthProvider>
-        </AuthProvider>
-      </UserPreferencesProvider>
+            {/* ── Rotas internas — com UserPreferencesProvider e AuthProvider ── */}
+            <Route path="/*" element={
+              <UserPreferencesProvider>
+                <AuthProvider>
+                  <PendingAuthProvider>
+                    <Routes>
+                      <Route path="/login" element={<LoginPage />} />
+                      <Route path="/complete-registration" element={<CompleteRegistrationPage />} />
+                      <Route path="/set-password" element={<SetPasswordPage />} />
+                      <Route path="/profile-setup" element={
+                        <ProtectedRoute>
+                          <ProfileSetupPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="/timeclock/entry" element={
+                        <ProtectedRoute>
+                          <TimeclockEntryPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route path="/timeclock/locked" element={
+                        <ProtectedRoute>
+                          <TimeClockLockedPage />
+                        </ProtectedRoute>
+                      } />
+                      <Route
+                        element={
+                          <ProtectedRoute>
+                            <TimeclockGuard>
+                              <AppLayout />
+                            </TimeclockGuard>
+                          </ProtectedRoute>
+                        }
+                      >
+                        <Route path="/timeclock/punch" element={<TimeClockPunchPage />} />
+                        <Route path="/team/me" element={<MyProfilePage />} />
+                        <Route element={<ModuleGuard />}>
+                          <Route path="/" element={<DashboardPage />} />
+                          <Route path="/performance" element={<Navigate to="/?tab=performance" replace />} />
+                          <Route path="/kanban" element={<LeadsKanbanPage />} />
+                          <Route path="/leads" element={<Navigate to="/kanban" replace />} />
+                          <Route path="/clients" element={<ClientsPage />} />
+                          <Route path="/clients/:clientId" element={<ClientsPage />} />
+                          <Route path="/integrations" element={<IntegrationsPage />} />
+                          <Route path="/suppliers" element={<SuppliersModulePage />} />
+                          <Route path="/financial" element={<FinancialPage />} />
+                          <Route path="/agenda" element={<Agenda />} />
+                          <Route path="/projects" element={<ProjectsPage />} />
+                          <Route path="/projects/:projectId" element={<ProjectDetailsPage />} />
+                          <Route path="/goals" element={<GoalsPage />} />
+                          <Route path="/whatsapp" element={<WhatsApp />} />
+                          <Route path="/meetings" element={<Navigate to="/" replace />} />
+                          <Route path="/team" element={<TeamPage />} />
+                          <Route path="/team/360" element={<Avaliacao360Page />} />
+                          <Route path="/team/edit/:id" element={<EditCollaboratorPage />} />
+                          <Route path="/team/employees/:profileId" element={<TeamPage />} />
+                          <Route path="/campaign-reports" element={<CampaignReports />} />
+                          <Route path="/general-reports" element={<GeneralReports />} />
+                          <Route path="/reports" element={<ReportsPage />} />
+                          <Route path="/sales-analytics" element={<SalesDashboardPage />} />
+                          <Route path="/audit" element={<AuditPage />} />
+                          <Route path="/fiscal" element={<Navigate to="/financial?tab=nfse" replace />} />
+                          <Route path="/recruitment" element={<Navigate to="/team" replace />} />
+                          <Route path="/authorizations" element={<AuthorizationsPage />} />
+                          <Route path="/c8control" element={<C8ControlPage />} />
+                          <Route path="/settings" element={<SettingsPage />} />
+                        </Route>
+                      </Route>
+                      <Route path="*" element={<NotFound />} />
+                    </Routes>
+                  </PendingAuthProvider>
+                </AuthProvider>
+              </UserPreferencesProvider>
+            } />
+          </Routes>
+        </BrowserRouter>
+      </TooltipProvider>
     </QueryClientProvider>
   );
 }

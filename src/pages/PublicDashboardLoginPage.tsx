@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { logger } from "@/lib/logger";
 import { useNavigate, useParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
@@ -31,6 +31,13 @@ type DashboardClientRow = {
 export function PublicDashboardLoginPage() {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
+
+  // Força tema dark — página pública, sem UserPreferencesProvider
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.remove("light");
+    root.classList.add("dark");
+  }, []);
   
   const [view, setView] = useState<'login' | 'recovery' | 'first-access' | 'success'>('login');
   const [loading, setLoading] = useState(false);

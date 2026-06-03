@@ -23,16 +23,12 @@ function PublicDashboardLayoutInner({ slug }: { slug: string }) {
   const { auth, setAuth, logout } = useClientAuth();
   const location = useLocation();
 
-  // Força tema dark — sobrescreve qualquer tema do CRM salvo no localStorage
+  // Força tema dark permanentemente — sem restauração, pois rotas públicas ficam
+  // fora do UserPreferencesProvider e não sofrem interferência de tema do CRM
   useEffect(() => {
     const root = document.documentElement;
-    const prev = root.className;
     root.classList.remove("light");
     root.classList.add("dark");
-    return () => {
-      // Restaura o estado anterior ao sair do dashboard público
-      root.className = prev;
-    };
   }, []);
 
   // Guard de rota IA
