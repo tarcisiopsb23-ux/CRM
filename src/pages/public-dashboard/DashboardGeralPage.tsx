@@ -37,20 +37,44 @@ export function DashboardGeralPage() {
     to:   searchParams.get("to")   ?? format(endOfMonth(new Date()),   "yyyy-MM-dd"),
   }), [searchParams.get("from"), searchParams.get("to")]);
 
+  // ── Mapeamento de métricas de conversão (igual ao PerformancePage) ──────────
+  const conversionConfig = useMemo(() => {
+    const meta = (auth?.metadata ?? {}) as Record<string, any>;
+    const cfg = meta.conversion_metrics ?? {};
+    const leadFields: string[] = Array.isArray(cfg.lead_fields) ? cfg.lead_fields
+      : (cfg.lead_field && cfg.lead_field !== "none") ? [cfg.lead_field] : ["leads"];
+    const saleFields: string[] = Array.isArray(cfg.sale_fields) ? cfg.sale_fields
+      : (cfg.sale_field && cfg.sale_field !== "none") ? [cfg.sale_field] : ["sales"];
+    return { leadFields, saleFields };
+  }, [auth?.metadata]);
+
   // ── Dados de campanhas ─────────────────────────────────────────────────────
   const { campaignDataQuery } = useClientReports(auth?.organization_id, auth?.id, dateRange, true);
 
-  const { totalLeads, totalSales, totalSpend, totalRevenue, activeCampaigns, dailyData } = useMemo(() => {
+  const { totalLeads, totalSales, totalClicks, totalSpend, totalRevenue, activeCampaigns, dailyData } = useMemo(() => {
     const rows = (campaignDataQuery.data ?? []) as any[];
+    const { leadFields, saleFields } = conversionConfig;
+    const fixedFields = ["leads","clicks","sales","revenue","impressions","reach","spend","objective_metric_value"];
     const campaignSet = new Set<string>();
     const byDate: Record<string, any> = {};
-    let totalLeads = 0, totalSales = 0, totalSpend = 0, totalRevenue = 0;
+    let totalLeads = 0, totalSales = 0, totalClicks = 0, totalSpend = 0, totalRevenue = 0;
     for (const r of rows) {
       if (r.campaign_name) campaignSet.add(`${r.platform}||${r.campaign_name}`);
-      totalLeads   += Number(r.leads   ?? 0);
-      totalSales   += Number(r.sales   ?? 0);
+      totalClicks  += Number(r.clicks  ?? 0);
       totalSpend   += Number(r.spend   ?? 0);
       totalRevenue += Number(r.revenue ?? 0);
+      // Leads: respeita leadFields configurado
+      for (const f of leadFields) {
+        if (!f || f === "none" || f === "manual") continue;
+        if (fixedFields.includes(f)) totalLeads += Number(r[f] ?? 0);
+        else if (r.objective_metric_label === f) totalLeads += Number(r.objective_metric_value ?? 0);
+      }
+      // Vendas: respeita saleFields configurado
+      for (const f of saleFields) {
+        if (!f || f === "none" || f === "manual") continue;
+        if (fixedFields.includes(f)) totalSales += Number(r[f] ?? 0);
+        else if (r.objective_metric_label === f) totalSales += Number(r.objective_metric_value ?? 0);
+      }
       const d = r.date;
       if (d) {
         if (!byDate[d]) byDate[d] = { date: d, total_leads: 0, total_spend: 0, total_revenue: 0 };
@@ -60,16 +84,20 @@ export function DashboardGeralPage() {
       }
     }
     return {
-      totalLeads, totalSales, totalSpend, totalRevenue,
+      totalLeads, totalSales, totalClicks, totalSpend, totalRevenue,
       activeCampaigns: campaignSet.size,
       dailyData: Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date)),
     };
-  }, [campaignDataQuery.data]);
+  }, [campaignDataQuery.data, conversionConfig]);
 
   const roas = totalSpend > 0 ? (totalRevenue / totalSpend).toFixed(1) : "0.0";
+  // Regra adaptativa: se não há leads usa cliques como denominador (igual ao PerformancePage)
   const conversionRate = totalLeads > 0
     ? ((totalSales / totalLeads) * 100).toFixed(1)
-    : "—";
+    : totalClicks > 0
+      ? ((totalSales / totalClicks) * 100).toFixed(1)
+      : "—";
+  const conversionLabel = totalLeads > 0 ? "Conversão" : totalClicks > 0 ? "Conversão (Cliques)" : "Conversão";
 
   const isLoaded = !campaignDataQuery.isLoading;
   const isZero   = isLoaded && totalLeads === 0 && totalSpend === 0 && totalRevenue === 0;
@@ -248,7 +276,7 @@ export function DashboardGeralPage() {
           <SummaryCard label="Leads"           value={totalLeads.toLocaleString("pt-BR")}          icon={<Users        className="h-5 w-5 text-blue-400"    />} />
         )}
         <SummaryCard label="Vendas"            value={totalSales.toLocaleString("pt-BR")}          icon={<Target       className="h-5 w-5 text-emerald-500" />} />
-        <SummaryCard label="Conversão"         value={conversionRate === "—" ? "—" : `${conversionRate}%`} icon={<CheckCircle2 className="h-5 w-5 text-emerald-400" />} />
+        <SummaryCard label={conversionLabel}   value={conversionRate === "—" ? "—" : `${conversionRate}%`} icon={<CheckCircle2 className="h-5 w-5 text-emerald-400" />} />
         <SummaryCard label="Faturamento Est."  value={`R$ ${totalRevenue.toLocaleString("pt-BR")}`} icon={<TrendingUp  className="h-5 w-5 text-emerald-400" />} highlight />
         <SummaryCard label="ROAS"              value={`${roas}x`}                                  icon={<DollarSign   className="h-5 w-5 text-orange-400"  />} />
       </div>
