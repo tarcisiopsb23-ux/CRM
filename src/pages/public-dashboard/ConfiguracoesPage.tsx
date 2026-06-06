@@ -391,8 +391,8 @@ function RedirectLinkGenerator() {
       {generatedUrl && (
         <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-3">
           <p className="text-xs text-muted-foreground font-semibold uppercase tracking-widest">Link gerado</p>
-          <div className="flex items-center gap-2 bg-background rounded-md border border-border px-3 py-2">
-            <span className="text-sm text-foreground font-mono flex-1 truncate">{generatedUrl}</span>
+          <div className="flex items-center gap-2 bg-background rounded-md border border-border px-3 py-2 min-w-0 overflow-hidden">
+            <span className="text-sm text-foreground font-mono min-w-0 flex-1 break-all">{generatedUrl}</span>
           </div>
           <div className="flex gap-2">
             <Button type="button" size="sm" variant="outline" onClick={handleCopy} className="border-border gap-2">
