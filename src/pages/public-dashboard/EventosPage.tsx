@@ -1,24 +1,29 @@
-﻿import { useState } from "react";
+﻿import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Loader2, CalendarDays, Clock, MapPin } from "lucide-react";
+import {
+  Plus, Pencil, Trash2, Loader2, CalendarDays, Clock, MapPin,
+  FileSpreadsheet, Upload, AlertCircle, CheckCircle2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogDescription,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
-import { format } from "date-fns";
-import { ptBR } from "date-fns/locale";
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table";
+import { format, parse, isValid } from "date-fns";
 import { useDynamicClient } from "@/hooks/useDynamicClient";
 import { PageHeader } from "./components/PageHeader";
 import { CredentialsErrorState } from "./components/CredentialsErrorState";
 import { DeleteConfirmDialog } from "./components/DeleteConfirmDialog";
+import { cn } from "@/lib/utils";
+import * as XLSX from "xlsx";
+
+// ─── Types ─────────────────────────────────────────────────────────────────────
 
 interface AiEvent {
   id: string;
@@ -46,17 +51,139 @@ const defaultForm: FormState = {
   location: "",
 };
 
+// ─── Import helpers ────────────────────────────────────────────────────────────
+
+/** Normaliza valor de data para YYYY-MM-DD */
+function normalizeDate(raw: unknown): string | null {
+  if (!raw) return null;
+  // Número serial do Excel
+  if (typeof raw === "number") {
+    const d = XLSX.SSF.parse_date_code(raw);
+    if (d) {
+      return `${d.y}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`;
+    }
+  }
+  const s = String(raw).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+    const p = parse(s, "dd/MM/yyyy", new Date());
+    if (isValid(p)) return format(p, "yyyy-MM-dd");
+  }
+  return null;
+}
+
+interface ImportRow {
+  title: string;
+  description: string | null;
+  date: string;
+  time: string | null;
+  location: string | null;
+  _error?: string;
+}
+
+function parseSheetRows(rows: Record<string, unknown>[]): ImportRow[] {
+  return rows.map((row, i) => {
+    const get = (...keys: string[]) => {
+      for (const k of keys) {
+        const found = Object.keys(row).find(rk => rk.toLowerCase().trim() === k.toLowerCase());
+        if (found !== undefined) return row[found];
+      }
+      return undefined;
+    };
+
+    const title = String(get("titulo", "title", "nome", "name") ?? "").trim();
+    const date  = normalizeDate(get("data", "date"));
+    const time  = String(get("horario", "horário", "hora", "time") ?? "").trim() || null;
+    const desc  = String(get("descricao", "descrição", "description", "descr") ?? "").trim() || null;
+    const loc   = String(get("local", "localizacao", "localização", "location") ?? "").trim() || null;
+
+    const errors: string[] = [];
+    if (!title) errors.push("título obrigatório");
+    if (!date)  errors.push("data inválida");
+
+    return {
+      title:       title || `(linha ${i + 2})`,
+      description: desc,
+      date:        date ?? "",
+      time,
+      location:    loc,
+      _error:      errors.length > 0 ? errors.join(", ") : undefined,
+    };
+  });
+}
+
+// ─── Componente ────────────────────────────────────────────────────────────────
+
 export function EventosPage() {
   const dc = useDynamicClient();
   const queryClient = useQueryClient();
 
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState<AiEvent | null>(null);
-  const [form, setForm] = useState<FormState>(defaultForm);
+  const [dialogOpen, setDialogOpen]     = useState(false);
+  const [editingItem, setEditingItem]   = useState<AiEvent | null>(null);
+  const [form, setForm]                 = useState<FormState>(defaultForm);
   const [deleteTarget, setDeleteTarget] = useState<AiEvent | null>(null);
+
+  // ── Import state ─────────────────────────────────────────────────────────────
+  const [importOpen, setImportOpen]         = useState(false);
+  const [importRows, setImportRows]         = useState<ImportRow[]>([]);
+  const [importFileName, setImportFileName] = useState("");
+  const fileInputRef                        = useRef<HTMLInputElement>(null);
+
+  const importMutation = useMutation({
+    mutationFn: async (rows: ImportRow[]) => {
+      const valid = rows.filter(r => !r._error);
+      if (valid.length === 0) throw new Error("Nenhum registro válido para importar.");
+      const payload = valid.map(({ _error: _e, ...r }) => r);
+      const { error } = await dc!.from("ai_events").insert(payload);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ai_events"] });
+      toast.success(`${importRows.filter(r => !r._error).length} evento(s) importado(s) com sucesso!`);
+      closeImport();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  function closeImport() {
+    setImportOpen(false);
+    setImportRows([]);
+    setImportFileName("");
+  }
+
+  function processFile(file: File) {
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    if (!["xlsx", "xls", "csv"].includes(ext ?? "")) {
+      toast.error("Formato não suportado. Use .xlsx, .xls ou .csv");
+      return;
+    }
+    setImportFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target!.result as ArrayBuffer);
+        const wb   = XLSX.read(data, { type: "array" });
+        const ws   = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: "" });
+        if (rows.length === 0) { toast.error("A planilha está vazia."); return; }
+        setImportRows(parseSheetRows(rows));
+        setImportOpen(true);
+      } catch {
+        toast.error("Erro ao processar o arquivo. Verifique o formato.");
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) processFile(file);
+    e.target.value = "";
+  }
 
   if (!dc) return <CredentialsErrorState />;
 
+  // ── Query ─────────────────────────────────────────────────────────────────
   const { data: items = [], isLoading } = useQuery({
     queryKey: ["ai_events"],
     queryFn: async () => {
@@ -70,6 +197,7 @@ export function EventosPage() {
     staleTime: 60_000,
   });
 
+  // ── Mutations ─────────────────────────────────────────────────────────────
   const createMutation = useMutation({
     mutationFn: async (payload: Omit<AiEvent, "id" | "created_at">) => {
       const { error } = await dc.from("ai_events").insert(payload);
@@ -97,6 +225,7 @@ export function EventosPage() {
     onError: (e: any) => toast.error(e.message),
   });
 
+  // ── Helpers ───────────────────────────────────────────────────────────────
   function openCreate() {
     setEditingItem(null);
     setForm(defaultForm);
@@ -106,25 +235,25 @@ export function EventosPage() {
   function openEdit(item: AiEvent) {
     setEditingItem(item);
     setForm({
-      title: item.title,
+      title:       item.title,
       description: item.description ?? "",
-      date: item.date,
-      time: item.time ?? "",
-      location: item.location ?? "",
+      date:        item.date,
+      time:        item.time ?? "",
+      location:    item.location ?? "",
     });
     setDialogOpen(true);
   }
 
   function handleSubmit() {
     if (!form.title.trim()) { toast.error("O título é obrigatório."); return; }
-    if (!form.date.trim()) { toast.error("A data é obrigatória."); return; }
+    if (!form.date.trim())  { toast.error("A data é obrigatória.");   return; }
 
     const payload = {
-      title: form.title.trim(),
+      title:       form.title.trim(),
       description: form.description.trim() || null,
-      date: form.date,
-      time: form.time.trim() || null,
-      location: form.location.trim() || null,
+      date:        form.date,
+      time:        form.time.trim() || null,
+      location:    form.location.trim() || null,
     };
 
     if (editingItem) {
@@ -136,15 +265,37 @@ export function EventosPage() {
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-6">
       <PageHeader
         title="Eventos Especiais"
         description="Programações sazonais, festivais e datas comemorativas."
         action={
-          <Button onClick={openCreate} className="bg-gradient-ember text-primary-foreground shadow-glow hover:opacity-95">
-            <Plus className="h-4 w-4" /> Novo Evento
-          </Button>
+          <div className="flex items-center gap-2">
+            {/* Input oculto para upload de arquivo */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+            <Button
+              variant="outline"
+              onClick={() => fileInputRef.current?.click()}
+              className="border-border gap-2"
+            >
+              <FileSpreadsheet className="h-4 w-4 text-emerald-400" />
+              Importar
+            </Button>
+            <Button
+              onClick={openCreate}
+              className="bg-gradient-ember text-primary-foreground shadow-glow hover:opacity-95"
+            >
+              <Plus className="h-4 w-4" /> Novo Evento
+            </Button>
+          </div>
         }
       />
 
@@ -158,9 +309,14 @@ export function EventosPage() {
         <div className="flex flex-col items-center justify-center py-20 gap-3 text-center">
           <CalendarDays className="h-10 w-10 text-muted-foreground/40" />
           <p className="text-muted-foreground text-sm">Nenhum evento cadastrado ainda.</p>
-          <Button variant="outline" onClick={openCreate} className="border-border">
-            <Plus className="h-4 w-4 mr-2" /> Cadastrar primeiro evento
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => fileInputRef.current?.click()} className="border-border">
+              <FileSpreadsheet className="h-4 w-4 mr-2 text-emerald-400" /> Importar planilha
+            </Button>
+            <Button variant="outline" onClick={openCreate} className="border-border">
+              <Plus className="h-4 w-4 mr-2" /> Cadastrar primeiro evento
+            </Button>
+          </div>
         </div>
       )}
 
@@ -230,43 +386,166 @@ export function EventosPage() {
         </div>
       )}
 
+      {/* ── Dialog criar / editar ─────────────────────────────────────────────── */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="border-border bg-card sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="font-display">{editingItem ? "Editar Evento" : "Novo Evento Especial"}</DialogTitle>
+            <DialogTitle className="font-display">
+              {editingItem ? "Editar Evento" : "Novo Evento Especial"}
+            </DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              {editingItem ? "Atualize as informações do evento." : "Cadastre um festival, data comemorativa ou programação sazonal."}
+              {editingItem
+                ? "Atualize as informações do evento."
+                : "Cadastre um festival, data comemorativa ou programação sazonal."}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2">
             <div className="grid gap-2">
               <Label>Título <span className="text-destructive">*</span></Label>
-              <Input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="Ex: Noite do Vinho" />
+              <Input
+                value={form.title}
+                onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+                placeholder="Ex: Noite do Vinho"
+              />
             </div>
             <div className="grid gap-2">
               <Label>Descrição</Label>
-              <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Descreva o evento..." rows={3} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none" />
+              <textarea
+                value={form.description}
+                onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                placeholder="Descreva o evento..."
+                rows={3}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-2">
                 <Label>Data <span className="text-destructive">*</span></Label>
-                <Input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} className="[color-scheme:dark]" />
+                <Input
+                  type="date"
+                  value={form.date}
+                  onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+                  className="[color-scheme:dark]"
+                />
               </div>
               <div className="grid gap-2">
                 <Label>Horário</Label>
-                <Input type="time" value={form.time} onChange={e => setForm(f => ({ ...f, time: e.target.value }))} className="[color-scheme:dark]" />
+                <Input
+                  type="time"
+                  value={form.time}
+                  onChange={e => setForm(f => ({ ...f, time: e.target.value }))}
+                  className="[color-scheme:dark]"
+                />
               </div>
             </div>
             <div className="grid gap-2">
               <Label>Localização</Label>
-              <Input value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} placeholder="Ex: Salão Principal" />
+              <Input
+                value={form.location}
+                onChange={e => setForm(f => ({ ...f, location: e.target.value }))}
+                placeholder="Ex: Salão Principal"
+              />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setDialogOpen(false)} disabled={isSaving}>Cancelar</Button>
-            <Button onClick={handleSubmit} disabled={isSaving} className="bg-gradient-ember text-primary-foreground shadow-glow hover:opacity-90">
+            <Button variant="ghost" onClick={() => setDialogOpen(false)} disabled={isSaving}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleSubmit}
+              disabled={isSaving}
+              className="bg-gradient-ember text-primary-foreground shadow-glow hover:opacity-90"
+            >
               {isSaving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               {editingItem ? "Salvar alterações" : "Cadastrar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog de importação ──────────────────────────────────────────────── */}
+      <Dialog open={importOpen} onOpenChange={(open) => { if (!open) closeImport(); }}>
+        <DialogContent className="border-border bg-card sm:max-w-3xl max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="font-display flex items-center gap-2">
+              <FileSpreadsheet className="h-5 w-5 text-emerald-400" />
+              Importar Eventos
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              Arquivo: <span className="text-foreground font-medium">{importFileName}</span>
+              {" · "}{importRows.length} linha(s) encontrada(s)
+              {importRows.some(r => r._error) && (
+                <span className="text-destructive ml-1">
+                  · {importRows.filter(r => r._error).length} com erro
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Dica de colunas */}
+          <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+            <strong className="text-foreground">Colunas esperadas:</strong>{" "}
+            titulo/title, data/date (DD/MM/YYYY ou YYYY-MM-DD), horario/time, descricao/description, local/location
+          </div>
+
+          {/* Preview */}
+          <div className="flex-1 overflow-auto rounded-md border border-border min-h-0">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-border hover:bg-transparent">
+                  <TableHead className="w-8">#</TableHead>
+                  <TableHead>Título</TableHead>
+                  <TableHead>Data</TableHead>
+                  <TableHead>Horário</TableHead>
+                  <TableHead>Local</TableHead>
+                  <TableHead>Situação</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {importRows.map((row, i) => (
+                  <TableRow key={i} className={cn("border-border/60", row._error ? "bg-destructive/5" : "")}>
+                    <TableCell className="text-muted-foreground text-xs">{i + 1}</TableCell>
+                    <TableCell className="font-medium max-w-[200px] truncate">{row.title}</TableCell>
+                    <TableCell className="whitespace-nowrap text-sm">{row.date || "—"}</TableCell>
+                    <TableCell className="text-muted-foreground text-sm">{row.time ?? "—"}</TableCell>
+                    <TableCell className="text-muted-foreground text-sm max-w-[140px] truncate">{row.location ?? "—"}</TableCell>
+                    <TableCell>
+                      {row._error ? (
+                        <span className="flex items-center gap-1 text-xs text-destructive">
+                          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                          {row._error}
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-xs text-emerald-500">
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          Ok
+                        </span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          <DialogFooter className="gap-2 pt-2">
+            {importRows.some(r => r._error) && (
+              <p className="text-xs text-muted-foreground mr-auto">
+                Linhas com erro serão ignoradas.
+              </p>
+            )}
+            <Button variant="ghost" onClick={closeImport} disabled={importMutation.isPending}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => importMutation.mutate(importRows)}
+              disabled={importMutation.isPending || importRows.filter(r => !r._error).length === 0}
+              className="bg-gradient-ember text-primary-foreground shadow-glow hover:opacity-90"
+            >
+              {importMutation.isPending
+                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Importando...</>
+                : <><Upload className="h-4 w-4 mr-2" />Importar {importRows.filter(r => !r._error).length} evento(s)</>
+              }
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -275,7 +554,9 @@ export function EventosPage() {
       <DeleteConfirmDialog
         open={!!deleteTarget}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
-        onConfirm={() => { if (deleteTarget) deleteMutation.mutate(deleteTarget.id, { onSuccess: () => setDeleteTarget(null) }); }}
+        onConfirm={() => {
+          if (deleteTarget) deleteMutation.mutate(deleteTarget.id, { onSuccess: () => setDeleteTarget(null) });
+        }}
         itemName={deleteTarget?.title}
         isLoading={deleteMutation.isPending}
       />
