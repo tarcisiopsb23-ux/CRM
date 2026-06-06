@@ -277,7 +277,7 @@ export function DashboardGeralPage() {
       )}
 
       {/* ── 3. EVOLUÇÃO DIÁRIA + PRÓXIMO EVENTO ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
         <Card className="lg:col-span-2 bg-card border-border shadow-2xl">
           <CardHeader>
             <CardTitle className="text-foreground text-lg font-bold">Evolução Diária</CardTitle>
@@ -309,26 +309,25 @@ export function DashboardGeralPage() {
             </ResponsiveContainer>
           </CardContent>
         </Card>
-        <Card className="bg-card border-border shadow-2xl">
-          <CardHeader>
+        <Card className="bg-card border-border shadow-2xl flex flex-col">
+          <CardHeader className="shrink-0">
             <CardTitle className="text-foreground text-lg font-bold flex items-center gap-2">
               <CalendarDays className="h-5 w-5 text-[#2D8CC7]" />Próximos Eventos
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="flex-1 min-h-0 p-0">
             {!auth?.show_ia_content || !dc ? (
-              <div className="flex flex-col items-center justify-center py-8 gap-2 text-muted-foreground px-6">
+              <div className="flex flex-col items-center justify-center h-full py-8 gap-2 text-muted-foreground px-6">
                 <CalendarDays className="h-8 w-8 opacity-20" />
                 <p className="text-sm text-center">Habilite o Conteúdo IA para ver os próximos eventos.</p>
               </div>
             ) : nextEvents.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-8 gap-2 text-muted-foreground px-6">
+              <div className="flex flex-col items-center justify-center h-full py-8 gap-2 text-muted-foreground px-6">
                 <CalendarDays className="h-8 w-8 opacity-20" />
                 <p className="text-sm">Nenhum evento futuro cadastrado.</p>
               </div>
             ) : (
-              /* altura fixa mostra ~2 eventos; overflow-y-auto exibe os demais via scroll */
-              <div className="overflow-y-auto max-h-[13rem] divide-y divide-border/40 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+              <div className="h-full overflow-y-auto divide-y divide-border/40 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
                 {nextEvents.map((ev: any, idx: number) => (
                   <div key={ev.id} className={cn(
                     "flex items-start gap-3 px-5 py-4",
@@ -343,7 +342,7 @@ export function DashboardGeralPage() {
                         {format(new Date(ev.date + "T00:00:00"), "dd")}
                       </span>
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="font-black text-foreground leading-snug truncate">{ev.title}</p>
                       {ev.description && (
                         <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{ev.description}</p>
