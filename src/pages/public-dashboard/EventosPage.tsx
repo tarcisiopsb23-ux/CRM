@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Plus, Pencil, Trash2, Loader2, CalendarDays, Clock, MapPin,
-  FileSpreadsheet, Upload, AlertCircle, CheckCircle2,
+  FileSpreadsheet, Upload, AlertCircle, CheckCircle2, Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -110,6 +110,36 @@ function parseSheetRows(rows: Record<string, unknown>[]): ImportRow[] {
       _error:      errors.length > 0 ? errors.join(", ") : undefined,
     };
   });
+}
+
+// ─── Template download ────────────────────────────────────────────────────────
+
+function downloadEventosTemplate() {
+  const wb = XLSX.utils.book_new();
+  const rows = [
+    {
+      titulo:    "Festival de Verão",
+      data:      "20/01/2025",
+      horario:   "19:00",
+      descricao: "Grande festival com atrações variadas",
+      local:     "Praça Central",
+    },
+    {
+      titulo:    "Noite do Vinho",
+      data:      "14/02/2025",
+      horario:   "20:00",
+      descricao: "Degustação especial de vinhos importados",
+      local:     "Salão VIP",
+    },
+  ];
+  const ws = XLSX.utils.json_to_sheet(rows, {
+    header: ["titulo", "data", "horario", "descricao", "local"],
+  });
+  ws["!cols"] = [
+    { wch: 28 }, { wch: 14 }, { wch: 10 }, { wch: 38 }, { wch: 22 },
+  ];
+  XLSX.utils.book_append_sheet(wb, ws, "Eventos");
+  XLSX.writeFile(wb, "modelo_eventos_especiais.xlsx");
 }
 
 // ─── Componente ────────────────────────────────────────────────────────────────
@@ -281,6 +311,15 @@ export function EventosPage() {
               className="hidden"
               onChange={handleFileChange}
             />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={downloadEventosTemplate}
+              className="border-border gap-2 text-muted-foreground hover:text-foreground"
+            >
+              <Download className="h-4 w-4" />
+              Modelo
+            </Button>
             <Button
               variant="outline"
               onClick={() => fileInputRef.current?.click()}
@@ -483,9 +522,20 @@ export function EventosPage() {
           </DialogHeader>
 
           {/* Dica de colunas */}
-          <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-            <strong className="text-foreground">Colunas esperadas:</strong>{" "}
-            titulo/title, data/date (DD/MM/YYYY ou YYYY-MM-DD), horario/time, descricao/description, local/location
+          <div className="flex items-start justify-between gap-3 rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+            <span>
+              <strong className="text-foreground">Colunas esperadas:</strong>{" "}
+              titulo/title, data/date (DD/MM/YYYY ou YYYY-MM-DD), horario/time, descricao/description, local/location
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={downloadEventosTemplate}
+              className="shrink-0 border-border gap-1.5 text-xs h-7 px-2"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Baixar modelo
+            </Button>
           </div>
 
           {/* Preview */}

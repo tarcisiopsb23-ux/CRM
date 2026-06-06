@@ -21,7 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { format, parseISO, parse, isValid } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Pencil, Trash2, Plus, Loader2, Music2, CalendarDays, Star, Upload, FileSpreadsheet, AlertCircle, CheckCircle2, X } from "lucide-react";
+import { Pencil, Trash2, Plus, Loader2, Music2, CalendarDays, Star, Upload, FileSpreadsheet, AlertCircle, CheckCircle2, X, Download } from "lucide-react";
 import { useDynamicClient } from "@/hooks/useDynamicClient";
 import { PageHeader } from "./components/PageHeader";
 import { StatusBadge } from "./components/StatusBadge";
@@ -157,6 +157,42 @@ function parseSheetRows(rows: Record<string, unknown>[]): ImportRow[] {
       _error:      errors.length > 0 ? errors.join(", ") : undefined,
     };
   });
+}
+
+// ─── Template download ────────────────────────────────────────────────────────
+
+function downloadAgendaTemplate() {
+  const wb = XLSX.utils.book_new();
+  const rows = [
+    {
+      titulo:    "Banda Exemplo",
+      data:      "15/07/2025",
+      tipo:      "musica_ao_vivo",
+      horario:   "21:00",
+      descricao: "Show de rock ao vivo",
+      local:     "Salão Principal",
+      status:    "ativo",
+    },
+    {
+      titulo:    "Dia das Mães",
+      data:      "11/05/2025",
+      tipo:      "dia_especial",
+      horario:   "12:00",
+      descricao: "Almoço especial com cardápio exclusivo",
+      local:     "Terraço",
+      status:    "ativo",
+    },
+  ];
+  const ws = XLSX.utils.json_to_sheet(rows, {
+    header: ["titulo", "data", "tipo", "horario", "descricao", "local", "status"],
+  });
+  // Largura de colunas
+  ws["!cols"] = [
+    { wch: 28 }, { wch: 14 }, { wch: 18 },
+    { wch: 10 }, { wch: 34 }, { wch: 22 }, { wch: 10 },
+  ];
+  XLSX.utils.book_append_sheet(wb, ws, "Agenda");
+  XLSX.writeFile(wb, "modelo_agenda.xlsx");
 }
 
 // ─── Componente ───────────────────────────────────────────────────────────────
@@ -339,6 +375,15 @@ export function AgendaPage() {
               className="hidden"
               onChange={handleFileChange}
             />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={downloadAgendaTemplate}
+              className="border-border gap-2 text-muted-foreground hover:text-foreground"
+            >
+              <Download className="h-4 w-4" />
+              Modelo
+            </Button>
             <Button
               variant="outline"
               onClick={() => fileInputRef.current?.click()}
@@ -671,9 +716,20 @@ export function AgendaPage() {
           </DialogHeader>
 
           {/* Dica de colunas esperadas */}
-          <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-            <strong className="text-foreground">Colunas esperadas:</strong>{" "}
-            titulo/title, data/date (DD/MM/YYYY ou YYYY-MM-DD), tipo/type (musica_ao_vivo | dia_especial), horario/time, descricao/description, local/location, status (ativo/inativo)
+          <div className="flex items-start justify-between gap-3 rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+            <span>
+              <strong className="text-foreground">Colunas esperadas:</strong>{" "}
+              titulo/title, data/date (DD/MM/YYYY ou YYYY-MM-DD), tipo/type (musica_ao_vivo | dia_especial), horario/time, descricao/description, local/location, status (ativo/inativo)
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={downloadAgendaTemplate}
+              className="shrink-0 border-border gap-1.5 text-xs h-7 px-2"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Baixar modelo
+            </Button>
           </div>
 
           {/* Preview */}
