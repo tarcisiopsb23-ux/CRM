@@ -158,12 +158,12 @@ export function DashboardGeralPage() {
       { queryKey: ["ia_count", "ai_notices"],     queryFn: async () => { const { count } = await dc!.from("ai_notices").select("id", { count: "exact", head: true }).eq("status", "active"); return count ?? 0; }, staleTime: 60_000 },
     ] : ([] as { queryKey: string[]; queryFn: () => Promise<number>; staleTime: number }[]),
   });
-  const { data: nextEvent } = useQuery({
+  const { data: nextEvents = [] } = useQuery({
     queryKey: ["ia_next_event"],
     queryFn: async () => {
       const today = format(new Date(), "yyyy-MM-dd");
-      const { data } = await dc!.from("ai_events").select("*").eq("status", "active").gte("date", today).order("date", { ascending: true }).limit(1).maybeSingle();
-      return data as any;
+      const { data } = await dc!.from("ai_events").select("*").eq("status", "active").gte("date", today).order("date", { ascending: true }).limit(10);
+      return (data ?? []) as any[];
     },
     enabled: !!dc && !!auth?.show_ia_content,
     staleTime: 60_000,
@@ -312,31 +312,61 @@ export function DashboardGeralPage() {
         <Card className="bg-card border-border shadow-2xl">
           <CardHeader>
             <CardTitle className="text-foreground text-lg font-bold flex items-center gap-2">
-              <CalendarDays className="h-5 w-5 text-[#2D8CC7]" />Próximo Evento
+              <CalendarDays className="h-5 w-5 text-[#2D8CC7]" />Próximos Eventos
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-0">
             {!auth?.show_ia_content || !dc ? (
-              <div className="flex flex-col items-center justify-center py-8 gap-2 text-muted-foreground">
+              <div className="flex flex-col items-center justify-center py-8 gap-2 text-muted-foreground px-6">
                 <CalendarDays className="h-8 w-8 opacity-20" />
-                <p className="text-sm text-center">Habilite o Conteúdo IA para ver o próximo evento.</p>
+                <p className="text-sm text-center">Habilite o Conteúdo IA para ver os próximos eventos.</p>
               </div>
-            ) : nextEvent ? (
-              <div className="space-y-3">
-                <p className="text-xl font-black text-foreground">{nextEvent.title}</p>
-                {nextEvent.description && <p className="text-muted-foreground text-sm">{nextEvent.description}</p>}
-                <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-                  <span className="flex items-center gap-1.5">
-                    <CalendarDays className="h-4 w-4" />
-                    {format(new Date(nextEvent.date + "T00:00:00"), "dd 'de' MMMM", { locale: ptBR })}
-                  </span>
-                  {nextEvent.time && <span className="flex items-center gap-1.5"><Clock className="h-4 w-4" />{nextEvent.time}</span>}
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-8 gap-2 text-muted-foreground">
+            ) : nextEvents.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-8 gap-2 text-muted-foreground px-6">
                 <CalendarDays className="h-8 w-8 opacity-20" />
                 <p className="text-sm">Nenhum evento futuro cadastrado.</p>
+              </div>
+            ) : (
+              /* altura fixa mostra ~2 eventos; overflow-y-auto exibe os demais via scroll */
+              <div className="overflow-y-auto max-h-[13rem] divide-y divide-border/40 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+                {nextEvents.map((ev: any, idx: number) => (
+                  <div key={ev.id} className={cn(
+                    "flex items-start gap-3 px-5 py-4",
+                    idx === 0 && "bg-primary/5"
+                  )}>
+                    {/* Mini calendário */}
+                    <div className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-lg bg-gradient-ember text-primary-foreground shadow-glow">
+                      <span className="text-[9px] font-medium uppercase tracking-wider opacity-80">
+                        {format(new Date(ev.date + "T00:00:00"), "MMM", { locale: ptBR })}
+                      </span>
+                      <span className="font-display text-lg font-black leading-none">
+                        {format(new Date(ev.date + "T00:00:00"), "dd")}
+                      </span>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-black text-foreground leading-snug truncate">{ev.title}</p>
+                      {ev.description && (
+                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{ev.description}</p>
+                      )}
+                      <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <CalendarDays className="h-3 w-3" />
+                          {format(new Date(ev.date + "T00:00:00"), "dd 'de' MMMM", { locale: ptBR })}
+                        </span>
+                        {ev.time && (
+                          <span className="flex items-center gap-1">
+                            <Clock className="h-3 w-3" />{ev.time}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {idx === 0 && (
+                      <span className="ml-auto shrink-0 text-[10px] font-black uppercase tracking-widest text-primary">
+                        Próximo
+                      </span>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </CardContent>
