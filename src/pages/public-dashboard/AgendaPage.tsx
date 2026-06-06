@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+﻿import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,16 +17,18 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { format, parseISO } from "date-fns";
+import { format, parseISO, parse, isValid } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Pencil, Trash2, Plus, Loader2, Music2, CalendarDays, Star } from "lucide-react";
+import { Pencil, Trash2, Plus, Loader2, Music2, CalendarDays, Star, Upload, FileSpreadsheet, AlertCircle, CheckCircle2, X } from "lucide-react";
 import { useDynamicClient } from "@/hooks/useDynamicClient";
 import { PageHeader } from "./components/PageHeader";
 import { StatusBadge } from "./components/StatusBadge";
 import { CredentialsErrorState } from "./components/CredentialsErrorState";
 import { DeleteConfirmDialog } from "./components/DeleteConfirmDialog";
 import { cn } from "@/lib/utils";
+import * as XLSX from "xlsx";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -69,6 +71,94 @@ const TYPE_LABELS: Record<EventType, string> = {
   dia_especial:   "Dia Especial",
 };
 
+// ─── Import helpers ───────────────────────────────────────────────────────────
+
+/** Normaliza um valor de data vindo da planilha para YYYY-MM-DD */
+function normalizeDate(raw: unknown): string | null {
+  if (!raw) return null;
+  // Número serial do Excel
+  if (typeof raw === "number") {
+    const d = XLSX.SSF.parse_date_code(raw);
+    if (d) {
+      const month = String(d.m).padStart(2, "0");
+      const day   = String(d.d).padStart(2, "0");
+      return `${d.y}-${month}-${day}`;
+    }
+  }
+  const s = String(raw).trim();
+  // YYYY-MM-DD já ok
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // DD/MM/YYYY
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+    const p = parse(s, "dd/MM/yyyy", new Date());
+    if (isValid(p)) return format(p, "yyyy-MM-dd");
+  }
+  // MM/DD/YYYY
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+    const p = parse(s, "MM/dd/yyyy", new Date());
+    if (isValid(p)) return format(p, "yyyy-MM-dd");
+  }
+  return null;
+}
+
+/** Normaliza tipo para o enum esperado */
+function normalizeType(raw: unknown): EventType | null {
+  const s = String(raw ?? "").toLowerCase().trim();
+  if (s.includes("music") || s.includes("música") || s.includes("musica") || s === "musica_ao_vivo") return "musica_ao_vivo";
+  if (s.includes("especial") || s.includes("special") || s === "dia_especial") return "dia_especial";
+  return null;
+}
+
+interface ImportRow {
+  title: string;
+  description: string | null;
+  date: string;
+  time: string | null;
+  location: string | null;
+  type: EventType;
+  status: "active" | "inactive";
+  _error?: string;
+}
+
+/** Parseia sheet rows para ImportRow[] */
+function parseSheetRows(rows: Record<string, unknown>[]): ImportRow[] {
+  return rows.map((row, i) => {
+    // Aceita variações de cabeçalho em pt/en, case insensitive
+    const get = (...keys: string[]) => {
+      for (const k of keys) {
+        const found = Object.keys(row).find(rk => rk.toLowerCase().trim() === k.toLowerCase());
+        if (found !== undefined) return row[found];
+      }
+      return undefined;
+    };
+
+    const title = String(get("titulo", "title", "artista", "artist", "nome", "name") ?? "").trim();
+    const date  = normalizeDate(get("data", "date"));
+    const type  = normalizeType(get("tipo", "type"));
+    const time  = String(get("horario", "horário", "hora", "time") ?? "").trim() || null;
+    const desc  = String(get("descricao", "descrição", "description", "descr") ?? "").trim() || null;
+    const loc   = String(get("local", "localizacao", "localização", "location") ?? "").trim() || null;
+    const statusRaw = String(get("status", "ativo", "active") ?? "ativo").toLowerCase().trim();
+    const status: "active" | "inactive" = statusRaw === "inativo" || statusRaw === "inactive" || statusRaw === "false" || statusRaw === "0" ? "inactive" : "active";
+
+    const errors: string[] = [];
+    if (!title)  errors.push("título obrigatório");
+    if (!date)   errors.push("data inválida");
+    if (!type)   errors.push(`tipo inválido ("${get("tipo","type") ?? ""}")`);
+
+    return {
+      title:       title || `(linha ${i + 2})`,
+      description: desc,
+      date:        date ?? "",
+      time,
+      location:    loc,
+      type:        type ?? "dia_especial",
+      status,
+      _error:      errors.length > 0 ? errors.join(", ") : undefined,
+    };
+  });
+}
+
 // ─── Componente ───────────────────────────────────────────────────────────────
 
 export function AgendaPage() {
@@ -79,6 +169,61 @@ export function AgendaPage() {
   const [editingItem, setEditingItem] = useState<AgendaItem | null>(null);
   const [form, setForm] = useState<FormState>(defaultForm);
   const [deleteTarget, setDeleteTarget] = useState<AgendaItem | null>(null);
+
+  // ── Import state ───────────────────────────────────────────────────────────
+  const [importOpen, setImportOpen]           = useState(false);
+  const [importRows, setImportRows]           = useState<ImportRow[]>([]);
+  const [importFileName, setImportFileName]   = useState("");
+  const fileInputRef                          = useRef<HTMLInputElement>(null);
+
+  const importMutation = useMutation({
+    mutationFn: async (rows: ImportRow[]) => {
+      const valid = rows.filter(r => !r._error);
+      if (valid.length === 0) throw new Error("Nenhum registro válido para importar.");
+      const payload = valid.map(({ _error: _e, ...r }) => r);
+      const { error } = await dc!.from("ai_events").insert(payload);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ai_events"] });
+      toast.success(`${importRows.filter(r => !r._error).length} evento(s) importado(s) com sucesso!`);
+      setImportOpen(false);
+      setImportRows([]);
+      setImportFileName("");
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  function processFile(file: File) {
+    if (!file) return;
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    if (!["xlsx", "xls", "csv"].includes(ext ?? "")) {
+      toast.error("Formato não suportado. Use .xlsx, .xls ou .csv");
+      return;
+    }
+    setImportFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target!.result as ArrayBuffer);
+        const wb   = XLSX.read(data, { type: "array" });
+        const ws   = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: "" });
+        if (rows.length === 0) { toast.error("A planilha está vazia."); return; }
+        setImportRows(parseSheetRows(rows));
+        setImportOpen(true);
+      } catch {
+        toast.error("Erro ao processar o arquivo. Verifique o formato.");
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) processFile(file);
+    e.target.value = "";
+  }
 
   if (!dc) return <CredentialsErrorState />;
 
@@ -185,13 +330,31 @@ export function AgendaPage() {
         title="Agenda"
         description="Atrações musicais ao vivo e datas especiais do estabelecimento."
         action={
-          <Button
-            onClick={openCreate}
-            className="bg-gradient-ember text-primary-foreground shadow-glow hover:opacity-95"
-          >
-            <Plus className="h-4 w-4" />
-            Adicionar
-          </Button>
+          <div className="flex items-center gap-2">
+            {/* Input de arquivo oculto */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+            <Button
+              variant="outline"
+              onClick={() => fileInputRef.current?.click()}
+              className="border-border gap-2"
+            >
+              <FileSpreadsheet className="h-4 w-4 text-emerald-400" />
+              Importar
+            </Button>
+            <Button
+              onClick={openCreate}
+              className="bg-gradient-ember text-primary-foreground shadow-glow hover:opacity-95"
+            >
+              <Plus className="h-4 w-4" />
+              Adicionar
+            </Button>
+          </div>
         }
       />
 
@@ -483,6 +646,111 @@ export function AgendaPage() {
             >
               {isSaving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               {editingItem ? "Salvar alterações" : "Cadastrar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog de importação */}
+      <Dialog open={importOpen} onOpenChange={(open) => { if (!open) { setImportOpen(false); setImportRows([]); setImportFileName(""); } }}>
+        <DialogContent className="border-border bg-card sm:max-w-3xl max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="font-display flex items-center gap-2">
+              <FileSpreadsheet className="h-5 w-5 text-emerald-400" />
+              Importar Eventos
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              Arquivo: <span className="text-foreground font-medium">{importFileName}</span>
+              {" · "}{importRows.length} linha(s) encontrada(s)
+              {importRows.some(r => r._error) && (
+                <span className="text-destructive ml-1">
+                  · {importRows.filter(r => r._error).length} com erro
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Dica de colunas esperadas */}
+          <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+            <strong className="text-foreground">Colunas esperadas:</strong>{" "}
+            titulo/title, data/date (DD/MM/YYYY ou YYYY-MM-DD), tipo/type (musica_ao_vivo | dia_especial), horario/time, descricao/description, local/location, status (ativo/inativo)
+          </div>
+
+          {/* Preview */}
+          <div className="flex-1 overflow-auto rounded-md border border-border min-h-0">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-border hover:bg-transparent">
+                  <TableHead className="w-8">#</TableHead>
+                  <TableHead>Título</TableHead>
+                  <TableHead>Data</TableHead>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead>Horário</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Situação</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {importRows.map((row, i) => (
+                  <TableRow key={i} className={cn("border-border/60", row._error ? "bg-destructive/5" : "")}>
+                    <TableCell className="text-muted-foreground text-xs">{i + 1}</TableCell>
+                    <TableCell className="font-medium max-w-[180px] truncate">{row.title}</TableCell>
+                    <TableCell className="whitespace-nowrap text-sm">{row.date || "—"}</TableCell>
+                    <TableCell>
+                      {row.type ? (
+                        <span className={cn(
+                          "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1",
+                          row.type === "musica_ao_vivo"
+                            ? "bg-primary/10 text-primary ring-primary/20"
+                            : "bg-amber-500/10 text-amber-500 ring-amber-500/20"
+                        )}>
+                          {TYPE_LABELS[row.type]}
+                        </span>
+                      ) : "—"}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-sm">{row.time ?? "—"}</TableCell>
+                    <TableCell>
+                      <Badge variant={row.status === "active" ? "default" : "secondary"} className="text-xs">
+                        {row.status === "active" ? "Ativo" : "Inativo"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {row._error ? (
+                        <span className="flex items-center gap-1 text-xs text-destructive">
+                          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                          {row._error}
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-xs text-emerald-500">
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          Ok
+                        </span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          <DialogFooter className="gap-2 pt-2">
+            {importRows.some(r => r._error) && (
+              <p className="text-xs text-muted-foreground mr-auto">
+                Linhas com erro serão ignoradas na importação.
+              </p>
+            )}
+            <Button variant="ghost" onClick={() => { setImportOpen(false); setImportRows([]); setImportFileName(""); }} disabled={importMutation.isPending}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => importMutation.mutate(importRows)}
+              disabled={importMutation.isPending || importRows.filter(r => !r._error).length === 0}
+              className="bg-gradient-ember text-primary-foreground shadow-glow hover:opacity-90"
+            >
+              {importMutation.isPending
+                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Importando...</>
+                : <><Upload className="h-4 w-4 mr-2" />Importar {importRows.filter(r => !r._error).length} evento(s)</>
+              }
             </Button>
           </DialogFooter>
         </DialogContent>
