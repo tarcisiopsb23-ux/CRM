@@ -2,7 +2,10 @@
 import { useForm } from "react-hook-form";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Loader2, Save, Building2, Plus, Trash2, ImagePlus, X } from "lucide-react";
+import {
+  Loader2, Save, Building2, Plus, Trash2, ImagePlus, X,
+  Link2, Copy, ExternalLink, Star, MessageCircle, Phone,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,9 +29,11 @@ interface OpeningHoursStructured {
 interface AiSettings {
   id?: string;
   phone: string;
+  whatsapp: string;
   instagram: string;
   address: string;
   opening_hours: string;
+  google_business_url: string;
   sidebar_logo_url?: string | null;
   updated_at?: string;
 }
@@ -61,9 +66,11 @@ const DEFAULT_HOURS: OpeningHoursStructured = {
 
 const defaultValues: FormValues = {
   phone: "",
+  whatsapp: "",
   instagram: "",
   address: "",
   opening_hours: JSON.stringify(DEFAULT_HOURS),
+  google_business_url: "",
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -92,6 +99,12 @@ function parseHours(raw: string | undefined | null): OpeningHoursStructured {
     // texto livre — retorna padrão
   }
   return DEFAULT_HOURS;
+}
+
+/** Gera a URL de redirecionamento rápido baseada na origem atual */
+function buildRedirectUrl(destination: string): string {
+  const origin = window.location.origin;
+  return `${origin}/r?to=${encodeURIComponent(destination)}`;
 }
 
 // ─── Componente de horários ───────────────────────────────────────────────────
@@ -217,7 +230,6 @@ function LogoUploader({ currentUrl, onUploaded, dc }: LogoUploaderProps) {
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState<string | null>(currentUrl);
 
-  // Sincroniza preview quando currentUrl muda (ex: ao carregar settings)
   useEffect(() => {
     setPreview(currentUrl);
   }, [currentUrl]);
@@ -244,7 +256,6 @@ function LogoUploader({ currentUrl, onUploaded, dc }: LogoUploaderProps) {
         .upload(filePath, file, { upsert: true });
 
       if (uploadError) {
-        // Bucket não existe ou sem permissão — orienta o usuário
         if (uploadError.message.includes("Bucket not found") || uploadError.statusCode === "404" || (uploadError as any).status === 400) {
           throw new Error(
             'Bucket "branding" não encontrado. Execute o SQL de migration no Supabase do cliente para criá-lo.'
@@ -273,7 +284,6 @@ function LogoUploader({ currentUrl, onUploaded, dc }: LogoUploaderProps) {
 
   return (
     <div className="flex items-center gap-4">
-      {/* Preview */}
       <div className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-border bg-secondary/40 overflow-hidden">
         {preview ? (
           <>
@@ -292,7 +302,6 @@ function LogoUploader({ currentUrl, onUploaded, dc }: LogoUploaderProps) {
         )}
       </div>
 
-      {/* Ações */}
       <div className="flex flex-col gap-1.5">
         <Button
           type="button"
@@ -325,6 +334,85 @@ function LogoUploader({ currentUrl, onUploaded, dc }: LogoUploaderProps) {
   );
 }
 
+// ─── Gerador de link de redirecionamento ──────────────────────────────────────
+
+function RedirectLinkGenerator() {
+  const [destination, setDestination] = useState("");
+  const [generatedUrl, setGeneratedUrl] = useState<string | null>(null);
+
+  const handleGenerate = () => {
+    const trimmed = destination.trim();
+    if (!trimmed) {
+      toast.error("Informe a URL de destino.");
+      return;
+    }
+    // Garante protocolo
+    const withProtocol =
+      trimmed.startsWith("http://") || trimmed.startsWith("https://")
+        ? trimmed
+        : `https://${trimmed}`;
+    setGeneratedUrl(buildRedirectUrl(withProtocol));
+  };
+
+  const handleCopy = () => {
+    if (!generatedUrl) return;
+    navigator.clipboard.writeText(generatedUrl).then(() => {
+      toast.success("Link copiado!");
+    });
+  };
+
+  const handleTest = () => {
+    if (generatedUrl) window.open(generatedUrl, "_blank", "noopener");
+  };
+
+  return (
+    <div className="grid gap-4">
+      <p className="text-sm text-muted-foreground">
+        Gera um link curto que redireciona instantaneamente para qualquer URL. Útil para encaminhar clientes para promoções, cardápios ou páginas externas sem expor a URL final.
+      </p>
+
+      <div className="grid gap-2">
+        <Label>URL de destino</Label>
+        <div className="flex gap-2">
+          <Input
+            value={destination}
+            onChange={(e) => { setDestination(e.target.value); setGeneratedUrl(null); }}
+            placeholder="Ex: https://menu.link/cantinho-do-churrasco"
+            className="flex-1"
+            onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), handleGenerate())}
+          />
+          <Button type="button" onClick={handleGenerate} className="bg-gradient-ember text-primary-foreground shadow-glow shrink-0">
+            <Link2 className="h-4 w-4 mr-2" />
+            Gerar
+          </Button>
+        </div>
+      </div>
+
+      {generatedUrl && (
+        <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-3">
+          <p className="text-xs text-muted-foreground font-semibold uppercase tracking-widest">Link gerado</p>
+          <div className="flex items-center gap-2 bg-background rounded-md border border-border px-3 py-2">
+            <span className="text-sm text-foreground font-mono flex-1 truncate">{generatedUrl}</span>
+          </div>
+          <div className="flex gap-2">
+            <Button type="button" size="sm" variant="outline" onClick={handleCopy} className="border-border gap-2">
+              <Copy className="h-3.5 w-3.5" />
+              Copiar
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={handleTest} className="border-border gap-2">
+              <ExternalLink className="h-3.5 w-3.5" />
+              Testar
+            </Button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Este link não é salvo no banco de dados. Guarde-o agora se precisar reutilizá-lo.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export function ConfiguracoesPage() {
@@ -335,7 +423,6 @@ export function ConfiguracoesPage() {
   const [hours, setHours] = useState<OpeningHoursStructured>(DEFAULT_HOURS);
   const [sidebarLogoUrl, setSidebarLogoUrl] = useState<string | null>(null);
 
-  // ⚠️ Todos os hooks ANTES de qualquer return condicional
   const { data: settings, isLoading } = useQuery({
     queryKey: ["ai_settings"],
     queryFn: async () => {
@@ -351,10 +438,12 @@ export function ConfiguracoesPage() {
   useEffect(() => {
     if (settings) {
       form.reset({
-        phone: settings.phone ?? "",
-        instagram: settings.instagram ?? "",
-        address: settings.address ?? "",
-        opening_hours: settings.opening_hours ?? "",
+        phone:               settings.phone               ?? "",
+        whatsapp:            settings.whatsapp            ?? "",
+        instagram:           settings.instagram           ?? "",
+        address:             settings.address             ?? "",
+        opening_hours:       settings.opening_hours       ?? "",
+        google_business_url: settings.google_business_url ?? "",
       });
       setHours(parseHours(settings.opening_hours));
       setSidebarLogoUrl(settings.sidebar_logo_url ?? null);
@@ -370,37 +459,33 @@ export function ConfiguracoesPage() {
       if (!dc) throw new Error("Cliente não conectado");
 
       const payload: Record<string, unknown> = {
-        phone: values.phone,
-        instagram: values.instagram,
-        address: values.address,
-        opening_hours: JSON.stringify(currentHours),
-        sidebar_logo_url: currentLogoUrl,
-        updated_at: new Date().toISOString(),
+        phone:               values.phone,
+        whatsapp:            values.whatsapp,
+        instagram:           values.instagram,
+        address:             values.address,
+        opening_hours:       JSON.stringify(currentHours),
+        google_business_url: values.google_business_url,
+        sidebar_logo_url:    currentLogoUrl,
+        updated_at:          new Date().toISOString(),
       };
 
       if (settings?.id) {
-        const { error } = await dc
-          .from("ai_settings")
-          .update(payload)
-          .eq("id", settings.id);
+        const { error } = await dc.from("ai_settings").update(payload).eq("id", settings.id);
         if (error) throw error;
       } else {
         const { error } = await dc.from("ai_settings").insert(payload);
         if (error) throw error;
       }
 
-      // Retorna o payload salvo para atualizar o cache sem refetch
       return { ...settings, ...payload } as AiSettings;
     },
     onSuccess: (saved) => {
       toast.success("Configurações salvas com sucesso!");
-      // Atualiza o cache diretamente — evita refetch que sobrescreveria o estado local
       queryClient.setQueryData(["ai_settings"], saved);
     },
     onError: (e: any) => toast.error("Erro ao salvar: " + e.message),
   });
 
-  // Guards após todos os hooks
   if (!dc) return <CredentialsErrorState />;
 
   if (isLoading) {
@@ -412,11 +497,7 @@ export function ConfiguracoesPage() {
   }
 
   const handleSubmit = form.handleSubmit((values) => {
-    saveMutation.mutate({
-      values,
-      currentHours: hours,
-      currentLogoUrl: sidebarLogoUrl,
-    });
+    saveMutation.mutate({ values, currentHours: hours, currentLogoUrl: sidebarLogoUrl });
   });
 
   return (
@@ -439,16 +520,41 @@ export function ConfiguracoesPage() {
               <CardDescription>Informações públicas comunicadas aos clientes.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-6">
-              {/* Contato */}
+
+              {/* Telefone + WhatsApp */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="grid gap-2">
-                  <Label>Telefone</Label>
-                  <Input {...form.register("phone")} placeholder="Ex: (11) 99999-9999" />
+                  <Label className="flex items-center gap-1.5">
+                    <Phone className="h-3.5 w-3.5 text-muted-foreground" />
+                    Telefone para ligação
+                  </Label>
+                  <Input
+                    {...form.register("phone")}
+                    placeholder="Ex: (11) 3333-4444"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Usado para chamadas telefônicas diretas.
+                  </p>
                 </div>
                 <div className="grid gap-2">
-                  <Label>Instagram</Label>
-                  <Input {...form.register("instagram")} placeholder="Ex: @seuestablecimento" />
+                  <Label className="flex items-center gap-1.5">
+                    <MessageCircle className="h-3.5 w-3.5 text-green-500" />
+                    WhatsApp
+                  </Label>
+                  <Input
+                    {...form.register("whatsapp")}
+                    placeholder="Ex: 5511999994444 (somente números)"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Número com DDI+DDD para mensagens via WhatsApp.
+                  </p>
                 </div>
+              </div>
+
+              {/* Instagram */}
+              <div className="grid gap-2">
+                <Label>Instagram</Label>
+                <Input {...form.register("instagram")} placeholder="Ex: @seuestablecimento" />
               </div>
 
               {/* Endereço */}
@@ -458,6 +564,21 @@ export function ConfiguracoesPage() {
                   {...form.register("address")}
                   placeholder="Ex: Rua das Flores, 123 — São Paulo, SP"
                 />
+              </div>
+
+              {/* Google Meu Negócio */}
+              <div className="grid gap-2">
+                <Label className="flex items-center gap-1.5">
+                  <Star className="h-3.5 w-3.5 text-yellow-500" />
+                  Link do Google Meu Negócio (avaliações)
+                </Label>
+                <Input
+                  {...form.register("google_business_url")}
+                  placeholder="Ex: https://g.page/r/XXXXX/review"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Encaminhado automaticamente quando clientes solicitarem o link para avaliar.
+                </p>
               </div>
 
               {/* Horários de funcionamento */}
@@ -485,6 +606,23 @@ export function ConfiguracoesPage() {
 
         </div>
       </form>
+
+      {/* ── Gerador de link de redirecionamento (sem banco) ── */}
+      <Card className="card-surface">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 font-display text-base">
+            <Link2 className="h-4 w-4 text-primary" />
+            Link de Redirecionamento Rápido
+          </CardTitle>
+          <CardDescription>
+            Crie links de redirecionamento instantâneo para qualquer URL. Não é salvo no banco de dados.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <RedirectLinkGenerator />
+        </CardContent>
+      </Card>
+
     </div>
   );
 }

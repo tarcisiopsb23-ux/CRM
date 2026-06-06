@@ -52,6 +52,7 @@ import FiscalPage from "@/pages/FiscalPage";
 import AuthorizationsPage from "@/pages/AuthorizationsPage";
 import { PublicVagasRouter } from "@/router/PublicVagasRouter";
 import { PublicDashboardLayout } from "./pages/public-dashboard/PublicDashboardLayout";
+import { RedirectPage } from "./pages/public-dashboard/RedirectPage";
 
 const DashboardGeralPage  = lazy(() => import("./pages/public-dashboard/DashboardGeralPage").then(m => ({ default: m.DashboardGeralPage })));
 const PerformancePage     = lazy(() => import("./pages/public-dashboard/PerformancePage").then(m => ({ default: m.PerformancePage })));
@@ -109,6 +110,8 @@ function App() {
                 <Routes>
                   {/* ── Rotas do Dashboard Público — sempre dark (forçado via index.html + useEffect) ── */}
                   <Route path="/demo/dashboard" element={<PublicDemoDashboardPage />} />
+                  {/* Redirecionamento instantâneo — sem banco, destino na query string (?to=url) */}
+                  <Route path="/r" element={<RedirectPage />} />
                   <Route path="/public/dashboard/:slug" element={<PublicDashboardLayout />}>
                     <Route index element={<Suspense fallback={<PageLoader />}><DashboardGeralPage /></Suspense>} />
                     <Route path="performance" element={<Suspense fallback={<PageLoader />}><PerformancePage /></Suspense>} />
