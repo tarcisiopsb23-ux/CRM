@@ -12,7 +12,7 @@ import { Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, BarChart3, MessageCircle, Tag, UtensilsCrossed,
   CalendarDays, Megaphone, Settings, Users, GitMerge, Package,
-  Wifi, WifiOff, Bot, ChevronDown, ChevronRight, Link2,
+  Wifi, WifiOff, Bot, ChevronDown, ChevronRight, Link2, CreditCard,
 } from "lucide-react";
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup,
@@ -47,9 +47,10 @@ const IA_NAV = [
 ];
 
 const CONFIG_NAV = [
-  { title: "Configurações",  url: "configuracoes",            icon: Settings },
-  { title: "Usuários",       url: "configuracoes/usuarios",   icon: Users },
-  { title: "Integrações",    url: "configuracoes/integracoes", icon: Link2 },
+  { title: "Configurações",  url: "configuracoes",              icon: Settings },
+  { title: "Usuários",       url: "configuracoes/usuarios",     icon: Users },
+  { title: "Pagamentos",     url: "configuracoes/pagamentos",   icon: CreditCard },
+  { title: "Integrações",    url: "configuracoes/integracoes",  icon: Link2 },
 ];
 
 // ─── Bot Toggle ───────────────────────────────────────────────────────────────
@@ -269,8 +270,9 @@ export function PublicDashboardSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {CONFIG_NAV.filter(item =>
-                // Usuários: só owner/admin
-                item.url !== "configuracoes/usuarios" || ["owner","admin"].includes(userRole)
+                // Usuários e Pagamentos: só owner/admin
+                (item.url !== "configuracoes/usuarios" && item.url !== "configuracoes/pagamentos")
+                || ["owner","admin"].includes(userRole)
               ).map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>

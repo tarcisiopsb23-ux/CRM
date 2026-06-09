@@ -70,6 +70,7 @@ const WhatsAppPage        = lazy(() => import("./pages/public-dashboard/WhatsApp
 // Fase 4 — Configurações expandidas
 const ConfigUsuariosPage  = lazy(() => import("./pages/public-dashboard/ConfigUsuariosPage").then(m => ({ default: m.ConfigUsuariosPage })));
 const ConfigIntegracoesPage = lazy(() => import("./pages/public-dashboard/ConfigIntegracoesPage").then(m => ({ default: m.ConfigIntegracoesPage })));
+const ConfigPagamentosPage  = lazy(() => import("./pages/public-dashboard/ConfigPagamentosPage").then(m => ({ default: m.ConfigPagamentosPage })));
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, refetchOnWindowFocus: false } } });
 
@@ -139,6 +140,7 @@ function App() {
                     {/* Fase 4 — Configurações expandidas */}
                     <Route path="configuracoes/usuarios"    element={<Suspense fallback={<PageLoader />}><ConfigUsuariosPage /></Suspense>} />
                     <Route path="configuracoes/integracoes" element={<Suspense fallback={<PageLoader />}><ConfigIntegracoesPage /></Suspense>} />
+                    <Route path="configuracoes/pagamentos"  element={<Suspense fallback={<PageLoader />}><ConfigPagamentosPage /></Suspense>} />
                   </Route>
                   <Route path="/public/dashboard/:slug/login" element={<PublicDashboardLoginPage />} />
                   <Route path="/public/dashboard/:slug/crm/login" element={<C8ControlLoginPage />} />
