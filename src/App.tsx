@@ -67,6 +67,9 @@ const CrmPage             = lazy(() => import("./pages/public-dashboard/CrmPage"
 const CrmPipelinePage     = lazy(() => import("./pages/public-dashboard/CrmPipelinePage").then(m => ({ default: m.CrmPipelinePage })));
 const CrmProdutosPage     = lazy(() => import("./pages/public-dashboard/CrmProdutosPage").then(m => ({ default: m.CrmProdutosPage })));
 const WhatsAppPage        = lazy(() => import("./pages/public-dashboard/WhatsAppPage").then(m => ({ default: m.WhatsAppPage })));
+// Fase 4 — Configurações expandidas
+const ConfigUsuariosPage  = lazy(() => import("./pages/public-dashboard/ConfigUsuariosPage").then(m => ({ default: m.ConfigUsuariosPage })));
+const ConfigIntegracoesPage = lazy(() => import("./pages/public-dashboard/ConfigIntegracoesPage").then(m => ({ default: m.ConfigIntegracoesPage })));
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, refetchOnWindowFocus: false } } });
 
@@ -133,6 +136,9 @@ function App() {
                     <Route path="crm/produtos" element={<Suspense fallback={<PageLoader />}><CrmProdutosPage /></Suspense>} />
                     {/* Fase 2 — WhatsApp */}
                     <Route path="whatsapp" element={<Suspense fallback={<PageLoader />}><WhatsAppPage /></Suspense>} />
+                    {/* Fase 4 — Configurações expandidas */}
+                    <Route path="configuracoes/usuarios"    element={<Suspense fallback={<PageLoader />}><ConfigUsuariosPage /></Suspense>} />
+                    <Route path="configuracoes/integracoes" element={<Suspense fallback={<PageLoader />}><ConfigIntegracoesPage /></Suspense>} />
                   </Route>
                   <Route path="/public/dashboard/:slug/login" element={<PublicDashboardLoginPage />} />
                   <Route path="/public/dashboard/:slug/crm/login" element={<C8ControlLoginPage />} />

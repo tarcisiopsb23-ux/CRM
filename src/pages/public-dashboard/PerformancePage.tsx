@@ -2,14 +2,15 @@ import { useEffect, useState, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { logger } from "@/lib/logger";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
-  AreaChart, Area, BarChart, Bar, Line,
+  AreaChart, Area, BarChart, Bar, PieChart as RePieChart, Pie, Cell, Line,
   CartesianGrid, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
 import {
   ArrowDown, ArrowUp, BarChart3, Briefcase,
   CheckCircle2, DollarSign, Info, ListFilter,
-  PieChart, Target, TrendingUp, Users, Zap,
+  PieChart, Target, TrendingUp, Users, Zap, Globe,
 } from "lucide-react";
 import {
   Tooltip as ShadcnTooltip, TooltipContent, TooltipProvider, TooltipTrigger,
@@ -28,6 +29,7 @@ import { useClientReports } from "@/hooks/useHubPerformance";
 import { fmtKpiValue } from "@/lib/formatters";
 import { useClientAuth } from "@/hooks/useClientAuth";
 import { usePartnershipImpact, fmtImpact, isLowerBetterImpact } from "@/hooks/usePartnershipImpact";
+import { useCampaignDemographics } from "@/hooks/useCampaignDemographics";
 
 const isLowerBetter = (name: string) => /cac|cpa|cpl|cpc|cpm|custo|inadimpl|churn|cancelamento|devolução|reclamação|tempo.*espera|prazo.*entrega/i.test(name);
 const KPI_COLORS = ["#10b981","#2D8CC7","#f59e0b","#a855f7","#f43f5e","#06b6d4","#e879f9","#34d399"];
@@ -341,6 +343,17 @@ export function PerformancePage() {
   const sortedKpis = [...kpis.filter(k => /faturamento/i.test(k.name)), ...kpis.filter(k => !/faturamento/i.test(k.name))];
   const selectedKpi = sortedKpis.find(k => k.id === (activeKpiId ?? defaultKpi?.id)) ?? defaultKpi;
   const selectedColor = selectedKpi ? KPI_COLORS[kpis.indexOf(selectedKpi) % KPI_COLORS.length] : "#2D8CC7";
+
+  // ── Aba Audiência — dados demográficos do Banco A ─────────────────────────
+  const demographicsEnabled = auth?.modules_config?.demographics_enabled === true;
+  const { aggregated: demo, isLoading: demoLoading, hasData: demoHasData } =
+    useCampaignDemographics(
+      auth?.organization_id,
+      auth?.id,
+      { from: dateRange.from, to: dateRange.to }
+    );
+
+  const DONUT_COLORS = ["#2D8CC7","#10b981","#f59e0b","#a855f7","#f43f5e","#06b6d4"];
 
   return (
     <TooltipProvider>
@@ -843,6 +856,147 @@ export function PerformancePage() {
             </Card>
           );
         })()}
+
+        {/* ── ABA AUDIÊNCIA (condicional: demographics_enabled) ── */}
+        {demographicsEnabled && (
+          <div className="space-y-6">
+            <div className="flex items-center gap-2 border-b border-border/40 pb-3">
+              <Globe className="h-5 w-5 text-[#2D8CC7]" />
+              <h2 className="text-lg font-bold text-foreground">Audiência</h2>
+              <span className="text-xs text-muted-foreground ml-1">Dados demográficos das campanhas</span>
+            </div>
+
+            {demoLoading ? (
+              <div className="flex justify-center py-12">
+                <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#2D8CC7] border-t-transparent" />
+              </div>
+            ) : !demoHasData ? (
+              <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+                <Globe className="h-10 w-10 text-muted-foreground/30" />
+                <p className="text-muted-foreground text-sm">
+                  Nenhum dado demográfico disponível para o período selecionado.
+                </p>
+                <p className="text-xs text-muted-foreground/60">
+                  Os dados são enviados pelo n8n via Meta Ads e Google Ads.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* Linha 1: Gênero + Dispositivo */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Gênero */}
+                  <Card className="bg-[#1E293B] border-slate-800">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-bold text-slate-100">Distribuição por Gênero</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <RePieChart>
+                          <Pie data={demo.byGender} dataKey="value" nameKey="label" cx="50%" cy="50%" outerRadius={70} label={({ label, percent }) => `${label} ${(percent * 100).toFixed(0)}%`}>
+                            {demo.byGender.map((_, i) => <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />)}
+                          </Pie>
+                          <Tooltip formatter={(v: number) => v.toLocaleString("pt-BR")} />
+                        </RePieChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+
+                  {/* Dispositivo */}
+                  <Card className="bg-[#1E293B] border-slate-800">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-bold text-slate-100">Distribuição por Dispositivo</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <RePieChart>
+                          <Pie data={demo.byDevice} dataKey="value" nameKey="label" cx="50%" cy="50%" outerRadius={70} label={({ label, percent }) => `${label} ${(percent * 100).toFixed(0)}%`}>
+                            {demo.byDevice.map((_, i) => <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />)}
+                          </Pie>
+                          <Tooltip formatter={(v: number) => v.toLocaleString("pt-BR")} />
+                        </RePieChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Linha 2: Faixa etária */}
+                {demo.byAge.length > 0 && (
+                  <Card className="bg-[#1E293B] border-slate-800">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-bold text-slate-100">Distribuição por Faixa Etária</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={220}>
+                        <BarChart data={demo.byAge} layout="vertical" margin={{ left: 16 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                          <XAxis type="number" tick={{ fill: "#94a3b8", fontSize: 11 }} />
+                          <YAxis type="category" dataKey="label" width={70} tick={{ fill: "#94a3b8", fontSize: 11 }} />
+                          <Tooltip contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8 }} labelStyle={{ color: "#f1f5f9" }} formatter={(v: number) => v.toLocaleString("pt-BR")} />
+                          <Bar dataKey="impressions" name="Impressões" fill="#2D8CC7" radius={[0,4,4,0]} />
+                          <Bar dataKey="clicks" name="Cliques" fill="#10b981" radius={[0,4,4,0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Linha 3: Plataforma */}
+                {demo.byPlatform.length > 0 && (
+                  <Card className="bg-[#1E293B] border-slate-800">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-bold text-slate-100">Performance por Plataforma</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <BarChart data={demo.byPlatform}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                          <XAxis dataKey="label" tick={{ fill: "#94a3b8", fontSize: 11 }} />
+                          <YAxis tick={{ fill: "#94a3b8", fontSize: 11 }} />
+                          <Tooltip contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8 }} formatter={(v: number) => v.toLocaleString("pt-BR")} />
+                          <Bar dataKey="impressions" name="Impressões" fill="#2D8CC7" radius={[4,4,0,0]} />
+                          <Bar dataKey="clicks" name="Cliques" fill="#10b981" radius={[4,4,0,0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Linha 4: Top cidades */}
+                {demo.byLocation.length > 0 && (
+                  <Card className="bg-[#1E293B] border-slate-800">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-bold text-slate-100">Top Localidades</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="overflow-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-[10px] uppercase tracking-widest text-slate-500 border-b border-slate-700">
+                              <th className="pb-2 text-left">Cidade</th>
+                              <th className="pb-2 text-left">Estado</th>
+                              <th className="pb-2 text-right">Cliques</th>
+                              <th className="pb-2 text-right">Conversões</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800">
+                            {demo.byLocation.slice(0, 15).map((loc, i) => (
+                              <tr key={i} className="hover:bg-slate-800/40 transition-colors">
+                                <td className="py-2 font-medium text-slate-200">{loc.city || "—"}</td>
+                                <td className="py-2 text-slate-400">{loc.state || "—"}</td>
+                                <td className="py-2 text-right text-slate-300">{loc.clicks.toLocaleString("pt-BR")}</td>
+                                <td className="py-2 text-right font-bold text-emerald-400">{loc.conversions.toLocaleString("pt-BR")}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </TooltipProvider>
   );

@@ -12,7 +12,7 @@ import { Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, BarChart3, MessageCircle, Tag, UtensilsCrossed,
   CalendarDays, Megaphone, Settings, Users, GitMerge, Package,
-  Wifi, WifiOff, Bot, ChevronDown, ChevronRight,
+  Wifi, WifiOff, Bot, ChevronDown, ChevronRight, Link2,
 } from "lucide-react";
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup,
@@ -44,6 +44,12 @@ const IA_NAV = [
   { title: "Sugestões da Semana", url: "sugestoes",     icon: UtensilsCrossed },
   { title: "Avisos",              url: "avisos",        icon: Megaphone },
   { title: "Configurações",       url: "configuracoes", icon: Settings },
+];
+
+const CONFIG_NAV = [
+  { title: "Configurações",  url: "configuracoes",            icon: Settings },
+  { title: "Usuários",       url: "configuracoes/usuarios",   icon: Users },
+  { title: "Integrações",    url: "configuracoes/integracoes", icon: Link2 },
 ];
 
 // ─── Bot Toggle ───────────────────────────────────────────────────────────────
@@ -123,8 +129,9 @@ export function PublicDashboardSidebar() {
   const [crmOpen, setCrmOpen] = useState(true);
 
   const modules = auth?.modules_config;
-  const crmEnabled = modules?.crm_enabled !== false; // default true se não configurado
-  const waEnabled = modules?.whatsapp_enabled === true;
+  const crmEnabled = modules?.crm_enabled !== false;
+  const waEnabled  = modules?.whatsapp_enabled === true;
+  const userRole   = auth?.user?.role ?? "viewer";
 
   const isActive = (url: string) => {
     const full = `/public/dashboard/${slug}${url ? `/${url}` : ""}`;
@@ -255,6 +262,31 @@ export function PublicDashboardSidebar() {
             </SidebarGroupContent>
           </SidebarGroup>
         )}
+
+        {/* ── Configurações ── */}
+        <SidebarGroup>
+          {!collapsed && <SidebarGroupLabel>Configurações</SidebarGroupLabel>}
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {CONFIG_NAV.filter(item =>
+                // Usuários: só owner/admin
+                item.url !== "configuracoes/usuarios" || ["owner","admin"].includes(userRole)
+              ).map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
+                    <Link
+                      to={`/public/dashboard/${slug}/${item.url}`}
+                      className="flex items-center gap-3"
+                    >
+                      <item.icon className="h-4 w-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
       </SidebarContent>
 
       {/* Footer: bot toggle + usuário */}

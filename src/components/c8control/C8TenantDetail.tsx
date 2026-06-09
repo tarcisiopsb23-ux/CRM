@@ -2,20 +2,11 @@ import { useState } from "react";
 import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
-  Loader2,
-  ShieldOff,
-  ShieldCheck,
-  Trash2,
-  RefreshCcw,
-  AlertTriangle,
-  Pencil,
-  Check,
-  PauseCircle,
-  KeyRound,
-  Users,
-  FileText,
-  Receipt,
+  Loader2, ShieldOff, ShieldCheck, Trash2, RefreshCcw,
+  AlertTriangle, Pencil, Check, PauseCircle, KeyRound,
+  Users, FileText, Receipt, Settings2,
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -170,6 +161,57 @@ export function C8TenantDetail({
   const [editDueDay, setEditDueDay] = useState(String(tenant.due_day));
   const [editMaxUsers, setEditMaxUsers] = useState(String(tenant.max_users));
   const [isSavingQuick, setIsSavingQuick] = useState(false);
+
+  // ── Módulos config ────────────────────────────────────────────────────────
+  const initialModules = {
+    crm_enabled:           (tenant as any).modules_config?.crm_enabled           ?? false,
+    whatsapp_enabled:      (tenant as any).modules_config?.whatsapp_enabled      ?? false,
+    demographics_enabled:  (tenant as any).modules_config?.demographics_enabled  ?? false,
+    ia_enabled:            (tenant as any).modules_config?.ia_enabled            ?? false,
+    max_contacts:          (tenant as any).modules_config?.max_contacts          ?? 5000,
+    asaas_enabled:         (tenant as any).modules_config?.asaas_enabled         ?? false,
+    meta_pixel_id:         (tenant as any).modules_config?.pixel_config?.meta_pixel_id ?? "",
+    google_tag_id:         (tenant as any).modules_config?.pixel_config?.google_tag_id ?? "",
+  };
+  const [modules, setModules] = useState(initialModules);
+  const [isSavingModules, setIsSavingModules] = useState(false);
+
+  const handleSaveModules = async () => {
+    setIsSavingModules(true);
+    try {
+      const { data: current } = await supabase
+        .from("crm_client_plans")
+        .select("id")
+        .eq("client_id", tenant.client_id)
+        .maybeSingle();
+      if (!current?.id) throw new Error("Plano não encontrado.");
+      const payload = {
+        modules_config: {
+          crm_enabled:          modules.crm_enabled,
+          whatsapp_enabled:     modules.whatsapp_enabled,
+          demographics_enabled: modules.demographics_enabled,
+          ia_enabled:           modules.ia_enabled,
+          max_contacts:         Number(modules.max_contacts),
+          asaas_enabled:        modules.asaas_enabled,
+          pixel_config: {
+            meta_pixel_id: modules.meta_pixel_id.trim(),
+            google_tag_id: modules.google_tag_id.trim(),
+          },
+        },
+      };
+      const { error } = await supabase
+        .from("crm_client_plans")
+        .update(payload)
+        .eq("client_id", tenant.client_id);
+      if (error) throw error;
+      qc.invalidateQueries({ queryKey: ["c8_tenants", organizationId] });
+      toast.success("Módulos salvos com sucesso.");
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao salvar módulos.");
+    } finally {
+      setIsSavingModules(false);
+    }
+  };
 
   const handleQuickSave = async () => {
     const planValue = parseFloat(editPlanValue) || 0;
@@ -383,8 +425,9 @@ export function C8TenantDetail({
           </SheetHeader>
 
           <Tabs defaultValue="plano">
-            <TabsList className="mb-4">
+            <TabsList className="mb-4 flex-wrap">
               <TabsTrigger value="plano">Plano</TabsTrigger>
+              <TabsTrigger value="modulos">Módulos</TabsTrigger>
               <TabsTrigger value="usuarios">
                 <Users className="h-3.5 w-3.5 mr-1" />
                 Usuários
@@ -529,6 +572,80 @@ export function C8TenantDetail({
                     <Button size="sm" variant="destructive" className="h-7 text-xs px-2" onClick={() => setCancelDialogOpen(true)}><Trash2 className="h-3 w-3 mr-1" /> Cancelar</Button>
                   )}
                 </div>
+              )}
+            </TabsContent>
+
+            {/* ── Módulos ── */}
+            <TabsContent value="modulos" className="space-y-4">
+              <p className="text-xs text-muted-foreground">
+                Controle quais funcionalidades estão habilitadas para este cliente no Dashboard.
+              </p>
+
+              <div className="space-y-3">
+                {([
+                  { key: "crm_enabled"         as const, label: "CRM",                    desc: "Contatos, pipeline e produtos" },
+                  { key: "whatsapp_enabled"     as const, label: "WhatsApp",               desc: "Conexão e importação de contatos" },
+                  { key: "ia_enabled"           as const, label: "Conteúdo IA",            desc: "Agenda, promoções, sugestões e avisos" },
+                  { key: "demographics_enabled" as const, label: "Audiência Demográfica",  desc: "Aba de dados de audiência no Performance" },
+                  { key: "asaas_enabled"        as const, label: "Asaas (Pagamentos)",     desc: "Integração com gateway de pagamento" },
+                ]).map(({ key, label, desc }) => (
+                  <div key={key} className="flex items-center justify-between rounded-lg border border-border bg-secondary/20 px-4 py-3">
+                    <div>
+                      <p className="text-sm font-semibold">{label}</p>
+                      <p className="text-xs text-muted-foreground">{desc}</p>
+                    </div>
+                    <Switch
+                      checked={modules[key] as boolean}
+                      onCheckedChange={v => setModules(m => ({ ...m, [key]: v }))}
+                      disabled={!canEdit}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid gap-3">
+                <div className="grid gap-1.5">
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Limite de Contatos</label>
+                  <Input
+                    type="number" min={0} max={999999}
+                    value={modules.max_contacts}
+                    onChange={e => setModules(m => ({ ...m, max_contacts: Number(e.target.value) }))}
+                    disabled={!canEdit}
+                    className="h-8 text-sm"
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Meta Pixel ID</label>
+                  <Input
+                    value={modules.meta_pixel_id}
+                    onChange={e => setModules(m => ({ ...m, meta_pixel_id: e.target.value }))}
+                    placeholder="Ex: 1234567890"
+                    disabled={!canEdit}
+                    className="h-8 text-sm font-mono"
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Google Tag ID</label>
+                  <Input
+                    value={modules.google_tag_id}
+                    onChange={e => setModules(m => ({ ...m, google_tag_id: e.target.value }))}
+                    placeholder="Ex: G-XXXXXXXXXX"
+                    disabled={!canEdit}
+                    className="h-8 text-sm font-mono"
+                  />
+                </div>
+              </div>
+
+              {canEdit && (
+                <Button
+                  onClick={handleSaveModules}
+                  disabled={isSavingModules}
+                  className="w-full"
+                  size="sm"
+                >
+                  {isSavingModules ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Settings2 className="h-3.5 w-3.5 mr-1.5" />}
+                  Salvar Configurações
+                </Button>
               )}
             </TabsContent>
 
