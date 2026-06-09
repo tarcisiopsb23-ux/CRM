@@ -62,6 +62,11 @@ const PromocoesPage       = lazy(() => import("./pages/public-dashboard/Promocoe
 const SugestoesPage       = lazy(() => import("./pages/public-dashboard/SugestoesPage").then(m => ({ default: m.SugestoesPage })));
 const AvisosPage          = lazy(() => import("./pages/public-dashboard/AvisosPage").then(m => ({ default: m.AvisosPage })));
 const ConfiguracoesPage   = lazy(() => import("./pages/public-dashboard/ConfiguracoesPage").then(m => ({ default: m.ConfiguracoesPage })));
+// Fase 2 — CRM e WhatsApp
+const CrmPage             = lazy(() => import("./pages/public-dashboard/CrmPage").then(m => ({ default: m.CrmPage })));
+const CrmPipelinePage     = lazy(() => import("./pages/public-dashboard/CrmPipelinePage").then(m => ({ default: m.CrmPipelinePage })));
+const CrmProdutosPage     = lazy(() => import("./pages/public-dashboard/CrmProdutosPage").then(m => ({ default: m.CrmProdutosPage })));
+const WhatsAppPage        = lazy(() => import("./pages/public-dashboard/WhatsAppPage").then(m => ({ default: m.WhatsAppPage })));
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, refetchOnWindowFocus: false } } });
 
@@ -121,6 +126,13 @@ function App() {
                     <Route path="sugestoes" element={<Suspense fallback={<PageLoader />}><SugestoesPage /></Suspense>} />
                     <Route path="avisos" element={<Suspense fallback={<PageLoader />}><AvisosPage /></Suspense>} />
                     <Route path="configuracoes" element={<Suspense fallback={<PageLoader />}><ConfiguracoesPage /></Suspense>} />
+                    {/* Fase 2 — CRM */}
+                    <Route path="crm" element={<Suspense fallback={<PageLoader />}><CrmPage /></Suspense>} />
+                    <Route path="crm/clientes" element={<Suspense fallback={<PageLoader />}><CrmPage /></Suspense>} />
+                    <Route path="crm/pipeline" element={<Suspense fallback={<PageLoader />}><CrmPipelinePage /></Suspense>} />
+                    <Route path="crm/produtos" element={<Suspense fallback={<PageLoader />}><CrmProdutosPage /></Suspense>} />
+                    {/* Fase 2 — WhatsApp */}
+                    <Route path="whatsapp" element={<Suspense fallback={<PageLoader />}><WhatsAppPage /></Suspense>} />
                   </Route>
                   <Route path="/public/dashboard/:slug/login" element={<PublicDashboardLoginPage />} />
                   <Route path="/public/dashboard/:slug/crm/login" element={<C8ControlLoginPage />} />

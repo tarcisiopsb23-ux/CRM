@@ -1,7 +1,9 @@
-﻿import { useMemo } from "react";
+﻿import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueries } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   AreaChart, Area, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer,
@@ -10,8 +12,9 @@ import {
   BarChart3, Users, DollarSign, TrendingUp, Tag,
   UtensilsCrossed, CalendarDays, Megaphone, AlertCircle, Activity,
   Clock, Info, ArrowUp, ArrowDown, CheckCircle2, Target, Zap,
+  Bell, Plus, Check, ShoppingBag,
 } from "lucide-react";
-import { format, startOfMonth, endOfMonth, subMonths, parseISO } from "date-fns";
+import { format, startOfMonth, endOfMonth, subMonths, parseISO, isPast } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { supabase } from "@/lib/supabase";
 import { useClientAuth } from "@/hooks/useClientAuth";
@@ -24,6 +27,8 @@ import {
 import { useClientKPIs, useClientKPIHistory } from "@/hooks/useClientKPIs";
 import { fmtKpiValue } from "@/lib/formatters";
 import { cn } from "@/lib/utils";
+import { useAiReminders } from "@/hooks/useAiReminders";
+import { toast } from "sonner";
 
 const KPI_COLORS = ["#10b981","#2D8CC7","#f59e0b","#a855f7","#f43f5e","#06b6d4","#e879f9","#34d399"];
 
@@ -102,7 +107,30 @@ export function DashboardGeralPage() {
   const isLoaded = !campaignDataQuery.isLoading;
   const isZero   = isLoaded && totalLeads === 0 && totalSpend === 0 && totalRevenue === 0;
 
-  // ── KPIs e histórico ──────────────────────────────────────────────────────
+  // ── Lembretes rápidos (Banco B) ───────────────────────────────────────────
+  const clientId = auth?.user?.client_id;
+  const reminders = useAiReminders(clientId);
+  const [reminderText, setReminderText] = useState("");
+
+  // ── CRM: contatos e faturamento (Banco B, condicional) ────────────────────
+  const crmEnabled = auth?.modules_config?.crm_enabled !== false;
+  const { data: crmStats } = useQuery({
+    queryKey: ["crm_stats_geral", clientId],
+    queryFn: async () => {
+      if (!dc || !clientId) return null;
+      const [{ count: contactsCount }, { data: deals }] = await Promise.all([
+        dc.from("crm_contacts").select("id", { count: "exact", head: true }),
+        dc.from("crm_deals")
+          .select("value, product:crm_products(price)")
+          .eq("status", "won"),
+      ]);
+      const revenue = (deals ?? []).reduce((s: number, d: any) =>
+        s + (d.value || d.product?.price || 0), 0);
+      return { contacts: contactsCount ?? 0, revenue };
+    },
+    enabled: !!dc && !!clientId && crmEnabled,
+    staleTime: 60_000,
+  });
   const { data: kpisRaw } = useQuery({
     queryKey: ["public_client_kpis", auth?.id],
     queryFn: async () => {
@@ -412,6 +440,117 @@ export function DashboardGeralPage() {
               <p className="text-sm text-red-200 font-medium">{n.message}</p>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* ── Lembretes Rápidos (condicional: só quando banco B conectado) ── */}
+      {dc && clientId && (
+        <Card className="bg-card border-border shadow-2xl">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-foreground text-base font-bold flex items-center gap-2">
+              <Bell className="h-4 w-4 text-amber-400" /> Lembretes Rápidos
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {/* Input rápido */}
+            <form
+              onSubmit={async e => {
+                e.preventDefault();
+                if (!reminderText.trim()) return;
+                try {
+                  await reminders.create.mutateAsync({ client_id: clientId, text: reminderText.trim(), created_by: auth?.user?.id ?? null });
+                  setReminderText("");
+                } catch { toast.error("Erro ao criar lembrete."); }
+              }}
+              className="flex gap-2"
+            >
+              <Input
+                value={reminderText}
+                onChange={e => setReminderText(e.target.value)}
+                placeholder="Novo lembrete..."
+                className="flex-1 h-8 text-sm bg-muted/20"
+              />
+              <Button type="submit" size="sm" className="h-8 px-3 bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/20" disabled={reminders.create.isPending}>
+                <Plus className="h-3.5 w-3.5" />
+              </Button>
+            </form>
+
+            {/* Lista */}
+            {(reminders.data ?? []).slice(0, 5).map(r => {
+              const overdue = r.due_date ? isPast(new Date(r.due_date)) && !r.completed : false;
+              return (
+                <div key={r.id} className={cn(
+                  "flex items-center gap-3 rounded-lg px-3 py-2 border transition-all",
+                  r.completed ? "opacity-50 border-transparent bg-muted/10" :
+                  overdue ? "border-red-500/20 bg-red-500/5" : "border-border/40 bg-muted/10"
+                )}>
+                  <button
+                    onClick={() => reminders.toggleComplete.mutate({ id: r.id, completed: !r.completed })}
+                    className={cn("h-4 w-4 shrink-0 rounded-full border-2 flex items-center justify-center transition-colors",
+                      r.completed ? "bg-emerald-500 border-emerald-500" : overdue ? "border-red-400" : "border-border"
+                    )}
+                  >
+                    {r.completed && <Check className="h-2.5 w-2.5 text-white" />}
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <p className={cn("text-sm truncate", r.completed ? "line-through text-muted-foreground" : "text-foreground")}>
+                      {r.text}
+                    </p>
+                    {r.due_date && (
+                      <p className={cn("text-[10px]", overdue && !r.completed ? "text-red-400" : "text-muted-foreground")}>
+                        {format(new Date(r.due_date), "dd/MM/yyyy HH:mm", { locale: ptBR })}
+                        {overdue && !r.completed && " — VENCIDO"}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => reminders.remove.mutate(r.id)}
+                    className="h-4 w-4 shrink-0 text-muted-foreground/40 hover:text-destructive transition-colors"
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
+            {(reminders.data ?? []).length === 0 && !reminders.isLoading && (
+              <p className="text-xs text-muted-foreground text-center py-2">Nenhum lembrete. Adicione acima.</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Cards CRM (condicional: só quando módulo ativo e com dados) ── */}
+      {crmEnabled && dc && crmStats && (crmStats.contacts > 0 || crmStats.revenue > 0) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {crmStats.contacts > 0 && (
+            <Card className="bg-card border-border shadow-lg">
+              <CardContent className="p-5 flex items-center gap-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500/10">
+                  <Users className="h-6 w-6 text-blue-400" />
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase font-black tracking-widest text-muted-foreground">Contatos no CRM</p>
+                  <p className="text-2xl font-black text-foreground">{crmStats.contacts.toLocaleString("pt-BR")}</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          {crmStats.revenue > 0 && (
+            <Card className="bg-card border-border shadow-lg">
+              <CardContent className="p-5 flex items-center gap-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/10">
+                  <ShoppingBag className="h-6 w-6 text-emerald-400" />
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase font-black tracking-widest text-muted-foreground">Faturamento CRM</p>
+                  <p className="text-2xl font-black text-foreground">
+                    {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(crmStats.revenue)}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">negociações ganhas</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
