@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
   Loader2, ShieldOff, ShieldCheck, Trash2, RefreshCcw,
   AlertTriangle, Pencil, Check, PauseCircle, KeyRound,
-  Users, FileText, Receipt, Settings2,
+  Users, FileText, Receipt, Settings2, Wifi, Eye, EyeOff,
+  Link2, Database, Copy,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
@@ -22,12 +23,6 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import {
   Table,
   TableBody,
@@ -50,6 +45,34 @@ import { InvoiceStatusBadge } from "@/components/fiscal/InvoiceStatusBadge";
 import { InvoiceEmitModal } from "@/components/fiscal/InvoiceEmitModal";
 import { InvoiceViewModal } from "@/components/fiscal/InvoiceViewModal";
 import type { Invoice } from "@/types/fiscal";
+import { C8AdIntegrationsTab } from "@/components/c8control/C8AdIntegrationsTab";
+import { useN8nConfig } from "@/hooks/useN8nConfig";
+import { useOrganization } from "@/hooks/useOrganization";
+
+/** Chama o webhook n8n c8-client-ops com uma ação específica.
+ *  O CRM envia apenas o client_id — o n8n busca as credenciais
+ *  diretamente no banco da agência usando sua própria service key.
+ *  Nenhuma credencial do cliente trafega pelo frontend.
+ */
+async function callClientOps(
+  webhookUrl: string,
+  action: string,
+  clientId: string,
+  extra?: Record<string, unknown>
+): Promise<{ success: boolean; [key: string]: unknown }> {
+  const res = await fetch(webhookUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, client_id: clientId, ...extra }),
+  });
+  const raw = await res.json().catch(() => ({}));
+  // n8n pode retornar array ou objeto — normaliza para objeto
+  const data = Array.isArray(raw) ? (raw[0] ?? {}) : raw;
+  if (!res.ok && !data.success) {
+    throw new Error(data.error ?? data.message ?? `HTTP ${res.status}`);
+  }
+  return data;
+}
 
 interface C8TenantDetailProps {
   tenant: C8Tenant;
@@ -90,6 +113,8 @@ export function C8TenantDetail({
 }: C8TenantDetailProps) {
   const actions = useC8TenantActions(organizationId);
   const qc = useQueryClient();
+  const orgId = useOrganization();
+  const n8nConfig = useN8nConfig(orgId);
   const { payments, legacyPayments, isLoading: paymentsLoading } = useC8Payments({
     organizationId,
     clientId: tenant.client_id,
@@ -168,13 +193,169 @@ export function C8TenantDetail({
     whatsapp_enabled:      (tenant as any).modules_config?.whatsapp_enabled      ?? false,
     demographics_enabled:  (tenant as any).modules_config?.demographics_enabled  ?? false,
     ia_enabled:            (tenant as any).modules_config?.ia_enabled            ?? false,
+    dashboard_geral_enabled:        (tenant as any).modules_config?.dashboard_geral_enabled        ?? true,
+    dashboard_performance_enabled:  (tenant as any).modules_config?.dashboard_performance_enabled  ?? true,
+    dashboard_atendimento_enabled:  (tenant as any).modules_config?.dashboard_atendimento_enabled  ?? false,
     max_contacts:          (tenant as any).modules_config?.max_contacts          ?? 5000,
+    max_users:             (tenant as any).modules_config?.max_users             ?? (tenant.max_users ?? 10),
     asaas_enabled:         (tenant as any).modules_config?.asaas_enabled         ?? false,
-    meta_pixel_id:         (tenant as any).modules_config?.pixel_config?.meta_pixel_id ?? "",
-    google_tag_id:         (tenant as any).modules_config?.pixel_config?.google_tag_id ?? "",
   };
   const [modules, setModules] = useState(initialModules);
   const [isSavingModules, setIsSavingModules] = useState(false);
+
+  // ── Credenciais Supabase ──────────────────────────────────────────────────
+  const [supabaseUrl, setSupabaseUrl] = useState(tenant.client_supabase_url ?? "");
+  const [supabaseAnonKey, setSupabaseAnonKey] = useState(tenant.client_supabase_anon_key ?? "");
+  const [supabaseServiceKey, setSupabaseServiceKey] = useState("");
+  const [supabaseEmail, setSupabaseEmail] = useState("");
+  const [supabasePassword, setSupabasePassword] = useState("");
+  const [supabaseServiceKeySet, setSupabaseServiceKeySet] = useState(tenant.client_supabase_service_key_set ?? false);
+  const [supabaseEmailSet, setSupabaseEmailSet] = useState(tenant.client_supabase_email_set ?? false);
+  const [supabasePasswordSet, setSupabasePasswordSet] = useState(tenant.client_supabase_password_set ?? false);
+  const [showServiceKey, setShowServiceKey] = useState(false);
+  const [showSupPassword, setShowSupPassword] = useState(false);
+  const [isSavingCredentials, setIsSavingCredentials] = useState(false);
+  const [testingConnection, setTestingConnection] = useState(false);
+
+  // ── UTM Builder (ferramenta da agência) ────────────────────────────────────
+  const [utmBase, setUtmBase]         = useState("");
+  const [utmSource, setUtmSource]     = useState("");
+  const [utmMedium, setUtmMedium]     = useState("");
+  const [utmCampaign, setUtmCampaign] = useState("");
+  const [utmContent, setUtmContent]   = useState("");
+  const [utmTerm, setUtmTerm]         = useState("");
+  const [utmCopied, setUtmCopied]     = useState(false);
+
+  // ── Carrega campos do cliente que podem não vir via join ────────────────────
+  useEffect(() => {
+    supabase
+      .from("clients")
+      .select("client_supabase_url, client_supabase_anon_key, client_supabase_service_key_set, client_supabase_email_set, client_supabase_password_set, dashboard_slug")
+      .eq("id", tenant.client_id)
+      .single()
+      .then(({ data }) => {
+        if (!data) return;
+        if (data.client_supabase_url)     setSupabaseUrl(data.client_supabase_url);
+        if (data.client_supabase_anon_key) setSupabaseAnonKey(data.client_supabase_anon_key);
+        setSupabaseServiceKeySet(data.client_supabase_service_key_set ?? false);
+        setSupabaseEmailSet(data.client_supabase_email_set ?? false);
+        setSupabasePasswordSet(data.client_supabase_password_set ?? false);
+        if (data.dashboard_slug) setDashboardSlug(data.dashboard_slug);
+      });
+  }, [tenant.client_id]);
+
+  // ── Slug do Dashboard ─────────────────────────────────────────────────────
+  const [dashboardSlug, setDashboardSlug] = useState(tenant.dashboard_slug ?? "");
+  const [isSavingSlug, setIsSavingSlug]   = useState(false);
+
+  const handleSaveSlug = async () => {
+    const slug = dashboardSlug.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+    setIsSavingSlug(true);
+    try {
+      const { error } = await supabase.from("clients").update({ dashboard_slug: slug || null }).eq("id", tenant.client_id);
+      if (error) throw error;
+      setDashboardSlug(slug);
+      qc.invalidateQueries({ queryKey: ["c8_tenants", organizationId] });
+      toast.success("Slug salvo!");
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao salvar slug.");
+    } finally {
+      setIsSavingSlug(false);
+    }
+  };
+
+  const utmUrl = (() => {
+    if (!utmBase.trim()) return "";
+    try {
+      const base = utmBase.trim().startsWith("http") ? utmBase.trim() : `https://${utmBase.trim()}`;
+      const url = new URL(base);
+      if (utmSource)   url.searchParams.set("utm_source",   utmSource);
+      if (utmMedium)   url.searchParams.set("utm_medium",   utmMedium);
+      if (utmCampaign) url.searchParams.set("utm_campaign", utmCampaign);
+      if (utmContent)  url.searchParams.set("utm_content",  utmContent);
+      if (utmTerm)     url.searchParams.set("utm_term",     utmTerm);
+      return url.toString();
+    } catch { return ""; }
+  })();
+
+  const copyUtm = () => {
+    if (!utmUrl) return;
+    navigator.clipboard.writeText(utmUrl);
+    setUtmCopied(true);
+    toast.success("Link UTM copiado!");
+    setTimeout(() => setUtmCopied(false), 2000);
+  };
+
+  const handleSaveCredentials = async () => {
+    setIsSavingCredentials(true);
+    try {
+      // Salva URL e anon key diretamente
+      const { error } = await supabase
+        .from("clients")
+        .update({
+          client_supabase_url: supabaseUrl.trim() || null,
+          client_supabase_anon_key: supabaseAnonKey.trim() || null,
+        })
+        .eq("id", tenant.client_id);
+      if (error) throw error;
+
+      // Salva credenciais sensíveis via RPC segura
+      if (supabaseServiceKey || supabaseEmail || supabasePassword) {
+        const { data, error: rpcError } = await supabase.rpc("save_client_supabase_credentials", {
+          p_client_id:  tenant.client_id,
+          p_service_key: supabaseServiceKey.trim() || null,
+          p_email:       supabaseEmail.trim() || null,
+          p_password:    supabasePassword.trim() || null,
+        });
+        if (rpcError) throw rpcError;
+        setSupabaseServiceKeySet(data?.client_supabase_service_key_set ?? supabaseServiceKeySet);
+        setSupabaseEmailSet(data?.client_supabase_email_set ?? supabaseEmailSet);
+        setSupabasePasswordSet(data?.client_supabase_password_set ?? supabasePasswordSet);
+        setSupabaseServiceKey("");
+        setSupabaseEmail("");
+        setSupabasePassword("");
+      }
+
+      qc.invalidateQueries({ queryKey: ["c8_tenants", organizationId] });
+      toast.success("Credenciais salvas com segurança.");
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao salvar credenciais.");
+    } finally {
+      setIsSavingCredentials(false);
+    }
+  };
+
+  const handleTestConnection = async () => {
+    if (!supabaseUrl.trim() || !supabaseAnonKey.trim()) {
+      toast.error("Preencha URL e Anon Key antes de testar.");
+      return;
+    }
+    const webhookUrl = (n8nConfig as any)?.c8ClientOpsWebhookUrl ?? null;
+    if (!webhookUrl) {
+      toast.error("Webhook de operações não configurado.", {
+        description: "Configure em Configurações → n8n → C8 Control — Operações.",
+      });
+      return;
+    }
+    setTestingConnection(true);
+    try {
+      const result = await callClientOps(webhookUrl, "test_connection", tenant.client_id);
+      if (!result.success) {
+        toast.error(String(result.error ?? result.message ?? "Falha na conexão."));
+      } else if (result.schema_applied === false) {
+        toast.warning("Banco de dados conectado, mas o schema ainda não foi aplicado.", {
+          description: "Use 'Atualizar Schema' na aba Integrações.",
+          duration: 6000,
+        });
+      } else {
+        toast.success(String(result.message ?? "Banco de dados conectado com sucesso!"));
+      }
+    } catch (e: any) {
+      toast.error(`Falha na conexão: ${e.message}`);
+    } finally {
+      setTestingConnection(false);
+    }
+  };
 
   const handleSaveModules = async () => {
     setIsSavingModules(true);
@@ -191,12 +372,12 @@ export function C8TenantDetail({
           whatsapp_enabled:     modules.whatsapp_enabled,
           demographics_enabled: modules.demographics_enabled,
           ia_enabled:           modules.ia_enabled,
+          dashboard_geral_enabled:       modules.dashboard_geral_enabled,
+          dashboard_performance_enabled: modules.dashboard_performance_enabled,
+          dashboard_atendimento_enabled: modules.dashboard_atendimento_enabled,
           max_contacts:         Number(modules.max_contacts),
+          max_users:            Number(modules.max_users),
           asaas_enabled:        modules.asaas_enabled,
-          pixel_config: {
-            meta_pixel_id: modules.meta_pixel_id.trim(),
-            google_tag_id: modules.google_tag_id.trim(),
-          },
         },
       };
       const { error } = await supabase
@@ -245,6 +426,82 @@ export function C8TenantDetail({
 
   // Sync tenant state
   const [isSyncingTenant, setIsSyncingTenant] = useState(false);
+  const [isUpdatingSchema, setIsUpdatingSchema] = useState(false);
+
+  // ── Acesso gratuito ───────────────────────────────────────────────────────
+  const [freeAccessDialogOpen, setFreeAccessDialogOpen] = useState(false);
+  const [freeAccessUntil, setFreeAccessUntil] = useState("");
+  const [freeAccessReason, setFreeAccessReason] = useState("");
+  const [isSavingFreeAccess, setIsSavingFreeAccess] = useState(false);
+  const isFreeAccess = tenant.c8_free_access ?? false;
+  const freeAccessUntilDate = tenant.free_access_until ?? null;
+  const freeAccessReasonStr = tenant.free_access_reason ?? "";
+
+  const handleGrantFreeAccess = async () => {
+    setIsSavingFreeAccess(true);
+    try {
+      const { data, error } = await supabase.rpc("grant_c8_free_access", {
+        p_org_id:    organizationId,
+        p_client_id: tenant.client_id,
+        p_reason:    freeAccessReason.trim() || "Acesso gratuito",
+        p_until:     freeAccessUntil || null,
+        p_max_users: tenant.max_users,
+      });
+      if (error) throw error;
+      qc.invalidateQueries({ queryKey: ["c8_tenants", organizationId] });
+      toast.success("Acesso gratuito liberado!");
+      setFreeAccessDialogOpen(false);
+      setFreeAccessUntil("");
+      setFreeAccessReason("");
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao liberar acesso gratuito.");
+    } finally {
+      setIsSavingFreeAccess(false);
+    }
+  };
+
+  const handleRevokeFreeAccess = async () => {
+    setIsSavingFreeAccess(true);
+    try {
+      const { error } = await supabase.rpc("revoke_c8_free_access", {
+        p_client_id: tenant.client_id,
+      });
+      if (error) throw error;
+      qc.invalidateQueries({ queryKey: ["c8_tenants", organizationId] });
+      toast.success("Acesso gratuito removido.");
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao revogar acesso gratuito.");
+    } finally {
+      setIsSavingFreeAccess(false);
+    }
+  };
+
+  const handleUpdateSchema = async () => {
+    const webhookUrl =
+      (n8nConfig as any)?.c8ClientOpsWebhookUrl ??
+      (n8nConfig as any)?.c8UpdateSchemaWebhookUrl?.replace("c8-update-schemas", "c8-client-ops") ??
+      null;
+
+    if (!webhookUrl) {
+      toast.error("Webhook de operações não configurado.", {
+        description: "Configure em Configurações → n8n → C8 Control — Operações.",
+      });
+      return;
+    }
+    setIsUpdatingSchema(true);
+    try {
+      const result = await callClientOps(webhookUrl, "apply_schema", tenant.client_id);
+      if (result.success) {
+        toast.success("Schema atualizado com sucesso!");
+      } else {
+        toast.error(`Erro ao aplicar schema: ${result.error}`);
+      }
+    } catch (e: any) {
+      toast.error(`Erro: ${e.message}`);
+    } finally {
+      setIsUpdatingSchema(false);
+    }
+  };
 
   const handleSyncTenant = async () => {
     setIsSyncingTenant(true);
@@ -365,42 +622,29 @@ export function C8TenantDetail({
       toast.error("Nenhum e-mail de usuário principal cadastrado.");
       return;
     }
+    const webhookUrl = (n8nConfig as any)?.c8ClientOpsWebhookUrl ?? null;
+    if (!webhookUrl) {
+      toast.error("Webhook de operações não configurado.", {
+        description: "Configure em Configurações → n8n → C8 Control — Operações.",
+      });
+      return;
+    }
     setIsSendingReset(true);
     setResetLink(null);
     try {
-      // Obter o token da sessão atual para autenticar a Edge Function
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error("Sessão inválida. Faça login novamente.");
-
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const res = await fetch(`${supabaseUrl}/functions/v1/c8-reset-password`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.access_token}`,
-          "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
-        },
-        body: JSON.stringify({
-          email: tenant.primary_user_email,
-          client_name: tenant.client_name,
-          client_id: tenant.client_id,
-        }),
+      const result = await callClientOps(webhookUrl, "reset_password", tenant.client_id, {
+        email: tenant.primary_user_email,
+        client_name: tenant.client_name,
       });
-
-      const data = await res.json();
-
-      if (!res.ok) throw new Error(data?.error ?? `Erro ${res.status}`);
-
-      if (data?.reset_link) setResetLink(data.reset_link);
-      if (data?.warning) {
-        toast.warning(data.warning);
-      } else if (data?.is_new_user) {
-        toast.success(`Usuário criado e e-mail de boas-vindas enviado para ${tenant.primary_user_email}`);
+      if (result.reset_link) setResetLink(String(result.reset_link));
+      if (result.temp_password) setResetLink(`Senha temporária: ${result.temp_password}`);
+      if (result.is_new_user) {
+        toast.success(`Usuário criado! Senha temporária gerada — copie abaixo.`);
       } else {
-        toast.success(`Link de redefinição enviado para ${tenant.primary_user_email}`);
+        toast.success(`Link de recuperação gerado para ${tenant.primary_user_email}`);
       }
-    } catch (e: unknown) {
-      toast.error((e as Error)?.message ?? "Erro ao enviar link de reset.");
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao gerar link de reset.");
     } finally {
       setIsSendingReset(false);
     }
@@ -413,21 +657,20 @@ export function C8TenantDetail({
 
   return (
     <>
-      <Sheet open onOpenChange={(open) => { if (!open) onClose(); }}>
-        <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
-          <SheetHeader className="mb-4">
-            <SheetTitle className="flex items-center gap-2">
+      <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+        <DialogContent className="max-w-[75vw] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
               {tenant.client_name}
               <Badge className={STATUS_BADGE[status] ?? "bg-muted text-muted-foreground"}>
                 {status}
               </Badge>
-            </SheetTitle>
-          </SheetHeader>
+            </DialogTitle>
+          </DialogHeader>
 
           <Tabs defaultValue="plano">
             <TabsList className="mb-4 flex-wrap">
               <TabsTrigger value="plano">Plano</TabsTrigger>
-              <TabsTrigger value="modulos">Módulos</TabsTrigger>
               <TabsTrigger value="usuarios">
                 <Users className="h-3.5 w-3.5 mr-1" />
                 Usuários
@@ -436,6 +679,7 @@ export function C8TenantDetail({
               {fiscalPerms.canView && (
                 <TabsTrigger value="notas-fiscais">Notas Fiscais</TabsTrigger>
               )}
+              <TabsTrigger value="configuracoes">Configurações</TabsTrigger>
             </TabsList>
 
             {/* ── Plano ── */}
@@ -509,6 +753,23 @@ export function C8TenantDetail({
                     <p className="font-medium">{tenant.primary_user_email}</p>
                   </div>
                 )}
+                {/* Indicador de acesso gratuito */}
+                {isFreeAccess && (
+                  <div className="col-span-2">
+                    <p className="text-xs text-muted-foreground">Acesso</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <Badge className="bg-violet-100 text-violet-700 text-xs">Gratuito</Badge>
+                      {freeAccessUntilDate && (
+                        <span className="text-xs text-muted-foreground">
+                          até {freeAccessUntilDate}
+                        </span>
+                      )}
+                      {freeAccessReasonStr && (
+                        <span className="text-xs text-muted-foreground">— {freeAccessReasonStr}</span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Contadores de usuários */}
@@ -563,10 +824,16 @@ export function C8TenantDetail({
                     </Button>
                   )}
                   {canEdit && (
-                    <Button size="sm" variant="outline" className="h-7 text-xs px-2 border-blue-400 text-blue-700 hover:bg-blue-50" onClick={handleSyncTenant} disabled={isSyncingTenant}>
-                      {isSyncingTenant ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCcw className="h-3 w-3 mr-1" />}
-                      Sincronizar
-                    </Button>
+                    isFreeAccess ? (
+                      <Button size="sm" variant="outline" className="h-7 text-xs px-2 border-violet-400 text-violet-700 hover:bg-violet-50" onClick={handleRevokeFreeAccess} disabled={isSavingFreeAccess}>
+                        {isSavingFreeAccess ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                        Revogar Acesso Gratuito
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="outline" className="h-7 text-xs px-2 border-emerald-400 text-emerald-700 hover:bg-emerald-50" onClick={() => setFreeAccessDialogOpen(true)}>
+                        Liberar Acesso Gratuito
+                      </Button>
+                    )
                   )}
                   {canDelete && status !== "cancelado" && (
                     <Button size="sm" variant="destructive" className="h-7 text-xs px-2" onClick={() => setCancelDialogOpen(true)}><Trash2 className="h-3 w-3 mr-1" /> Cancelar</Button>
@@ -575,78 +842,282 @@ export function C8TenantDetail({
               )}
             </TabsContent>
 
-            {/* ── Módulos ── */}
-            <TabsContent value="modulos" className="space-y-4">
-              <p className="text-xs text-muted-foreground">
-                Controle quais funcionalidades estão habilitadas para este cliente no Dashboard.
-              </p>
+            {/* ── Configurações com sub-abas ── */}
+            <TabsContent value="configuracoes" className="space-y-4">
+              <Tabs defaultValue="modulos" className="w-full">
+                <TabsList className="mb-4 flex-wrap">
+                  <TabsTrigger value="modulos">Módulos</TabsTrigger>
+                  <TabsTrigger value="bancodb">Banco de Dados</TabsTrigger>
+                  <TabsTrigger value="integracoes">Integrações</TabsTrigger>
+                  <TabsTrigger value="utm">Gerador de Links</TabsTrigger>
+                </TabsList>
 
-              <div className="space-y-3">
-                {([
-                  { key: "crm_enabled"         as const, label: "CRM",                    desc: "Contatos, pipeline e produtos" },
-                  { key: "whatsapp_enabled"     as const, label: "WhatsApp",               desc: "Conexão e importação de contatos" },
-                  { key: "ia_enabled"           as const, label: "Conteúdo IA",            desc: "Agenda, promoções, sugestões e avisos" },
-                  { key: "demographics_enabled" as const, label: "Audiência Demográfica",  desc: "Aba de dados de audiência no Performance" },
-                  { key: "asaas_enabled"        as const, label: "Asaas (Pagamentos)",     desc: "Integração com gateway de pagamento" },
-                ]).map(({ key, label, desc }) => (
-                  <div key={key} className="flex items-center justify-between rounded-lg border border-border bg-secondary/20 px-4 py-3">
-                    <div>
-                      <p className="text-sm font-semibold">{label}</p>
-                      <p className="text-xs text-muted-foreground">{desc}</p>
+                {/* Sub-aba: Módulos */}
+                <TabsContent value="modulos" className="space-y-4">
+                  {/* Dashboards */}
+                  <div className="space-y-2">
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-500">Dashboards</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      {([
+                        { key: "dashboard_geral_enabled"        as const, label: "Dashboard Geral",        desc: "Página inicial" },
+                        { key: "dashboard_performance_enabled"  as const, label: "Performance",            desc: "Métricas de campanhas" },
+                        { key: "dashboard_atendimento_enabled"  as const, label: "Atendimento",            desc: "KPIs de conversas" },
+                      ]).map(({ key, label, desc }) => (
+                        <div key={key} className="flex items-center justify-between rounded-lg border border-border bg-secondary/20 px-3 py-2.5">
+                          <div>
+                            <p className="text-sm font-semibold">{label}</p>
+                            <p className="text-xs text-muted-foreground">{desc}</p>
+                          </div>
+                          <Switch checked={modules[key] as boolean}
+                            onCheckedChange={v => setModules(m => ({ ...m, [key]: v }))}
+                            disabled={!canEdit} />
+                        </div>
+                      ))}
                     </div>
-                    <Switch
-                      checked={modules[key] as boolean}
-                      onCheckedChange={v => setModules(m => ({ ...m, [key]: v }))}
-                      disabled={!canEdit}
-                    />
                   </div>
-                ))}
-              </div>
 
-              <div className="grid gap-3">
-                <div className="grid gap-1.5">
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Limite de Contatos</label>
-                  <Input
-                    type="number" min={0} max={999999}
-                    value={modules.max_contacts}
-                    onChange={e => setModules(m => ({ ...m, max_contacts: Number(e.target.value) }))}
-                    disabled={!canEdit}
-                    className="h-8 text-sm"
-                  />
-                </div>
-                <div className="grid gap-1.5">
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Meta Pixel ID</label>
-                  <Input
-                    value={modules.meta_pixel_id}
-                    onChange={e => setModules(m => ({ ...m, meta_pixel_id: e.target.value }))}
-                    placeholder="Ex: 1234567890"
-                    disabled={!canEdit}
-                    className="h-8 text-sm font-mono"
-                  />
-                </div>
-                <div className="grid gap-1.5">
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Google Tag ID</label>
-                  <Input
-                    value={modules.google_tag_id}
-                    onChange={e => setModules(m => ({ ...m, google_tag_id: e.target.value }))}
-                    placeholder="Ex: G-XXXXXXXXXX"
-                    disabled={!canEdit}
-                    className="h-8 text-sm font-mono"
-                  />
-                </div>
-              </div>
+                  {/* Módulos */}
+                  <div className="space-y-2">
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-500">Módulos</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {([
+                        { key: "crm_enabled"         as const, label: "CRM",                   desc: "Contatos, pipeline e produtos" },
+                        { key: "whatsapp_enabled"     as const, label: "WhatsApp",              desc: "Conexão e importação de contatos" },
+                        { key: "ia_enabled"           as const, label: "Conteúdo IA",           desc: "Agenda, promoções, avisos" },
+                        { key: "demographics_enabled" as const, label: "Audiência Demográfica", desc: "Aba no Performance" },
+                        { key: "asaas_enabled"        as const, label: "Asaas (Pagamentos)",    desc: "Gateway de pagamento" },
+                      ]).map(({ key, label, desc }) => (
+                        <div key={key} className="flex items-center justify-between rounded-lg border border-border bg-secondary/20 px-3 py-2.5">
+                          <div>
+                            <p className="text-sm font-semibold">{label}</p>
+                            <p className="text-xs text-muted-foreground">{desc}</p>
+                          </div>
+                          <Switch checked={modules[key] as boolean}
+                            onCheckedChange={v => setModules(m => ({ ...m, [key]: v }))}
+                            disabled={!canEdit} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
 
-              {canEdit && (
-                <Button
-                  onClick={handleSaveModules}
-                  disabled={isSavingModules}
-                  className="w-full"
-                  size="sm"
-                >
-                  {isSavingModules ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Settings2 className="h-3.5 w-3.5 mr-1.5" />}
-                  Salvar Configurações
-                </Button>
-              )}
+                  {/* Limites */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="grid gap-1.5">
+                      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Limite de Contatos</label>
+                      <Input type="number" min={0} max={999999} value={modules.max_contacts}
+                        onChange={e => setModules(m => ({ ...m, max_contacts: Number(e.target.value) }))}
+                        disabled={!canEdit} className="h-8 text-sm" />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Limite de Usuários</label>
+                      <Input type="number" min={1} max={100} value={modules.max_users}
+                        onChange={e => setModules(m => ({ ...m, max_users: Number(e.target.value) }))}
+                        disabled={!canEdit} className="h-8 text-sm" />
+                    </div>
+                  </div>
+
+                  {canEdit && (
+                    <Button onClick={handleSaveModules} disabled={isSavingModules} className="w-full" size="sm">
+                      {isSavingModules ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Settings2 className="h-3.5 w-3.5 mr-1.5" />}
+                      Salvar Módulos
+                    </Button>
+                  )}
+                </TabsContent>
+
+                {/* Sub-aba: Banco de Dados */}
+                <TabsContent value="bancodb" className="space-y-4">
+                  {/* Slug */}
+                  <div className="space-y-2">
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-500">Identificação do Dashboard</p>
+                    <div className="grid gap-1.5">
+                      <label className="text-xs font-semibold text-slate-600">Slug da URL</label>
+                      <div className="flex gap-2">
+                        <Input
+                          value={dashboardSlug}
+                          onChange={e => setDashboardSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-"))}
+                          placeholder="ex: cliente-abc"
+                          className="h-8 text-sm flex-1"
+                          disabled={!canEdit}
+                        />
+                        {canEdit && (
+                          <Button size="sm" variant="outline" className="h-8 shrink-0 gap-1.5"
+                            onClick={handleSaveSlug} disabled={isSavingSlug}>
+                            {isSavingSlug ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                            Salvar
+                          </Button>
+                        )}
+                      </div>
+                      {dashboardSlug && (
+                        <p className="text-[10px] text-muted-foreground font-mono">
+                          {window.location.origin}/public/dashboard/{dashboardSlug}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Banco de dados do cliente */}
+                  <div className="space-y-3 pt-3 border-t">
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-500">Banco de Dados do Cliente — Supabase</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Credenciais do projeto Supabase do cliente. URL e Anon Key são públicas. Service Key, e-mail e senha são armazenados com segurança.
+                    </p>
+
+                    <div className="grid grid-cols-1 gap-3">
+                      <div className="grid gap-1.5">
+                        <label className="text-xs font-semibold text-slate-600">URL do Supabase</label>
+                        <Input value={supabaseUrl} onChange={e => setSupabaseUrl(e.target.value)}
+                          placeholder="https://xxxx.supabase.co" className="h-8 text-sm" disabled={!canEdit} />
+                      </div>
+                      <div className="grid gap-1.5">
+                        <label className="text-xs font-semibold text-slate-600">Anon Key (pública)</label>
+                        <Input value={supabaseAnonKey} onChange={e => setSupabaseAnonKey(e.target.value)}
+                          placeholder="eyJhbGci..." className="h-8 text-sm" disabled={!canEdit} />
+                      </div>
+                    </div>
+
+                    <Button type="button" variant="outline" size="sm" className="gap-2"
+                      disabled={testingConnection || !supabaseUrl.trim() || !supabaseAnonKey.trim()}
+                      onClick={handleTestConnection}>
+                      {testingConnection ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wifi className="h-3.5 w-3.5" />}
+                      Testar Conexão
+                    </Button>
+
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { label: "Service Key", set: supabaseServiceKeySet },
+                        { label: "E-mail",      set: supabaseEmailSet },
+                        { label: "Senha",       set: supabasePasswordSet },
+                      ].map(f => (
+                        <Badge key={f.label} className={f.set ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}>
+                          {f.set ? <Check className="h-3 w-3 mr-1" /> : <KeyRound className="h-3 w-3 mr-1" />}
+                          {f.label}: {f.set ? "configurado" : "não configurado"}
+                        </Badge>
+                      ))}
+                    </div>
+
+                    {canEdit && (
+                      <div className="space-y-3 p-3 rounded-xl bg-amber-50/60 border border-amber-200">
+                        <p className="text-[10px] font-semibold text-amber-700 uppercase tracking-wider">Credenciais Sensíveis (deixe em branco para não alterar)</p>
+                        <div className="grid gap-1.5">
+                          <label className="text-xs font-semibold text-slate-600">Service Role Key</label>
+                          <div className="relative">
+                            <Input type={showServiceKey ? "text" : "password"}
+                              value={supabaseServiceKey} onChange={e => setSupabaseServiceKey(e.target.value)}
+                              placeholder={supabaseServiceKeySet ? "••••• (preencha para atualizar)" : "eyJhbGci..."}
+                              className="h-8 text-sm pr-8" />
+                            <button type="button" onClick={() => setShowServiceKey(v => !v)}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                              {showServiceKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                            </button>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="grid gap-1.5">
+                            <label className="text-xs font-semibold text-slate-600">E-mail do Painel</label>
+                            <Input type="email" value={supabaseEmail} onChange={e => setSupabaseEmail(e.target.value)}
+                              placeholder={supabaseEmailSet ? "••••• (preencha para atualizar)" : "admin@exemplo.com"}
+                              className="h-8 text-sm" />
+                          </div>
+                          <div className="grid gap-1.5">
+                            <label className="text-xs font-semibold text-slate-600">Senha do Painel</label>
+                            <div className="relative">
+                              <Input type={showSupPassword ? "text" : "password"}
+                                value={supabasePassword} onChange={e => setSupabasePassword(e.target.value)}
+                                placeholder={supabasePasswordSet ? "••••• (preencha para atualizar)" : "senha"}
+                                className="h-8 text-sm pr-8" />
+                              <button type="button" onClick={() => setShowSupPassword(v => !v)}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                                {showSupPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {canEdit && (
+                      <Button onClick={handleSaveCredentials} disabled={isSavingCredentials} className="w-full" size="sm">
+                        {isSavingCredentials ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <KeyRound className="h-3.5 w-3.5 mr-1.5" />}
+                        Salvar Credenciais
+                      </Button>
+                    )}
+                  </div>
+                </TabsContent>
+
+                {/* Sub-aba: Integrações */}
+                <TabsContent value="integracoes" className="space-y-4">
+                  {/* Schema — mesmo estilo dos cards de Ads */}
+                  <div className="p-4 border rounded-xl flex items-center justify-between bg-white shadow-sm">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                        <Database className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-slate-800">Banco de Dados do Cliente</p>
+                        <p className="text-sm text-slate-500">
+                          {n8nConfig?.c8ClientOpsWebhookUrl
+                            ? "Webhook configurado"
+                            : "Webhook não configurado — configure em Configurações → n8n"}
+                        </p>
+                      </div>
+                    </div>
+                    {canEdit && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-2 shrink-0"
+                        disabled={isUpdatingSchema || !n8nConfig?.c8ClientOpsWebhookUrl}
+                        onClick={handleUpdateSchema}
+                        title={!n8nConfig?.c8ClientOpsWebhookUrl ? "Configure o webhook em Configurações → n8n" : ""}
+                      >
+                        {isUpdatingSchema ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5" />}
+                        Atualizar Schema
+                      </Button>
+                    )}
+                  </div>
+
+                  {/* Ads */}
+                  <C8AdIntegrationsTab
+                    organizationId={organizationId}
+                    initialClientId={tenant.client_id}
+                  />
+                </TabsContent>
+
+                {/* Sub-aba: Gerador de Links */}
+                <TabsContent value="utm" className="space-y-4">
+                  <p className="text-xs text-muted-foreground">
+                    Gere links rastreáveis com parâmetros UTM para campanhas deste cliente.
+                  </p>
+                  <div className="grid gap-1.5">
+                    <label className="text-xs font-semibold text-slate-600">URL de destino *</label>
+                    <Input value={utmBase} onChange={e => setUtmBase(e.target.value)}
+                      placeholder="https://cliente.com/oferta" className="h-8 text-sm" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      { label: "Source",   value: utmSource,   set: setUtmSource,   placeholder: "google, meta, email" },
+                      { label: "Medium",   value: utmMedium,   set: setUtmMedium,   placeholder: "cpc, organic" },
+                      { label: "Campaign", value: utmCampaign, set: setUtmCampaign, placeholder: "nome-da-campanha" },
+                      { label: "Content",  value: utmContent,  set: setUtmContent,  placeholder: "banner-topo" },
+                    ] as const).map(({ label, value, set, placeholder }) => (
+                      <div key={label} className="grid gap-1">
+                        <label className="text-[10px] font-semibold text-muted-foreground uppercase">{label}</label>
+                        <Input value={value} onChange={e => (set as any)(e.target.value)}
+                          placeholder={placeholder} className="h-7 text-xs" />
+                      </div>
+                    ))}
+                  </div>
+                  {utmUrl && (
+                    <div className="rounded-md bg-slate-50 border border-slate-200 p-2 space-y-2">
+                      <p className="text-[10px] font-mono break-all text-slate-600">{utmUrl}</p>
+                      <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1.5" onClick={copyUtm}>
+                        <Copy className="h-3 w-3" />
+                        {utmCopied ? "Copiado!" : "Copiar link"}
+                      </Button>
+                    </div>
+                  )}
+                </TabsContent>
+              </Tabs>
             </TabsContent>
 
             {/* ── Usuários ── */}
@@ -859,8 +1330,8 @@ export function C8TenantDetail({
               />
             </>
           )}
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
       <Dialog open={blockDialogOpen} onOpenChange={setBlockDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -1011,6 +1482,48 @@ export function C8TenantDetail({
             >
               {isCancellingPayment && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
               Confirmar Cancelamento
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Free access dialog */}
+      <Dialog open={freeAccessDialogOpen} onOpenChange={(open) => { if (!open) { setFreeAccessDialogOpen(false); setFreeAccessUntil(""); setFreeAccessReason(""); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Liberar Acesso Gratuito</DialogTitle>
+            <DialogDescription>
+              Libera o acesso ao C8 Control para <strong>{tenant.client_name}</strong> sem cobrança mensal. Não gera lançamentos financeiros e não bloqueia por inadimplência.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Motivo *</Label>
+              <Input
+                value={freeAccessReason}
+                onChange={(e) => setFreeAccessReason(e.target.value)}
+                placeholder="Ex: cliente estratégico, parceria, extensão pós-contrato..."
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Válido até (opcional — deixe em branco para acesso indefinido)</Label>
+              <Input
+                type="date"
+                value={freeAccessUntil}
+                onChange={(e) => setFreeAccessUntil(e.target.value)}
+              />
+              <p className="text-[10px] text-muted-foreground">Se preenchido, o acesso expira automaticamente nesta data.</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFreeAccessDialogOpen(false)}>Cancelar</Button>
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              onClick={handleGrantFreeAccess}
+              disabled={isSavingFreeAccess || !freeAccessReason.trim()}
+            >
+              {isSavingFreeAccess && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
+              Liberar Acesso Gratuito
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -30,6 +30,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { PinAuthDialog } from "@/components/shared/PinAuthDialog";
 import { usePinConfirm } from "@/hooks/usePinConfirm";
+import PeriodSelector, { DateRange, getDateRangeFromPreset } from "@/components/filters/PeriodSelector";
 import { InvoiceList } from "@/components/fiscal/InvoiceList";
 import { InvoiceEmitModal } from "@/components/fiscal/InvoiceEmitModal";
 import { InvoiceStatusBadge } from "@/components/fiscal/InvoiceStatusBadge";
@@ -71,38 +72,12 @@ const PERIOD_OPTIONS: { value: PeriodKey; label: string }[] = [
   { value: "custom",  label: "Período personalizado" },
 ];
 
-function getPeriodInterval(
-  key: PeriodKey,
-  customStart?: string,
-  customEnd?: string,
-): { start: Date; end: Date } | null {
-  const now = new Date();
-  if (key === "all") return null;
-  if (key === "current") return { start: startOfMonth(now), end: endOfMonth(now) };
-  if (key === "last1") {
-    const m = subMonths(now, 1);
-    return { start: startOfMonth(m), end: endOfMonth(m) };
-  }
-  if (key === "last3") return { start: startOfMonth(subMonths(now, 2)), end: endOfMonth(now) };
-  if (key === "last6") return { start: startOfMonth(subMonths(now, 5)), end: endOfMonth(now) };
-  if (key === "custom" && customStart && customEnd) {
-    try {
-      return {
-        start: parseISO(customStart),
-        end:   new Date(parseISO(customEnd).setHours(23, 59, 59, 999)),
-      };
-    } catch { return null; }
-  }
-  return null;
-}
-
-function invoiceInPeriod(inv: Invoice, interval: { start: Date; end: Date } | null): boolean {
-  if (!interval) return true;
+function invoiceInPeriod(inv: Invoice, interval: { from: Date; to: Date }) {
   const ref = inv.created_at || inv.emitida_em;
   if (!ref) return true;
   try {
     const d = parseISO(ref);
-    return d >= interval.start && d <= interval.end;
+    return d >= interval.from && d <= interval.to;
   } catch { return true; }
 }
 
@@ -221,18 +196,17 @@ export default function FiscalPage({ embedded = false }: { embedded?: boolean })
 
   const [activeTab, setActiveTab] = useState("pendentes");
   const [period, setPeriod] = useState<PeriodKey>("current");
-  const [customStart, setCustomStart] = useState("");
-  const [customEnd, setCustomEnd] = useState("");
+  const [selectedRange, setSelectedRange] = useState<DateRange>(() => getDateRangeFromPreset("current"));
 
-  const interval = getPeriodInterval(period, customStart, customEnd);
+  const interval = selectedRange;
 
   // Filtros de data para a query do Supabase (por due_date do pagamento)
   const dateFilters = useMemo(() => {
     if (!interval) return {};
     const fmt = (d: Date) => format(d, "yyyy-MM-dd");
     return {
-      due_date_from: fmt(interval.start),
-      due_date_to:   fmt(interval.end),
+      due_date_from: fmt(interval.from),
+      due_date_to:   fmt(interval.to),
     };
   }, [interval]);
 
@@ -434,35 +408,14 @@ export default function FiscalPage({ embedded = false }: { embedded?: boolean })
         </div>
         <div className="flex items-center gap-2">
           {/* Filtro de período */}
-          <Select value={period} onValueChange={(v) => setPeriod(v as PeriodKey)}>
-            <SelectTrigger className="w-44">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {PERIOD_OPTIONS.map((o) => (
-                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {period === "custom" && (
-            <>
-              <Input
-                type="date"
-                value={customStart}
-                onChange={(e) => setCustomStart(e.target.value)}
-                className="w-36"
-                placeholder="De"
-              />
-              <span className="text-muted-foreground text-sm">até</span>
-              <Input
-                type="date"
-                value={customEnd}
-                onChange={(e) => setCustomEnd(e.target.value)}
-                className="w-36"
-                placeholder="Até"
-              />
-            </>
-          )}
+          <PeriodSelector
+            initialPreset={period}
+            options={PERIOD_OPTIONS}
+            onChange={(range, preset) => {
+              setSelectedRange(range);
+              setPeriod(preset as PeriodKey);
+            }}
+          />
           {canCreate && (
             <Button onClick={() => setEmitModalOpen(true)}>
               <Plus className="h-4 w-4 mr-2" />
@@ -477,23 +430,14 @@ export default function FiscalPage({ embedded = false }: { embedded?: boolean })
       {embedded && (
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Select value={period} onValueChange={(v) => setPeriod(v as PeriodKey)}>
-              <SelectTrigger className="w-44">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PERIOD_OPTIONS.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {period === "custom" && (
-              <>
-                <Input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="w-36" placeholder="De" />
-                <span className="text-muted-foreground text-sm">até</span>
-                <Input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="w-36" placeholder="Até" />
-              </>
-            )}
+            <PeriodSelector
+              initialPreset={period}
+              options={PERIOD_OPTIONS}
+              onChange={(range, preset) => {
+                setSelectedRange(range);
+                setPeriod(preset as PeriodKey);
+              }}
+            />
           </div>
           {canCreate && (
             <Button onClick={() => setEmitModalOpen(true)}>

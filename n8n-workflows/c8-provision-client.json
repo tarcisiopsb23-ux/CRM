@@ -1,0 +1,189 @@
+{
+  "name": "C8 Control — Provisionar Cliente (Ativação Inicial)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "c8-provision-client",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook — Receber Solicitação",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "c8-provision-client"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body ?? $input.first().json;\nconst required = ['client_id','supabase_url','anon_key','service_key'];\nconst missing = required.filter(f => !body[f]);\nif (missing.length > 0) throw new Error(`Campos obrigatórios ausentes: ${missing.join(', ')}`);\nreturn [{ json: body }];"
+      },
+      "id": "validate-payload",
+      "name": "Validar Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.C8_SCHEMA_RAW_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=token {{ $env.GITHUB_TOKEN }}" },
+            { "name": "Accept",        "value": "application/vnd.github.v3.raw" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "responseFormat": "text" } }
+        }
+      },
+      "id": "fetch-schema",
+      "name": "Buscar Schema do Repositório",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const schemaText = $input.first().json?.data ?? $input.first().json ?? '';\nconst prev = $('Validar Payload').first().json;\nif (!schemaText || String(schemaText).trim().length < 100) {\n  throw new Error('Schema SQL inválido ou vazio — verifique a variável C8_SCHEMA_RAW_URL');\n}\nreturn [{ json: { ...prev, schema_sql: String(schemaText) } }];"
+      },
+      "id": "merge-schema",
+      "name": "Combinar Schema",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.supabase_url }}/rest/v1/rpc/exec_sql",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $json.service_key }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $json.service_key }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "sql_query", "value": "={{ $json.schema_sql }}" }
+          ]
+        },
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "run-schema",
+      "name": "Executar Schema no Banco do Cliente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nif (response.success === false) {\n  throw new Error(`Erro ao executar schema: ${response.error ?? 'Erro desconhecido'}`);\n}\nconst input = $('Validar Payload').first().json;\nreturn [{ json: { ...input, schema_applied: true } }];"
+      },
+      "id": "check-schema-result",
+      "name": "Verificar Resultado Schema",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Validar Payload').first().json.supabase_url }}/auth/v1/admin/users",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $('Validar Payload').first().json.service_key }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $('Validar Payload').first().json.service_key }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "email",         "value": "={{ $('Validar Payload').first().json.client_email }}" },
+            { "name": "password",      "value": "={{ Math.random().toString(36).slice(-12) + 'Aa1!' }}" },
+            { "name": "email_confirm", "value": "=true" },
+            { "name": "user_metadata", "value": "={ \"client_id\": \"{{ $('Validar Payload').first().json.client_id }}\", \"role\": \"owner\", \"full_name\": \"{{ $('Validar Payload').first().json.client_name }}\" }" }
+          ]
+        },
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "create-owner-user",
+      "name": "Criar Usuário Owner",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('Validar Payload').first().json;\nconst userResult = $input.first().json;\nconst userCreated = !!userResult.id;\nreturn [{ json: { client_id: input.client_id, org_id: input.org_id, success: true, user_created: userCreated, user_id: userResult.id ?? null } }];"
+      },
+      "id": "prepare-result",
+      "name": "Preparar Resultado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/update_c8_activation_result",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "p_client_id", "value": "={{ $json.client_id }}" },
+            { "name": "p_success",   "value": "=true" },
+            { "name": "p_error",     "value": "=null" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "mark-activated",
+      "name": "Marcar Ativação Concluída",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2000, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"success\": true, \"client_id\": \"{{ $('Preparar Resultado').first().json.client_id }}\", \"user_created\": {{ $('Preparar Resultado').first().json.user_created }} }",
+        "options": {}
+      },
+      "id": "respond-success",
+      "name": "Responder — Sucesso",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2220, 300]
+    }
+  ],
+  "connections": {
+    "Webhook — Receber Solicitação": { "main": [[{ "node": "Validar Payload",                    "type": "main", "index": 0 }]] },
+    "Validar Payload":               { "main": [[{ "node": "Buscar Schema do Repositório",        "type": "main", "index": 0 }]] },
+    "Buscar Schema do Repositório":  { "main": [[{ "node": "Combinar Schema",                     "type": "main", "index": 0 }]] },
+    "Combinar Schema":               { "main": [[{ "node": "Executar Schema no Banco do Cliente", "type": "main", "index": 0 }]] },
+    "Executar Schema no Banco do Cliente": { "main": [[{ "node": "Verificar Resultado Schema",   "type": "main", "index": 0 }]] },
+    "Verificar Resultado Schema":    { "main": [[{ "node": "Criar Usuário Owner",                 "type": "main", "index": 0 }]] },
+    "Criar Usuário Owner":           { "main": [[{ "node": "Preparar Resultado",                  "type": "main", "index": 0 }]] },
+    "Preparar Resultado":            { "main": [[{ "node": "Marcar Ativação Concluída",            "type": "main", "index": 0 }]] },
+    "Marcar Ativação Concluída":     { "main": [[{ "node": "Responder — Sucesso",                 "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": { "templateId": "c8-provision-client-v2" },
+  "notes": "## C8 Control — Provisionar Cliente (Ativação Inicial)\n\n### Variáveis de ambiente necessárias:\n- SUPABASE_URL — URL da agência\n- SUPABASE_SERVICE_KEY — Service key da agência\n- C8_SCHEMA_RAW_URL — URL raw do bank_b_full_schema.sql no repositório\n\n### O schema é sempre buscado dinamicamente do repositório.\n### Configurar a mesma variável C8_SCHEMA_RAW_URL nos 3 workflows."
+}

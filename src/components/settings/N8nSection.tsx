@@ -34,6 +34,11 @@ const FIELD_DEFS: {
   { key: "clickupMembersWebhookUrl",   label: "Webhook URL: Participantes ClickUp (convidar/remover)",                       placeholder: "https://n8n.dominio.com/webhook/clickup-members",        section: "clickup" },
   { key: "adsWebhookUrl",              label: "Webhook URL: Sync de Ads (Meta + Google)",                                     placeholder: "https://n8n.dominio.com/webhook/sync-ads",               section: "ads"     },
   { key: "clickupCommentsWebhookUrl",  label: "Webhook URL: Comentarios ClickUp (Maestr.ia → ClickUp)",                      placeholder: "https://n8n.dominio.com/webhook/clickup-comment-from-maestria", section: "clickup" },
+  { key: "c8ProvisionWebhookUrl",      label: "Webhook URL: C8 Control — Provisionar cliente (schema + ativação)",           placeholder: "https://n8n.dominio.com/webhook/c8-provision-client",       section: "c8"      },
+  { key: "c8UpdateSchemaWebhookUrl",   label: "Webhook URL: C8 Control — Atualizar schema (todos ou por cliente)",            placeholder: "https://n8n.dominio.com/webhook/c8-update-schemas",          section: "c8"      },
+  { key: "c8ClientOpsWebhookUrl",      label: "Webhook URL: C8 Control — Operações no banco do cliente (reset senha, criar usuário, teste de conexão)", placeholder: "https://n8n.dominio.com/webhook/c8-client-ops", section: "c8" },
+  { key: "c8SchemaRawUrl",             label: "URL Raw do Schema (bank_b_full_schema.sql no repositório GitHub)",          placeholder: "https://raw.githubusercontent.com/seu-org/seu-repo/main/migrations/bank_b_full_schema.sql", section: "c8" },
+  { key: "githubToken",                label: "GitHub Token (repositório privado — Personal Access Token com read:repo)", placeholder: "ghp_...",                                                                 section: "c8" },
 ];
 
 const CACHE_PREFIX = "n8n_cfg_";
@@ -289,8 +294,7 @@ export function N8nSection() {
           ))}
 
           {/* Client ID da agência — somente leitura, detectado automaticamente */}
-          <div className="rounded-lg border bg-muted/30 p-3 space-y-1.5">
-            <div className="flex items-center gap-1.5">
+          <div className="rounded-lg border bg-muted/30 p-3 space-y-1.5">            <div className="flex items-center gap-1.5">
               <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
               <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
                 Client ID da Agência
@@ -323,6 +327,18 @@ export function N8nSection() {
               Usado para filtrar campanhas no Dashboard e módulo Campanhas.
             </p>
           </div>
+        </div>
+
+        {/* C8 Control */}
+        <div className="space-y-4">
+          <h4 className="text-xs font-black uppercase tracking-widest text-slate-500">C8 Control — Webhooks</h4>
+          <p className="text-[10px] text-slate-400 italic">
+            Webhooks dos workflows n8n de provisionamento e atualização de schema do C8 Control.
+            Os arquivos JSON estão em <code>n8n-workflows/</code> — importe no seu n8n e configure as URLs aqui.
+          </p>
+          {FIELD_DEFS.filter((f) => f.section === "c8").map(({ key, label, placeholder }) => (
+            <SettingsInput key={key} label={label} value={v(key)} onChange={(val) => setValue(key, val)} placeholder={placeholder} />
+          ))}
         </div>
 
         <div className="flex gap-2">

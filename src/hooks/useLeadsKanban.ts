@@ -201,6 +201,19 @@ export function useLeadsKanban(
         .select("*, profiles:assigned_to(full_name)")
         .single();
       if (insertError) throw insertError;
+      
+      // Auto-link a lista (se houver match por cidade+nicho)
+      if (data?.id && input.cidade && input.nicho) {
+        try {
+          await supabase.rpc('link_lead_to_lista', {
+            p_lead_id: data.id,
+            p_organization_id: organizationId,
+          });
+        } catch (err) {
+          console.warn('Falha ao auto-vincular lista:', err);
+        }
+      }
+      
       fetchLeads();
       dispatchWebhook(organizationId, "lead.created", data);
       return data as unknown as Lead;
@@ -229,7 +242,7 @@ export function useLeadsKanban(
             : null;
         const metadata = input.cidade ? { cidade: input.cidade } : undefined;
         try {
-          const { error: insertError } = await supabase.from("leads").insert({
+          const { data: insertedLead, error: insertError } = await supabase.from("leads").insert({
             organization_id: organizationId,
             name: input.empresa,
             company: input.empresa,
@@ -244,8 +257,22 @@ export function useLeadsKanban(
             etapa_kanban: etapa,
             stage_id: etapa,
             ...(metadata && { metadata: toJson(metadata) }),
-          });
+          }).select().single();
+          
           if (insertError) throw insertError;
+          
+          // Auto-link a lista para cada lead importado
+          if (insertedLead?.id && input.cidade && input.nicho) {
+            try {
+              await supabase.rpc('link_lead_to_lista', {
+                p_lead_id: insertedLead.id,
+                p_organization_id: organizationId,
+              });
+            } catch (err) {
+              console.warn(`Falha ao auto-vincular lista para lead ${insertedLead.id}:`, err);
+            }
+          }
+          
           created++;
         } catch (err) {
           errors.push(

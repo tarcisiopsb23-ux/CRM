@@ -1,0 +1,135 @@
+{
+  "name": "C8 Control — Atualizar Schema (Manual)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "c8-update-schemas",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook — Trigger Manual",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "c8-update-schemas"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.C8_SCHEMA_RAW_URL }}",
+        "options": {
+          "response": { "response": { "responseFormat": "text" } }
+        }
+      },
+      "id": "fetch-schema",
+      "name": "Buscar Schema do Repositório",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const schemaText = $input.first().json?.data ?? $input.first().json ?? '';\nconst body = $('Webhook — Trigger Manual').first().json.body ?? $('Webhook — Trigger Manual').first().json;\nconst clientId = (body.client_id ?? '').toString().trim() || null;\nif (!schemaText || String(schemaText).trim().length < 100) {\n  throw new Error('Schema SQL inválido ou vazio — verifique C8_SCHEMA_RAW_URL');\n}\nconsole.log(clientId ? `Atualização individual: ${clientId}` : 'Atualização em massa');\nreturn [{ json: { client_id: clientId, schema_sql: String(schemaText) } }];"
+      },
+      "id": "prepare",
+      "name": "Preparar Schema e Modo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/get_client_supabase_credentials_bulk",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": { "parameters": [] },
+        "options": {}
+      },
+      "id": "fetch-all-clients",
+      "name": "Buscar Clientes da Agência",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const clientId = $('Preparar Schema e Modo').first().json.client_id;\nconst schemaSql = $('Preparar Schema e Modo').first().json.schema_sql;\nconst raw = $input.first().json;\nlet clients = Array.isArray(raw) ? raw : (raw.data ?? raw ?? []);\nclients = clients.filter(c => c.supabase_url && c.service_key);\nif (clientId) {\n  clients = clients.filter(c => c.client_id === clientId);\n  if (clients.length === 0) throw new Error(`Cliente ${clientId} não encontrado ou sem credenciais.`);\n}\nconsole.log(`Clientes para atualização: ${clients.length}`);\nreturn clients.map(c => ({ json: { ...c, schema_sql: schemaSql } }));"
+      },
+      "id": "filter-clients",
+      "name": "Filtrar Clientes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.supabase_url }}/rest/v1/rpc/exec_sql",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $json.service_key }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $json.service_key }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "sql_query", "value": "={{ $json.schema_sql }}" }
+          ]
+        },
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "apply-schema",
+      "name": "Aplicar Schema no Cliente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = $input.all();\nconst total   = results.length;\nconst success = results.filter(r => r.json.success !== false).length;\nconst failed  = total - success;\nconst failures = results.filter(r => r.json.success === false)\n  .map(r => ({ client_id: r.json.client_id ?? 'desconhecido', error: r.json.error }));\nif (failures.length > 0) console.error('Falhas:', JSON.stringify(failures));\nreturn [{ json: { total, success, failed, failures, updated_at: new Date().toISOString() } }];"
+      },
+      "id": "collect-results",
+      "name": "Coletar Resultados",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "respond",
+      "name": "Responder",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1780, 300]
+    }
+  ],
+  "connections": {
+    "Webhook — Trigger Manual":    { "main": [[{ "node": "Buscar Schema do Repositório", "type": "main", "index": 0 }]] },
+    "Buscar Schema do Repositório": { "main": [[{ "node": "Preparar Schema e Modo",      "type": "main", "index": 0 }]] },
+    "Preparar Schema e Modo":      { "main": [[{ "node": "Buscar Clientes da Agência",   "type": "main", "index": 0 }]] },
+    "Buscar Clientes da Agência":  { "main": [[{ "node": "Filtrar Clientes",             "type": "main", "index": 0 }]] },
+    "Filtrar Clientes":            { "main": [[{ "node": "Aplicar Schema no Cliente",    "type": "main", "index": 0 }]] },
+    "Aplicar Schema no Cliente":   { "main": [[{ "node": "Coletar Resultados",           "type": "main", "index": 0 }]] },
+    "Coletar Resultados":          { "main": [[{ "node": "Responder",                    "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": { "templateId": "c8-update-schemas-v2" },
+  "notes": "## C8 Control — Atualizar Schema (Manual)\n\nSempre disparo manual. Sem agendamento automático.\n\n### Variáveis de ambiente necessárias:\n- SUPABASE_URL — URL da agência\n- SUPABASE_SERVICE_KEY — Service key da agência\n- C8_SCHEMA_RAW_URL — URL raw do bank_b_full_schema.sql no repositório\n\n### Uso:\nAtualizar todos: POST /webhook/c8-update-schemas {}\nAtualizar um cliente: POST /webhook/c8-update-schemas { \"client_id\": \"uuid\" }\n\n### O schema é sempre buscado do repositório na hora da execução.\n### Ao atualizar o arquivo no repositório, a próxima execução já usa a versão nova."
+}

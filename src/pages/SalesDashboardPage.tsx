@@ -12,6 +12,7 @@ import {
   PeriodOption,
   PERIOD_LABELS,
 } from "@/lib/periodHelpers";
+import PeriodSelector from "@/components/filters/PeriodSelector";
 import {
   SalesMetricCard,
   PipelineFunnel,
@@ -58,13 +59,12 @@ import {
 export function SalesDashboardPage() {
   const navigate = useNavigate();
   const organizationId = useOrganization();
-  const [period, setPeriod] = useState<PeriodOption>("mes_atual");
+  const [period, setPeriod] = useState<PeriodOption | 'custom'>("mes_atual");
   const [filterPortfolioId, setFilterPortfolioId] = useState<string>("all");
+  const [selectedRange, setSelectedRange] = useState(() => getPeriodDateRange("mes_atual"));
 
-  const range = useMemo(() => getPeriodDateRange(period), [period]);
-
-  const analytics = useSalesAnalytics(organizationId, { range });
-  const contractMetrics = useContractMetrics(organizationId, { range });
+  const analytics = useSalesAnalytics(organizationId, { range: selectedRange });
+  const contractMetrics = useContractMetrics(organizationId, { range: selectedRange });
   const clientsQuery = useClients(organizationId);
   const clients = useMemo(() => clientsQuery.data ?? [], [clientsQuery.data]);
   const { data: teams = [] } = useTeams(organizationId);
@@ -151,13 +151,13 @@ export function SalesDashboardPage() {
       const meta = (c.metadata ?? {}) as Record<string, unknown>;
       const v = meta.reactivated_at;
       if (typeof v !== "string") continue;
-      if (!isDateInRange(v, range)) continue;
+      if (!isDateInRange(v, selectedRange)) continue;
       ids.add(String(c.client_id));
     }
     const list = clients.filter((c) => ids.has(String(c.id)));
     list.sort((a, b) => String(a.company || a.name).localeCompare(String(b.company || b.name)));
     return list;
-  }, [clients, contractMetrics.contractsQuery.data, range]);
+  }, [clients, contractMetrics.contractsQuery.data, selectedRange]);
 
   const overdueSummary = useMemo(() => {
     const byClient = new Map<string, { clientId: string; count: number; total: number }>();
@@ -200,10 +200,10 @@ export function SalesDashboardPage() {
     const byClient = new Map<string, { clientId: string; count: number; total: number }>();
     for (const p of contractMetrics.paymentsQuery.data ?? []) {
       if (!p.paid_at) continue;
-      if (!isDateInRange(p.paid_at, range)) continue;
+      if (!isDateInRange(p.paid_at, selectedRange)) continue;
       const due = new Date(p.due_date);
       if (Number.isNaN(due.getTime())) continue;
-      if (due >= range.from) continue;
+      if (due >= selectedRange.from) continue;
       const clientId = String(p.client_id ?? "");
       const cur = byClient.get(clientId) ?? { clientId, count: 0, total: 0 };
       cur.count += 1;
@@ -212,7 +212,7 @@ export function SalesDashboardPage() {
     }
     const list = Array.from(byClient.values()).sort((a, b) => b.total - a.total);
     return list;
-  }, [contractMetrics.paymentsQuery.data, range]);
+  }, [contractMetrics.paymentsQuery.data, selectedRange]);
 
   const contractsSearchKey = useMemo(() => contractsSearch.trim().toLowerCase(), [contractsSearch]);
 
@@ -314,18 +314,13 @@ export function SalesDashboardPage() {
             </SelectContent>
           </Select>
           <Calendar className="h-4 w-4 text-muted-foreground" />
-          <Select value={period} onValueChange={(v) => setPeriod(v as PeriodOption)}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Período" />
-            </SelectTrigger>
-            <SelectContent>
-              {Object.entries(PERIOD_LABELS).map(([value, label]) => (
-                <SelectItem key={value} value={value}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <PeriodSelector
+            initialPreset={period as PeriodOption}
+            onChange={(range, preset) => {
+              setSelectedRange(range);
+              setPeriod(preset as PeriodOption | 'custom');
+            }}
+          />
         </div>
       </div>
 

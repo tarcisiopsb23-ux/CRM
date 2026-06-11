@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { KanbanBoard, LeadDetailsModal, LeadsListView } from "@/components/kanban";
 import { NovoLeadDialog } from "@/components/kanban/NovoLeadDialog";
 import { useLeadsKanban, type CreateLeadInput, type CreateLeadRow } from "@/hooks/useLeadsKanban";
@@ -24,13 +25,25 @@ import { parseCsvText } from "@/lib/parseCsv";
 import { differenceInCalendarDays, parseISO } from "date-fns";
 import { formatPhoneBR } from "@/lib/formatters";
 import type { Lead, EtapaKanban, LeadWithResponsavel } from "@/types/database";
+import { ListasPage } from "@/pages/ListasPage";
+import { LeadsPendingPage } from "@/pages/LeadsPendingPage";
+import { ClosersPerformancePage } from "@/pages/ClosersPerformancePage";
 
 export function LeadsKanbanPage() {
   const organizationId = useOrganization();
   const { pinProps, requirePin } = usePinConfirm();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { leads, loading, error, updateEtapaKanban, createLead, updateLead, removeLead, importLeadsMapped } =
     useLeadsKanban(organizationId);
   const { data: profiles = [] } = useProfiles(organizationId);
+
+  // Aba ativa controlada via query param para permitir navegação direta
+  const activeTab = searchParams.get("tab") ?? "leads";
+  const setTab = (tab: string) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", tab);
+    setSearchParams(next, { replace: true });
+  };
 
   const [viewMode, setViewMode] = useState<"kanban" | "list">("kanban");
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -310,10 +323,13 @@ export function LeadsKanbanPage() {
         </p>
       </div>
 
-      <Tabs defaultValue="leads" className="w-full">
+      <Tabs value={activeTab} onValueChange={setTab} className="w-full">
         <TabsList>
           <TabsTrigger value="leads">Leads</TabsTrigger>
           <TabsTrigger value="prequal">Pré-qualificação</TabsTrigger>
+          <TabsTrigger value="listas">Listas</TabsTrigger>
+          <TabsTrigger value="pendentes">Leads Pendentes</TabsTrigger>
+          <TabsTrigger value="performance">Performance Closers</TabsTrigger>
         </TabsList>
 
         <TabsContent value="leads" className="space-y-4">
@@ -557,10 +573,25 @@ export function LeadsKanbanPage() {
             </div>
           </div>
         </TabsContent>
+
+        {/* ── Listas ── */}
+        <TabsContent value="listas">
+          <ListasPage />
+        </TabsContent>
+
+        {/* ── Leads Pendentes ── */}
+        <TabsContent value="pendentes">
+          <LeadsPendingPage />
+        </TabsContent>
+
+        {/* ── Performance Closers ── */}
+        <TabsContent value="performance">
+          <ClosersPerformancePage />
+        </TabsContent>
+
       </Tabs>
-      
+
       <LeadDetailsModal
-        lead={selectedLead}
         open={modalOpen}
         onOpenChange={setModalOpen}
         onEdit={(l) => {

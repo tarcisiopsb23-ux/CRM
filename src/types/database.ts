@@ -52,6 +52,40 @@ export type LeadLostReason =
   | 'cadencia_excedida'
   | 'outros';
 
+export type ListaStatus = 'ativa' | 'pausada' | 'encerrada';
+
+export interface Lista {
+  id: string;
+  organization_id: string;
+  nome: string;
+  cidade: string;
+  estado: string;
+  nicho: string;
+  versao: number;
+  responsavel_id: string | null;
+  origem_principal: string | null;
+  data_criacao: string;
+  status: ListaStatus;
+  observacoes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ListaWithResponsavel extends Lista {
+  responsavel?: { full_name: string } | null;
+}
+
+export interface LeadListaHistory {
+  id: string;
+  organization_id: string;
+  lead_id: string;
+  lista_id_from: string | null;
+  lista_id_to: string | null;
+  changed_by: string | null;
+  changed_at: string;
+  reason: string | null;
+}
+
 export interface Lead {
   id: string;
   organization_id: string;
@@ -87,7 +121,7 @@ export interface Lead {
   lost_reason?: LeadLostReason | null;
   cadence?: string | number | null;
   temperature?: number | null;
-  campaign_id?: string | null;
+  lista_id: string | null;
   sdr_id: string | null;
   closer_id: string | null;
   team_id: string | null;

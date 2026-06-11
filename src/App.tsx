@@ -61,6 +61,7 @@ const AgendaPage          = lazy(() => import("./pages/public-dashboard/AgendaPa
 const PromocoesPage       = lazy(() => import("./pages/public-dashboard/PromocoesPage").then(m => ({ default: m.PromocoesPage })));
 const SugestoesPage       = lazy(() => import("./pages/public-dashboard/SugestoesPage").then(m => ({ default: m.SugestoesPage })));
 const AvisosPage          = lazy(() => import("./pages/public-dashboard/AvisosPage").then(m => ({ default: m.AvisosPage })));
+const EventosPage         = lazy(() => import("./pages/public-dashboard/EventosPage").then(m => ({ default: m.EventosPage })));
 const ConfiguracoesPage   = lazy(() => import("./pages/public-dashboard/ConfiguracoesPage").then(m => ({ default: m.ConfiguracoesPage })));
 // Fase 2 — CRM e WhatsApp
 const CrmPage             = lazy(() => import("./pages/public-dashboard/CrmPage").then(m => ({ default: m.CrmPage })));
@@ -129,6 +130,7 @@ function App() {
                     <Route path="promocoes" element={<Suspense fallback={<PageLoader />}><PromocoesPage /></Suspense>} />
                     <Route path="sugestoes" element={<Suspense fallback={<PageLoader />}><SugestoesPage /></Suspense>} />
                     <Route path="avisos" element={<Suspense fallback={<PageLoader />}><AvisosPage /></Suspense>} />
+                    <Route path="eventos" element={<Suspense fallback={<PageLoader />}><EventosPage /></Suspense>} />
                     <Route path="configuracoes" element={<Suspense fallback={<PageLoader />}><ConfiguracoesPage /></Suspense>} />
                     {/* Fase 2 — CRM */}
                     <Route path="crm" element={<Suspense fallback={<PageLoader />}><CrmPage /></Suspense>} />
@@ -160,7 +162,9 @@ function App() {
                       <Route path="/performance" element={<Navigate to="/?tab=performance" replace />} />
                       <Route path="/kanban" element={<LeadsKanbanPage />} />
                       <Route path="/leads" element={<Navigate to="/kanban" replace />} />
-                      <Route path="/clients" element={<ClientsPage />} />
+                      <Route path="/listas" element={<Navigate to="/kanban?tab=listas" replace />} />
+                      <Route path="/leads-pending" element={<Navigate to="/kanban?tab=pendentes" replace />} />
+                      <Route path="/closers-performance" element={<Navigate to="/kanban?tab=performance" replace />} />                      <Route path="/clients" element={<ClientsPage />} />
                       <Route path="/clients/:clientId" element={<ClientsPage />} />
                       <Route path="/integrations" element={<IntegrationsPage />} />
                       <Route path="/suppliers" element={<SuppliersModulePage />} />

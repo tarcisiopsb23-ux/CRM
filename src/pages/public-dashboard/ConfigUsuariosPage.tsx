@@ -56,7 +56,7 @@ export function ConfigUsuariosPage() {
   const { auth } = useClientAuth();
   const qc = useQueryClient();
   const clientId = auth?.user?.client_id ?? "";
-  const maxUsers = (auth as any)?.modules_config?.max_users ?? 10;
+  const maxUsers = auth?.modules_config?.max_users ?? 10;
   const currentUserRole = auth?.user?.role ?? "viewer";
 
   const [inviteOpen, setInviteOpen]     = useState(false);

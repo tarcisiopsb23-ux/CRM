@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import PeriodSelector, { DateRange, getDateRangeFromPreset, PeriodSelectorOption } from "@/components/filters/PeriodSelector";
 import { ModernFunnel } from "@/components/ui/modern-funnel";
 import { HorizontalScroll } from "@/components/ui/horizontal-scroll";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -32,6 +33,15 @@ import { fmtKpiValue } from "@/lib/formatters";
 import { supabase } from "@/lib/supabase";
 
 const isLowerBetter = (name: string) => /cac|cpa|cpl|cpc|cpm|custo/i.test(name);
+
+const PERFORMANCE_PERIOD_OPTIONS: PeriodSelectorOption[] = [
+  { value: "7d", label: "Últimos 7 dias" },
+  { value: "30d", label: "Últimos 30 dias" },
+  { value: "month", label: "Mês atual" },
+  { value: "90d", label: "Últimos 90 dias" },
+  { value: "180d", label: "Últimos 180 dias" },
+  { value: "1y", label: "Último ano" },
+];
 
 // Agrega linhas diárias de campaign_data por (platform, campaign_name)
 function aggregateCampaigns(rows: any[]) {
@@ -167,30 +177,17 @@ const KPI_COLORS = ["#10b981","#2D8CC7","#f59e0b","#a855f7","#f43f5e","#06b6d4",
 
 type Period = "7d" | "30d" | "month" | "90d" | "180d" | "1y" | "custom";
 
-function getPeriodRange(period: Period): { from: string; to: string } {
-  const today = new Date();
-  const to = format(today, "yyyy-MM-dd");
-  if (period === "7d")    return { from: format(subDays(today, 7), "yyyy-MM-dd"), to };
-  if (period === "30d")   return { from: format(subDays(today, 30), "yyyy-MM-dd"), to };
-  if (period === "month") return { from: format(startOfMonth(today), "yyyy-MM-dd"), to: format(endOfMonth(today), "yyyy-MM-dd") };
-  if (period === "90d")   return { from: format(subDays(today, 90), "yyyy-MM-dd"), to };
-  if (period === "180d")  return { from: format(subDays(today, 180), "yyyy-MM-dd"), to };
-  if (period === "1y")    return { from: format(subYears(today, 1), "yyyy-MM-dd"), to };
-  return { from: format(startOfMonth(today), "yyyy-MM-dd"), to: format(endOfMonth(today), "yyyy-MM-dd") };
-}
-
 export function ClientPerformanceTab({ organizationId, clientId }: { organizationId: string; clientId: string }) {
   const [period, setPeriod] = useState<Period>("month");
-  const [customFrom, setCustomFrom] = useState(format(startOfMonth(new Date()), "yyyy-MM-dd"));
-  const [customTo, setCustomTo] = useState(format(endOfMonth(new Date()), "yyyy-MM-dd"));
+  const [selectedRange, setSelectedRange] = useState<DateRange>(() => getDateRangeFromPreset("month"));
   const [contractStartDate, setContractStartDate] = useState<Date | null>(null);
   const [activeKpiId, setActiveKpiId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"performance" | "atendimento">("performance");
 
-  const dateRange = useMemo(() =>
-    period === "custom" ? { from: customFrom, to: customTo } : getPeriodRange(period),
-    [period, customFrom, customTo]
-  );
+  const dateRange = useMemo(() => ({
+    from: format(selectedRange.from, "yyyy-MM-dd"),
+    to: format(selectedRange.to, "yyyy-MM-dd"),
+  }), [selectedRange]);
 
   useEffect(() => {
     supabase.from("contracts")
@@ -415,29 +412,14 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
             <Calendar className="h-4 w-4 text-violet-500" />
             <span className="text-xs font-black uppercase tracking-widest text-violet-600">Período</span>
           </div>
-          <Select value={period} onValueChange={(v) => setPeriod(v as Period)}>
-            <SelectTrigger className="w-[160px] h-9 text-xs font-bold border-slate-200">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="7d">Últimos 7 dias</SelectItem>
-              <SelectItem value="30d">Últimos 30 dias</SelectItem>
-              <SelectItem value="month">Este mês</SelectItem>
-              <SelectItem value="90d">Últimos 90 dias</SelectItem>
-              <SelectItem value="180d">Últimos 180 dias</SelectItem>
-              <SelectItem value="1y">Último ano</SelectItem>
-              <SelectItem value="custom">Personalizado</SelectItem>
-            </SelectContent>
-          </Select>
-          {period === "custom" && (
-            <div className="flex items-center gap-2">
-              <Input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)}
-                className="h-9 w-[130px] text-xs border-slate-200" />
-              <span className="text-slate-400 text-xs">até</span>
-              <Input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)}
-                className="h-9 w-[130px] text-xs border-slate-200" />
-            </div>
-          )}
+          <PeriodSelector
+            initialPreset={period}
+            options={PERFORMANCE_PERIOD_OPTIONS}
+            onChange={(range, preset) => {
+              setSelectedRange(range);
+              setPeriod(preset as Period);
+            }}
+          />
           <div className="ml-auto text-[10px] font-bold text-slate-400 uppercase tracking-widest">
             {format(new Date(dateRange.from), "dd/MM/yyyy")} — {format(new Date(dateRange.to), "dd/MM/yyyy")}
           </div>

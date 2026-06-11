@@ -1,795 +1,229 @@
 import { useClientIntegrations } from "@/hooks/useHubPerformance";
-import { useOrganizationData } from "@/hooks/useOrganization";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
-import { toast } from "sonner";
-import { Loader2, Trash2, Globe, Lock, Copy, Check, ExternalLink, Mail, RefreshCcw, BarChart3, MessageCircle, AlertCircle, CheckCircle2, Clock, Brain, Wifi, WifiOff, ChevronDown, ChevronUp } from "lucide-react";
-import { AdIntegrationDialog } from "@/components/integrations/AdIntegrationDialog";
+import { useNavigate } from "react-router-dom";
+import {
+  Lock, Check, ArrowRight,
+  AlertCircle, CheckCircle2, Clock, Loader2, Zap, XCircle,
+} from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { sendEmail } from "@/lib/email-service";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { createClientSupabase } from "@/lib/createClientSupabase";
 
-const MIGRATION_SQL = `-- ============================================================
--- Migration: Tabelas do Módulo Conteúdo IA
--- Execute no Supabase do cliente (Client_Supabase)
--- ============================================================
+type C8ActivationStatus = "pendente" | "em_andamento" | "ativo" | "falhou" | null;
 
--- 1. Agenda Musical
-CREATE TABLE IF NOT EXISTS public.ai_schedule (
-    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    artist      TEXT        NOT NULL,
-    date        DATE        NOT NULL,
-    time        TIME        NOT NULL,
-    description TEXT,
-    status      TEXT        NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+const ACTIVATION_CONFIG: Record<
+  NonNullable<C8ActivationStatus>,
+  { label: string; color: string; icon: React.ElementType; detail: string }
+> = {
+  pendente:     { label: "Ativação pendente",    color: "bg-amber-100 text-amber-700",    icon: Clock,        detail: "Aguardando provisionamento via n8n." },
+  em_andamento: { label: "Ativando…",            color: "bg-blue-100 text-blue-700",      icon: Loader2,      detail: "O n8n está provisionando o banco do cliente." },
+  ativo:        { label: "C8 Control ativado",   color: "bg-emerald-100 text-emerald-700", icon: CheckCircle2, detail: "Banco provisionado e acesso liberado." },
+  falhou:       { label: "Falha na ativação",    color: "bg-red-100 text-red-700",        icon: XCircle,      detail: "Erro ao provisionar. Clique em Gerenciar para tentar novamente." },
+};
 
--- 2. Promoções
-CREATE TABLE IF NOT EXISTS public.ai_promotions (
-    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    title       TEXT        NOT NULL,
-    description TEXT,
-    validity    TEXT,
-    type        TEXT,
-    status      TEXT        NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- 3. Sugestões da Semana
-CREATE TABLE IF NOT EXISTS public.ai_suggestions (
-    id          UUID           PRIMARY KEY DEFAULT gen_random_uuid(),
-    name        TEXT           NOT NULL,
-    description TEXT,
-    price       NUMERIC(10, 2),
-    image_url   TEXT,
-    status      TEXT           NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
-    created_at  TIMESTAMPTZ    NOT NULL DEFAULT now()
-);
-
--- 4. Eventos Especiais
-CREATE TABLE IF NOT EXISTS public.ai_events (
-    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    title       TEXT        NOT NULL,
-    description TEXT,
-    date        DATE        NOT NULL,
-    time        TIME,
-    location    TEXT,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- 5. Avisos
-CREATE TABLE IF NOT EXISTS public.ai_notices (
-    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    message     TEXT        NOT NULL,
-    priority    TEXT        NOT NULL CHECK (priority IN ('alta', 'média', 'baixa')),
-    validity    TEXT,
-    status      TEXT        NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- 6. Configurações do Agente IA
-CREATE TABLE IF NOT EXISTS public.ai_settings (
-    id                 UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    establishment_name TEXT,
-    phone              TEXT,
-    instagram          TEXT,
-    address            TEXT,
-    opening_hours      TEXT,
-    welcome_message    TEXT,
-    auto_reply_24h     BOOLEAN     NOT NULL DEFAULT true,
-    forward_to_human   BOOLEAN     NOT NULL DEFAULT true,
-    created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- ============================================================
--- Row Level Security — acesso público via anon key
--- ============================================================
-
-ALTER TABLE public.ai_schedule    ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.ai_promotions  ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.ai_suggestions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.ai_events      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.ai_notices     ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.ai_settings    ENABLE ROW LEVEL SECURITY;
-
--- Políticas: leitura e escrita pública via anon
-DO $$ DECLARE t TEXT;
-BEGIN
-  FOREACH t IN ARRAY ARRAY['ai_schedule','ai_promotions','ai_suggestions','ai_events','ai_notices','ai_settings']
-  LOOP
-    EXECUTE format('DROP POLICY IF EXISTS "public_read"  ON public.%I', t);
-    EXECUTE format('DROP POLICY IF EXISTS "public_write" ON public.%I', t);
-    EXECUTE format('CREATE POLICY "public_read"  ON public.%I FOR SELECT USING (true)', t);
-    EXECUTE format('CREATE POLICY "public_write" ON public.%I FOR ALL    USING (true) WITH CHECK (true)', t);
-  END LOOP;
-END $$;`;
-
-function SyncStatusBadge({ status, lastSyncAt, records, error }: { status?: string | null; lastSyncAt?: string | null; records?: number | null; error?: string | null }) {
-  const [expanded, setExpanded] = useState(false);
-
-  if (!status || status === 'pending') {
-    return <Badge className="bg-slate-100 text-slate-500 text-xs">Nunca sincronizado</Badge>;
-  }
-  if (status === 'syncing') {
-    return <Badge className="bg-blue-100 text-blue-700 text-xs flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Sincronizando...</Badge>;
-  }
-  if (status === 'error') {
-    return (
-      <div className="flex flex-col gap-0.5">
-        <Badge className="bg-red-100 text-red-700 text-xs flex items-center gap-1 w-fit">
-          <AlertCircle className="h-3 w-3" />Erro na sync
-        </Badge>
-        {error && (
-          <div className="max-w-[260px]">
-            <p
-              onClick={() => setExpanded(v => !v)}
-              className={`text-[10px] text-red-500 cursor-pointer ${expanded ? 'whitespace-normal break-words' : 'truncate'}`}
-            >
-              {error}
-            </p>
-          </div>
-        )}
+function StatusIndicator({
+  active,
+  activeLabel,
+  inactiveLabel,
+  reason,
+  detail,
+  actionLabel,
+  onAction,
+  badge,
+}: {
+  active: boolean;
+  activeLabel: string;
+  inactiveLabel: string;
+  reason?: string;
+  detail?: string;
+  actionLabel?: string;
+  onAction?: () => void;
+  badge?: React.ReactNode;
+}) {
+  return (
+    <div className={`flex items-start gap-3 p-4 rounded-xl border-2 ${active ? "border-emerald-400 bg-emerald-50" : "border-slate-200 bg-slate-50"}`}>
+      <div className={`mt-0.5 h-8 w-8 rounded-full flex items-center justify-center shrink-0 ${active ? "bg-emerald-500 text-white" : "bg-slate-200 text-slate-400"}`}>
+        {active ? <Check className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
       </div>
-    );
-  }
-  if (status === 'success' && lastSyncAt) {
-    return (
-      <div className="flex flex-col gap-0.5">
-        <Badge className="bg-emerald-100 text-emerald-700 text-xs flex items-center gap-1 w-fit">
-          <CheckCircle2 className="h-3 w-3" />
-          {formatDistanceToNow(new Date(lastSyncAt), { addSuffix: true, locale: ptBR })}
-        </Badge>
-        {records != null && records > 0 && (
-          <span className="text-[10px] text-muted-foreground">{records} registros</span>
-        )}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className={`text-sm font-bold ${active ? "text-emerald-700" : "text-slate-500"}`}>
+            {active ? activeLabel : inactiveLabel}
+          </p>
+          {badge}
+        </div>
+        {reason && <p className="text-xs text-muted-foreground mt-0.5">{reason}</p>}
+        {detail && <p className="text-xs text-slate-400 mt-0.5">{detail}</p>}
       </div>
-    );
-  }
-  if (status === 'no_data' && lastSyncAt) {
-    return (
-      <div className="flex flex-col gap-0.5">
-        <Badge className="bg-slate-100 text-slate-600 text-xs flex items-center gap-1 w-fit">
-          <Clock className="h-3 w-3" />
-          {formatDistanceToNow(new Date(lastSyncAt), { addSuffix: true, locale: ptBR })}
-        </Badge>
-        <span className="text-[10px] text-muted-foreground">Sem dados no período</span>
-      </div>
-    );
-  }
-  return null;
+      {onAction && (
+        <Button size="sm" variant={active ? "outline" : "ghost"} onClick={onAction} className="gap-1.5 shrink-0">
+          {actionLabel ?? "Gerenciar"}
+          <ArrowRight className="h-3.5 w-3.5" />
+        </Button>
+      )}
+    </div>
+  );
 }
 
-export function ClientIntegrationsTab({ organizationId, clientId }: { organizationId: string, clientId: string }) {
-  const { data: integrations = [], isLoading, remove, triggerSync } = useClientIntegrations(organizationId, clientId);
-  const { data: organization } = useOrganizationData(organizationId);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [platform, setPlatform] = useState<'meta' | 'google' | null>(null);
+export function ClientIntegrationsTab({ organizationId, clientId }: { organizationId: string; clientId: string }) {
+  const navigate = useNavigate();
+  const { data: integrations = [] } = useClientIntegrations(organizationId, clientId);
 
-  // Reset sync_status preso em 'syncing' — acontece quando o workflow falhou e o usuário recarregou a página
-  useEffect(() => {
-    const staleIntegrations = (integrations as any[]).filter(i => {
-      if (i.sync_status !== 'syncing') return false;
-      if (!i.updated_at) return true;
-      const updatedAt = new Date(i.updated_at).getTime();
-      const twoMinutesAgo = Date.now() - 2 * 60 * 1000;
-      return updatedAt < twoMinutesAgo; // preso há mais de 2 minutos
-    });
-    if (staleIntegrations.length === 0) return;
-    staleIntegrations.forEach(async (i: any) => {
-      await supabase
-        .from("client_integrations")
-        .update({ sync_status: "error", sync_error: "Sync interrompido — tente novamente." })
-        .eq("id", i.id);
-    });
-  }, [integrations]);
-  
-  // Dashboard Externo
-  const [slug, setSlug] = useState("");
-  const [password, setPassword] = useState("");
-  const [email, setEmail] = useState("");
-  const [savingDashboard, setSavingDashboard] = useState(false);
-  const [generatingPassword, setGeneratingPassword] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [dashPerformance, setDashPerformance] = useState(true);
-  const [dashAtendimento, setDashAtendimento] = useState(false);
-  const [c8ControlEnabled, setC8ControlEnabled] = useState(false);
-  const [showIaContent, setShowIaContent] = useState(false);
-  const [clientSupabaseUrl, setClientSupabaseUrl] = useState("");
-  const [clientSupabaseKey, setClientSupabaseKey] = useState("");
-  const [testingConnection, setTestingConnection] = useState(false);
-  const [migrationSqlOpen, setMigrationSqlOpen] = useState(false);
-  const [migrationSqlCopied, setMigrationSqlCopied] = useState(false);
+  const [c8AccessInfo, setC8AccessInfo] = useState<{
+    hasAccess: boolean;
+    reason: string;
+    contracts: string[];
+    activationStatus: C8ActivationStatus;
+    activatedAt: string | null;
+  }>({ hasAccess: false, reason: "Sem acesso", contracts: [], activationStatus: null, activatedAt: null });
 
   useEffect(() => {
-    const fetchClient = async () => {
-      const { data } = await supabase
-        .from("clients")
-        .select("name, company, email, dashboard_slug, metadata, show_ia_content, client_supabase_url, client_supabase_anon_key")
-        .eq("id", clientId)
-        .single();
-      
-      if (data) {
-        // Se não houver slug, preenche com o nome da empresa/cliente automaticamente
-        const autoSlug = (data.company || data.name || "")
-          .toLowerCase()
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .replace(/[^a-z0-9]/g, "-")
-          .replace(/-+/g, "-")
-          .replace(/^-|-$/g, "");
-          
-        setSlug(data.dashboard_slug || autoSlug);
-        setPassword((data.metadata as any)?.dashboard_password || "");
-        setEmail(data.email || "");
-        setDashPerformance((data.metadata as any)?.dashboard_performance ?? true);
-        setDashAtendimento((data.metadata as any)?.dashboard_atendimento ?? false);
-        setC8ControlEnabled(!!(data as any).c8_control_enabled);
-        setShowIaContent(!!(data as any).show_ia_content);
-        setClientSupabaseUrl((data as any).client_supabase_url || "");
-        setClientSupabaseKey((data as any).client_supabase_anon_key || "");
-      }
-    };
-    fetchClient();
-  }, [clientId]);
-
-  const handleSaveDashboard = async () => {
-    setSavingDashboard(true);
-    if (showIaContent && (!clientSupabaseUrl.trim() || !clientSupabaseKey.trim())) {
-      toast.error("URL e chave do Supabase são obrigatórias para habilitar o Conteúdo IA.");
-      setSavingDashboard(false);
-      return;
-    }
-    try {
+    const load = async () => {
       const { data: client } = await supabase
         .from("clients")
-        .select("metadata")
+        .select("c8_control_enabled, client_supabase_url, client_supabase_anon_key")
         .eq("id", clientId)
         .single();
 
-      const updatedMetadata = {
-        ...(client?.metadata as any || {}),
-        dashboard_password: password.trim(),
-        dashboard_performance: dashPerformance,
-        dashboard_atendimento: dashAtendimento,
-      };
-
-      const { error } = await supabase
-        .from("clients")
-        .update({ 
-          dashboard_slug: slug.trim() || null,
-          metadata: updatedMetadata 
-        })
-        .eq("id", clientId);
-
-      if (error) throw error;
-      await supabase
-        .from("clients")
-        .update({
-          show_ia_content: showIaContent,
-          client_supabase_url: clientSupabaseUrl.trim() || null,
-          client_supabase_anon_key: clientSupabaseKey.trim() || null,
-        })
-        .eq("id", clientId);
-      toast.success("Configurações do dashboard atualizadas!");
-    } catch (err) {
-      toast.error("Erro ao salvar configurações do dashboard.");
-    } finally {
-      setSavingDashboard(false);
-    }
-  };
-
-  const handleGenerateTempPassword = async () => {
-    if (!email) {
-      toast.error("O cliente precisa de um e-mail cadastrado.");
-      return;
-    }
-
-    setGeneratingPassword(true);
-    try {
-      // Gera senha temporária de 8 caracteres
-      const tempPassword = Math.random().toString(36).slice(-8);
-      
-      // Busca os dados completos do cliente, incluindo seu organization_id
-      const { data: client, error: clientError } = await supabase
-        .from("clients")
-        .select("organization_id, metadata")
-        .eq("id", clientId)
+      const { data: plan } = await supabase
+        .from("crm_client_plans")
+        .select("c8_activation_status, c8_activated_at, c8_included")
+        .eq("client_id", clientId)
         .single();
 
-      if (clientError || !client) throw clientError || new Error("Cliente não encontrado.");
+      const { data: contracts } = await supabase
+        .from("contracts")
+        .select("id, service_contracted, status")
+        .eq("client_id", clientId)
+        .not("status", "in", '("cancelado","encerrado")');
 
-      const updatedMetadata = {
-        ...(client.metadata as any || {}),
-        dashboard_password: tempPassword,
-        is_temp_password: true
-      };
+      const c8Keywords = ["assessoria", "consultoria", "agente_ia", "agente ia", "c8 control", "c8control"];
+      const matching = (contracts ?? []).filter((ct: any) =>
+        c8Keywords.some(kw => (ct.service_contracted ?? "").toLowerCase().includes(kw))
+      );
 
-      const { error: updateError } = await supabase
-        .from("clients")
-        .update({ 
-          metadata: updatedMetadata 
-        })
-        .eq("id", clientId);
+      const hasBankB = !!(client as any)?.client_supabase_url && !!(client as any)?.client_supabase_anon_key;
+      const hasManual = !!(client as any)?.c8_control_enabled;
+      const hasContract = matching.length > 0;
+      const hasAccess = hasManual || hasContract || hasBankB;
 
-      if (updateError) throw updateError;
+      const activationStatus: C8ActivationStatus = (plan as any)?.c8_activation_status ?? (hasAccess ? "pendente" : null);
 
-      setPassword(tempPassword);
-      
-      // Envio de e-mail via Resend, usando a organização DO CLIENTE
-      const dashboardUrl = `${window.location.origin}/public/dashboard/${slug}`;
-      const orgName = organization?.name || "Maestria CRM"; // Usamos o nome da org do admin logado para o texto, mas a chave da org do cliente
-      
-      const emailResult = await sendEmail(client.organization_id, { // <-- AQUI ESTÁ A CORREÇÃO
-        to: email,
-        subject: `Seu Acesso ao Dashboard de Performance - ${orgName}`,
-        html: `
-          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;">
-            <h2 style="color: #2D8CC7;">Seu Acesso ao Dashboard</h2>
-            <p>Olá! Seu acesso ao Dashboard de Performance da <strong>${orgName}</strong> foi gerado.</p>
-            <p><strong>Sua Senha Temporária:</strong> <code style="background: #f1f5f9; padding: 4px 8px; border-radius: 4px;">${tempPassword}</code></p>
-            <div style="margin: 30px 0;">
-              <a href="${dashboardUrl}" style="background: #2D8CC7; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">
-                Acessar Meu Dashboard
-              </a>
-            </div>
-            <p style="font-size: 12px; color: #64748b;">Por segurança, você deverá trocar esta senha no seu primeiro acesso.</p>
-          </div>
-        `
+      setC8AccessInfo({
+        hasAccess,
+        reason: hasManual
+          ? "Acesso habilitado manualmente"
+          : hasContract
+            ? "Acesso via contrato ativo"
+            : hasBankB
+              ? "Acesso via Banco B configurado"
+              : "Sem contrato de assessoria, consultoria ou Agente IA",
+        contracts: matching.map((ct: any) => ct.service_contracted ?? ct.id),
+        activationStatus,
+        activatedAt: (plan as any)?.c8_activated_at ?? null,
       });
+    };
+    load();
+  }, [clientId]);
 
-      if (emailResult.success) {
-        toast.success(`Senha temporária gerada e enviada para ${email}`);
-      } else {
-        toast.warning(`Senha gerada: ${tempPassword}, mas houve um erro ao enviar o e-mail: ${emailResult.error}`);
-      }
+  const metaIntegration   = integrations.find((i: any) => i.platform === "meta");
+  const googleIntegration = integrations.find((i: any) => i.platform === "google");
 
-    } catch (err) {
-      toast.error("Erro ao gerar senha temporária.");
-    } finally {
-      setGeneratingPassword(false);
+  const syncLabel = (integration: any) => {
+    if (!integration) return undefined;
+    const { sync_status, last_sync_at } = integration;
+    if (sync_status === "syncing") return "Sincronizando...";
+    if (sync_status === "error") return "Erro na última sync";
+    if (sync_status === "success" && last_sync_at)
+      return `Sync ${formatDistanceToNow(new Date(last_sync_at), { addSuffix: true, locale: ptBR })}`;
+    if (sync_status === "no_data" && last_sync_at)
+      return `Sem dados — ${formatDistanceToNow(new Date(last_sync_at), { addSuffix: true, locale: ptBR })}`;
+    return "Nunca sincronizado";
+  };
+
+  const goToC8Control = () => {
+    if (c8AccessInfo.activationStatus === "pendente" || c8AccessInfo.activationStatus === "falhou") {
+      navigate(`/c8control?tab=pending&client=${clientId}`);
+    } else {
+      navigate(`/c8control?client=${clientId}`);
     }
   };
 
-  const copyUrl = () => {
-    if (!slug) return;
-    const url = `${window.location.origin}/public/dashboard/${slug}`;
-    navigator.clipboard.writeText(url);
-    setCopied(true);
-    toast.success("URL do Dashboard copiada!");
-    setTimeout(() => setCopied(false), 2000);
-  };
+  // Badge de status de ativação
+  const activationBadge = (() => {
+    const st = c8AccessInfo.activationStatus;
+    if (!st || !c8AccessInfo.hasAccess) return null;
+    const cfg = ACTIVATION_CONFIG[st];
+    const Icon = cfg.icon;
+    return (
+      <Badge className={`text-xs flex items-center gap-1 ${cfg.color}`}>
+        <Icon className={`h-3 w-3 ${st === "em_andamento" ? "animate-spin" : ""}`} />
+        {cfg.label}
+      </Badge>
+    );
+  })();
 
-  const handleTestDashboard = async () => {
-    if (!slug) return;
-    const cleanSlug = slug.trim();
-    
-    try {
-      const { data, error } = await supabase.rpc('get_client_by_slug', { p_slug: cleanSlug });
-      
-      if (error) throw error;
-      
-      if (data && data.length > 0) {
-        toast.success("Link validado! O dashboard está acessível.", {
-          description: `Identificado: ${data[0].name} (${data[0].company})`,
-          action: {
-            label: "Abrir",
-            onClick: () => window.open(`/public/dashboard/${cleanSlug}`, "_blank")
-          }
-        });
-      } else {
-        toast.error("Dashboard não encontrado no banco de dados.", {
-          description: "Certifique-se de que você clicou em SALVAR antes de testar."
-        });
-      }
-    } catch (err: any) {
-      console.error("[Test] Erro ao validar slug:", err);
-      toast.error("Erro ao validar link. Verifique o console.");
+  const activationDetail = (() => {
+    const st = c8AccessInfo.activationStatus;
+    if (!st || !c8AccessInfo.hasAccess) return undefined;
+    const detail = ACTIVATION_CONFIG[st].detail;
+    if (st === "ativo" && c8AccessInfo.activatedAt) {
+      return `Ativado ${formatDistanceToNow(new Date(c8AccessInfo.activatedAt), { addSuffix: true, locale: ptBR })}`;
     }
-  };
-
-  const handleOpenConnect = (p: 'meta' | 'google') => {
-    setPlatform(p);
-    setModalOpen(true);
-  };
-
-  const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Tem certeza que deseja remover a integração com ${name}?`)) return;
-    try {
-      await remove.mutateAsync(id);
-      toast.success(`Integração com ${name} removida.`);
-    } catch (error) {
-      toast.error("Erro ao remover integração");
-    }
-  };
-
-  const metaIntegration = integrations.find(i => i.platform === 'meta');
-  const googleIntegration = integrations.find(i => i.platform === 'google');
+    return detail;
+  })();
 
   return (
-    <div className="space-y-8">
-      {/* Dashboard Externo */}
-      <div className="space-y-6">
-        <div>
-          <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-            <Globe className="h-5 w-5 text-primary" />
-            Dashboard Externo do Cliente
-          </h3>
-          <p className="text-sm text-slate-500">Configure o acesso exclusivo para o seu cliente visualizar os resultados.</p>
-        </div>
-
-        <div className="p-6 border rounded-xl bg-slate-50/50 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-2">
-              <Label className="text-xs font-black uppercase tracking-widest text-slate-500">Slug da URL (Identificador Único)</Label>
-              <div className="flex items-center gap-2">
-                <Input 
-                  value={slug} 
-                  onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-                  placeholder="ex: cliente-abc-2026"
-                  className="bg-white"
-                />
-                <Button size="icon" variant="outline" onClick={copyUrl} disabled={!slug} title="Copiar URL">
-                  {copied ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
-                </Button>
-                <Button size="icon" variant="outline" onClick={handleTestDashboard} disabled={!slug} title="Testar Acesso">
-                  <ExternalLink className="h-4 w-4 text-primary" />
-                </Button>
-              </div>
-              <p className="text-[10px] text-muted-foreground italic">Este slug é preenchido automaticamente com o nome da empresa.</p>
-            </div>
-
-            <div className="space-y-2">
-              <Label className="text-xs font-black uppercase tracking-widest text-slate-500">Acesso por Senha</Label>
-              <div className="flex items-center gap-2">
-                <div className="relative flex-1">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                  <Input 
-                    type="text"
-                    value={password ? "••••••••" : "Nenhuma senha gerada"}
-                    readOnly
-                    className="bg-slate-100 pl-10 cursor-not-allowed"
-                  />
-                </div>
-                <Button 
-                  onClick={handleGenerateTempPassword} 
-                  disabled={generatingPassword}
-                  variant="secondary"
-                  className="gap-2"
-                >
-                  {generatingPassword ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
-                  Gerar Senha
-                </Button>
-              </div>
-              <p className="text-[10px] text-muted-foreground italic">Gera uma senha temporária e envia para o e-mail do cliente.</p>
-            </div>
-          </div>
-
-          <div className="space-y-3 pt-4 border-t">
-            <Label className="text-xs font-black uppercase tracking-widest text-slate-500">Módulos do Dashboard</Label>
-            <p className="text-[11px] text-muted-foreground">Selecione quais dashboards estarão disponíveis para o cliente.</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {/* Performance */}
-              <button
-                type="button"
-                onClick={() => setDashPerformance(v => !v)}
-                className={`flex items-center gap-3 p-4 rounded-xl border-2 transition-all text-left ${
-                  dashPerformance
-                    ? "border-primary bg-primary/5"
-                    : "border-slate-200 bg-white hover:border-slate-300"
-                }`}
-              >
-                <div className={`h-9 w-9 rounded-lg flex items-center justify-center shrink-0 ${dashPerformance ? "bg-primary text-white" : "bg-slate-100 text-slate-400"}`}>
-                  <BarChart3 className="h-4 w-4" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-bold ${dashPerformance ? "text-primary" : "text-slate-600"}`}>Dashboard de Performance</p>
-                  <p className="text-[10px] text-muted-foreground">Métricas de campanhas e resultados</p>
-                </div>
-                <div className={`h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 ${dashPerformance ? "border-primary bg-primary" : "border-slate-300"}`}>
-                  {dashPerformance && <Check className="h-3 w-3 text-white" />}
-                </div>
-              </button>
-
-              {/* Atendimento */}
-              <button
-                type="button"
-                onClick={() => setDashAtendimento(v => !v)}
-                className={`flex items-center gap-3 p-4 rounded-xl border-2 transition-all text-left ${
-                  dashAtendimento
-                    ? "border-emerald-500 bg-emerald-50"
-                    : "border-slate-200 bg-white hover:border-slate-300"
-                }`}
-              >
-                <div className={`h-9 w-9 rounded-lg flex items-center justify-center shrink-0 ${dashAtendimento ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-400"}`}>
-                  <MessageCircle className="h-4 w-4" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-bold ${dashAtendimento ? "text-emerald-700" : "text-slate-600"}`}>Dashboard de Atendimento</p>
-                  <p className="text-[10px] text-muted-foreground">KPIs de conversas automatizadas</p>
-                </div>
-                <div className={`h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 ${dashAtendimento ? "border-emerald-500 bg-emerald-500" : "border-slate-300"}`}>
-                  {dashAtendimento && <Check className="h-3 w-3 text-white" />}
-                </div>
-              </button>
-            </div>
-          </div>
-
-          {/* Seção Conteúdo IA */}
-          <div className="space-y-4 pt-4 border-t">
-            <div className="flex items-center justify-between">
-              <div>
-                <Label className="text-xs font-black uppercase tracking-widest text-slate-500">Módulo Conteúdo IA</Label>
-                <p className="text-[11px] text-muted-foreground mt-0.5">Permite que o cliente gerencie agenda, promoções, eventos e avisos pelo dashboard.</p>
-              </div>
-            </div>
-
-            {/* Toggle show_ia_content */}
-            <button
-              type="button"
-              onClick={() => setShowIaContent(v => !v)}
-              className={`flex items-center gap-3 p-4 rounded-xl border-2 transition-all text-left w-full ${
-                showIaContent ? "border-violet-500 bg-violet-50" : "border-slate-200 bg-white hover:border-slate-300"
-              }`}
-            >
-              <div className={`h-9 w-9 rounded-lg flex items-center justify-center shrink-0 ${showIaContent ? "bg-violet-500 text-white" : "bg-slate-100 text-slate-400"}`}>
-                <Brain className="h-4 w-4" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className={`text-sm font-bold ${showIaContent ? "text-violet-700" : "text-slate-600"}`}>Conteúdo IA</p>
-                <p className="text-[10px] text-muted-foreground">Agenda, promoções, eventos, avisos e configurações</p>
-              </div>
-              <div className={`h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 ${showIaContent ? "border-violet-500 bg-violet-500" : "border-slate-300"}`}>
-                {showIaContent && <Check className="h-3 w-3 text-white" />}
-              </div>
-            </button>
-
-            {/* Credenciais do Supabase (visíveis quando showIaContent = true) */}
-            {showIaContent && (
-              <div className="space-y-3 p-4 rounded-xl bg-violet-50/50 border border-violet-200">
-                <p className="text-xs font-bold text-violet-700 uppercase tracking-widest">Credenciais do Supabase do Cliente</p>
-
-                <div className="space-y-2">
-                  <Label className="text-xs font-semibold text-slate-600">URL do Supabase</Label>
-                  <Input
-                    value={clientSupabaseUrl}
-                    onChange={e => setClientSupabaseUrl(e.target.value)}
-                    placeholder="https://xxxxxxxxxxxx.supabase.co"
-                    className="bg-white text-sm"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="text-xs font-semibold text-slate-600">Chave Anon (anon key)</Label>
-                  <Input
-                    type="password"
-                    value={clientSupabaseKey}
-                    onChange={e => setClientSupabaseKey(e.target.value)}
-                    placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                    className="bg-white text-sm"
-                  />
-                </div>
-
-                {/* Botão Testar Conexão */}
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={testingConnection || !clientSupabaseUrl.trim() || !clientSupabaseKey.trim()}
-                  onClick={async () => {
-                    setTestingConnection(true);
-                    try {
-                      const testClient = createClientSupabase(clientSupabaseUrl.trim(), clientSupabaseKey.trim());
-                      const { error } = await testClient.from('ai_settings').select('id').limit(1);
-                      if (error) throw error;
-                      toast.success("Conexão estabelecida com sucesso!");
-                    } catch (err: any) {
-                      toast.error(`Falha na conexão: ${err.message}`);
-                    } finally {
-                      setTestingConnection(false);
-                    }
-                  }}
-                  className="gap-2"
-                >
-                  {testingConnection ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wifi className="h-3.5 w-3.5" />}
-                  Testar Conexão
-                </Button>
-
-                {/* SQL de Migration */}
-                <div className="space-y-2">
-                  <button
-                    type="button"
-                    onClick={() => setMigrationSqlOpen(v => !v)}
-                    className="flex items-center gap-2 text-xs font-semibold text-violet-700 hover:text-violet-900 transition-colors"
-                  >
-                    {migrationSqlOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                    Ver SQL de Migration (executar no Supabase do cliente)
-                  </button>
-                  {migrationSqlOpen && (
-                    <div className="relative">
-                      <pre className="text-[10px] bg-slate-900 text-slate-300 p-3 rounded-lg overflow-auto max-h-48 border border-slate-700 font-mono leading-relaxed">
-                        {MIGRATION_SQL}
-                      </pre>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="absolute top-2 right-2 h-6 text-[10px] text-slate-400 hover:text-white"
-                        onClick={() => {
-                          navigator.clipboard.writeText(MIGRATION_SQL);
-                          setMigrationSqlCopied(true);
-                          toast.success("SQL copiado!");
-                          setTimeout(() => setMigrationSqlCopied(false), 2000);
-                        }}
-                      >
-                        {migrationSqlCopied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="flex items-center justify-between pt-4 border-t">
-            {slug && (
-              <Button variant="link" className="text-primary gap-2 h-auto p-0" asChild>
-                <a href={`/public/dashboard/${slug}`} target="_blank" rel="noreferrer">
-                  <ExternalLink className="h-4 w-4" />
-                  Visualizar Dashboard como Cliente
-                </a>
-              </Button>
-            )}
-            <Button onClick={handleSaveDashboard} disabled={savingDashboard}>
-              {savingDashboard && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Salvar Configurações de Acesso
-            </Button>
-          </div>
-        </div>
+    <div className="space-y-3">
+      <div className="mb-4">
+        <h3 className="text-base font-semibold text-slate-800">Status das Integrações</h3>
+        <p className="text-sm text-slate-500 mt-0.5">
+          Todas as configurações são gerenciadas no módulo C8 Control.
+        </p>
       </div>
 
-      <div className="border-t pt-8">
-        <div>
-          <h3 className="text-lg font-bold text-slate-800">Integrações de Marketing</h3>
-          <p className="text-sm text-slate-500">Vincule as contas de anúncios do cliente para buscar métricas automáticas.</p>
-        </div>
+      {/* C8 Control */}
+      <StatusIndicator
+        active={c8AccessInfo.hasAccess}
+        activeLabel="C8 Control habilitado"
+        inactiveLabel="C8 Control não habilitado"
+        reason={c8AccessInfo.reason}
+        detail={
+          c8AccessInfo.hasAccess
+            ? activationDetail
+            : c8AccessInfo.contracts.length > 0
+              ? `Contratos: ${c8AccessInfo.contracts.join(", ")}`
+              : "Para liberar, adicione um contrato de assessoria, consultoria ou Agente IA."
+        }
+        badge={activationBadge}
+        actionLabel={
+          c8AccessInfo.activationStatus === "pendente" || c8AccessInfo.activationStatus === "falhou"
+            ? "Ativar agora"
+            : "Gerenciar C8 Control"
+        }
+        onAction={goToC8Control}
+      />
 
-        <div className="grid grid-cols-1 gap-4 mt-6">
-          {/* Meta Ads */}
-          <div className="p-4 border rounded-xl flex items-center justify-between bg-white shadow-sm group">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-lg">M</div>
-              <div>
-                <p className="font-bold text-slate-800">Meta Ads (Facebook/Instagram)</p>
-                <p className="text-sm text-slate-500">
-                  {metaIntegration ? `ID: ${metaIntegration.account_id}` : "Não conectado"}
-                </p>
-                {metaIntegration && (
-                  <div className="mt-1">
-                    <SyncStatusBadge
-                      status={metaIntegration.sync_status}
-                      lastSyncAt={metaIntegration.last_sync_at}
-                      records={metaIntegration.last_sync_records}
-                      error={metaIntegration.sync_error}
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {metaIntegration && (
-                <>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-blue-600 hover:text-blue-700 gap-1"
-                    disabled={triggerSync.isPending || metaIntegration.sync_status === 'syncing'}
-                    onClick={() => {
-                      triggerSync.mutate(metaIntegration.id, {
-                        onSuccess: () => toast.success("Sincronização iniciada!"),
-                        onError: (e) => toast.error(`Erro: ${(e as Error).message}`),
-                      });
-                    }}
-                    title="Sincronizar agora"
-                  >
-                    {triggerSync.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5" />}
-                    Sync
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-slate-400 hover:text-red-500"
-                    onClick={() => handleDelete(metaIntegration.id, 'Meta Ads')}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </>
-              )}
-              <Button
-                variant={metaIntegration ? "outline" : "default"}
-                size="sm"
-                onClick={() => handleOpenConnect('meta')}
-              >
-                {metaIntegration ? "Editar" : "Conectar Conta"}
-              </Button>
-            </div>
-          </div>
+      {/* Meta Ads */}
+      <StatusIndicator
+        active={!!metaIntegration}
+        activeLabel={`Meta Ads conectado — ID: ${metaIntegration?.account_id ?? ""}`}
+        inactiveLabel="Meta Ads não conectado"
+        reason={syncLabel(metaIntegration)}
+        actionLabel={metaIntegration ? "Ver no C8 Control" : "Configurar"}
+        onAction={goToC8Control}
+      />
 
-          {/* Google Ads */}
-          <div className="p-4 border rounded-xl flex items-center justify-between bg-white shadow-sm group">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-lg bg-amber-500 flex items-center justify-center text-white font-bold text-lg">G</div>
-              <div>
-                <p className="font-bold text-slate-800">Google Ads</p>
-                <p className="text-sm text-slate-500">
-                  {googleIntegration ? `ID: ${googleIntegration.account_id}` : "Não conectado"}
-                </p>
-                {googleIntegration && (
-                  <div className="mt-1">
-                    <SyncStatusBadge
-                      status={googleIntegration.sync_status}
-                      lastSyncAt={googleIntegration.last_sync_at}
-                      records={googleIntegration.last_sync_records}
-                      error={googleIntegration.sync_error}
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {googleIntegration && (
-                <>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-amber-600 hover:text-amber-700 gap-1"
-                    disabled={triggerSync.isPending || googleIntegration.sync_status === 'syncing'}
-                    onClick={() => {
-                      triggerSync.mutate(googleIntegration.id, {
-                        onSuccess: () => toast.success("Sincronização iniciada!"),
-                        onError: (e) => toast.error(`Erro: ${(e as Error).message}`),
-                      });
-                    }}
-                    title="Sincronizar agora"
-                  >
-                    {triggerSync.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5" />}
-                    Sync
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-slate-400 hover:text-red-500"
-                    onClick={() => handleDelete(googleIntegration.id, 'Google Ads')}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </>
-              )}
-              <Button
-                variant={googleIntegration ? "outline" : "default"}
-                size="sm"
-                onClick={() => handleOpenConnect('google')}
-              >
-                {googleIntegration ? "Editar" : "Conectar Conta"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <AdIntegrationDialog 
-        open={modalOpen}
-        onOpenChange={setModalOpen}
-        organizationId={organizationId}
-        clientId={clientId}
-        platform={platform}
-        existingIntegration={integrations.find(i => i.platform === platform)}
+      {/* Google Ads */}
+      <StatusIndicator
+        active={!!googleIntegration}
+        activeLabel={`Google Ads conectado — ID: ${googleIntegration?.account_id ?? ""}`}
+        inactiveLabel="Google Ads não conectado"
+        reason={syncLabel(googleIntegration)}
+        actionLabel={googleIntegration ? "Ver no C8 Control" : "Configurar"}
+        onAction={goToC8Control}
       />
     </div>
   );

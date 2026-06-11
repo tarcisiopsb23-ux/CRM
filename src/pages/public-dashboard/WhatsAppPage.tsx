@@ -1,29 +1,22 @@
-import { useCallback, useEffect, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Wifi, WifiOff, Loader2, QrCode, RefreshCcw,
   MessageCircle, Bot, Users, AlertCircle, CheckCircle2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useClientAuth } from "@/hooks/useClientAuth";
 import { useDynamicClient } from "@/hooks/useDynamicClient";
+import { useWhatsAppSession } from "@/hooks/useWhatsAppSession";
 import { PageHeader } from "./components/PageHeader";
 import { CredentialsErrorState } from "./components/CredentialsErrorState";
 
-interface WhatsAppSession {
-  id: string;
-  phone_number: string | null;
-  session_status: "connected" | "disconnected" | "connecting" | "qr_pending";
-  connected_at: string | null;
-}
-
-const STATUS_CONFIG = {
+const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: React.ElementType }> = {
   connected:    { label: "Conectado",     color: "text-emerald-400", bg: "bg-emerald-500/10", icon: Wifi },
   disconnected: { label: "Desconectado",  color: "text-muted-foreground", bg: "bg-muted/20", icon: WifiOff },
   connecting:   { label: "Conectando...", color: "text-amber-400", bg: "bg-amber-500/10", icon: Loader2 },
@@ -35,28 +28,12 @@ export function WhatsAppPage() {
   const { auth } = useClientAuth();
   const clientId = auth?.user?.client_id ?? "";
   const qc = useQueryClient();
-  const [qrCode, setQrCode] = useState<string | null>(null);
-  const [qrExpiry, setQrExpiry] = useState(0);
   const [botActive, setBotActive] = useState<boolean | null>(null);
 
   if (!dc) return <CredentialsErrorState />;
 
-  // ── Sessão WA ───────────────────────────────────────────────────────────────
-  const { data: session, isLoading } = useQuery<WhatsAppSession | null>({
-    queryKey: ["crm_whatsapp_session", clientId],
-    queryFn: async () => {
-      const { data } = await dc.from("crm_whatsapp_sessions")
-        .select("*").limit(1).maybeSingle();
-      return data as WhatsAppSession | null;
-    },
-    enabled: !!dc && !!clientId,
-    staleTime: 10_000,
-    refetchInterval: (query) => {
-      const data = query.state.data as WhatsAppSession | null;
-      return data?.session_status === "connecting" ||
-        data?.session_status === "qr_pending" ? 5_000 : false;
-    },
-  });
+  // ── Sessão WA via hook dedicado ──────────────────────────────────────────
+  const { session, status, isLoading, requestQr, disconnect } = useWhatsAppSession(clientId);
 
   // ── Estado do Bot ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -83,27 +60,6 @@ export function WhatsAppPage() {
     onError: () => toast.error("Erro ao alterar estado do bot."),
   });
 
-  // ── Solicitar QR Code (chama backend Evolution API via Edge Function) ──────
-  const requestQrMutation = useMutation({
-    mutationFn: async () => {
-      // Atualiza status para qr_pending no Banco B
-      const { data: existing } = await dc.from("crm_whatsapp_sessions")
-        .select("id").limit(1).maybeSingle();
-      const payload = { client_id: clientId, session_status: "qr_pending" as const };
-      if (existing?.id) {
-        await dc.from("crm_whatsapp_sessions").update(payload).eq("id", existing.id);
-      } else {
-        await dc.from("crm_whatsapp_sessions").insert(payload);
-      }
-      qc.invalidateQueries({ queryKey: ["crm_whatsapp_session", clientId] });
-
-      // Nota: O QR code real vem do webhook da Evolution API → n8n → Banco B
-      // Aqui apenas simulamos a solicitação; o QR chegará via polling
-      toast.info("Solicitação enviada. Aguarde o QR Code...");
-    },
-  });
-
-  const status = session?.session_status ?? "disconnected";
   const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.disconnected;
   const StatusIcon = cfg.icon;
 
@@ -149,11 +105,11 @@ export function WhatsAppPage() {
           <div className="flex flex-wrap gap-2">
             {(status === "disconnected") && (
               <Button
-                onClick={() => requestQrMutation.mutate()}
-                disabled={requestQrMutation.isPending}
+                onClick={() => { requestQr.mutate(); toast.info("Solicitação enviada. Aguarde o QR Code..."); }}
+                disabled={requestQr.isPending}
                 className="bg-green-600 hover:bg-green-700 text-white gap-2"
               >
-                {requestQrMutation.isPending
+                {requestQr.isPending
                   ? <Loader2 className="h-4 w-4 animate-spin" />
                   : <QrCode className="h-4 w-4" />}
                 Conectar WhatsApp
@@ -166,8 +122,9 @@ export function WhatsAppPage() {
                   Abra o WhatsApp no celular → Dispositivos Vinculados → Vincular Dispositivo e escaneie o QR Code.
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => requestQrMutation.mutate()}
-                    disabled={requestQrMutation.isPending} className="gap-2 border-border">
+                  <Button variant="outline" size="sm"
+                    onClick={() => { requestQr.mutate(); toast.info("Novo QR solicitado. Aguarde..."); }}
+                    disabled={requestQr.isPending} className="gap-2 border-border">
                     <RefreshCcw className="h-3.5 w-3.5" /> Solicitar novo QR
                   </Button>
                 </div>
@@ -178,12 +135,11 @@ export function WhatsAppPage() {
                 variant="outline"
                 size="sm"
                 className="border-red-500/40 text-red-400 hover:bg-red-500/10"
-                onClick={async () => {
-                  if (!session?.id) return;
-                  await dc.from("crm_whatsapp_sessions").update({ session_status: "disconnected" }).eq("id", session.id);
-                  qc.invalidateQueries({ queryKey: ["crm_whatsapp_session", clientId] });
-                  toast.success("Desconectado.");
-                }}
+                onClick={() => disconnect.mutate(undefined, {
+                  onSuccess: () => toast.success("Desconectado."),
+                  onError: () => toast.error("Erro ao desconectar."),
+                })}
+                disabled={disconnect.isPending}
               >
                 <WifiOff className="h-3.5 w-3.5 mr-1.5" /> Desconectar
               </Button>

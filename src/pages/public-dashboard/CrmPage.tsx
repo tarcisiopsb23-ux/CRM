@@ -123,7 +123,7 @@ export function CrmPage() {
   const userRole = auth?.user?.role ?? "viewer";
   const canEdit = ["owner", "admin", "manager", "member"].includes(userRole);
 
-  const { data: contacts = [], isLoading, create, update, remove } = useCrmContacts(clientId);
+  const { data: contacts = [], isLoading, create, update, remove, importBatch } = useCrmContacts(clientId);
 
   const [search, setSearch]       = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -167,9 +167,8 @@ export function CrmPage() {
     const valid = importRows.filter(r => !r._error);
     if (!valid.length || !clientId) return;
     try {
-    const rows = valid.map(({ _error: _e, ...r }) => ({ ...r, client_id: clientId }));
-      await create.mutateAsync(rows[0] as CrmContactInput & { client_id: string });
-      // batch: resto via importBatch se disponível
+      const rows = valid.map(({ _error: _e, ...r }) => ({ ...r, client_id: clientId }));
+      await importBatch.mutateAsync(rows as Array<CrmContactInput & { client_id: string }>);
       toast.success(`${valid.length} contato(s) importado(s)!`);
       setImportOpen(false); setImportRows([]); setImportFileName("");
     } catch (e: any) { toast.error(e.message); }
@@ -408,9 +407,9 @@ export function CrmPage() {
             <Button variant="ghost" onClick={() => { setImportOpen(false); setImportRows([]); }}>Cancelar</Button>
             <Button
               onClick={handleImport}
-              disabled={create.isPending || importRows.filter(r => !r._error).length === 0}
+              disabled={importBatch.isPending || importRows.filter(r => !r._error).length === 0}
               className="bg-gradient-ember text-primary-foreground shadow-glow">
-              {create.isPending
+              {importBatch.isPending
                 ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Importando...</>
                 : <><Upload className="h-4 w-4 mr-2" />Importar {importRows.filter(r => !r._error).length} contato(s)</>
               }

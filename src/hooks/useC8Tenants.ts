@@ -19,6 +19,17 @@ export interface C8Tenant {
   active_users_count: number;
   total_users_count: number;
   c8_control_enabled: boolean;
+  // Campos do Banco B
+  client_supabase_url: string | null;
+  client_supabase_anon_key: string | null;
+  client_supabase_service_key_set: boolean;
+  client_supabase_email_set: boolean;
+  client_supabase_password_set: boolean;
+  dashboard_slug: string | null;
+  // Acesso gratuito
+  c8_free_access: boolean;
+  free_access_until: string | null;
+  free_access_reason: string | null;
 }
 
 export function useC8Tenants(organizationId: string | undefined) {
@@ -43,11 +54,20 @@ export function useC8Tenants(organizationId: string | undefined) {
           notes,
           suspended_at,
           blocked_reason,
+          c8_free_access,
+          free_access_until,
+          free_access_reason,
           clients!inner (
             id,
             name,
             c8_control_enabled,
-            organization_id
+            organization_id,
+            client_supabase_url,
+            client_supabase_anon_key,
+            client_supabase_service_key_set,
+            client_supabase_email_set,
+            client_supabase_password_set,
+            dashboard_slug
           )
         `)
         .eq("clients.organization_id", organizationId)
@@ -79,10 +99,21 @@ export function useC8Tenants(organizationId: string | undefined) {
       }
 
       return plans.map((p) => {
-        const client = p.clients as unknown as { id: string; name: string; c8_control_enabled: boolean };
+        const client = p.clients as unknown as {
+          id: string;
+          name: string;
+          c8_control_enabled: boolean;
+          client_supabase_url: string | null;
+          client_supabase_anon_key: string | null;
+          client_supabase_service_key_set: boolean;
+          client_supabase_email_set: boolean;
+          client_supabase_password_set: boolean;
+          dashboard_slug: string | null;
+        };
 
         const activeCount = localActiveMap[p.client_id] ?? 0;
         const totalCount = localTotalMap[p.client_id] ?? 0;
+        const planAny = p as any;
 
         return {
           client_id: p.client_id,
@@ -101,6 +132,17 @@ export function useC8Tenants(organizationId: string | undefined) {
           active_users_count: activeCount,
           total_users_count: totalCount,
           c8_control_enabled: client?.c8_control_enabled ?? true,
+          // Campos do Banco B
+          client_supabase_url: client?.client_supabase_url ?? null,
+          client_supabase_anon_key: client?.client_supabase_anon_key ?? null,
+          client_supabase_service_key_set: client?.client_supabase_service_key_set ?? false,
+          client_supabase_email_set: client?.client_supabase_email_set ?? false,
+          client_supabase_password_set: client?.client_supabase_password_set ?? false,
+          dashboard_slug: client?.dashboard_slug ?? null,
+          // Acesso gratuito
+          c8_free_access: planAny.c8_free_access ?? false,
+          free_access_until: planAny.free_access_until ?? null,
+          free_access_reason: planAny.free_access_reason ?? null,
         };
       });
     },

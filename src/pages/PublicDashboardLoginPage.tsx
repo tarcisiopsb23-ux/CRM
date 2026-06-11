@@ -75,6 +75,7 @@ interface ClientRow {
   conversion_metrics?: { lead_fields?: string[]; sale_fields?: string[] } | null;
   dashboard_kpis?: string[] | null;
   geral_dashboard_cards?: string[] | null;
+  modules_config?: Record<string, unknown> | null;
 }
 
 // ─── Componente ───────────────────────────────────────────────────────────────
@@ -134,6 +135,44 @@ export function PublicDashboardLoginPage() {
     incrementRateLimit(slug);
 
     try {
+      // ── Tenta autenticar via Edge Function (rate limiting server-side) ──────
+      // A edge function client-dashboard-auth valida slug, aplica rate limit por IP
+      // e retorna a session JWT sem expor a anon_key do Banco B.
+      const edgeFnUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/client-dashboard-auth`;
+      const anonKey   = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
+
+      let session: import("@supabase/supabase-js").Session | null = null;
+      let userId: string | null = null;
+      let clientRow: ClientRow | null = null;
+
+      try {
+        const resp = await fetch(edgeFnUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey":        anonKey,
+            "Authorization": `Bearer ${anonKey}`,
+          },
+          body: JSON.stringify({ slug: slug.trim(), email: email.trim().toLowerCase(), password }),
+        });
+
+        const data = await resp.json();
+
+        if (resp.status === 429) {
+          setError(data.error ?? "Muitas tentativas. Aguarde antes de tentar novamente.");
+          return;
+        }
+
+        if (resp.ok && data.session) {
+          session = data.session as import("@supabase/supabase-js").Session;
+          userId  = data.user?.id ?? null;
+        }
+        // Se a edge function falhou por outro motivo, cai no fluxo direto abaixo
+      } catch {
+        // Edge function indisponível — usa fluxo direto
+      }
+
+      // ── Fluxo direto (fallback ou quando edge function não usada) ─────────
       // 1. Busca dados do cliente no Banco A
       const { data: clients, error: fetchError } = await supabase
         .rpc("get_client_by_slug", { p_slug: slug.trim() });
@@ -143,39 +182,58 @@ export function PublicDashboardLoginPage() {
         return;
       }
 
-      const client = clients[0] as ClientRow;
+      clientRow = clients[0] as ClientRow;
 
-      if (!client.client_supabase_url || !client.client_supabase_anon_key) {
+      if (!clientRow.client_supabase_url || !clientRow.client_supabase_anon_key) {
         setError("Este dashboard ainda não foi configurado. Contate o administrador.");
         return;
       }
 
-      // 2. Autentica no Banco B do cliente
-      const bankB = createClientSupabase(
-        client.client_supabase_url,
-        client.client_supabase_anon_key
-      );
+      // 2. Se não autenticou via edge function, autentica diretamente no Banco B
+      if (!session || !userId) {
+        const bankB = createClientSupabase(
+          clientRow.client_supabase_url,
+          clientRow.client_supabase_anon_key
+        );
 
-      const { data: authData, error: authError } = await bankB.auth.signInWithPassword({
-        email: email.trim().toLowerCase(),
-        password,
-      });
+        const { data: authData, error: authError } = await bankB.auth.signInWithPassword({
+          email: email.trim().toLowerCase(),
+          password,
+        });
 
-      if (authError || !authData.session) {
-        setError("E-mail ou senha inválidos.");
-        return;
+        if (authError || !authData.session) {
+          setError("E-mail ou senha inválidos.");
+          return;
+        }
+
+        session = authData.session;
+        userId  = authData.user.id;
       }
 
-      // 3. Carrega role do usuário no Banco B
-      const { data: userData, error: userError } = await bankB
+      // 3. Carrega role do usuário no Banco B (usando a session obtida)
+      const bankBForUser = createClientSupabase(
+        clientRow.client_supabase_url,
+        clientRow.client_supabase_anon_key
+      );
+      await bankBForUser.auth.setSession({
+        access_token:  session.access_token,
+        refresh_token: session.refresh_token,
+      });
+
+      const { data: userData, error: userError } = await bankBForUser
         .from("crm_users")
         .select("id, email, full_name, role, client_id, avatar_url")
-        .eq("id", authData.user.id)
+        .eq("id", userId)
         .eq("active", true)
         .maybeSingle();
 
       if (userError || !userData) {
-        await bankB.auth.signOut();
+        // Tenta fazer signOut no banco B para limpar a sessão
+        const bankBCleanup = createClientSupabase(
+          clientRow.client_supabase_url,
+          clientRow.client_supabase_anon_key
+        );
+        await bankBCleanup.auth.signOut();
         setError("Usuário não encontrado ou sem acesso. Contate o administrador.");
         return;
       }
@@ -193,31 +251,32 @@ export function PublicDashboardLoginPage() {
       };
 
       const auth: ClientAuth = {
-        id: client.id,
-        organization_id: client.organization_id,
-        name: client.name,
-        company: client.company ?? null,
-        favicon_url: client.favicon_url ?? null,
+        id: clientRow.id,
+        organization_id: clientRow.organization_id,
+        name: clientRow.name,
+        company: clientRow.company ?? null,
+        favicon_url: clientRow.favicon_url ?? null,
         authenticated: true,
-        show_ia_content: client.show_ia_content ?? false,
+        show_ia_content: clientRow.show_ia_content ?? false,
         // anon_key NÃO é persistida — só usada na sessão em memória
-        client_supabase_url: client.client_supabase_url,
+        client_supabase_url: clientRow.client_supabase_url,
         client_supabase_anon_key: null,
+        modules_config: (clientRow.modules_config as import("@/contexts/ClientAuthContext").ModulesConfig) ?? undefined,
         metadata: {
-          dashboard_performance: client.dashboard_performance ?? true,
-          dashboard_atendimento: client.dashboard_atendimento ?? false,
-          ...(client.conversion_metrics && Object.keys(client.conversion_metrics).length > 0
-            ? { conversion_metrics: client.conversion_metrics }
+          dashboard_performance: clientRow.dashboard_performance ?? true,
+          dashboard_atendimento: clientRow.dashboard_atendimento ?? false,
+          ...(clientRow.conversion_metrics && Object.keys(clientRow.conversion_metrics).length > 0
+            ? { conversion_metrics: clientRow.conversion_metrics }
             : {}),
-          ...(Array.isArray(client.dashboard_kpis) && client.dashboard_kpis.length > 0
-            ? { dashboard_kpis: client.dashboard_kpis }
+          ...(Array.isArray(clientRow.dashboard_kpis) && clientRow.dashboard_kpis.length > 0
+            ? { dashboard_kpis: clientRow.dashboard_kpis }
             : {}),
-          ...(Array.isArray(client.geral_dashboard_cards) && client.geral_dashboard_cards.length > 0
-            ? { geral_dashboard_cards: client.geral_dashboard_cards }
+          ...(Array.isArray(clientRow.geral_dashboard_cards) && clientRow.geral_dashboard_cards.length > 0
+            ? { geral_dashboard_cards: clientRow.geral_dashboard_cards }
             : {}),
         },
         user: dynamicUser,
-        session: authData.session,
+        session: session,
       };
 
       // Salva no sessionStorage (sem anon_key)
@@ -228,7 +287,7 @@ export function PublicDashboardLoginPage() {
 
       // Guarda a anon_key apenas em memória via sessionStorage temporário
       // para o useDynamicClient usar nesta sessão
-      sessionStorage.setItem(`client_anon_${slug}`, client.client_supabase_anon_key);
+      sessionStorage.setItem(`client_anon_${slug}`, clientRow.client_supabase_anon_key!);
 
       navigate(`/public/dashboard/${slug}`, { replace: true });
     } catch (err) {

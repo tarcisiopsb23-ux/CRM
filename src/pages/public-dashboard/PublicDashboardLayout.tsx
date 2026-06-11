@@ -8,17 +8,17 @@
  * - Mantém tema dark forçado e auto-logout por inatividade
  */
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Navigate, Outlet, useLocation, useParams } from "react-router-dom";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { ClientAuthProvider } from "@/contexts/ClientAuthContext";
 import { useClientAuth } from "@/hooks/useClientAuth";
+import { useDynamicClient } from "@/hooks/useDynamicClient";
 import { supabase } from "@/lib/supabase";
 import { PublicDashboardSidebar } from "./PublicDashboardSidebar";
 import { PublicDashboardHeader } from "./PublicDashboardHeader";
 import type { ClientAuth, ModulesConfig } from "@/contexts/ClientAuthContext";
 
-// ─── Permissões por role ──────────────────────────────────────────────────────
 
 type Role = "owner" | "admin" | "manager" | "member" | "viewer";
 
@@ -43,12 +43,13 @@ function hasRole(userRole: Role, requiredRole: Role): boolean {
 
 // ─── Rotas que exigem show_ia_content ─────────────────────────────────────────
 
-const IA_ROUTES = ["/agenda", "/promocoes", "/sugestoes", "/avisos"];
+const IA_ROUTES = ["/agenda", "/promocoes", "/sugestoes", "/avisos", "/eventos"];
 
 // ─── Inner Layout ─────────────────────────────────────────────────────────────
 
 function PublicDashboardLayoutInner({ slug }: { slug: string }) {
   const { auth, setAuth, logout } = useClientAuth();
+  const dc = useDynamicClient();
   const location = useLocation();
 
   // Força tema dark permanentemente

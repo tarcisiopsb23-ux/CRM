@@ -993,6 +993,24 @@ export function PerformancePage() {
                     </CardContent>
                   </Card>
                 )}
+                {/* Linha 5: Heatmap Eficiência Hora × Dia */}
+                {demo.heatmap.length > 0 && (
+                  <Card className="bg-[#1E293B] border-slate-800">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-bold text-slate-100">
+                        Eficiência por Hora × Dia da Semana
+                        {!demo.hasHourData && (
+                          <span className="ml-2 text-[10px] font-normal text-slate-500">
+                            (distribuição estimada — dados por hora não disponíveis)
+                          </span>
+                        )}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <HeatmapChart data={demo.heatmap} />
+                    </CardContent>
+                  </Card>
+                )}
               </div>
             )}
           </div>
@@ -1003,6 +1021,81 @@ export function PerformancePage() {
 }
 
 // ── Sub-componentes ──────────────────────────────────────────────────────────
+
+// Heatmap de eficiência por hora × dia da semana
+const DAYS_PT = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
+const HOURS = Array.from({ length: 24 }, (_, i) => i);
+
+function HeatmapChart({ data }: { data: { day: number; hour: number; value: number }[] }) {
+  if (!data.length) return null;
+
+  // Monta mapa day→hour→value
+  const map: Record<number, Record<number, number>> = {};
+  let maxVal = 0;
+  for (const d of data) {
+    if (!map[d.day]) map[d.day] = {};
+    map[d.day][d.hour] = d.value;
+    if (d.value > maxVal) maxVal = d.value;
+  }
+
+  // Descobre quais horas têm dados
+  const activeHours = HOURS.filter(h => data.some(d => d.hour === h));
+  if (!activeHours.length) return null;
+
+  function getColor(val: number): string {
+    if (maxVal === 0) return "bg-slate-800";
+    const ratio = val / maxVal;
+    if (ratio === 0)   return "bg-slate-800/40";
+    if (ratio < 0.25)  return "bg-[#2D8CC7]/20";
+    if (ratio < 0.5)   return "bg-[#2D8CC7]/50";
+    if (ratio < 0.75)  return "bg-[#2D8CC7]/75";
+    return "bg-[#2D8CC7]";
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <div className="min-w-[480px]">
+        {/* Header: horas */}
+        <div className="flex gap-0.5 mb-1 pl-8">
+          {activeHours.map(h => (
+            <div key={h} className="w-6 text-center text-[9px] text-slate-500 shrink-0">
+              {h === 0 ? "00" : h < 10 ? `0${h}` : h}
+            </div>
+          ))}
+        </div>
+        {/* Linhas: dias */}
+        {DAYS_PT.map((day, dayIdx) => (
+          <div key={dayIdx} className="flex items-center gap-0.5 mb-0.5">
+            <div className="w-7 text-[10px] text-slate-400 font-medium shrink-0">{day}</div>
+            {activeHours.map(h => {
+              const val = map[dayIdx]?.[h] ?? 0;
+              return (
+                <div
+                  key={h}
+                  className={`w-6 h-5 rounded-sm shrink-0 ${getColor(val)} transition-colors`}
+                  title={`${day} ${h}h: ${val.toLocaleString("pt-BR")} cliques`}
+                />
+              );
+            })}
+          </div>
+        ))}
+        {/* Legenda */}
+        <div className="flex items-center gap-2 mt-3 pl-8">
+          <span className="text-[10px] text-slate-500">Menos</span>
+          {[0, 0.25, 0.5, 0.75, 1].map((r, i) => {
+            const bg = r === 0 ? "bg-slate-800/40"
+              : r < 0.25 ? "bg-[#2D8CC7]/20"
+              : r < 0.5  ? "bg-[#2D8CC7]/50"
+              : r < 0.75 ? "bg-[#2D8CC7]/75"
+              : "bg-[#2D8CC7]";
+            return <div key={i} className={`w-4 h-4 rounded-sm ${bg}`} />;
+          })}
+          <span className="text-[10px] text-slate-500">Mais</span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function MetricCard({ label, value, icon, info, highlight = false }: any) {
   return (

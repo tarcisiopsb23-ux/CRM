@@ -1,10 +1,12 @@
 ﻿import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
   Loader2, Save, Building2, Plus, Trash2, ImagePlus, X,
   Link2, Copy, ExternalLink, Star, MessageCircle, Phone,
+  ChevronRight, Users, CreditCard, Puzzle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useDynamicClient } from "@/hooks/useDynamicClient";
+import { useClientAuth } from "@/hooks/useClientAuth";
 import { PageHeader } from "./components/PageHeader";
 import { CredentialsErrorState } from "./components/CredentialsErrorState";
 
@@ -417,8 +420,15 @@ function RedirectLinkGenerator() {
 
 export function ConfiguracoesPage() {
   const dc = useDynamicClient();
+  const { auth } = useClientAuth();
+  const { slug } = useParams<{ slug: string }>();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const form = useForm<FormValues>({ defaultValues });
+
+  const userRole  = auth?.user?.role ?? "viewer";
+  const isAdmin   = ["owner", "admin"].includes(userRole);
+  const isOwner   = userRole === "owner";
 
   const [hours, setHours] = useState<OpeningHoursStructured>(DEFAULT_HOURS);
   const [sidebarLogoUrl, setSidebarLogoUrl] = useState<string | null>(null);
@@ -506,6 +516,53 @@ export function ConfiguracoesPage() {
         title="Configurações"
         description="Informações do estabelecimento comunicadas aos clientes."
       />
+
+      {/* ── Links rápidos para sub-configurações (T-4.4) ── */}
+      {isAdmin && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {[
+            {
+              label: "Usuários e Permissões",
+              desc:  "Convidar usuários e gerenciar roles",
+              icon:  Users,
+              path:  `configuracoes/usuarios`,
+              show:  true,
+            },
+            {
+              label: "Pagamentos",
+              desc:  "Asaas e métodos de pagamento",
+              icon:  CreditCard,
+              path:  `configuracoes/pagamentos`,
+              show:  isOwner,
+            },
+            {
+              label: "Integrações",
+              desc:  "Pixels, UTM Builder e contas de anúncio",
+              icon:  Puzzle,
+              path:  `configuracoes/integracoes`,
+              show:  true,
+            },
+          ]
+            .filter(item => item.show)
+            .map(({ label, desc, icon: Icon, path }) => (
+              <button
+                key={path}
+                onClick={() => navigate(`/public/dashboard/${slug}/${path}`)}
+                className="flex items-center gap-3 rounded-xl border border-border bg-secondary/20 px-4 py-3 text-left hover:bg-secondary/40 transition-colors"
+              >
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                  <Icon className="h-4 w-4 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-foreground truncate">{label}</p>
+                  <p className="text-xs text-muted-foreground truncate">{desc}</p>
+                </div>
+                <ChevronRight className="h-4 w-4 text-muted-foreground ml-auto shrink-0" />
+              </button>
+            ))
+          }
+        </div>
+      )}
 
       <form onSubmit={handleSubmit}>
         <div className="flex flex-col gap-6">

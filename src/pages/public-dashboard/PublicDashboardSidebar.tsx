@@ -43,7 +43,7 @@ const IA_NAV = [
   { title: "Promoções",           url: "promocoes",     icon: Tag },
   { title: "Sugestões da Semana", url: "sugestoes",     icon: UtensilsCrossed },
   { title: "Avisos",              url: "avisos",        icon: Megaphone },
-  { title: "Configurações",       url: "configuracoes", icon: Settings },
+  { title: "Eventos",             url: "eventos",       icon: CalendarDays },
 ];
 
 const CONFIG_NAV = [

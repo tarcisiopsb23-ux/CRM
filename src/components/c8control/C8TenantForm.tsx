@@ -253,7 +253,7 @@ export function C8TenantForm({
           {planValueNum === 0 && (
             <div className="flex items-center gap-2 rounded-md bg-yellow-50 border border-yellow-200 px-3 py-2 text-xs text-yellow-800 mt-1">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              Cliente será criado sem contrato financeiro
+              Acesso gratuito — sem lançamentos financeiros e sem bloqueio por inadimplência
             </div>
           )}
         </div>

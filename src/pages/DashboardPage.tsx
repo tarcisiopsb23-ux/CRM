@@ -25,6 +25,13 @@ import {
   TabsList, 
   TabsTrigger 
 } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { 
   TrendingUp, TrendingDown, DollarSign, Users, Target, 
   Calendar, CheckSquare, Plus, ArrowRight, AlertTriangle,
@@ -39,11 +46,17 @@ import {
   DialogTitle, 
   DialogTrigger 
 } from "@/components/ui/dialog";
-import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, isWithinInterval, parseISO, subMonths, startOfDay, endOfDay } from "date-fns";
+import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, isWithinInterval, parseISO, startOfDay, endOfDay, addMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { logger } from "@/lib/logger";
 import { useNavigate } from "react-router-dom";
 import { useMemo, useState } from "react";
+import PeriodSelector from "@/components/filters/PeriodSelector";
+import {
+  PeriodOption,
+  getPeriodDateRange,
+  PERIOD_LABELS,
+} from "@/lib/periodHelpers";
 import { useFunnelStages } from "@/hooks/useFunnelStages";
 import {
   BarChart,
@@ -250,6 +263,8 @@ export function DashboardPage() {
   const { pending: pendingAuths } = usePendingAuthorizations();
   const pendingCount = pendingAuths.length;
   const navigate = useNavigate();
+  const [period, setPeriod] = useState<PeriodOption | 'custom'>("mes_atual");
+  const [selectedRange, setSelectedRange] = useState(() => getPeriodDateRange("mes_atual"));
 
   // Funil de Vendas
   const { stages: funnelStages, isLoading: funnelLoading } = useFunnelStages(organizationId);
@@ -566,38 +581,29 @@ export function DashboardPage() {
     const conversionRate = totalLeads > 0 ? (wonLeads / totalLeads) * 100 : 0;
     const lossRate = totalLeads > 0 ? (lostLeads / totalLeads) * 100 : 0;
 
-    // Contratos (Mês Atual)
-    const now = new Date();
-    const monthStart = startOfMonth(now);
-    const monthEnd = endOfMonth(now);
-
-    // wonLeadsMonth: leads que foram marcados como efetivados este mês
-    // Note: DashboardPage uses the raw leads list, so we approximate this 
-    // by checking leads in 'efetivados' stage that were created this month
-    // OR we could use useSalesAnalytics here too. But for simplicity and
-    // to match existing DashboardPage patterns:
+    // Contratos e leads no período selecionado
     const wonLeadsMonth = leads.filter(l => 
       l.etapa_kanban === 'efetivados' && 
       l.created_at && 
-      isWithinInterval(parseISO(l.created_at), { start: monthStart, end: monthEnd })
+      isWithinInterval(parseISO(l.created_at), { start: selectedRange.from, end: selectedRange.to })
     ).length;
 
     const leadsCreatedMonth = leads.filter((l) => {
       if (!l.created_at) return false;
       const d = parseISO(l.created_at);
-      return isWithinInterval(d, { start: monthStart, end: monthEnd });
+      return isWithinInterval(d, { start: selectedRange.from, end: selectedRange.to });
     }).length;
     
     const contractsClosedMonth = (clients as any[]).filter(c => 
       c.contract_status === 'ativo' && 
       c.contract_start && 
-      isWithinInterval(parseISO(c.contract_start), { start: monthStart, end: monthEnd })
+      isWithinInterval(parseISO(c.contract_start), { start: selectedRange.from, end: selectedRange.to })
     ).length;
 
     const contractsCancelledMonth = (clients as any[]).filter(c => 
       c.contract_status === 'cancelado' && 
       c.contract_end && 
-      isWithinInterval(parseISO(c.contract_end), { start: monthStart, end: monthEnd })
+      isWithinInterval(parseISO(c.contract_end), { start: selectedRange.from, end: selectedRange.to })
     ).length;
     
     // Projetos
@@ -636,20 +642,17 @@ export function DashboardPage() {
         pendingPay: 0,
       };
     }
-    const now = new Date();
-    const monthStart = startOfMonth(now);
-    const monthEnd = endOfMonth(now);
-    const weekStart = startOfWeek(now, { weekStartsOn: 1 });
-    const weekEnd = endOfWeek(now, { weekStartsOn: 1 });
+    const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
+    const weekEnd = endOfWeek(new Date(), { weekStartsOn: 1 });
 
-    // Receita Mensal (Pagamentos recebidos no mês atual)
+    // Receita no período selecionado
     const revenueMonth = payments
-      .filter(p => p.status === 'pago' && p.paid_at && isWithinInterval(parseISO(p.paid_at), { start: monthStart, end: monthEnd }))
+      .filter(p => p.status === 'pago' && p.paid_at && isWithinInterval(parseISO(p.paid_at), { start: selectedRange.from, end: selectedRange.to }))
       .reduce((acc, p) => acc + Number(p.value), 0);
     
-    // Despesa Mensal
+    // Despesa no período selecionado
     const expenseMonth = expenses
-      .filter(e => e.status === 'pago' && e.paid_at && isWithinInterval(parseISO(e.paid_at), { start: monthStart, end: monthEnd }))
+      .filter(e => e.status === 'pago' && e.paid_at && isWithinInterval(parseISO(e.paid_at), { start: selectedRange.from, end: selectedRange.to }))
       .reduce((acc, e) => acc + Number(e.value), 0);
 
     // A Receber (Semana) - Pendentes com vencimento na semana
@@ -674,25 +677,27 @@ export function DashboardPage() {
   const chartData = useMemo(() => {
     if (!canViewFinancial) return [];
     const data = [];
-    const now = new Date();
-    for (let i = 5; i >= 0; i--) {
-        const date = subMonths(now, i);
-        const start = startOfMonth(date);
-        const end = endOfMonth(date);
-        const label = format(date, "MMM", { locale: ptBR });
-        
-        const rec = payments
-            .filter(p => p.status === 'pago' && p.paid_at && isWithinInterval(parseISO(p.paid_at), { start, end }))
-            .reduce((acc, p) => acc + Number(p.value), 0);
-            
-        const desp = expenses
-            .filter(e => e.status === 'pago' && e.paid_at && isWithinInterval(parseISO(e.paid_at), { start, end }))
-            .reduce((acc, e) => acc + Number(e.value), 0);
-            
-        data.push({ name: label.charAt(0).toUpperCase() + label.slice(1), rec, desp });
+    let monthCursor = startOfMonth(selectedRange.from);
+    const lastMonth = startOfMonth(selectedRange.to);
+
+    while (monthCursor <= lastMonth) {
+      const start = startOfMonth(monthCursor);
+      const end = endOfMonth(monthCursor);
+      const label = format(monthCursor, "MMM", { locale: ptBR });
+
+      const rec = payments
+        .filter(p => p.status === 'pago' && p.paid_at && isWithinInterval(parseISO(p.paid_at), { start, end }))
+        .reduce((acc, p) => acc + Number(p.value), 0);
+      const desp = expenses
+        .filter(e => e.status === 'pago' && e.paid_at && isWithinInterval(parseISO(e.paid_at), { start, end }))
+        .reduce((acc, e) => acc + Number(e.value), 0);
+
+      data.push({ name: label.charAt(0).toUpperCase() + label.slice(1), rec, desp });
+      monthCursor = addMonths(monthCursor, 1);
     }
+
     return data;
-  }, [canViewFinancial, payments, expenses]);
+  }, [canViewFinancial, payments, expenses, selectedRange]);
 
   const nextTasks = useMemo(() => {
       // Ordenar eventos por hora
@@ -741,6 +746,14 @@ export function DashboardPage() {
 
   const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
+  const formatRangeLabel = (r: { from: Date; to: Date }) => {
+    try {
+      return `${format(r.from, 'dd/MM/yyyy')} → ${format(r.to, 'dd/MM/yyyy')}`;
+    } catch {
+      return "Período personalizado";
+    }
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* Cabeçalho e Ações Rápidas */}
@@ -749,18 +762,29 @@ export function DashboardPage() {
           <h1 className="text-3xl font-bold tracking-tight">Olá, {profile?.full_name?.split(' ')[0] || "Visitante"}!</h1>
           <p className="text-muted-foreground">Aqui está o resumo operacional da sua empresa hoje.</p>
         </div>
-        <div className="flex gap-2">
-          <Button onClick={() => navigate("/kanban")} className="gap-2">
-            <Plus className="h-4 w-4" /> Novo Lead
-          </Button>
-          <Button variant="outline" onClick={() => navigate("/projects")} className="gap-2">
-            <CheckSquare className="h-4 w-4" /> Nova Tarefa
-          </Button>
-          {canViewFinancial && (
-            <Button variant="secondary" onClick={() => navigate("/financial")} className="gap-2">
-              <DollarSign className="h-4 w-4" /> Novo Lançamento
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full md:w-auto justify-end">
+          <div className="flex items-center gap-2">
+            <PeriodSelector
+              initialPreset={period as PeriodOption}
+              onChange={(range, preset) => {
+                setSelectedRange(range);
+                setPeriod(preset as PeriodOption | 'custom');
+              }}
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => navigate("/kanban")} className="gap-2">
+              <Plus className="h-4 w-4" /> Novo Lead
             </Button>
-          )}
+            <Button variant="outline" onClick={() => navigate("/projects")} className="gap-2">
+              <CheckSquare className="h-4 w-4" /> Nova Tarefa
+            </Button>
+            {canViewFinancial && (
+              <Button variant="secondary" onClick={() => navigate("/financial")} className="gap-2">
+                <DollarSign className="h-4 w-4" /> Novo Lançamento
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -783,7 +807,7 @@ export function DashboardPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Leads Gerados (Mês)</CardTitle>
+                <CardTitle className="text-sm font-medium">Leads Gerados ({period === 'custom' ? formatRangeLabel(selectedRange) : PERIOD_LABELS[period as PeriodOption]})</CardTitle>
                 <Users className="h-4 w-4 text-primary" />
               </CardHeader>
               <CardContent>
@@ -796,7 +820,7 @@ export function DashboardPage() {
             </Card>
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Contratos Fechados (Mês)</CardTitle>
+                <CardTitle className="text-sm font-medium">Contratos Fechados ({period === 'custom' ? formatRangeLabel(selectedRange) : PERIOD_LABELS[period as PeriodOption]})</CardTitle>
                 <FileCheck className="h-4 w-4 text-emerald-500" />
               </CardHeader>
               <CardContent>
@@ -810,7 +834,7 @@ export function DashboardPage() {
             {canViewFinancial && (
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Receita (Mês)</CardTitle>
+                  <CardTitle className="text-sm font-medium">Receita ({period === 'custom' ? formatRangeLabel(selectedRange) : PERIOD_LABELS[period as PeriodOption]})</CardTitle>
                   <DollarSign className="h-4 w-4 text-emerald-500" />
                 </CardHeader>
                 <CardContent>
@@ -824,7 +848,7 @@ export function DashboardPage() {
             {!canViewFinancial && (
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Contratos Cancelados (Mês)</CardTitle>
+                  <CardTitle className="text-sm font-medium">Contratos Cancelados ({period === 'custom' ? formatRangeLabel(selectedRange) : PERIOD_LABELS[period as PeriodOption]})</CardTitle>
                   <FileX className="h-4 w-4 text-red-500" />
                 </CardHeader>
                 <CardContent>
@@ -1319,7 +1343,12 @@ export function DashboardPage() {
                       .map((p) => {
                         const clientName = (p as any).clients?.company || (p as any).clients?.name || "Cliente";
                         return (
-                          <div key={p.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900/30 transition-colors">
+                          <div
+                            key={p.id}
+                            className="flex items-center justify-between p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-900/30 transition-colors cursor-pointer"
+                            onClick={() => navigate(`/financial?tab=receivables&payment=${p.id}`)}
+                            title="Clique para registrar recebimento"
+                          >
                             <div className="min-w-0 flex-1">
                               <p className="font-medium text-sm truncate">{clientName}</p>
                               <p className="text-xs text-muted-foreground">{format(new Date(p.due_date), "dd/MM/yyyy", { locale: ptBR })}</p>
@@ -1364,7 +1393,12 @@ export function DashboardPage() {
                         const clientName = (p as any).clients?.company || (p as any).clients?.name || "Cliente";
                         const daysOverdue = Math.floor((new Date().getTime() - new Date(p.due_date).getTime()) / (1000 * 60 * 60 * 24));
                         return (
-                          <div key={p.id} className="flex items-center justify-between p-2 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-100 dark:border-red-900/40">
+                          <div
+                            key={p.id}
+                            className="flex items-center justify-between p-2 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-100 dark:border-red-900/40 cursor-pointer hover:bg-red-100 dark:hover:bg-red-950/50 transition-colors"
+                            onClick={() => navigate(`/financial?tab=receivables&payment=${p.id}`)}
+                            title="Clique para registrar recebimento"
+                          >
                             <div className="min-w-0 flex-1">
                               <p className="font-medium text-sm truncate">{clientName}</p>
                               <p className="text-xs text-red-600 dark:text-red-400">

@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import PeriodSelector, { DateRange, getDateRangeFromPreset, PeriodSelectorOption } from "@/components/filters/PeriodSelector";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
   DialogHeader, DialogTitle,
@@ -46,6 +47,14 @@ const PUNCH_ICONS: Record<string, React.ElementType> = {
   saida_final: LogOut,
 };
 
+const TIMECLOCK_PERIOD_OPTIONS: PeriodSelectorOption[] = [
+  { value: "today", label: "Hoje" },
+  { value: "week", label: "Esta semana" },
+  { value: "month", label: "Este mês" },
+  { value: "last_month", label: "Mês anterior" },
+  { value: "last_3_months", label: "Últimos 3 meses" },
+];
+
 const STATUS_COLORS: Record<string, string> = {
   ativo: "bg-emerald-100 text-emerald-700",
   anulado: "bg-red-100 text-red-600",
@@ -56,42 +65,6 @@ type Period = "today" | "week" | "month" | "last_month" | "last_3_months" | "cus
 
 // Ordem canônica dos tipos de ponto no dia
 const PUNCH_ORDER: RepPPunchType[] = ["entrada", "saida_intervalo", "retorno_intervalo", "saida_final"];
-
-function getPeriodRange(period: Period, customFrom: string, customTo: string): { from: string; to: string } {
-  const now = new Date();
-  switch (period) {
-    case "today":
-      return {
-        from: format(now, "yyyy-MM-dd") + "T00:00:00",
-        to: format(now, "yyyy-MM-dd") + "T23:59:59",
-      };
-    case "week":
-      return {
-        from: startOfWeek(now, { weekStartsOn: 1 }).toISOString(),
-        to: endOfWeek(now, { weekStartsOn: 1 }).toISOString(),
-      };
-    case "month":
-      return {
-        from: startOfMonth(now).toISOString(),
-        to: endOfMonth(now).toISOString(),
-      };
-    case "last_month":
-      return {
-        from: startOfMonth(subMonths(now, 1)).toISOString(),
-        to: endOfMonth(subMonths(now, 1)).toISOString(),
-      };
-    case "last_3_months":
-      return {
-        from: startOfMonth(subMonths(now, 2)).toISOString(),
-        to: endOfMonth(now).toISOString(),
-      };
-    case "custom":
-      return {
-        from: customFrom ? customFrom + "T00:00:00" : startOfMonth(now).toISOString(),
-        to: customTo ? customTo + "T23:59:59" : endOfMonth(now).toISOString(),
-      };
-  }
-}
 
 interface Props {
   profileId: string;
@@ -107,11 +80,11 @@ export function CollaboratorTimeclockTab({ profileId, isExempt }: Props) {
   const canDeletePunch = timeclockEditPerm.canDelete || timeclockPerm.canDelete;
 
   const [period, setPeriod] = useState<Period>("month");
-  const [customFrom, setCustomFrom] = useState(format(startOfMonth(new Date()), "yyyy-MM-dd"));
-  const [customTo, setCustomTo] = useState(format(endOfMonth(new Date()), "yyyy-MM-dd"));
+  const [selectedRange, setSelectedRange] = useState<DateRange>(() => getDateRangeFromPreset("month"));
   const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
 
-  const { from, to } = getPeriodRange(period, customFrom, customTo);
+  const from = selectedRange.from.toISOString();
+  const to = selectedRange.to.toISOString();
 
   const { data: punches = [], isLoading } = useRepPPunches({
     organizationId: organizationId ?? undefined,
@@ -230,33 +203,15 @@ export function CollaboratorTimeclockTab({ profileId, isExempt }: Props) {
       <div className="flex flex-wrap items-end gap-3">
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">Período</Label>
-          <Select value={period} onValueChange={(v) => setPeriod(v as Period)}>
-            <SelectTrigger className="w-44">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="today">Hoje</SelectItem>
-              <SelectItem value="week">Esta semana</SelectItem>
-              <SelectItem value="month">Este mês</SelectItem>
-              <SelectItem value="last_month">Mês anterior</SelectItem>
-              <SelectItem value="last_3_months">Últimos 3 meses</SelectItem>
-              <SelectItem value="custom">Personalizado</SelectItem>
-            </SelectContent>
-          </Select>
+          <PeriodSelector
+            initialPreset={period}
+            options={TIMECLOCK_PERIOD_OPTIONS}
+            onChange={(range, preset) => {
+              setSelectedRange(range);
+              setPeriod(preset as Period);
+            }}
+          />
         </div>
-
-        {period === "custom" && (
-          <>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">De</Label>
-              <Input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="w-36" />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Até</Label>
-              <Input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="w-36" />
-            </div>
-          </>
-        )}
 
         <div className="text-xs text-muted-foreground self-end pb-2">
           {days.length} dia{days.length !== 1 ? "s" : ""} • {punches.length} registro{punches.length !== 1 ? "s" : ""}

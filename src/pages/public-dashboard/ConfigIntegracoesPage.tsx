@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Save, Loader2, Link2, Copy, ExternalLink, CheckCircle2, WifiOff, Settings2 } from "lucide-react";
+import { useParams } from "react-router-dom";
+import { Loader2, Link2, Copy, ExternalLink, CheckCircle2, WifiOff, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -128,13 +129,11 @@ function SelfServiceAdConnect({ clientId, organizationId, onConnected }: {
 
 export function ConfigIntegracoesPage() {
   const dc = useDynamicClient();
-  const { auth } = useClientAuth();
+  const { auth, slug } = useClientAuth();
+  const { slug: paramSlug } = useParams<{ slug: string }>();
+  const effectiveSlug = slug || paramSlug || "";
   const qc = useQueryClient();
   const canEdit = ["owner", "admin"].includes(auth?.user?.role ?? "");
-
-  const [metaPixelId, setMetaPixelId] = useState("");
-  const [googleTagId, setGoogleTagId] = useState("");
-  const [settingsId, setSettingsId]   = useState<string | null>(null);
 
   // UTM Builder state
   const [utmBase, setUtmBase]         = useState("");
@@ -147,48 +146,8 @@ export function ConfigIntegracoesPage() {
 
   if (!dc) return <CredentialsErrorState />;
 
-  // Carrega ai_settings existente
-  useQuery({
-    queryKey: ["ai_settings_integrations"],
-    queryFn: async () => {
-      const { data } = await dc.from("ai_settings").select("id, meta_pixel_id, google_tag_id").limit(1).maybeSingle();
-      if (data) {
-        setSettingsId(data.id);
-        setMetaPixelId(data.meta_pixel_id ?? "");
-        setGoogleTagId(data.google_tag_id ?? "");
-      }
-      return data;
-    },
-    enabled: !!dc,
-    staleTime: 60_000,
-  });
-
   // Status das contas de anúncios (só metadados, sem tokens)
   const { data: adAccounts = [] } = useAdAccounts(auth?.id);
-
-  const saveMutation = useMutation({
-    mutationFn: async () => {
-      if (!dc) throw new Error("Banco não conectado");
-      const payload = {
-        meta_pixel_id: metaPixelId.trim() || null,
-        google_tag_id: googleTagId.trim() || null,
-        updated_at: new Date().toISOString(),
-      };
-      if (settingsId) {
-        const { error } = await dc.from("ai_settings").update(payload).eq("id", settingsId);
-        if (error) throw error;
-      } else {
-        const { data, error } = await dc.from("ai_settings").insert(payload).select("id").single();
-        if (error) throw error;
-        setSettingsId(data.id);
-      }
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["ai_settings"] });
-      toast.success("Integrações salvas!");
-    },
-    onError: (e: any) => toast.error(e.message),
-  });
 
   // UTM Builder
   const utmUrl = (() => {
@@ -215,44 +174,7 @@ export function ConfigIntegracoesPage() {
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
-      <PageHeader title="Integrações" description="Pixels de rastreamento, tags e conexões com plataformas de anúncios." />
-
-      {/* ── Pixels e Tags ── */}
-      <Card className="card-surface">
-        <CardHeader>
-          <CardTitle className="text-base">Rastreamento</CardTitle>
-          <CardDescription>Pixel do Meta e Google Tag serão injetados em todas as páginas do dashboard.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-2">
-            <Label>Meta Pixel ID</Label>
-            <Input
-              value={metaPixelId}
-              onChange={e => setMetaPixelId(e.target.value)}
-              placeholder="Ex: 1234567890"
-              disabled={!canEdit}
-              className="font-mono"
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label>Google Tag ID</Label>
-            <Input
-              value={googleTagId}
-              onChange={e => setGoogleTagId(e.target.value)}
-              placeholder="Ex: G-XXXXXXXXXX ou AW-XXXXXXXXXX"
-              disabled={!canEdit}
-              className="font-mono"
-            />
-          </div>
-          {canEdit && (
-            <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}
-              className="bg-gradient-ember text-primary-foreground shadow-glow">
-              {saveMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-              Salvar
-            </Button>
-          )}
-        </CardContent>
-      </Card>
+      <PageHeader title="Integrações" description="Contas de anúncios e gerador de links UTM." />
 
       {/* ── Contas de Anúncios ── */}
       <Card className="card-surface">
@@ -273,6 +195,11 @@ export function ConfigIntegracoesPage() {
           {(["meta", "google"] as const).map(platform => {
             const account = adAccounts.find(a => a.platform === platform);
             const label = platform === "meta" ? "Meta Ads" : "Google Ads";
+            const supabaseUrl = import.meta.env.VITE_SUPABASE_URL ?? "";
+            const oauthFn = platform === "meta" ? "oauth-meta-ads" : "oauth-google-ads";
+            const oauthUrl = auth?.id && effectiveSlug
+              ? `${supabaseUrl}/functions/v1/${oauthFn}/authorize?client_id=${auth.id}&slug=${encodeURIComponent(effectiveSlug)}&owned_by=client`
+              : null;
             return (
               <div key={platform} className={cn(
                 "flex items-center justify-between rounded-lg border px-4 py-3",
@@ -295,7 +222,17 @@ export function ConfigIntegracoesPage() {
                     )}
                   </div>
                 </div>
-                {account && canEdit && (
+                <div className="flex items-center gap-2">
+                  {!account && canEdit && oauthUrl && (
+                    <Button
+                      variant="outline" size="sm"
+                      className="text-xs border-border gap-1.5"
+                      onClick={() => window.open(oauthUrl, "_blank", "noopener,width=600,height=700")}
+                    >
+                      <Link2 className="h-3.5 w-3.5" /> Conectar via OAuth
+                    </Button>
+                  )}
+                  {account && canEdit && (
                   <Button
                     variant="ghost" size="sm"
                     className="text-xs text-muted-foreground hover:text-destructive"
@@ -312,7 +249,8 @@ export function ConfigIntegracoesPage() {
                   >
                     Desconectar
                   </Button>
-                )}
+                  )}
+                </div>
               </div>
             );
           })}

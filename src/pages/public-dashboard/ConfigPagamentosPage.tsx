@@ -47,7 +47,6 @@ export function ConfigPagamentosPage() {
   const [pixEnabled, setPixEnabled]           = useState(true);
   const [boletoEnabled, setBoletoEnabled]     = useState(true);
   const [cardEnabled, setCardEnabled]         = useState(false);
-  const [settingsId, setSettingsId]           = useState<string | null>(null);
   const [apiKeyAlreadySet, setApiKeyAlreadySet] = useState(false);
 
   if (!dc) return <CredentialsErrorState />;
@@ -67,11 +66,10 @@ export function ConfigPagamentosPage() {
     queryFn: async () => {
       const { data } = await dc
         .from("ai_settings")
-        .select("id, asaas_api_key_set, pix_enabled, boleto_enabled, credit_card_enabled")
+        .select("asaas_api_key_set, pix_enabled, boleto_enabled, credit_card_enabled")
         .limit(1)
         .maybeSingle();
       if (data) {
-        setSettingsId(data.id);
         setApiKeyAlreadySet(data.asaas_api_key_set ?? false);
         setPixEnabled(data.pix_enabled ?? true);
         setBoletoEnabled(data.boleto_enabled ?? true);
@@ -87,33 +85,24 @@ export function ConfigPagamentosPage() {
     mutationFn: async () => {
       if (!dc) throw new Error("Banco não conectado");
 
-      const payload: Record<string, unknown> = {
-        pix_enabled:          pixEnabled,
-        boleto_enabled:       boletoEnabled,
-        credit_card_enabled:  cardEnabled,
-        updated_at:           new Date().toISOString(),
-      };
+      // Usa RPC segura que nunca retorna a chave ao frontend
+      // save_asaas_settings aceita a chave como parâmetro de server-side,
+      // salva no banco e retorna apenas o boolean asaas_api_key_set.
+      const { data, error } = await dc.rpc("save_asaas_settings", {
+        p_asaas_api_key:       apiKeyInput.trim() || null,
+        p_pix_enabled:         pixEnabled,
+        p_boleto_enabled:      boletoEnabled,
+        p_credit_card_enabled: cardEnabled,
+      } as Record<string, unknown>);
 
-      // Só atualiza a chave se o usuário digitou algo novo
-      if (apiKeyInput.trim()) {
-        // Salva a chave — o banco do cliente armazena; nunca retornamos ao frontend
-        payload.asaas_api_key     = apiKeyInput.trim();
-        payload.asaas_api_key_set = true;
-      }
-
-      if (settingsId) {
-        const { error } = await dc.from("ai_settings").update(payload).eq("id", settingsId);
-        if (error) throw error;
-      } else {
-        const { data, error } = await dc.from("ai_settings").insert(payload).select("id").single();
-        if (error) throw error;
-        setSettingsId(data.id);
-      }
+      if (error) throw error;
 
       if (apiKeyInput.trim()) {
         setApiKeyAlreadySet(true);
         setApiKeyInput(""); // limpa o campo após salvar — nunca exibir de volta
       }
+
+      return data;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["payment_settings"] });

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { useOrganization } from "@/hooks/useOrganization";
@@ -52,6 +52,7 @@ import {
   PERIOD_LABELS,
   getPeriodDateRange,
 } from "@/lib/periodHelpers";
+import PeriodSelector from "@/components/filters/PeriodSelector";
 import {
   Bar,
   BarChart,
@@ -125,6 +126,17 @@ export default function FinancialPage() {
   const [isPayroll, setIsPayroll] = useState(false);
 
   const [searchParams, setSearchParams] = useSearchParams();
+  const defaultFinancialRange = getPeriodDateRange("mes_atual");
+  const [period, setPeriod] = useState<PeriodOption | 'custom'>("mes_atual");
+  const [selectedRange, setSelectedRange] = useState(() => defaultFinancialRange);
+
+  const formatRangeLabel = (r: { from: Date; to: Date }) => {
+    try {
+      return `${format(r.from, 'dd/MM/yyyy')} → ${format(r.to, 'dd/MM/yyyy')}`;
+    } catch {
+      return 'Período personalizado';
+    }
+  };
 
   const validTabs = useMemo(
     () =>
@@ -186,9 +198,14 @@ export default function FinancialPage() {
   const monthStart = startOfMonth(now);
   const monthEnd = endOfMonth(now);
   const monthKey = format(monthStart, "yyyy-MM");
-  const [cashflowFrom, setCashflowFrom] = useState(format(subMonths(monthStart, 2), "yyyy-MM-dd"));
-  const [cashflowTo, setCashflowTo] = useState(format(monthEnd, "yyyy-MM-dd"));
+  const [cashflowFrom, setCashflowFrom] = useState(format(defaultFinancialRange.from, "yyyy-MM-dd"));
+  const [cashflowTo, setCashflowTo] = useState(format(defaultFinancialRange.to, "yyyy-MM-dd"));
   const [cashflowType, setCashflowType] = useState<"all" | "receita" | "despesa" | "folha">("all");
+
+  useEffect(() => {
+    setCashflowFrom(format(selectedRange.from, "yyyy-MM-dd"));
+    setCashflowTo(format(selectedRange.to, "yyyy-MM-dd"));
+  }, [selectedRange]);
 
   // Estados para visualizar/editar lançamento do fluxo de caixa
   const [viewRow, setViewRow] = useState<{ id: string; type: "receita" | "despesa" | "folha"; date: string; category: string; description: string; value: number; status?: string } | null>(null);
@@ -208,8 +225,6 @@ export default function FinancialPage() {
   const [reportsClientId, setReportsClientId] = useState("all");
   const [reportsExpenseCategory, setReportsExpenseCategory] = useState<string>("all");
   const [reportsTop, setReportsTop] = useState<5 | 10 | 20>(10);
-  const [drePeriod, setDrePeriod] = useState<PeriodOption>("6_meses");
-  const dreRange = useMemo(() => getPeriodDateRange(drePeriod), [drePeriod]);
 
   // helper to group entries by month/year for the full-list modal
   const groupByMonth = <T extends { due_date: string }>(items: T[]) => {
@@ -223,15 +238,15 @@ export default function FinancialPage() {
   };
 
   const marketingSpendMonthQuery = useQuery({
-    queryKey: ["campaign_metrics", organizationId, "spend_month", monthKey],
+    queryKey: ["campaign_metrics", organizationId, "spend_month", period, format(selectedRange.from, "yyyy-MM-dd"), format(selectedRange.to, "yyyy-MM-dd")],
     queryFn: async () => {
       if (!organizationId) return 0;
       const { data, error } = await supabaseUntyped
         .from("campaign_metrics")
         .select("spend")
         .eq("organization_id", organizationId)
-        .gte("date", safeFormat(monthStart, "yyyy-MM-dd"))
-        .lte("date", safeFormat(monthEnd, "yyyy-MM-dd"));
+        .gte("date", safeFormat(selectedRange.from, "yyyy-MM-dd"))
+        .lte("date", safeFormat(selectedRange.to, "yyyy-MM-dd"));
       if (error) throw error;
       return (data ?? []).reduce((acc, r) => acc + Number((r as { spend?: number | null }).spend ?? 0), 0);
     },
@@ -239,15 +254,15 @@ export default function FinancialPage() {
   });
 
   const marketingDailyQuery = useQuery({
-    queryKey: ["campaign_metrics", organizationId, "daily_spend", monthKey],
+    queryKey: ["campaign_metrics", organizationId, "daily_spend", period, format(selectedRange.from, "yyyy-MM-dd"), format(selectedRange.to, "yyyy-MM-dd")],
     queryFn: async () => {
       if (!organizationId) return [] as Array<{ date: string; spend: number }>;
       const { data, error } = await supabaseUntyped
         .from("campaign_metrics")
         .select("date, spend")
         .eq("organization_id", organizationId)
-        .gte("date", safeFormat(monthStart, "yyyy-MM-dd"))
-        .lte("date", safeFormat(monthEnd, "yyyy-MM-dd"));
+        .gte("date", safeFormat(selectedRange.from, "yyyy-MM-dd"))
+        .lte("date", safeFormat(selectedRange.to, "yyyy-MM-dd"));
       if (error) throw error;
       return (data ?? []).map((r) => ({
         date: String((r as { date?: string | null }).date ?? ""),
@@ -258,11 +273,11 @@ export default function FinancialPage() {
   });
 
   const marketingSpendByMonthQuery = useQuery({
-    queryKey: ["campaign_metrics", organizationId, "spend_by_month", monthKey],
+    queryKey: ["campaign_metrics", organizationId, "spend_by_month", period, format(selectedRange.to, "yyyy-MM-dd")],
     queryFn: async () => {
       if (!organizationId) return [] as Array<{ date: string; spend: number }>;
-      const start = safeFormat(subMonths(monthStart, 5), "yyyy-MM-dd");
-      const end = safeFormat(monthEnd, "yyyy-MM-dd");
+      const start = safeFormat(subMonths(startOfMonth(selectedRange.to), 5), "yyyy-MM-dd");
+      const end = safeFormat(selectedRange.to, "yyyy-MM-dd");
       const { data, error } = await supabaseUntyped
         .from("campaign_metrics")
         .select("date, spend")
@@ -316,15 +331,15 @@ export default function FinancialPage() {
     const marketingSpendMonth = marketingSpendMonthQuery.data ?? 0;
     const today = new Date();
 
-    const monthStartDay = new Date(monthStart);
-    monthStartDay.setHours(0, 0, 0, 0);
+    const periodStartDay = new Date(selectedRange.from);
+    periodStartDay.setHours(0, 0, 0, 0);
 
     const receivedMonth = rows.payments
       .filter((p) => p.status === "pago")
       .filter((p) => {
         const d = p.paid_at ? safeParseDate(p.paid_at) : safeParseDate(p.due_date);
         if (!isValidDate(d)) return false;
-        return isWithinInterval(d, { start: monthStart, end: monthEnd });
+        return isWithinInterval(d, { start: selectedRange.from, end: selectedRange.to });
       })
       .reduce((acc, p) => acc + Number(p.value ?? 0), 0);
 
@@ -333,10 +348,10 @@ export default function FinancialPage() {
       .filter((p) => {
         const paid = p.paid_at ? safeParseDate(p.paid_at) : safeParseDate(p.due_date);
         if (!isValidDate(paid)) return false;
-        if (!isWithinInterval(paid, { start: monthStart, end: monthEnd })) return false;
+        if (!isWithinInterval(paid, { start: selectedRange.from, end: selectedRange.to })) return false;
         const due = safeParseDate(p.due_date);
         if (!isValidDate(due)) return false;
-        return due < monthStartDay;
+        return due < periodStartDay;
       })
       .reduce((acc, p) => acc + Number(p.value ?? 0), 0);
 
@@ -345,7 +360,7 @@ export default function FinancialPage() {
       .filter((e) => {
         const d = e.paid_at ? safeParseDate(e.paid_at) : safeParseDate(e.due_date);
         if (!isValidDate(d)) return false;
-        return isWithinInterval(d, { start: monthStart, end: monthEnd });
+        return isWithinInterval(d, { start: selectedRange.from, end: selectedRange.to });
       })
       .reduce((acc, e) => acc + Number(e.value ?? 0), 0);
 
@@ -353,7 +368,7 @@ export default function FinancialPage() {
       .filter((p) => {
         const d = safeParseDate(p.reference_date ? String(p.reference_date) : null);
         if (!isValidDate(d)) return false;
-        return isWithinInterval(d, { start: monthStart, end: monthEnd });
+        return isWithinInterval(d, { start: selectedRange.from, end: selectedRange.to });
       })
       .reduce((acc, p) => acc + Number(p.total_value ?? 0), 0);
 
@@ -362,7 +377,7 @@ export default function FinancialPage() {
       .filter((pe) => {
         const d = pe.paid_at ? safeParseDate(pe.paid_at) : safeParseDate(pe.reference_date);
         if (!isValidDate(d)) return false;
-        return isWithinInterval(d, { start: monthStart, end: monthEnd });
+        return isWithinInterval(d, { start: selectedRange.from, end: selectedRange.to });
       })
       .reduce((acc, pe) => acc + Number(pe.total_value ?? 0), 0);
 
@@ -410,8 +425,6 @@ export default function FinancialPage() {
     };
   }, [
     expenses.data,
-    monthEnd,
-    monthStart,
     marketingSpendMonthQuery.data,
     payrollExpenses.data,
     payrollsQuery.data,
@@ -419,6 +432,7 @@ export default function FinancialPage() {
     payments.data,
     pendingPayroll,
     receivables,
+    selectedRange,
   ]);
 
   const monthlySeries = useMemo(() => {
@@ -503,8 +517,8 @@ export default function FinancialPage() {
 
     // Determinar os meses do período
     const months: Array<{ key: string; label: string }> = [];
-    let current = startOfMonth(dreRange.from);
-    while (current <= dreRange.to) {
+    let current = startOfMonth(selectedRange.from);
+    while (current <= selectedRange.to) {
       months.push({
         key: monthKey(current),
         label: format(current, "MMM/yy", { locale: ptBR }),
@@ -593,10 +607,10 @@ export default function FinancialPage() {
         { key: "lucro_liquido", label: "Lucro líquido", values: lucroLiquido, tone: "neutral" as const, strong: true },
       ],
     };
-  }, [dreRange, marketingSpendByMonthQuery.data, payments.data, expenses.data, payrollExpenses.data]);
+  }, [selectedRange, marketingSpendByMonthQuery.data, payments.data, expenses.data, payrollExpenses.data]);
 
   const dailySeries = useMemo(() => {
-    const days = eachDayOfInterval({ start: monthStart, end: monthEnd });
+    const days = eachDayOfInterval({ start: selectedRange.from, end: selectedRange.to });
     const dayKey = (d: Date) => format(d, "yyyy-MM-dd");
 
     const receiptsByDay = new Map<string, number>();
@@ -608,7 +622,7 @@ export default function FinancialPage() {
       if (p.status !== "pago") continue;
       const d = p.paid_at ? safeParseDate(p.paid_at) : safeParseDate(p.due_date);
       if (!isValidDate(d)) continue;
-      if (d < monthStart || d > monthEnd) continue;
+      if (d < selectedRange.from || d > selectedRange.to) continue;
       const k = dayKey(d);
       receiptsByDay.set(k, (receiptsByDay.get(k) ?? 0) + Number(p.value ?? 0));
     }
@@ -617,7 +631,7 @@ export default function FinancialPage() {
       if (e.status !== "pago") continue;
       const d = e.paid_at ? safeParseDate(e.paid_at) : safeParseDate(e.due_date);
       if (!isValidDate(d)) continue;
-      if (d < monthStart || d > monthEnd) continue;
+      if (d < selectedRange.from || d > selectedRange.to) continue;
       const k = dayKey(d);
       expensesByDay.set(k, (expensesByDay.get(k) ?? 0) + Number(e.value ?? 0));
     }
@@ -626,7 +640,7 @@ export default function FinancialPage() {
       if (pe.status !== "pago") continue;
       const d = pe.paid_at ? safeParseDate(pe.paid_at) : safeParseDate(pe.reference_date);
       if (!isValidDate(d)) continue;
-      if (d < monthStart || d > monthEnd) continue;
+      if (d < selectedRange.from || d > selectedRange.to) continue;
       const k = dayKey(d);
       payrollByDay.set(k, (payrollByDay.get(k) ?? 0) + Number(pe.total_value ?? 0));
     }
@@ -654,10 +668,9 @@ export default function FinancialPage() {
   }, [
     expenses.data,
     marketingDailyQuery.data,
-    monthEnd,
-    monthStart,
     payments.data,
     payrollExpenses.data,
+    selectedRange,
   ]);
 
   const expensesDistributionMonth = useMemo(() => {
@@ -667,7 +680,7 @@ export default function FinancialPage() {
       if (e.status !== "pago") continue;
       const d = e.paid_at ? safeParseDate(e.paid_at) : safeParseDate(e.due_date);
       if (!isValidDate(d)) continue;
-      if (d < monthStart || d > monthEnd) continue;
+      if (d < selectedRange.from || d > selectedRange.to) continue;
       const cat = (e as { suppliers?: { service_category?: string | null } | null }).suppliers?.service_category ?? "Outros";
       m[cat] = (m[cat] ?? 0) + Number(e.value ?? 0);
     }
@@ -676,7 +689,7 @@ export default function FinancialPage() {
       .filter((pe) => pe.status === "pago")
       .filter((pe) => {
         const d = pe.paid_at ? safeParseDate(pe.paid_at) : safeParseDate(pe.reference_date);
-        return isValidDate(d) && d >= monthStart && d <= monthEnd;
+        return isValidDate(d) && d >= selectedRange.from && d <= selectedRange.to;
       })
       .reduce((acc, pe) => acc + Number(pe.total_value ?? 0), 0);
     if (folha > 0) m["Folha"] = (m["Folha"] ?? 0) + folha;
@@ -688,7 +701,7 @@ export default function FinancialPage() {
       .map(([name, value]) => ({ name, value }))
       .filter((r) => r.value > 0)
       .sort((a, b) => b.value - a.value);
-  }, [expenses.data, marketingSpendMonthQuery.data, monthEnd, monthStart, payrollExpenses.data]);
+  }, [expenses.data, marketingSpendMonthQuery.data, payrollExpenses.data, selectedRange]);
 
   const contractLabelById = useMemo(() => {
     const map = new Map<string, string>();
@@ -1152,7 +1165,14 @@ export default function FinancialPage() {
             Contas a pagar e contas a receber. Clique para registrar pagamento ou recebimento.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <PeriodSelector
+            initialPreset={period as PeriodOption}
+            onChange={(range, preset) => {
+              setSelectedRange(range);
+              setPeriod(preset as PeriodOption | 'custom');
+            }}
+          />
           <Button
             variant="outline"
             onClick={() => setModalReceber(true)}
@@ -1308,7 +1328,7 @@ export default function FinancialPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Fluxo financeiro diário ({format(monthStart, "MMMM yyyy", { locale: ptBR })})</CardTitle>
+              <CardTitle className="text-base">Fluxo financeiro diário ({period === 'custom' ? formatRangeLabel(selectedRange) : PERIOD_LABELS[period as PeriodOption]})</CardTitle>
               <p className="text-sm text-muted-foreground">Receita e despesas por dia</p>
             </CardHeader>
             <CardContent className="pl-0">
@@ -1354,7 +1374,12 @@ export default function FinancialPage() {
                     ?? (p as { clients?: { company?: string | null; name?: string | null } | null }).clients?.name
                     ?? "-";
                   return (
-                    <div key={p.id} className="flex items-center justify-between text-sm">
+                    <div
+                      key={p.id}
+                      className="flex items-center justify-between text-sm p-1.5 rounded-lg cursor-pointer hover:bg-emerald-50 transition-colors"
+                      onClick={() => setSection("receivables")}
+                      title="Clique para registrar recebimento"
+                    >
                       <div className="min-w-0">
                         <div className="font-medium truncate">{clientName}</div>
                         <div className="text-xs text-muted-foreground">{format(parseISO(p.due_date), "dd/MM/yyyy", { locale: ptBR })}</div>
@@ -1380,12 +1405,14 @@ export default function FinancialPage() {
                     due_date: e.due_date,
                     label: (e as { suppliers?: { name?: string | null } | null }).suppliers?.name ?? "Fornecedor",
                     value: Number(e.value ?? 0),
+                    type: "payable" as const,
                   })),
                   ...pendingPayroll.map((pe) => ({
                     id: pe.id,
                     due_date: pe.reference_date,
                     label: "Folha de pagamento",
                     value: Number(pe.total_value ?? 0),
+                    type: "payroll" as const,
                   })),
                 ]
                   .filter((r) => {
@@ -1394,7 +1421,12 @@ export default function FinancialPage() {
                   .sort((a, b) => String(a.due_date).localeCompare(String(b.due_date)))
                   .slice(0, 5)
                   .map((r) => (
-                    <div key={r.id} className="flex items-center justify-between text-sm">
+                    <div
+                      key={r.id}
+                      className="flex items-center justify-between text-sm p-1.5 rounded-lg cursor-pointer hover:bg-red-50 transition-colors"
+                      onClick={() => setSection("payables")}
+                      title="Clique para registrar pagamento"
+                    >
                       <div className="min-w-0">
                         <div className="font-medium truncate">{r.label}</div>
                         <div className="text-xs text-muted-foreground">{format(parseISO(r.due_date), "dd/MM/yyyy", { locale: ptBR })}</div>
@@ -1426,10 +1458,15 @@ export default function FinancialPage() {
                       ?? (p as { clients?: { company?: string | null; name?: string | null } | null }).clients?.name
                       ?? "-";
                     return (
-                      <div key={p.id} className="flex items-center justify-between text-sm">
+                      <div
+                        key={p.id}
+                        className="flex items-center justify-between text-sm p-1.5 rounded-lg cursor-pointer hover:bg-red-50 border border-transparent hover:border-red-100 transition-colors"
+                        onClick={() => setSection("receivables")}
+                        title="Clique para registrar recebimento"
+                      >
                         <div className="min-w-0">
-                          <div className="font-medium truncate">{clientName}</div>
-                          <div className="text-xs text-muted-foreground">{format(parseISO(p.due_date), "dd/MM/yyyy", { locale: ptBR })}</div>
+                          <div className="font-medium truncate text-red-700">{clientName}</div>
+                          <div className="text-xs text-red-500">{format(parseISO(p.due_date), "dd/MM/yyyy", { locale: ptBR })}</div>
                         </div>
                         <div className="font-semibold text-red-500">{formatCurrency(p.value)}</div>
                       </div>
@@ -2003,7 +2040,7 @@ export default function FinancialPage() {
         <TabsContent value="dre" className="space-y-4">
           <div className="flex items-center justify-end gap-2">
             <Calendar className="h-4 w-4 text-muted-foreground" />
-            <Select value={drePeriod} onValueChange={(v) => setDrePeriod(v as PeriodOption)}>
+            <Select value={period} onValueChange={(v) => setPeriod(v as PeriodOption)}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Período" />
               </SelectTrigger>

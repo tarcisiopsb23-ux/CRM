@@ -58,6 +58,12 @@ export interface N8nConfig {
   adsWebhookUrl?: string;           // Webhook n8n para sync de campanhas de todos os clientes
   adsClientId?: string;             // client_id da agência no CRM (usado para filtrar campanhas próprias no Dashboard e módulo Campanhas)
   clickupCommentsWebhookUrl?: string; // Webhook n8n para comentários ClickUp (Maestr.ia → ClickUp)
+  // C8 Control — provisionamento automático do Banco B
+  c8ProvisionWebhookUrl?: string;     // Webhook n8n para provisionar novo cliente C8 Control
+  c8UpdateSchemaWebhookUrl?: string;  // Webhook n8n para atualizar schema (todos ou por cliente)
+  c8ClientOpsWebhookUrl?: string;     // Webhook n8n para operações no banco do cliente (test, reset_password, create_user, etc.)
+  c8SchemaRawUrl?: string;            // URL raw do bank_b_full_schema.sql no repositório (GitHub/GitLab)
+  githubToken?: string;               // GitHub Personal Access Token para repositórios privados (read:repo)
 }
 
 export interface WhatsAppConfig {

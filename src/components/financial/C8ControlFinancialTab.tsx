@@ -146,7 +146,12 @@ export function C8ControlFinancialTab({ organizationId }: C8ControlFinancialTabP
               </TableHeader>
               <TableBody>
                 {overdueClients.map((c) => (
-                  <TableRow key={c.client_id}>
+                  <TableRow
+                    key={c.client_id}
+                    className="cursor-pointer hover:bg-red-50 transition-colors"
+                    onClick={() => generateCharge.mutate(c.client_id)}
+                    title="Clique para gerar cobrança"
+                  >
                     <TableCell className="font-medium">{c.client_name}</TableCell>
                     <TableCell className="text-red-600 font-medium">
                       {fmtCurrency(c.pending_amount)}

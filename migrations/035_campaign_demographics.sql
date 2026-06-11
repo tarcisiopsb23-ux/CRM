@@ -82,6 +82,8 @@ ALTER TABLE public.meta_ad_accounts       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.google_ad_accounts     ENABLE ROW LEVEL SECURITY;
 
 -- Demográficos: leitura autenticada (usuários da agência)
+DROP POLICY IF EXISTS "org_read_demographics"  ON public.campaign_demographics;
+DROP POLICY IF EXISTS "org_write_demographics" ON public.campaign_demographics;
 CREATE POLICY "org_read_demographics" ON public.campaign_demographics
   FOR SELECT TO authenticated USING (true);
 CREATE POLICY "org_write_demographics" ON public.campaign_demographics
@@ -89,11 +91,15 @@ CREATE POLICY "org_write_demographics" ON public.campaign_demographics
 
 -- Contas de anúncios: acesso somente autenticado, tokens não retornados via RLS
 -- (o SELECT público retorna apenas metadados, não os tokens — feito via RPC)
+DROP POLICY IF EXISTS "org_read_ad_accounts"  ON public.meta_ad_accounts;
+DROP POLICY IF EXISTS "org_write_ad_accounts" ON public.meta_ad_accounts;
 CREATE POLICY "org_read_ad_accounts" ON public.meta_ad_accounts
   FOR SELECT TO authenticated USING (true);
 CREATE POLICY "org_write_ad_accounts" ON public.meta_ad_accounts
   FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
+DROP POLICY IF EXISTS "org_read_google_accounts"  ON public.google_ad_accounts;
+DROP POLICY IF EXISTS "org_write_google_accounts" ON public.google_ad_accounts;
 CREATE POLICY "org_read_google_accounts" ON public.google_ad_accounts
   FOR SELECT TO authenticated USING (true);
 CREATE POLICY "org_write_google_accounts" ON public.google_ad_accounts
