@@ -47,6 +47,8 @@ import { C8ControlPage } from "./pages/C8ControlPage";
 import { DynamicFavicon } from "@/components/layout/DynamicFavicon";
 import { DynamicTitle } from "@/components/layout/DynamicTitle";
 import { PublicDemoDashboardPage } from "./pages/PublicDemoDashboardPage";
+import PropostaViewerPage from "./pages/PropostaViewerPage";
+import PropostasPage from "./pages/PropostasPage";
 import SuppliersModulePage from "@/pages/SuppliersModulePage";
 import FiscalPage from "@/pages/FiscalPage";
 import AuthorizationsPage from "@/pages/AuthorizationsPage";
@@ -72,6 +74,11 @@ const WhatsAppPage        = lazy(() => import("./pages/public-dashboard/WhatsApp
 const ConfigUsuariosPage  = lazy(() => import("./pages/public-dashboard/ConfigUsuariosPage").then(m => ({ default: m.ConfigUsuariosPage })));
 const ConfigIntegracoesPage = lazy(() => import("./pages/public-dashboard/ConfigIntegracoesPage").then(m => ({ default: m.ConfigIntegracoesPage })));
 const ConfigPagamentosPage  = lazy(() => import("./pages/public-dashboard/ConfigPagamentosPage").then(m => ({ default: m.ConfigPagamentosPage })));
+
+const PropostaEditorPage     = lazy(() => import("./pages/PropostaEditorPage"));
+const PropostaDetalhesPage   = lazy(() => import("./pages/PropostaDetalhesPage"));
+const ContractTemplatePage   = lazy(() => import("./pages/ContractTemplatePage"));
+const ComercialDashboardPage = lazy(() => import("./pages/ComercialDashboardPage"));
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, refetchOnWindowFocus: false } } });
 
@@ -120,6 +127,8 @@ function App() {
                 <Routes>
                   {/* ── Rotas do Dashboard Público — sempre dark (forçado via index.html + useEffect) ── */}
                   <Route path="/demo/dashboard" element={<PublicDemoDashboardPage />} />
+                  {/* ── Proposta pública (sem autenticação) ── */}
+                  <Route path="/proposta/:slug" element={<PropostaViewerPage />} />
                   {/* Redirecionamento instantâneo — sem banco, destino na query string (?to=url) */}
                   <Route path="/r" element={<RedirectPage />} />
                   <Route path="/public/dashboard/:slug" element={<PublicDashboardLayout />}>
@@ -164,7 +173,8 @@ function App() {
                       <Route path="/leads" element={<Navigate to="/kanban" replace />} />
                       <Route path="/listas" element={<Navigate to="/kanban?tab=listas" replace />} />
                       <Route path="/leads-pending" element={<Navigate to="/kanban?tab=pendentes" replace />} />
-                      <Route path="/closers-performance" element={<Navigate to="/kanban?tab=performance" replace />} />                      <Route path="/clients" element={<ClientsPage />} />
+                      <Route path="/closers-performance" element={<Navigate to="/kanban?tab=performance" replace />} />
+                      <Route path="/clients" element={<ClientsPage />} />
                       <Route path="/clients/:clientId" element={<ClientsPage />} />
                       <Route path="/integrations" element={<IntegrationsPage />} />
                       <Route path="/suppliers" element={<SuppliersModulePage />} />
@@ -189,6 +199,12 @@ function App() {
                       <Route path="/authorizations" element={<AuthorizationsPage />} />
                       <Route path="/c8control" element={<C8ControlPage />} />
                       <Route path="/settings" element={<SettingsPage />} />
+                      <Route path="/comercial/propostas" element={<PropostasPage />} />
+                      <Route path="/comercial/propostas/nova" element={<Suspense fallback={<PageLoader />}><PropostaEditorPage /></Suspense>} />
+                      <Route path="/comercial/propostas/:id" element={<Suspense fallback={<PageLoader />}><PropostaEditorPage /></Suspense>} />
+                      <Route path="/comercial/propostas/:id/detalhes" element={<Suspense fallback={<PageLoader />}><PropostaDetalhesPage /></Suspense>} />
+                      <Route path="/comercial/dashboard" element={<Suspense fallback={<PageLoader />}><ComercialDashboardPage /></Suspense>} />
+                      <Route path="/comercial/configuracoes/contratos" element={<Suspense fallback={<PageLoader />}><ContractTemplatePage /></Suspense>} />
                     </Route>
                   </Route>
                   <Route path="*" element={<NotFound />} />

@@ -27,7 +27,8 @@ export type WebhookEventType =
   | "contract.updated"
   | "contract.suspended"
   | "contract.reactivated"
-  | "contract.ended";
+  | "contract.ended"
+  | "contract.generated";
 
 export interface WebhookEvent<T = unknown> {
   event: WebhookEventType;

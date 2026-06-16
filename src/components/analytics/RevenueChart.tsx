@@ -36,14 +36,14 @@ export function RevenueChart({ data, loading }: RevenueChartProps) {
 
   if (loading) {
     return (
-      <Card>
-        <CardHeader>
+      <Card className="h-full mb-6">
+        <CardHeader className="pb-4">
           <h3 className="text-sm font-medium text-muted-foreground">
             Receita por Estágio
           </h3>
         </CardHeader>
-        <CardContent>
-          <div className="h-[240px] flex items-center justify-center text-muted-foreground">
+        <CardContent className="h-full pt-0 pb-4">
+          <div className="h-[200px] flex items-center justify-center text-muted-foreground">
             Carregando...
           </div>
         </CardContent>
@@ -53,14 +53,14 @@ export function RevenueChart({ data, loading }: RevenueChartProps) {
 
   if (chartData.length === 0) {
     return (
-      <Card>
-        <CardHeader>
+      <Card className="h-full mb-6">
+        <CardHeader className="pb-4">
           <h3 className="text-sm font-medium text-muted-foreground">
             Receita por Estágio
           </h3>
         </CardHeader>
-        <CardContent>
-          <div className="h-[240px] flex items-center justify-center text-muted-foreground">
+        <CardContent className="h-full pt-0 pb-4">
+          <div className="h-[200px] flex items-center justify-center text-muted-foreground">
             Nenhuma receita nos estágios.
           </div>
         </CardContent>
@@ -69,13 +69,13 @@ export function RevenueChart({ data, loading }: RevenueChartProps) {
   }
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className="h-full mb-6">
+      <CardHeader className="pb-4">
         <h3 className="text-sm font-medium text-muted-foreground">
           Receita por Estágio
         </h3>
       </CardHeader>
-      <CardContent>
+      <CardContent className="h-full pt-0 pb-4">
         <div className="h-[240px]">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart

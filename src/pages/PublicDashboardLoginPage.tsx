@@ -210,7 +210,8 @@ export function PublicDashboardLoginPage() {
         userId  = authData.user.id;
       }
 
-      // 3. Carrega role do usuário no Banco B (usando a session obtida)
+      // 3. Carrega dados do usuário — primeiro tenta crm_users via sessão autenticada,
+      //    depois faz fallback para user_metadata do JWT (sempre disponível)
       const bankBForUser = createClientSupabase(
         clientRow.client_supabase_url,
         clientRow.client_supabase_anon_key
@@ -220,15 +221,40 @@ export function PublicDashboardLoginPage() {
         refresh_token: session.refresh_token,
       });
 
-      const { data: userData, error: userError } = await bankBForUser
+      // Tenta ler crm_users com a sessão do usuário (RLS permite authenticated)
+      const { data: userData } = await bankBForUser
         .from("crm_users")
         .select("id, email, full_name, role, client_id, avatar_url")
         .eq("id", userId)
         .eq("active", true)
         .maybeSingle();
 
-      if (userError || !userData) {
-        // Tenta fazer signOut no banco B para limpar a sessão
+      // Se crm_users retornou "member" mas o registro local diz is_primary,
+      // o usuário é o principal e deve ter role "owner"
+      let effectiveRole = userData?.role ?? null;
+      if (effectiveRole === "member") {
+        const { data: localRecord } = await supabase
+          .from("crm_client_users")
+          .select("is_primary")
+          .eq("client_id", clientRow.id)
+          .ilike("email", email.trim().toLowerCase())
+          .maybeSingle();
+        if (localRecord?.is_primary) {
+          effectiveRole = "owner";
+          // Corrige o role no Banco B para refletir o correto nas próximas sessões
+          bankBForUser
+            .from("crm_users")
+            .update({ role: "owner" })
+            .eq("id", userId)
+            .then(() => {/* fire-and-forget */});
+        }
+      }
+
+      // Se crm_users não retornou (trigger ainda não rodou, RLS bloqueou, etc.),
+      // monta o perfil a partir dos metadados do JWT — sempre presentes
+      const { data: { user: authUser } } = await bankBForUser.auth.getUser();
+
+      if (!userData && !authUser) {
         const bankBCleanup = createClientSupabase(
           clientRow.client_supabase_url,
           clientRow.client_supabase_anon_key
@@ -238,16 +264,27 @@ export function PublicDashboardLoginPage() {
         return;
       }
 
+      const meta = authUser?.user_metadata ?? {};
+      const resolvedUser = {
+        id:        userId!,
+        email:     userData?.email      ?? authUser?.email ?? email.trim().toLowerCase(),
+        full_name: userData?.full_name  ?? (meta.full_name as string | null) ?? (meta.name as string | null) ?? null,
+        // Hierarquia: role corrigido > role do crm_users > role do metadata > "owner" (fallback para usuário sem role)
+        role:      effectiveRole ?? (meta.role as string | null) ?? "owner",
+        client_id: userData?.client_id  ?? (meta.client_id as string | null) ?? clientRow.id,
+        avatar_url: userData?.avatar_url ?? null,
+      };
+
       resetRateLimit(slug);
 
       // 4. Monta o auth completo e salva na sessão (sem senha, sem anon_key)
       const dynamicUser: DynamicUser = {
-        id: userData.id,
-        email: userData.email,
-        full_name: userData.full_name ?? null,
-        role: userData.role,
-        client_id: userData.client_id,
-        avatar_url: userData.avatar_url ?? null,
+        id:        resolvedUser.id,
+        email:     resolvedUser.email,
+        full_name: resolvedUser.full_name,
+        role:      resolvedUser.role,
+        client_id: resolvedUser.client_id,
+        avatar_url: resolvedUser.avatar_url,
       };
 
       const auth: ClientAuth = {
@@ -285,9 +322,11 @@ export function PublicDashboardLoginPage() {
       // Limpa formato antigo de senha única
       localStorage.removeItem(`client_auth_${slug}`);
 
-      // Guarda a anon_key apenas em memória via sessionStorage temporário
-      // para o useDynamicClient usar nesta sessão
+      // Guarda a anon_key em sessionStorage com AMBAS as chaves:
+      // - client_anon_${slug}     → compatibilidade (usada pelo layout ao carregar)
+      // - client_anon_${clientRow.id} → chave que useDynamicClient procura por auth.id
       sessionStorage.setItem(`client_anon_${slug}`, clientRow.client_supabase_anon_key!);
+      sessionStorage.setItem(`client_anon_${clientRow.id}`, clientRow.client_supabase_anon_key!);
 
       navigate(`/public/dashboard/${slug}`, { replace: true });
     } catch (err) {

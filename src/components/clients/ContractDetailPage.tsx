@@ -23,6 +23,8 @@ import { InvoiceStatusBadge } from "@/components/fiscal/InvoiceStatusBadge";
 import { InvoiceEmitModal } from "@/components/fiscal/InvoiceEmitModal";
 import { InvoiceViewModal } from "@/components/fiscal/InvoiceViewModal";
 import type { Invoice } from "@/types/fiscal";
+import { ComercialClientTab } from "@/components/clients/ComercialClientTab";
+import { GenerateContractButton } from "@/components/contracts/GenerateContractButton";
 
 const fmtCurrency = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
@@ -180,6 +182,7 @@ export function ContractDetailPage({
               <UserCheck className="h-4 w-4 mr-1" /> Encerrar
             </Button>
           )}
+          <GenerateContractButton contractId={contract.id} organizationId={organizationId} />
           <Button size="sm" onClick={onEdit} disabled={!canEdit}>
             <Pencil className="h-4 w-4 mr-1" /> Editar
           </Button>
@@ -193,6 +196,7 @@ export function ContractDetailPage({
           {fiscalPerms.canView && (
             <TabsTrigger value="notas-fiscais">Notas Fiscais</TabsTrigger>
           )}
+          <TabsTrigger value="comercial">Comercial</TabsTrigger>
         </TabsList>
 
         <TabsContent value="contrato" className="space-y-6 mt-4">
@@ -449,6 +453,9 @@ export function ContractDetailPage({
             )}
           </TabsContent>
         )}
+        <TabsContent value="comercial" className="mt-4">
+          <ComercialClientTab clientId={clientId} organizationId={organizationId} />
+        </TabsContent>
       </Tabs>
 
       {/* ── Fiscal modals ── */}

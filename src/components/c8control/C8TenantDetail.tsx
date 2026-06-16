@@ -5,7 +5,7 @@ import {
   Loader2, ShieldOff, ShieldCheck, Trash2, RefreshCcw,
   AlertTriangle, Pencil, Check, PauseCircle, KeyRound,
   Users, FileText, Receipt, Settings2, Wifi, Eye, EyeOff,
-  Link2, Database, Copy,
+  Link2, Database, Copy, X,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
@@ -36,7 +36,7 @@ import { useC8TenantActions } from "@/hooks/useC8TenantActions";
 import { useC8Payments } from "@/hooks/useC8Payments";
 import { CrmUsersList } from "@/components/clients/CrmUsersList";
 import { supabase } from "@/lib/supabase";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { C8Tenant } from "@/hooks/useC8Tenants";
 import type { Payment } from "@/types/crm";
 import { useInvoices } from "@/hooks/useInvoices";
@@ -86,6 +86,178 @@ interface C8TenantDetailProps {
 const fmtCurrency = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
 
+// ---------------------------------------------------------------------------
+// CredentialField — campo unificado: visualiza (via Edge Function) e edita
+// Modos:
+//   idle    → mostra ••••• + botão "Revelar" (ou "Definir" se !isSet)
+//   loading → buscando da Edge Function
+//   viewing → valor do banco em readOnly, com olho/copiar/Editar/Ocultar
+//   editing → campo livre, borda destacada, X para cancelar
+// ---------------------------------------------------------------------------
+
+type CredentialField = "service_key" | "email" | "password";
+
+interface CredentialFieldProps {
+  clientId: string;
+  field: CredentialField;
+  label: string;
+  placeholder: string;
+  isSet: boolean;
+  canEdit: boolean;
+  onChange: (value: string) => void;
+}
+
+function CredentialField({
+  clientId, field, label, placeholder, isSet, canEdit, onChange,
+}: CredentialFieldProps) {
+  type Mode = "idle" | "loading" | "viewing" | "editing";
+  const [mode, setMode]       = useState<Mode>("idle");
+  const [fetched, setFetched] = useState<string | null>(null);
+  const [draft, setDraft]     = useState("");
+  const [visible, setVisible] = useState(false);
+
+  const isPasswordType = field === "service_key" || field === "password";
+
+  const handleReveal = async () => {
+    if (!isSet) { setMode("editing"); return; }
+    setMode("loading");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) { toast.error("Sessão expirada."); setMode("idle"); return; }
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/get-client-credentials`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":  "application/json",
+            "apikey":        import.meta.env.VITE_SUPABASE_ANON_KEY ?? "",
+            "Authorization": `Bearer ${token}`,
+          },
+          body: JSON.stringify({ client_id: clientId, field }),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) { toast.error(data.error ?? "Erro ao revelar."); setMode("idle"); return; }
+      setFetched(data.value);
+      setVisible(true);
+      setMode("viewing");
+    } catch {
+      toast.error("Erro de conexão.");
+      setMode("idle");
+    }
+  };
+
+  const handleEdit = () => {
+    setDraft(fetched ?? "");
+    onChange(fetched ?? "");
+    setMode("editing");
+    setVisible(true);
+  };
+
+  const handleCancel = () => {
+    setDraft("");
+    onChange("");
+    setMode(fetched !== null ? "viewing" : "idle");
+  };
+
+  const handleDraftChange = (val: string) => {
+    setDraft(val);
+    onChange(val);
+  };
+
+  const handleCopy = () => {
+    const v = mode === "editing" ? draft : fetched;
+    if (!v) return;
+    navigator.clipboard.writeText(v);
+    toast.success(`${label} copiado!`);
+  };
+
+  const handleHide = () => {
+    setFetched(null);
+    setDraft("");
+    onChange("");
+    setVisible(false);
+    setMode("idle");
+  };
+
+  const displayValue =
+    mode === "editing" ? draft :
+    mode === "viewing" ? (fetched ?? "") :
+    mode === "loading" ? "" :
+    isSet              ? "•••••••••••••••••" : "";
+
+  const inputType = isPasswordType ? (visible ? "text" : "password") : "text";
+
+  return (
+    <div className="grid gap-1.5">
+      <label className="text-xs font-semibold text-slate-600">{label}</label>
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Input
+            type={mode === "idle" ? "password" : inputType}
+            value={displayValue}
+            readOnly={mode === "viewing" || mode === "idle"}
+            disabled={mode === "loading" || (!canEdit && mode !== "viewing")}
+            placeholder={mode === "editing" ? placeholder : undefined}
+            onChange={e => handleDraftChange(e.target.value)}
+            className={[
+              "h-8 text-sm font-mono",
+              (mode === "viewing" || mode === "idle") ? "bg-slate-50 cursor-default" : "",
+              mode === "editing" ? "pr-16 border-primary ring-1 ring-primary/30" : "pr-16",
+            ].join(" ")}
+          />
+          {(mode === "viewing" || mode === "editing") && (
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1">
+              {isPasswordType && (
+                <button type="button" onClick={() => setVisible(v => !v)}
+                  className="text-slate-400 hover:text-slate-600" title={visible ? "Ocultar" : "Mostrar"}>
+                  {visible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              )}
+              <button type="button" onClick={handleCopy}
+                className="text-slate-400 hover:text-slate-600" title="Copiar">
+                <Copy className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {mode === "idle" && canEdit && (
+          <Button type="button" size="sm" variant="outline"
+            className="h-8 px-3 text-xs shrink-0" onClick={handleReveal}>
+            {isSet
+              ? <><Eye className="h-3.5 w-3.5 mr-1" />Revelar</>
+              : <><Pencil className="h-3.5 w-3.5 mr-1" />Definir</>}
+          </Button>
+        )}
+        {mode === "loading" && (
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground shrink-0" />
+        )}
+        {mode === "viewing" && canEdit && (
+          <>
+            <Button type="button" size="sm" variant="outline"
+              className="h-8 px-3 text-xs shrink-0" onClick={handleEdit}>
+              <Pencil className="h-3.5 w-3.5 mr-1" />Editar
+            </Button>
+            <button type="button" onClick={handleHide}
+              className="text-slate-400 hover:text-slate-600 shrink-0" title="Ocultar">
+              <EyeOff className="h-3.5 w-3.5" />
+            </button>
+          </>
+        )}
+        {mode === "editing" && (
+          <button type="button" onClick={handleCancel}
+            className="text-slate-400 hover:text-slate-600 shrink-0" title="Cancelar edição">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
 const fmtDate = (d: string | null) =>
   d ? format(parseISO(d), "dd/MM/yyyy", { locale: ptBR }) : "—";
 
@@ -127,13 +299,30 @@ export function C8TenantDetail({
   // ── Fiscal permissions ────────────────────────────────────────────────────
   const fiscalPerms = useModulePermission("fiscal" as any);
 
+  const { data: c8Contract } = useQuery({
+    queryKey: ['c8_contract', organizationId, tenant.client_id],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('contracts')
+        .select('id')
+        .eq('organization_id', organizationId)
+        .eq('client_id', tenant.client_id)
+        .eq('service_contracted', 'C8 Control CRM')
+        .eq('status', 'ativo')
+        .maybeSingle();
+      return data;
+    },
+    enabled: !!organizationId && !!tenant.client_id,
+  });
+  const c8ContractId = c8Contract?.id;
+
   // ── Invoices for this tenant (filtered by client_id) ─────────────────────
   // The tenant's contract_id is not directly available on C8Tenant, so we
   // filter by client_id and let the "Notas Fiscais" tab show all invoices for
   // this client. The emit modal can be pre-filled with contract_id when known.
   const invoicesQuery = useInvoices(
     fiscalPerms.canView ? organizationId : undefined,
-    fiscalPerms.canView ? { client_id: tenant.client_id } : undefined
+    fiscalPerms.canView ? (c8ContractId && !tenant.c8_free_access ? { contract_id: c8ContractId } : { client_id: tenant.client_id }) : undefined
   );
   const tenantInvoices = invoicesQuery.data ?? [];
 
@@ -206,14 +395,13 @@ export function C8TenantDetail({
   // ── Credenciais Supabase ──────────────────────────────────────────────────
   const [supabaseUrl, setSupabaseUrl] = useState(tenant.client_supabase_url ?? "");
   const [supabaseAnonKey, setSupabaseAnonKey] = useState(tenant.client_supabase_anon_key ?? "");
-  const [supabaseServiceKey, setSupabaseServiceKey] = useState("");
-  const [supabaseEmail, setSupabaseEmail] = useState("");
-  const [supabasePassword, setSupabasePassword] = useState("");
   const [supabaseServiceKeySet, setSupabaseServiceKeySet] = useState(tenant.client_supabase_service_key_set ?? false);
   const [supabaseEmailSet, setSupabaseEmailSet] = useState(tenant.client_supabase_email_set ?? false);
   const [supabasePasswordSet, setSupabasePasswordSet] = useState(tenant.client_supabase_password_set ?? false);
-  const [showServiceKey, setShowServiceKey] = useState(false);
-  const [showSupPassword, setShowSupPassword] = useState(false);
+  // Drafts das credenciais sensíveis — string vazia significa "não alterar"
+  const [credDrafts, setCredDrafts] = useState({ service_key: "", email: "", password: "" });
+  const setCredDraft = (field: CredentialField, val: string) =>
+    setCredDrafts(prev => ({ ...prev, [field]: val }));
   const [isSavingCredentials, setIsSavingCredentials] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
 
@@ -299,21 +487,37 @@ export function C8TenantDetail({
         .eq("id", tenant.client_id);
       if (error) throw error;
 
-      // Salva credenciais sensíveis via RPC segura
-      if (supabaseServiceKey || supabaseEmail || supabasePassword) {
-        const { data, error: rpcError } = await supabase.rpc("save_client_supabase_credentials", {
-          p_client_id:  tenant.client_id,
-          p_service_key: supabaseServiceKey.trim() || null,
-          p_email:       supabaseEmail.trim() || null,
-          p_password:    supabasePassword.trim() || null,
+      // Salva credenciais sensíveis via RPC segura (apenas campos com valor preenchido)
+      const { service_key, email: credEmail, password: credPassword } = credDrafts;
+      if (service_key || credEmail || credPassword) {
+        const { data: rpcRaw, error: rpcError } = await supabase.rpc("save_client_supabase_credentials", {
+          p_client_id:   tenant.client_id,
+          p_service_key: service_key.trim() || null,
+          p_email:       credEmail.trim() || null,
+          p_password:    credPassword.trim() || null,
         });
         if (rpcError) throw rpcError;
-        setSupabaseServiceKeySet(data?.client_supabase_service_key_set ?? supabaseServiceKeySet);
-        setSupabaseEmailSet(data?.client_supabase_email_set ?? supabaseEmailSet);
-        setSupabasePasswordSet(data?.client_supabase_password_set ?? supabasePasswordSet);
-        setSupabaseServiceKey("");
-        setSupabaseEmail("");
-        setSupabasePassword("");
+        const rpcData = Array.isArray(rpcRaw) ? rpcRaw[0] : rpcRaw;
+        setCredDrafts({ service_key: "", email: "", password: "" });
+        if (rpcData) {
+          setSupabaseServiceKeySet(rpcData.client_supabase_service_key_set ?? supabaseServiceKeySet);
+          setSupabaseEmailSet(rpcData.client_supabase_email_set ?? supabaseEmailSet);
+          setSupabasePasswordSet(rpcData.client_supabase_password_set ?? supabasePasswordSet);
+        }
+      }
+
+      // Re-fetch direto para garantir que os badges *_set reflitam o estado real no banco
+      const { data: fresh } = await supabase
+        .from("clients")
+        .select("client_supabase_url, client_supabase_anon_key, client_supabase_service_key_set, client_supabase_email_set, client_supabase_password_set")
+        .eq("id", tenant.client_id)
+        .single();
+      if (fresh) {
+        setSupabaseUrl(fresh.client_supabase_url ?? "");
+        setSupabaseAnonKey(fresh.client_supabase_anon_key ?? "");
+        setSupabaseServiceKeySet(fresh.client_supabase_service_key_set ?? false);
+        setSupabaseEmailSet(fresh.client_supabase_email_set ?? false);
+        setSupabasePasswordSet(fresh.client_supabase_password_set ?? false);
       }
 
       qc.invalidateQueries({ queryKey: ["c8_tenants", organizationId] });
@@ -676,7 +880,7 @@ export function C8TenantDetail({
                 Usuários
               </TabsTrigger>
               <TabsTrigger value="pagamentos">Pagamentos</TabsTrigger>
-              {fiscalPerms.canView && (
+              {fiscalPerms.canView && c8ContractId && !tenant.c8_free_access && (
                 <TabsTrigger value="notas-fiscais">Notas Fiscais</TabsTrigger>
               )}
               <TabsTrigger value="configuracoes">Configurações</TabsTrigger>
@@ -754,22 +958,26 @@ export function C8TenantDetail({
                   </div>
                 )}
                 {/* Indicador de acesso gratuito */}
-                {isFreeAccess && (
-                  <div className="col-span-2">
-                    <p className="text-xs text-muted-foreground">Acesso</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <Badge className="bg-violet-100 text-violet-700 text-xs">Gratuito</Badge>
-                      {freeAccessUntilDate && (
-                        <span className="text-xs text-muted-foreground">
-                          até {freeAccessUntilDate}
-                        </span>
-                      )}
-                      {freeAccessReasonStr && (
-                        <span className="text-xs text-muted-foreground">— {freeAccessReasonStr}</span>
-                      )}
-                    </div>
+                <div className="col-span-2">
+                  <p className="text-xs text-muted-foreground">Acesso Gratuito</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    {isFreeAccess ? (
+                      <>
+                        <Badge className="bg-violet-100 text-violet-700 text-xs">Liberado</Badge>
+                        {freeAccessUntilDate && (
+                          <span className="text-xs text-muted-foreground">
+                            at? {freeAccessUntilDate}
+                          </span>
+                        )}
+                        {freeAccessReasonStr && (
+                          <span className="text-xs text-muted-foreground">� {freeAccessReasonStr}</span>
+                        )}
+                      </>
+                    ) : (
+                      <Badge className="bg-slate-100 text-slate-500 text-xs">N�o liberado</Badge>
+                    )}
                   </div>
-                )}
+                </div>
               </div>
 
               {/* Contadores de usuários */}
@@ -948,9 +1156,17 @@ export function C8TenantDetail({
                         )}
                       </div>
                       {dashboardSlug && (
-                        <p className="text-[10px] text-muted-foreground font-mono">
-                          {window.location.origin}/public/dashboard/{dashboardSlug}
-                        </p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-[10px] text-muted-foreground font-mono flex-1">
+                            {window.location.origin}/public/dashboard/{dashboardSlug}
+                          </p>
+                          <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1.5" asChild>
+                            <a href={`${window.location.origin}/public/dashboard/${dashboardSlug}`} target="_blank" rel="noopener noreferrer">
+                              <Link2 className="h-3 w-3" />
+                              Acessar
+                            </a>
+                          </Button>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -995,45 +1211,38 @@ export function C8TenantDetail({
                       ))}
                     </div>
 
-                    {canEdit && (
-                      <div className="space-y-3 p-3 rounded-xl bg-amber-50/60 border border-amber-200">
-                        <p className="text-[10px] font-semibold text-amber-700 uppercase tracking-wider">Credenciais Sensíveis (deixe em branco para não alterar)</p>
-                        <div className="grid gap-1.5">
-                          <label className="text-xs font-semibold text-slate-600">Service Role Key</label>
-                          <div className="relative">
-                            <Input type={showServiceKey ? "text" : "password"}
-                              value={supabaseServiceKey} onChange={e => setSupabaseServiceKey(e.target.value)}
-                              placeholder={supabaseServiceKeySet ? "••••• (preencha para atualizar)" : "eyJhbGci..."}
-                              className="h-8 text-sm pr-8" />
-                            <button type="button" onClick={() => setShowServiceKey(v => !v)}
-                              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                              {showServiceKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                            </button>
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="grid gap-1.5">
-                            <label className="text-xs font-semibold text-slate-600">E-mail do Painel</label>
-                            <Input type="email" value={supabaseEmail} onChange={e => setSupabaseEmail(e.target.value)}
-                              placeholder={supabaseEmailSet ? "••••• (preencha para atualizar)" : "admin@exemplo.com"}
-                              className="h-8 text-sm" />
-                          </div>
-                          <div className="grid gap-1.5">
-                            <label className="text-xs font-semibold text-slate-600">Senha do Painel</label>
-                            <div className="relative">
-                              <Input type={showSupPassword ? "text" : "password"}
-                                value={supabasePassword} onChange={e => setSupabasePassword(e.target.value)}
-                                placeholder={supabasePasswordSet ? "••••• (preencha para atualizar)" : "senha"}
-                                className="h-8 text-sm pr-8" />
-                              <button type="button" onClick={() => setShowSupPassword(v => !v)}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                                {showSupPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
+                    {/* ── Credenciais sensíveis: campo unificado (revelar + editar) ── */}
+                    <div className="space-y-3">
+                      <CredentialField
+                        clientId={tenant.client_id}
+                        field="service_key"
+                        label="Service Role Key"
+                        placeholder="eyJhbGci..."
+                        isSet={supabaseServiceKeySet}
+                        canEdit={canEdit}
+                        onChange={val => setCredDraft("service_key", val)}
+                      />
+                      <div className="grid grid-cols-2 gap-3">
+                        <CredentialField
+                          clientId={tenant.client_id}
+                          field="email"
+                          label="E-mail do Painel"
+                          placeholder="admin@exemplo.com"
+                          isSet={supabaseEmailSet}
+                          canEdit={canEdit}
+                          onChange={val => setCredDraft("email", val)}
+                        />
+                        <CredentialField
+                          clientId={tenant.client_id}
+                          field="password"
+                          label="Senha do Painel"
+                          placeholder="senha"
+                          isSet={supabasePasswordSet}
+                          canEdit={canEdit}
+                          onChange={val => setCredDraft("password", val)}
+                        />
                       </div>
-                    )}
+                    </div>
 
                     {canEdit && (
                       <Button onClick={handleSaveCredentials} disabled={isSavingCredentials} className="w-full" size="sm">
@@ -1231,7 +1440,7 @@ export function C8TenantDetail({
               )}
             </TabsContent>
             {/* ── Notas Fiscais tab (req 5.1, 5.2, 5.3, 5.4) ── */}
-            {fiscalPerms.canView && (
+            {fiscalPerms.canView && c8ContractId && !tenant.c8_free_access && (
               <TabsContent value="notas-fiscais" className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-base font-semibold">Notas Fiscais</h3>

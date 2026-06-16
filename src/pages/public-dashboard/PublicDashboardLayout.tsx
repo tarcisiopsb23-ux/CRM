@@ -60,23 +60,6 @@ function PublicDashboardLayoutInner({ slug }: { slug: string }) {
     root.removeAttribute("data-sidebar-color");
   }, []);
 
-  // Guard de rota IA
-  const isIaRoute = IA_ROUTES.some((r) => location.pathname.endsWith(r));
-  if (isIaRoute && !auth?.show_ia_content) {
-    return <Navigate to={`/public/dashboard/${slug}`} replace />;
-  }
-
-  // Guard de role por rota
-  const userRole = (auth?.user?.role ?? "viewer") as Role;
-  const routeSuffix = location.pathname.replace(`/public/dashboard/${slug}`, "") || "/";
-  const requiredRole = Object.entries(ROUTE_ROLE_MAP).find(([route]) =>
-    routeSuffix === route || routeSuffix.startsWith(route + "/")
-  )?.[1] as Role | undefined;
-
-  if (requiredRole && !hasRole(userRole, requiredRole)) {
-    return <Navigate to={`/public/dashboard/${slug}`} replace />;
-  }
-
   // Re-fetch de dados frescos ao montar (atualiza modules_config e flags)
   useEffect(() => {
     if (!auth) return;
@@ -131,6 +114,22 @@ function PublicDashboardLayoutInner({ slug }: { slug: string }) {
       events.forEach((e) => window.removeEventListener(e, reset));
     };
   }, [logout]);
+
+  // Guards de rota — todos os hooks já foram chamados, safe para retornar aqui
+  const isIaRoute = IA_ROUTES.some((r) => location.pathname.endsWith(r));
+  if (isIaRoute && !auth?.show_ia_content) {
+    return <Navigate to={`/public/dashboard/${slug}`} replace />;
+  }
+
+  const userRole = (auth?.user?.role ?? "viewer") as Role;
+  const routeSuffix = location.pathname.replace(`/public/dashboard/${slug}`, "") || "/";
+  const requiredRole = Object.entries(ROUTE_ROLE_MAP).find(([route]) =>
+    routeSuffix === route || routeSuffix.startsWith(route + "/")
+  )?.[1] as Role | undefined;
+
+  if (requiredRole && !hasRole(userRole, requiredRole)) {
+    return <Navigate to={`/public/dashboard/${slug}`} replace />;
+  }
 
   return (
     <SidebarProvider>

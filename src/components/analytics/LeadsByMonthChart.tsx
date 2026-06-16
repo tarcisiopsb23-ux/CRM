@@ -25,14 +25,14 @@ export function LeadsByMonthChart({ data, loading }: LeadsByMonthChartProps) {
 
   if (loading) {
     return (
-      <Card>
-        <CardHeader>
+      <Card className="h-full mb-6">
+        <CardHeader className="pb-2">
           <h3 className="text-sm font-medium text-muted-foreground">
             Leads criados por mês
           </h3>
         </CardHeader>
-        <CardContent>
-          <div className="h-[240px] flex items-center justify-center text-muted-foreground">
+        <CardContent className="h-full pt-0 pb-1">
+          <div className="h-[340px] flex items-center justify-center text-muted-foreground">
             Carregando...
           </div>
         </CardContent>
@@ -41,24 +41,24 @@ export function LeadsByMonthChart({ data, loading }: LeadsByMonthChartProps) {
   }
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className="h-full mb-6">
+      <CardHeader className="pb-2">
         <h3 className="text-sm font-medium text-muted-foreground">
           Leads criados por mês
         </h3>
       </CardHeader>
-      <CardContent>
-        <div className="h-[240px]">
+      <CardContent className="h-full pt-0 pb-0">
+        <div className="h-[340px]">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
               data={chartData}
-              margin={{ top: 0, right: 16, left: 0, bottom: 0 }}
+              margin={{ top: 5, right: 16, left: 0, bottom: 5 }}
             >
               <XAxis
                 dataKey="label"
                 tick={{ fontSize: 11 }}
               />
-              <YAxis tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} tickCount={7} />
               <Tooltip
                 formatter={(value: number) => [value, "Leads"]}
                 contentStyle={{ fontSize: 12 }}

@@ -14,28 +14,28 @@
     --card-foreground: 213 30% 17%;
     --popover: 0 0% 100%;
     --popover-foreground: 213 30% 17%;
-    --primary: 265 62% 46%;
+    --primary: 265 60% 45%;
     --primary-foreground: 0 0% 100%;
     --secondary: 213 30% 17%;
     --secondary-foreground: 0 0% 100%;
     --muted: 228 25% 93%;
     --muted-foreground: 215 16% 47%;
-    --accent: 265 40% 94%;
-    --accent-foreground: 265 62% 46%;
+    --accent: 260 45% 88%;
+    --accent-foreground: 265 60% 40%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
     --border: 220 20% 90%;
     --input: 220 20% 90%;
-    --ring: 265 62% 46%;
+    --ring: 265 60% 45%;
     --radius: 0.625rem;
-    --sidebar-background: 265 45% 20%;
+    --sidebar-background: 260 55% 20%;
     --sidebar-foreground: 220 20% 90%;
-    --sidebar-primary: 265 62% 56%;
+    --sidebar-primary: 265 60% 50%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 265 40% 25%;
+    --sidebar-accent: 260 50% 26%;
     --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 265 40% 25%;
-    --sidebar-ring: 265 62% 56%;
+    --sidebar-border: 260 50% 26%;
+    --sidebar-ring: 265 60% 50%;
     --success: 152 60% 42%;
     --success-foreground: 0 0% 100%;
     --warning: 38 92% 50%;
@@ -47,8 +47,8 @@
     --chart-3: 152 60% 42%;
     --chart-4: 38 92% 50%;
     --chart-5: 0 84% 60%;
-    --gradient-primary: linear-gradient(135deg, hsl(265 62% 46%), hsl(280 70% 55%));
-    --gradient-sidebar: linear-gradient(180deg, hsl(265 45% 20%), hsl(265 50% 15%));
+    --gradient-primary: linear-gradient(135deg, hsl(260 60% 40%), hsl(280 65% 45%));
+    --gradient-sidebar: linear-gradient(180deg, hsl(260 55% 22%), hsl(270 65% 14%));
     --font-serif: Lora, ui-serif, Georgia, Cambria, Times New Roman, Times, serif;
   }
 
@@ -91,27 +91,27 @@
     --card-foreground: 220 20% 90%;
     --popover: 213 30% 14%;
     --popover-foreground: 220 20% 90%;
-    --primary: 265 62% 56%;
+    --primary: 265 60% 50%;
     --primary-foreground: 0 0% 100%;
     --secondary: 213 25% 22%;
     --secondary-foreground: 220 20% 90%;
     --muted: 213 25% 20%;
     --muted-foreground: 215 16% 60%;
-    --accent: 265 30% 22%;
-    --accent-foreground: 265 62% 70%;
+    --accent: 260 40% 25%;
+    --accent-foreground: 265 60% 75%;
     --destructive: 0 62% 30%;
     --destructive-foreground: 0 0% 100%;
     --border: 213 25% 22%;
     --input: 213 25% 22%;
-    --ring: 265 62% 56%;
-    --sidebar-background: 265 45% 15%;
+    --ring: 265 60% 50%;
+    --sidebar-background: 260 50% 18%;
     --sidebar-foreground: 220 20% 90%;
-    --sidebar-primary: 265 62% 56%;
+    --sidebar-primary: 265 60% 55%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 265 40% 20%;
+    --sidebar-accent: 260 45% 24%;
     --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 265 40% 20%;
-    --sidebar-ring: 265 62% 56%;
+    --sidebar-border: 260 45% 24%;
+    --sidebar-ring: 265 60% 55%;
     --font-serif: Lora, ui-serif, Georgia, Cambria, Times New Roman, Times, serif;
   }
 }
@@ -153,6 +153,26 @@
     border-radius: 9999px;
     border: 2px solid transparent;
     background-clip: padding-box;
+  }
+  /* Scrollbar moderna para o sidebar */
+  .sidebar-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--sidebar-accent)) transparent;
+  }
+  .sidebar-scroll::-webkit-scrollbar {
+    width: 6px;
+  }
+  .sidebar-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .sidebar-scroll::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--sidebar-accent));
+    border-radius: 9999px;
+    border: 1px solid transparent;
+    background-clip: padding-box;
+  }
+  .sidebar-scroll::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--sidebar-ring));
   }
 }
 
@@ -308,53 +328,88 @@
 }
 
 /* ── Scrollbar do public dashboard ── */
-.public-dashboard-root *::-webkit-scrollbar { width: 6px; height: 6px; }
-.public-dashboard-root *::-webkit-scrollbar-track { background: hsl(var(--pd-bg-elevated)); border-radius: 999px; }
-.public-dashboard-root *::-webkit-scrollbar-thumb { background: hsl(var(--pd-border)); border-radius: 999px; }
-.public-dashboard-root *::-webkit-scrollbar-thumb:hover { background: hsl(var(--pd-muted-fg)); }
+.public-dashboard-root *::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.public-dashboard-root *::-webkit-scrollbar-track {
+  background: hsl(var(--pd-bg-elevated));
+  border-radius: 999px;
+}
+.public-dashboard-root *::-webkit-scrollbar-thumb {
+  background: hsl(var(--pd-border));
+  border-radius: 999px;
+  border: 1px solid hsl(var(--pd-bg-elevated));
+  background-clip: padding-box;
+}
+.public-dashboard-root *::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--pd-primary) / 0.6);
+  border-color: hsl(var(--pd-bg-elevated));
+  background-clip: padding-box;
+}
+.public-dashboard-root *::-webkit-scrollbar-corner {
+  background: hsl(var(--pd-bg-elevated));
+}
+/* Firefox */
+.public-dashboard-root * {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--pd-border)) hsl(var(--pd-bg-elevated));
+}
+
+/* ── Scrollbar global quando o tema dark está ativo (cobre portais/modais) ── */
+/* O public dashboard força a classe .dark no <html>, portanto este seletor  */
+/* alcança todos os portais do Radix (Dialog, Popover, DropdownMenu, etc.)   */
+/* que são renderizados fora de .public-dashboard-root no DOM.               */
+.dark *::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.dark *::-webkit-scrollbar-track {
+  background: hsl(222 26% 12%);   /* --pd-bg-elevated */
+  border-radius: 999px;
+}
+.dark *::-webkit-scrollbar-thumb {
+  background: hsl(222 20% 22%);   /* --pd-border */
+  border-radius: 999px;
+  border: 1px solid hsl(222 26% 12%);
+  background-clip: padding-box;
+}
+.dark *::-webkit-scrollbar-thumb:hover {
+  background: hsl(270 65% 60% / 0.6);  /* --pd-primary */
+  border-color: hsl(222 26% 12%);
+  background-clip: padding-box;
+}
+.dark *::-webkit-scrollbar-corner {
+  background: hsl(222 26% 12%);
+}
+/* Firefox */
+.dark * {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(222 20% 22%) hsl(222 26% 12%);
+}
 
 /* ── Scrollbar customization ── */
 
-/* Dashboard interno (fundo claro) */
+/* ── Scrollbar do dashboard interno (fundo claro) ── */
 .scrollbar-light::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 .scrollbar-light::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: hsl(var(--muted));
   border-radius: 999px;
 }
 .scrollbar-light::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: hsl(var(--border));
   border-radius: 999px;
+  border: 1px solid hsl(var(--muted));
+  background-clip: padding-box;
 }
 .scrollbar-light::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: hsl(var(--primary) / 0.5);
+  background-clip: padding-box;
 }
-
-/* Dashboard público (fundo escuro) */
-.scrollbar-dark::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-.scrollbar-dark::-webkit-scrollbar-track {
-  background: #1e293b;
-  border-radius: 999px;
-}
-.scrollbar-dark::-webkit-scrollbar-thumb {
-  background: #334155;
-  border-radius: 999px;
-}
-.scrollbar-dark::-webkit-scrollbar-thumb:hover {
-  background: #475569;
-}
-
-/* Firefox */
 .scrollbar-light {
   scrollbar-width: thin;
-  scrollbar-color: #cbd5e1 #f1f5f9;
-}
-.scrollbar-dark {
-  scrollbar-width: thin;
-  scrollbar-color: #334155 #1e293b;
+  scrollbar-color: hsl(var(--border)) hsl(var(--muted));
 }

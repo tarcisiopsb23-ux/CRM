@@ -31,3 +31,6 @@ supabase/.temp
 
 # Projeto C8 Control (repositório separado — não faz parte do CRM)
 C8 Control/
+
+# Repositório separado com git próprio
+proposta/

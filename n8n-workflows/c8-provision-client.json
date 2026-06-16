@@ -32,7 +32,7 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "=token {{ $env.GITHUB_TOKEN }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.GITHUB_TOKEN }}" },
             { "name": "Accept",        "value": "application/vnd.github.v3.raw" }
           ]
         },
@@ -185,5 +185,5 @@
   },
   "settings": { "executionOrder": "v1" },
   "meta": { "templateId": "c8-provision-client-v2" },
-  "notes": "## C8 Control — Provisionar Cliente (Ativação Inicial)\n\n### Variáveis de ambiente necessárias:\n- SUPABASE_URL — URL da agência\n- SUPABASE_SERVICE_KEY — Service key da agência\n- C8_SCHEMA_RAW_URL — URL raw do bank_b_full_schema.sql no repositório\n\n### O schema é sempre buscado dinamicamente do repositório.\n### Configurar a mesma variável C8_SCHEMA_RAW_URL nos 3 workflows."
+  "notes": "## C8 Control — Provisionar Cliente (Ativação Inicial)\n\n### Variáveis de ambiente necessárias:\n- SUPABASE_URL — URL da agência\n- SUPABASE_SERVICE_KEY — Service key da agência\n- C8_SCHEMA_RAW_URL — URL da API do GitHub para o bank_b_full_schema.sql\n  Ex: https://api.github.com/repos/OWNER/REPO/contents/migrations/bank_b_full_schema.sql\n- GITHUB_TOKEN — Personal Access Token (formato Bearer, com permissão read:repo)\n\n### O schema é sempre buscado dinamicamente do repositório.\n### Configurar a mesma variável C8_SCHEMA_RAW_URL nos 3 workflows."
 }

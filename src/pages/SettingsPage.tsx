@@ -13,10 +13,12 @@ import {
 } from "@/components/settings";
 import { FiscalSettingsTab } from "@/components/settings/FiscalSettingsTab";
 import { RecruitmentSection } from "@/components/settings/RecruitmentSection";
+import { ContractSettingsTab } from "@/components/settings/ContractSettingsTab";
+import { ServiceCatalogTab } from "@/components/contracts/settings/ServiceCatalogTab";
 import { InviteMemberDialog } from "@/components/team/InviteMemberDialog";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Mail, Link as LinkIcon, Sun, Moon, Monitor, Type, Palette, Cloud, UserPlus, FolderOpen, ImagePlus, Loader2, Megaphone } from "lucide-react";
+import { Mail, Link as LinkIcon, Sun, Moon, Monitor, Type, Palette, Cloud, UserPlus, FolderOpen, ImagePlus, Loader2, Megaphone, FileText } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
@@ -55,10 +57,10 @@ import { Label } from "@/components/ui/label";
 export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { theme, setTheme, fontSize, setFontSize, sidebarColor, setSidebarColor } = useUserPreferences();
-  const validTabs = useMemo(() => new Set(["permissions", "integrations", "fiscal", "recruitment", "general"]), []);
+  const validTabs = useMemo(() => new Set(["permissions", "integrations", "fiscal", "recruitment", "general", "contracts", "products"]), []);
   const tabParamRaw = searchParams.get("tab");
   const tabParam = tabParamRaw === "api" ? "integrations" : tabParamRaw;
-  const tab = (tabParam && validTabs.has(tabParam) ? tabParam : "permissions") as "permissions" | "integrations" | "fiscal" | "recruitment" | "general";
+  const tab = (tabParam && validTabs.has(tabParam) ? tabParam : "permissions") as "permissions" | "integrations" | "fiscal" | "recruitment" | "general" | "contracts";
 
   const { canView: canViewBranding } = usePermissionForScope("settings", "general");
   const organizationId = useOrganization();
@@ -181,6 +183,8 @@ export function SettingsPage() {
           <TabsTrigger value="integrations">Integrações</TabsTrigger>
           <TabsTrigger value="fiscal">Fiscal / NFS-e</TabsTrigger>
           <TabsTrigger value="recruitment">Recrutamento</TabsTrigger>
+          <TabsTrigger value="contracts">Contratos</TabsTrigger>
+          <TabsTrigger value="products">Serviços/Produtos</TabsTrigger>
           <TabsTrigger value="general">Configurações gerais</TabsTrigger>
         </TabsList>
 
@@ -338,6 +342,14 @@ export function SettingsPage() {
 
         <TabsContent value="recruitment" className="space-y-6">
           <RecruitmentSection />
+        </TabsContent>
+
+        <TabsContent value="contracts" className="space-y-6">
+          <ContractSettingsTab />
+        </TabsContent>
+
+        <TabsContent value="products" className="space-y-6">
+          <ServiceCatalogTab />
         </TabsContent>
 
         <TabsContent value="general" className="space-y-6">

@@ -12,9 +12,10 @@ interface LeadsKanbanColumnProps {
   label: string;
   leads: Lead[];
   onDetalhes: (lead: Lead) => void;
+  activeProposalsCount?: number;
 }
 
-export function LeadsKanbanColumn({ id, label, leads, onDetalhes }: LeadsKanbanColumnProps) {
+export function LeadsKanbanColumn({ id, label, leads, onDetalhes, activeProposalsCount = 0 }: LeadsKanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id });
   const leadIds = leads.map((l) => l.id);
 
@@ -27,9 +28,16 @@ export function LeadsKanbanColumn({ id, label, leads, onDetalhes }: LeadsKanbanC
     >
       <div className="flex items-center justify-between p-3 border-b border-border/50 bg-muted/80 backdrop-blur rounded-t-lg">
         <h3 className="font-semibold text-foreground text-sm truncate pr-2">{label}</h3>
-        <span className="text-xs font-medium text-muted-foreground bg-background px-2 py-0.5 rounded-full border">
-          {leads.length}
-        </span>
+        <div className="flex items-center gap-2">
+          {activeProposalsCount > 0 && (
+            <span className="text-xs font-medium text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full border">
+              📝 {activeProposalsCount}
+            </span>
+          )}
+          <span className="text-xs font-medium text-muted-foreground bg-background px-2 py-0.5 rounded-full border">
+            {leads.length}
+          </span>
+        </div>
       </div>
       <div ref={setNodeRef} className="flex-1 overflow-y-auto overflow-x-hidden p-3 custom-scrollbar">
         <SortableContext items={leadIds} strategy={verticalListSortingStrategy}>

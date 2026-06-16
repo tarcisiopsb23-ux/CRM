@@ -42,6 +42,11 @@ export type ContractRow = {
   created_at: string | null;
   updated_at: string | null;
   is_dashboard_reference: boolean | null;
+  is_signed: boolean | null;
+  signed_at: string | null;
+  generated_at: string | null;
+  template_id: string | null;
+  min_duration_months: number | null;
 };
 
 const toIsoDate = (d: Date) => format(d, "yyyy-MM-dd");
@@ -97,6 +102,10 @@ export function useContractsByClient(organizationId: string | undefined, clientI
         created_at: (r.created_at as string | null) ?? null,
         updated_at: (r.updated_at as string | null) ?? null,
         is_dashboard_reference: (r.is_dashboard_reference as boolean | null) ?? false,
+        is_signed: (r.is_signed as boolean | null) ?? false,
+        signed_at: (r.signed_at as string | null) ?? null,
+        generated_at: (r.generated_at as string | null) ?? null,
+        template_id: (r.template_id as string | null) ?? null,
       })) as ContractRow[];
     },
     enabled: !!organizationId && !!clientId,
@@ -422,6 +431,46 @@ export function useDeleteContract(organizationId: string | undefined) {
  *  Garante que apenas 1 contrato por cliente tenha is_dashboard_reference = true.
  *  Se outro contrato já estiver marcado, desmarca antes de marcar o novo.
  */
+export function useGenerateContract(organizationId: string | undefined) {
+  const qc = useQueryClient();
+  const supabaseUntyped = supabase as unknown as SupabaseClient;
+  return useMutation({
+    mutationFn: async ({ id, client_id, template_id }: { id: string; client_id: string; template_id?: string }) => {
+      if (!organizationId) throw new Error("Sem organização");
+      const { error } = await supabaseUntyped
+        .from("contracts")
+        .update({ generated_at: new Date().toISOString(), template_id: template_id ?? null })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: (_c, vars) => {
+      qc.invalidateQueries({ queryKey: ["contracts", organizationId, vars.client_id] });
+    },
+  });
+}
+
+export function useSignContract(organizationId: string | undefined) {
+  const qc = useQueryClient();
+  const supabaseUntyped = supabase as unknown as SupabaseClient;
+  return useMutation({
+    mutationFn: async ({ id, client_id }: { id: string; client_id: string }) => {
+      if (!organizationId) throw new Error("Sem organização");
+      const { error } = await supabaseUntyped
+        .from("contracts")
+        .update({ is_signed: true, signed_at: new Date().toISOString() })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: (_c, vars) => {
+      qc.invalidateQueries({ queryKey: ["contracts", organizationId, vars.client_id] });
+    },
+  });
+}
+
+/** Define qual contrato é a referência de data para o dashboard público.
+ *  Garante que apenas 1 contrato por cliente tenha is_dashboard_reference = true.
+ *  Se outro contrato já estiver marcado, desmarca antes de marcar o novo.
+ */
 export function useSetDashboardReference(organizationId: string | undefined) {
   const qc = useQueryClient();
   const supabaseUntyped = supabase as unknown as SupabaseClient;
@@ -501,6 +550,10 @@ export function useContractsWithC8(
         created_at: (r.created_at as string | null) ?? null,
         updated_at: (r.updated_at as string | null) ?? null,
         is_dashboard_reference: (r.is_dashboard_reference as boolean | null) ?? false,
+        is_signed: (r.is_signed as boolean | null) ?? false,
+        signed_at: (r.signed_at as string | null) ?? null,
+        generated_at: (r.generated_at as string | null) ?? null,
+        template_id: (r.template_id as string | null) ?? null,
       }));
 
       // 2. C8 Control plan — only if not already covered by a contract

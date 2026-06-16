@@ -355,7 +355,7 @@ export function C8TenantList({
 
       {/* Create/Edit form dialog */}
       <Dialog open={formOpen} onOpenChange={(open) => { if (!open) { setFormOpen(false); setEditingTenant(null); } }}>
-        <DialogContent className="max-w-[75vw] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-[75vw] max-h-[90vh] min-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {editingTenant ? "Editar Cliente" : "Novo Cliente C8 Control"}
@@ -556,3 +556,4 @@ export function C8TenantList({
     </div>
   );
 }
+

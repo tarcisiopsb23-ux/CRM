@@ -4,12 +4,12 @@ import { useAuth } from "@/contexts/AuthContext";
 import type { Database } from "@/types/supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export type PermissionModule = Database["public"]["Enums"]["permission_module"] | "performance" | "integrations";
+export type PermissionModule = Database["public"]["Enums"]["permission_module"] | "performance" | "integrations" | "comercial";
 export type UserRole = Database["public"]["Enums"]["user_role"];
 
 // Módulos que existem apenas no frontend — não fazem parte do enum permission_module
 // no banco. Queries com esses valores causam erro 22P02 (invalid enum input).
-export const CLIENT_ONLY_MODULES = new Set<PermissionModule>(["performance", "integrations"]);
+export const CLIENT_ONLY_MODULES = new Set<PermissionModule>(["performance", "integrations", "comercial" as PermissionModule]);
 
 export interface UserPermissionRow {
   id: string;
@@ -47,6 +47,7 @@ export const MODULES: { id: PermissionModule; label: string }[] = [
   { id: "c8control" as PermissionModule, label: "C8 Control" },
   { id: "fiscal" as PermissionModule, label: "Fiscal / NFS-e" },
   { id: "recruitment" as PermissionModule, label: "Recrutamento e Seleção" },
+  { id: "comercial", label: "Comercial (Propostas e Contratos)" },
 ];
 
 export interface JobTitleRoleMappingRow {
@@ -124,6 +125,9 @@ const ROUTE_TO_MODULE: Record<string, PermissionModule> = {
   "/c8control": "c8control" as PermissionModule,
   "/fiscal": "fiscal" as PermissionModule,
   "/recruitment": "recruitment" as PermissionModule,
+  "/comercial/propostas": "comercial",
+  "/comercial/dashboard": "comercial",
+  "/comercial/configuracoes/contratos": "comercial",
 };
 
 export type PermissionResult = { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean };
@@ -178,6 +182,12 @@ export function baselineFor(role: UserRole, module: PermissionModule | null, sco
 
   // Recrutamento: manager pode ver/criar/editar, mas não excluir; demais roles sem acesso por padrão
   if (module === ("recruitment" as PermissionModule)) {
+    if (role === "manager") return { canView: true, canCreate: true, canEdit: true, canDelete: false };
+    return { canView: false, canCreate: false, canEdit: false, canDelete: false };
+  }
+
+  // Comercial (Propostas e Contratos): manager pode ver/criar/editar, mas não excluir; demais roles sem acesso por padrão
+  if (module === "comercial") {
     if (role === "manager") return { canView: true, canCreate: true, canEdit: true, canDelete: false };
     return { canView: false, canCreate: false, canEdit: false, canDelete: false };
   }
@@ -985,4 +995,5 @@ export const MODULE_VIEWS: Record<PermissionModule, Array<{ id: string; label: s
     { id: "invoices", label: "Notas Fiscais" },
     { id: "emit", label: "Emissão de NFS-e" },
   ],
+  comercial: [],
 } as Record<PermissionModule, Array<{ id: string; label: string }>>;

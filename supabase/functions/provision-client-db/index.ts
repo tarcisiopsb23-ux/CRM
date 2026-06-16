@@ -140,6 +140,23 @@ CREATE TABLE IF NOT EXISTS public.crm_whatsapp_sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_crm_whatsapp_client_id ON public.crm_whatsapp_sessions(client_id);
 
+CREATE TABLE IF NOT EXISTS public.ai_events (
+  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id   TEXT        NOT NULL,
+  title       TEXT        NOT NULL,
+  description TEXT,
+  rules       TEXT,
+  date        DATE        NOT NULL,
+  time        TEXT,
+  location    TEXT,
+  type        TEXT        CHECK (type IN ('musica_ao_vivo','dia_especial')),
+  status      TEXT        NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_ai_events_client_id ON public.ai_events(client_id);
+CREATE INDEX IF NOT EXISTS idx_ai_events_date      ON public.ai_events(date);
+
 CREATE TABLE IF NOT EXISTS public.ai_reminders (
   id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   client_id  TEXT        NOT NULL,
@@ -152,6 +169,39 @@ CREATE TABLE IF NOT EXISTS public.ai_reminders (
 );
 CREATE INDEX IF NOT EXISTS idx_ai_reminders_client_id ON public.ai_reminders(client_id);
 CREATE INDEX IF NOT EXISTS idx_ai_reminders_due_date  ON public.ai_reminders(due_date) WHERE NOT completed;
+
+CREATE TABLE IF NOT EXISTS public.client_charges (
+  id              UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id       TEXT          NOT NULL,
+  asaas_id        TEXT          UNIQUE,
+  description     TEXT          NOT NULL DEFAULT '',
+  value           NUMERIC(12,2) NOT NULL DEFAULT 0,
+  due_date        DATE          NOT NULL,
+  payment_date    DATE,
+  billing_type    TEXT          NOT NULL DEFAULT 'PIX'
+                  CHECK (billing_type IN ('PIX','BOLETO','CREDIT_CARD','UNDEFINED')),
+  status          TEXT          NOT NULL DEFAULT 'PENDING'
+                  CHECK (status IN (
+                    'PENDING','RECEIVED','CONFIRMED','OVERDUE',
+                    'REFUNDED','REFUND_REQUESTED','CHARGEBACK_REQUESTED',
+                    'CHARGEBACK_DISPUTE','AWAITING_CHARGEBACK_REVERSAL',
+                    'DUNNING_REQUESTED','DUNNING_RECEIVED',
+                    'AWAITING_RISK_ANALYSIS','CANCELLED'
+                  )),
+  invoice_url     TEXT,
+  bank_slip_url   TEXT,
+  pix_qr_code     TEXT,
+  pix_copy_paste  TEXT,
+  external_ref    TEXT,
+  notes           TEXT,
+  metadata        JSONB         DEFAULT '{}',
+  created_at      TIMESTAMPTZ   NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ   NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_client_charges_client_id ON public.client_charges(client_id);
+CREATE INDEX IF NOT EXISTS idx_client_charges_status    ON public.client_charges(status);
+CREATE INDEX IF NOT EXISTS idx_client_charges_due_date  ON public.client_charges(due_date);
+CREATE INDEX IF NOT EXISTS idx_client_charges_asaas_id  ON public.client_charges(asaas_id);
 
 CREATE TABLE IF NOT EXISTS public.ai_settings (
   id                   UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -191,7 +241,8 @@ DECLARE t TEXT;
 BEGIN
   FOREACH t IN ARRAY ARRAY[
     'crm_users','crm_contacts','crm_products','crm_pipeline_stages',
-    'crm_deals','crm_whatsapp_sessions','ai_reminders','ai_settings'
+    'crm_deals','crm_whatsapp_sessions','ai_reminders','ai_settings',
+    'ai_events','client_charges'
   ] LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS "authenticated_access" ON public.%I', t);
@@ -209,7 +260,8 @@ DECLARE t TEXT;
 BEGIN
   FOREACH t IN ARRAY ARRAY[
     'crm_users','crm_contacts','crm_products','crm_deals',
-    'crm_whatsapp_sessions','ai_reminders','ai_settings'
+    'crm_whatsapp_sessions','ai_reminders','ai_settings',
+    'ai_events','client_charges'
   ] LOOP
     EXECUTE format('DROP TRIGGER IF EXISTS trg_%s_updated_at ON public.%I', t, t);
     EXECUTE format('CREATE TRIGGER trg_%s_updated_at BEFORE UPDATE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.set_updated_at()', t, t);
@@ -292,8 +344,69 @@ REVOKE ALL ON FUNCTION public.exec_sql(TEXT) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.exec_sql(TEXT) FROM anon;
 REVOKE ALL ON FUNCTION public.exec_sql(TEXT) FROM authenticated;
 
+-- ── Upgrades incrementais (aplicados em bancos legados a cada execução) ────────
+-- Cada bloco é idempotente e corrige estruturas de versões anteriores do schema.
+
+-- v3.1: ai_events — adiciona colunas novas se não existirem
+ALTER TABLE public.ai_events ADD COLUMN IF NOT EXISTS client_id   TEXT;
+ALTER TABLE public.ai_events ADD COLUMN IF NOT EXISTS rules       TEXT;
+ALTER TABLE public.ai_events ADD COLUMN IF NOT EXISTS updated_at  TIMESTAMPTZ NOT NULL DEFAULT now();
+
+-- v3.1: ai_events — converte coluna time de TIME para TEXT se ainda for TIME
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name   = 'ai_events'
+      AND column_name  = 'time'
+      AND data_type    = 'time without time zone'
+  ) THEN
+    ALTER TABLE public.ai_events
+      ALTER COLUMN time TYPE TEXT USING to_char(time, 'HH24:MI');
+  END IF;
+END $$;
+
+-- v3.1: ai_events — migra valores legados do enum type
+UPDATE public.ai_events SET type = 'musica_ao_vivo' WHERE type = 'schedule';
+UPDATE public.ai_events SET type = 'dia_especial'   WHERE type = 'event';
+UPDATE public.ai_events SET type = 'musica_ao_vivo'
+  WHERE type IS NULL OR type NOT IN ('musica_ao_vivo','dia_especial');
+
+-- v3.1: ai_events — remove constraint antiga e recria com novos valores
+DO $$
+DECLARE v_constraint TEXT;
+BEGIN
+  SELECT conname INTO v_constraint
+  FROM pg_constraint
+  WHERE conrelid = 'public.ai_events'::regclass
+    AND contype  = 'c'
+    AND pg_get_constraintdef(oid) LIKE '%type%'
+    AND conname <> 'ai_events_type_check';
+  IF v_constraint IS NOT NULL THEN
+    EXECUTE format('ALTER TABLE public.ai_events DROP CONSTRAINT %I', v_constraint);
+  END IF;
+END $$;
+
+ALTER TABLE public.ai_events DROP CONSTRAINT IF EXISTS ai_events_type_check;
+ALTER TABLE public.ai_events
+  ADD CONSTRAINT ai_events_type_check
+  CHECK (type IN ('musica_ao_vivo','dia_especial'));
+
+-- v3.1: ai_events — recria índices que dependem de client_id
+CREATE INDEX IF NOT EXISTS idx_ai_events_client_id ON public.ai_events(client_id);
+
+-- v3.1: client_charges — garante colunas se tabela já existir sem algumas delas
+ALTER TABLE public.client_charges ADD COLUMN IF NOT EXISTS notes        TEXT;
+ALTER TABLE public.client_charges ADD COLUMN IF NOT EXISTS metadata     JSONB DEFAULT '{}';
+ALTER TABLE public.client_charges ADD COLUMN IF NOT EXISTS external_ref TEXT;
+
 INSERT INTO public.schema_migrations (version)
-VALUES ('bank_b_full_schema_v1')
+VALUES ('bank_b_full_schema_v3')
+ON CONFLICT (version) DO NOTHING;
+
+INSERT INTO public.schema_migrations (version)
+VALUES ('bank_b_upgrade_v3_1')
 ON CONFLICT (version) DO NOTHING;
 `;
 

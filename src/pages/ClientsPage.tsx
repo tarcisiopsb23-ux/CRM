@@ -8,7 +8,7 @@ import { useTeams } from "@/hooks/useTeams";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useLeadsKanban } from "@/hooks/useLeadsKanban";
 import { usePayments } from "@/hooks/useFinancial";
-import { useContractsByClient, useContractsWithC8, useCreateContract, useDeleteContract, useEndContract, useReactivateContract, useSuspendContract, useUpdateContract, useSetDashboardReference } from "@/hooks/useContracts";
+import { useContractsByClient, useContractsWithC8, useCreateContract, useDeleteContract, useEndContract, useReactivateContract, useSuspendContract, useUpdateContract, useSetDashboardReference, useGenerateContract, useSignContract } from "@/hooks/useContracts";
 import type { ContractRow } from "@/hooks/useContracts";
 import { useContractMetrics } from "@/hooks/useContractMetrics";
 import { useModulePermission } from "@/hooks/usePermissions";
@@ -45,7 +45,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Eye, Pencil, Plus, UserCheck, Loader2, Trash2, PauseCircle, RotateCw, Search, Check } from "lucide-react";
+import { Eye, Pencil, Plus, UserCheck, Loader2, Trash2, PauseCircle, RotateCw, Search, Check, FileText } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { fetchAddressByCep } from "@/lib/viacep";
 import { toast } from "sonner";
@@ -57,6 +57,11 @@ import { ptBR } from "date-fns/locale";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { DocumentsCard } from "@/components/documents/DocumentsCard";
 import { DRIVE_AUTO_FOLDERS } from "@/constants/driveAutoFolders";
+import { ServicesSelectorSection } from "@/components/contracts/form/ServicesSelectorSection";
+import { SetupSection } from "@/components/contracts/form/SetupSection";
+import { generatePayments } from "@/lib/contracts/generatePayments";
+import { calcSetupParcel } from "@/lib/contracts/calcSetupParcel";
+import type { SelectedService } from "@/types/contracts";
 
 import { ClientIntegrationsTab } from "@/components/clients/ClientIntegrationsTab";
 import { ClientKPIsTab } from "@/components/clients/ClientKPIsTab";
@@ -394,6 +399,8 @@ export default function ClientsPage() {
   const suspendContract = useSuspendContract(organizationId);
   const reactivateContract = useReactivateContract(organizationId);
   const setDashboardReference = useSetDashboardReference(organizationId);
+  const generateContract = useGenerateContract(organizationId);
+  const signContract = useSignContract(organizationId);
 
   const viewingContractIds = useMemo(() => {
     const ids = (clientContractsQuery.data ?? [])
@@ -458,6 +465,15 @@ export default function ClientsPage() {
     recurring_value: "",
     recurring_payment_method: "pix",
     notes: "",
+    // New fields for contract-system spec
+    services: [] as SelectedService[],
+    setup_enabled: false,
+    setup_value: undefined as number | undefined,
+    setup_installments: undefined as number | undefined,
+    setup_fees: undefined as number | undefined,
+    setup_first_due_date: undefined as string | undefined,
+    setup_payment_method: undefined as string | undefined,
+    min_duration_months: 0,
   });
 
   const [suspendedMonthOpen, setSuspendedMonthOpen] = useState(false);
@@ -616,6 +632,14 @@ export default function ClientsPage() {
             recurring_value: l?.value ? String(l.value) : "",
             recurring_payment_method: "pix",
             notes: "",
+            services: [] as SelectedService[],
+            setup_enabled: false,
+            setup_value: undefined,
+            setup_installments: undefined,
+            setup_fees: undefined,
+            setup_first_due_date: undefined,
+            setup_payment_method: undefined,
+            min_duration_months: 0,
           });
           setContractModalOpen(true);
         }
@@ -1507,6 +1531,14 @@ export default function ClientsPage() {
                         recurring_value: String(ct.value ?? 0),
                         recurring_payment_method: (ct.metadata as any)?.recurring_payment_method ?? "pix",
                         notes: (ct.metadata as any)?.notes ?? "",
+                        services: ((ct.metadata as any)?.services ?? []) as SelectedService[],
+                        setup_enabled: !!((ct.metadata as any)?.setup_value),
+                        setup_value: (ct.metadata as any)?.setup_value as number | undefined,
+                        setup_installments: (ct.metadata as any)?.setup_installments as number | undefined,
+                        setup_fees: (ct.metadata as any)?.setup_fees as number | undefined,
+                        setup_first_due_date: (ct.metadata as any)?.setup_first_due_date as string | undefined,
+                        setup_payment_method: (ct.metadata as any)?.setup_payment_method as string | undefined,
+                        min_duration_months: ct.min_duration_months ?? 0,
                       });
                       setContractModalOpen(true);
                     }}
@@ -1556,6 +1588,14 @@ export default function ClientsPage() {
                   recurring_value: "",
                   recurring_payment_method: "pix",
                   notes: "",
+                  services: [] as SelectedService[],
+                  setup_enabled: false,
+                  setup_value: undefined,
+                  setup_installments: undefined,
+                  setup_fees: undefined,
+                  setup_first_due_date: undefined,
+                  setup_payment_method: undefined,
+                  min_duration_months: 0,
                 });
                 setContractModalOpen(true);
               }}
@@ -1586,6 +1626,7 @@ export default function ClientsPage() {
                       <TableHead className="bg-background border-b">Serviço</TableHead>
                       <TableHead className="bg-background border-b">Contratação</TableHead>
                       <TableHead className="bg-background border-b">Status</TableHead>
+                      <TableHead className="bg-background border-b text-center">Assinado</TableHead>
                       <TableHead className="bg-background border-b text-center">Ref. Dashboard</TableHead>
                       <TableHead className="text-right bg-background border-b">Total</TableHead>
                       <TableHead className="text-right bg-background border-b">Ações</TableHead>
@@ -1602,6 +1643,15 @@ export default function ClientsPage() {
                             ct.status === "suspenso" ? "bg-yellow-100 text-yellow-700" :
                             "bg-slate-100 text-slate-600"
                           }`}>{ct.status ?? "—"}</span>
+                        </TableCell>
+                        <TableCell className="bg-background group-hover:bg-transparent text-center">
+                          {ct.is_signed ? (
+                            <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                              <Check className="w-3 h-3" /> Assinado
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-500">—</span>
+                          )}
                         </TableCell>
                         <TableCell className="bg-background group-hover:bg-transparent text-center" onClick={(e) => e.stopPropagation()}>
                           <div className="flex flex-col items-center gap-1">
@@ -1621,6 +1671,30 @@ export default function ClientsPage() {
                             <Button size="icon" variant="ghost" onClick={() => setViewingContractId(ct.id)} aria-label="Ver detalhes" className="bg-background hover:bg-muted">
                               <Eye className="h-4 w-4" />
                             </Button>
+                            {!ct.generated_at && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => generateContract.mutate({ id: ct.id, client_id: viewing.id })}
+                                disabled={!canManageContracts || generateContract.isPending}
+                                aria-label="Gerar contrato"
+                                className="bg-background hover:bg-muted"
+                              >
+                                <FileText className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {ct.generated_at && !ct.is_signed && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => signContract.mutate({ id: ct.id, client_id: viewing.id })}
+                                disabled={!canManageContracts || signContract.isPending}
+                                aria-label="Assinar contrato"
+                                className="bg-background hover:bg-muted text-emerald-600"
+                              >
+                                <Check className="h-4 w-4" />
+                              </Button>
+                            )}
                             <Button
                               size="icon" variant="ghost"
                               onClick={() => {
@@ -1641,6 +1715,14 @@ export default function ClientsPage() {
                                   recurring_value: String(ct.value ?? 0),
                                   recurring_payment_method: (ct.metadata as any)?.recurring_payment_method ?? "pix",
                                   notes: (ct.metadata as any)?.notes ?? "",
+                                  services: ((ct.metadata as any)?.services ?? []) as SelectedService[],
+                                  setup_enabled: !!((ct.metadata as any)?.setup_value),
+                                  setup_value: (ct.metadata as any)?.setup_value as number | undefined,
+                                  setup_installments: (ct.metadata as any)?.setup_installments as number | undefined,
+                                  setup_fees: (ct.metadata as any)?.setup_fees as number | undefined,
+                                  setup_first_due_date: (ct.metadata as any)?.setup_first_due_date as string | undefined,
+                                  setup_payment_method: (ct.metadata as any)?.setup_payment_method as string | undefined,
+                                  min_duration_months: ct.min_duration_months ?? 0,
                                 });
                                 setContractModalOpen(true);
                               }}
@@ -1829,12 +1911,31 @@ export default function ClientsPage() {
                 recurring_payment_method: contractForm.recurring_payment_method,
                 notes: contractForm.notes,
               };
+
+              // Build new metadata fields — Task 15.2
+              const setupParcelValue = contractForm.setup_enabled && contractForm.setup_value && contractForm.setup_installments
+                ? calcSetupParcel(contractForm.setup_value, contractForm.setup_installments, contractForm.setup_fees ?? 0)
+                : undefined;
+
+              const newMetadata: Record<string, unknown> = {
+                ...extraMeta,
+                services: contractForm.services.length > 0 ? contractForm.services : undefined,
+                ...(contractForm.setup_enabled ? {
+                  setup_value: contractForm.setup_value,
+                  setup_installments: contractForm.setup_installments,
+                  setup_parcel_value: setupParcelValue,
+                  setup_fees: contractForm.setup_fees,
+                  setup_first_due_date: contractForm.setup_first_due_date,
+                  setup_payment_method: contractForm.setup_payment_method,
+                } : {}),
+              };
+
               if (contractEditingId) {
                 await updateContract.mutateAsync({
                   id: contractEditingId,
                   client_id: contractForm.client_id,
                   title: contractForm.title,
-                  service_contracted: contractForm.service_contracted || null,
+                  service_contracted: contractForm.services.length > 0 ? contractForm.services[0].service_name : (contractForm.service_contracted || null),
                   contract_date: contractDate,
                   start_date: contractDate,
                   end_date: endDisplay,
@@ -1850,13 +1951,55 @@ export default function ClientsPage() {
                   first_payment_second_due_date: null,
                   recurring_due_date: isEventual ? null : (contractForm.recurring_due_date || null),
                   value: isEventual ? 0 : (contractForm.recurring_value ? Number(contractForm.recurring_value) : 0),
-                  metadata: extraMeta,
+                  min_duration_months: contractForm.min_duration_months,
+                  metadata: newMetadata,
                 });
+
+                // Generate/update payments for edited monthly contracts — Task 15.2 / Req 8.7, 8.8
+                if (!isEventual && contractForm.contract_type === "mensal" && duration > 0) {
+                  const recurringValue = Number(contractForm.recurring_value || 0);
+                  const dueDate = contractForm.first_payment_due_date || contractDate;
+                  try {
+                    // Cancel existing pending payments before regenerating
+                    await supabase
+                      .from("payments")
+                      .update({ status: "cancelado" })
+                      .eq("contract_id", contractEditingId)
+                      .eq("status", "pendente");
+
+                    const drafts = generatePayments({
+                      contractId: contractEditingId,
+                      title: contractForm.title,
+                      recurringValue,
+                      durationMonths: duration,
+                      firstPaymentDueDate: dueDate,
+                      setupInstallments: contractForm.setup_enabled ? (contractForm.setup_installments ?? 0) : 0,
+                      setupParcelValue: setupParcelValue ?? 0,
+                    });
+
+                    for (const draft of drafts) {
+                      const { data: existing } = await supabase
+                        .from("payments")
+                        .select("id, status")
+                        .eq("contract_id", draft.contract_id)
+                        .eq("due_date", draft.due_date)
+                        .maybeSingle();
+
+                      if (existing && (existing as { status: string }).status !== "pago") {
+                        await supabase.from("payments").update({ value: draft.value, description: draft.description }).eq("id", (existing as { id: string }).id);
+                      } else if (!existing) {
+                        await supabase.from("payments").insert(draft);
+                      }
+                    }
+                  } catch (payErr) {
+                    logger.warn("Failed to regenerate payments after contract update", payErr);
+                  }
+                }
               } else {
-                await createContract.mutateAsync({
+                const created = await createContract.mutateAsync({
                   client_id: contractForm.client_id,
                   title: contractForm.title,
-                  service_contracted: contractForm.service_contracted || null,
+                  service_contracted: contractForm.services.length > 0 ? contractForm.services[0].service_name : (contractForm.service_contracted || null),
                   contract_date: contractDate,
                   duration_months: duration,
                   first_payment_value: Number(contractForm.first_payment_value || 0),
@@ -1866,35 +2009,65 @@ export default function ClientsPage() {
                   first_payment_fees: fees,
                   recurring_value: isEventual ? 0 : Number(contractForm.recurring_value || 0),
                   recurring_due_date: isEventual ? contractDate : (contractForm.recurring_due_date || contractDate),
-                  metadata: extraMeta,
+                  metadata: newMetadata,
                 });
+
+                // Persist min_duration_months separately since createContract doesn't include it — Task 15.1
+                const savedContractId = (created as ContractRow)?.id;
+                if (savedContractId) {
+                  const supabaseUntyped = supabase as unknown as import("@supabase/supabase-js").SupabaseClient;
+                  await supabaseUntyped
+                    .from("contracts")
+                    .update({ min_duration_months: contractForm.min_duration_months })
+                    .eq("id", savedContractId);
+
+                  // Generate payments for new monthly contracts — Task 15.2 / Req 8.1
+                  if (!isEventual && contractForm.contract_type === "mensal" && duration > 0) {
+                    const recurringValue = Number(contractForm.recurring_value || 0);
+                    const dueDate = contractForm.first_payment_due_date || contractDate;
+                    try {
+                      const drafts = generatePayments({
+                        contractId: savedContractId,
+                        title: contractForm.title,
+                        recurringValue,
+                        durationMonths: duration,
+                        firstPaymentDueDate: dueDate,
+                        setupInstallments: contractForm.setup_enabled ? (contractForm.setup_installments ?? 0) : 0,
+                        setupParcelValue: setupParcelValue ?? 0,
+                      });
+
+                      for (const draft of drafts) {
+                        const { data: existing } = await supabase
+                          .from("payments")
+                          .select("id, status")
+                          .eq("contract_id", draft.contract_id)
+                          .eq("due_date", draft.due_date)
+                          .maybeSingle();
+
+                        if (existing && (existing as { status: string }).status !== "pago") {
+                          await supabase.from("payments").update({ value: draft.value, description: draft.description }).eq("id", (existing as { id: string }).id);
+                        } else if (!existing) {
+                          await supabase.from("payments").insert(draft);
+                        }
+                      }
+                    } catch (payErr) {
+                      logger.warn("Failed to generate payments after contract create", payErr);
+                    }
+                  }
+                }
               }
               setContractModalOpen(false);
             }}
           >
             {/* Linha 1: Serviço, Tipo, Data, Duração, Encerramento */}
             <div className="grid grid-cols-3 gap-4">
-              <div>
-                <Label>Produto/Serviço</Label>
-                <Select
-                  value={contractForm.service_contracted}
-                  onValueChange={(v) => setContractForm({ ...contractForm, service_contracted: v })}
+              <div className="col-span-3">
+                <ServicesSelectorSection
+                  organizationId={organizationId ?? ""}
+                  value={contractForm.services}
+                  onChange={(services) => setContractForm({ ...contractForm, services })}
                   disabled={contractEditingId ? !canEdit : !canCreate}
-                >
-                  <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Assessoria">Assessoria</SelectItem>
-                    <SelectItem value="Consultoria">Consultoria</SelectItem>
-                    <SelectItem value="Google Meu Negócio">Google Meu Negócio</SelectItem>
-                    <SelectItem value="Site/Landing Page">Site/Landing Page</SelectItem>
-                    <SelectItem value="Automação IA">Automação IA</SelectItem>
-                    <SelectItem value="Captação Profissional">Captação Profissional</SelectItem>
-                    <SelectItem value="Desenvolvimento e Programação">Desenvolvimento e Programação</SelectItem>
-                    <SelectItem value="Identidade Visual">Identidade Visual</SelectItem>
-                    <SelectItem value="Lançamento">Lançamento</SelectItem>
-                    <SelectItem value="Parceria/Collab">Parceria/Collab</SelectItem>
-                  </SelectContent>
-                </Select>
+                />
               </div>
               <div>
                 <Label>Tipo de Contrato</Label>
@@ -2077,6 +2250,43 @@ export default function ClientsPage() {
                 </div>
               </div>
             )}
+
+            {/* Setup / Taxa de Implantação — Task 15.2 */}
+            <div className="col-span-full">
+              <SetupSection
+                enabled={contractForm.setup_enabled}
+                onEnabledChange={(enabled) => setContractForm({ ...contractForm, setup_enabled: enabled })}
+                setupValue={contractForm.setup_value}
+                setupInstallments={contractForm.setup_installments}
+                setupFees={contractForm.setup_fees}
+                setupFirstDueDate={contractForm.setup_first_due_date}
+                setupPaymentMethod={contractForm.setup_payment_method}
+                minDurationMonths={contractForm.min_duration_months}
+                onFieldChange={(field, value) => setContractForm({ ...contractForm, [field]: value })}
+                disabled={contractEditingId ? !canEdit : !canCreate}
+              />
+            </div>
+
+            {/* Prazo Mínimo de Permanência — Task 15.1 */}
+            <div className="col-span-full">
+              <div className="space-y-1.5">
+                <Label htmlFor="min_duration_months">Prazo Mínimo de Permanência (meses)</Label>
+                <Input
+                  id="min_duration_months"
+                  type="number"
+                  min={0}
+                  value={contractForm.min_duration_months}
+                  onChange={(e) => setContractForm({ ...contractForm, min_duration_months: Math.max(0, Number(e.target.value) || 0) })}
+                  disabled={contractEditingId ? !canEdit : !canCreate}
+                  placeholder="0"
+                />
+                {contractForm.setup_enabled && (contractForm.setup_installments ?? 0) > 1 && contractForm.min_duration_months < (contractForm.setup_installments ?? 0) && (
+                  <p className="text-sm text-yellow-600">
+                    O prazo mínimo de permanência não pode ser menor que o número de parcelas do setup ({contractForm.setup_installments} meses).
+                  </p>
+                )}
+              </div>
+            </div>
 
             {/* Observação — linha inteira */}
             <div>

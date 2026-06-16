@@ -68,7 +68,7 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "=token {{ $env.GITHUB_TOKEN }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.GITHUB_TOKEN }}" },
             { "name": "Accept",        "value": "application/vnd.github.v3.raw" }
           ]
         },
@@ -126,5 +126,5 @@
   },
   "settings": { "executionOrder": "v1" },
   "meta": { "templateId": "c8-client-ops-v2" },
-  "notes": "## C8 Control — Operações no Banco do Cliente\n\n### Variáveis de ambiente necessárias no n8n:\n- SUPABASE_URL — URL do Supabase da agência\n- SUPABASE_SERVICE_KEY — Service key da agência\n- C8_SCHEMA_RAW_URL — URL raw do bank_b_full_schema.sql no repositório\n  Ex: https://raw.githubusercontent.com/seu-org/seu-repo/main/migrations/bank_b_full_schema.sql\n\n### O schema é sempre buscado dinamicamente do repositório.\n### Ao atualizar o schema no repositório, todos os clientes receberão a versão atualizada automaticamente."
+  "notes": "## C8 Control — Operações no Banco do Cliente\n\n### Variáveis de ambiente necessárias no n8n:\n- SUPABASE_URL — URL do Supabase da agência\n- SUPABASE_SERVICE_KEY — Service key da agência\n- C8_SCHEMA_RAW_URL — URL da API do GitHub para o bank_b_full_schema.sql\n  Ex: https://api.github.com/repos/OWNER/REPO/contents/migrations/bank_b_full_schema.sql\n- GITHUB_TOKEN — Personal Access Token (formato Bearer, com permissão read:repo)\n\n### O schema é sempre buscado dinamicamente do repositório.\n### Ao atualizar o schema no repositório, todos os clientes receberão a versão atualizada automaticamente."
 }

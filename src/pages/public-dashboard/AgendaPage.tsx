@@ -18,6 +18,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { format, parseISO, parse, isValid } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -38,6 +39,7 @@ interface AgendaItem {
   id: string;
   title: string;          // nome do artista ou nome do dia especial
   description: string | null;
+  rules: string | null;   // regras específicas do evento (ex: dress code, entrada, restrições)
   date: string;           // YYYY-MM-DD
   time: string | null;
   location: string | null;
@@ -49,6 +51,7 @@ interface AgendaItem {
 interface FormState {
   title: string;
   description: string;
+  rules: string;
   date: string;
   time: string;
   location: string;
@@ -59,6 +62,7 @@ interface FormState {
 const defaultForm: FormState = {
   title: "",
   description: "",
+  rules: "",
   date: "",
   time: "",
   location: "",
@@ -323,11 +327,14 @@ export function AgendaPage() {
 
   function openEdit(item: AgendaItem) {
     setEditingItem(item);
+    // Normaliza time: banco legado retorna "21:30:00", formulário usa "21:30"
+    const normalizedTime = (item.time ?? "").slice(0, 5);
     setForm({
       title: item.title,
       description: item.description ?? "",
+      rules: item.rules ?? "",
       date: item.date,
-      time: item.time ?? "",
+      time: normalizedTime,
       location: item.location ?? "",
       type: (item.type as EventType) ?? "",
       status: item.status === "active",
@@ -343,6 +350,7 @@ export function AgendaPage() {
     const payload: Omit<AgendaItem, "id" | "created_at"> = {
       title: form.title.trim(),
       description: form.description.trim() || null,
+      rules: form.rules.trim() || null,
       date: form.date,
       time: form.time.trim() || null,
       location: form.location.trim() || null,
@@ -467,7 +475,7 @@ export function AgendaPage() {
                           {item.type ? TYPE_LABELS[item.type] : "—"}
                         </span>
                       </TableCell>
-                      <TableCell className="text-muted-foreground">{item.time ?? "—"}</TableCell>
+                      <TableCell className="text-muted-foreground">{item.time ? item.time.slice(0, 5) : "—"}</TableCell>
                       <TableCell className="text-muted-foreground max-w-[200px] truncate">
                         {item.description ?? "—"}
                       </TableCell>
@@ -534,7 +542,7 @@ export function AgendaPage() {
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>
                     {format(parseISO(item.date), "dd/MM/yyyy", { locale: ptBR })}
-                    {item.time ? ` · ${item.time}` : ""}
+                    {item.time ? ` · ${item.time.slice(0, 5)}` : ""}
                   </span>
                   <div className="flex gap-1">
                     <Switch
@@ -568,7 +576,7 @@ export function AgendaPage() {
 
       {/* Dialog criar / editar */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="border-border bg-card sm:max-w-md">
+        <DialogContent className="border-border bg-card sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-display">
               {editingItem ? "Editar Item da Agenda" : "Novo Item da Agenda"}
@@ -647,16 +655,6 @@ export function AgendaPage() {
               </div>
             </div>
 
-            {/* Descrição */}
-            <div className="grid gap-2">
-              <Label>Descrição</Label>
-              <Input
-                value={form.description}
-                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                placeholder="Informações adicionais (opcional)"
-              />
-            </div>
-
             {/* Localização */}
             <div className="grid gap-2">
               <Label>Localização</Label>
@@ -664,6 +662,38 @@ export function AgendaPage() {
                 value={form.location}
                 onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))}
                 placeholder="Ex: Salão Principal"
+              />
+            </div>
+
+            {/* Descrição */}
+            <div className="grid gap-2">
+              <Label>Descrição</Label>
+              <Textarea
+                value={form.description}
+                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                placeholder="Informações adicionais sobre o evento (opcional)"
+                rows={3}
+                className="resize-y"
+              />
+            </div>
+
+            {/* Regras para o Agente Virtual */}
+            <div className="grid gap-2">
+              <Label>Instruções para o Agente Virtual</Label>
+              <p className="text-xs text-muted-foreground -mt-1">
+                Defina o que o agente pode ou não informar ao responder perguntas sobre este evento.
+              </p>
+              <Textarea
+                value={form.rules}
+                onChange={(e) => setForm((f) => ({ ...f, rules: e.target.value }))}
+                placeholder={
+                  "Ex: Não informar o valor do cachê do artista.\n" +
+                  "Confirmar presença somente após as 18h do dia do evento.\n" +
+                  "Não divulgar o setlist antecipadamente.\n" +
+                  "Informar que as mesas devem ser reservadas com antecedência."
+                }
+                rows={4}
+                className="resize-y"
               />
             </div>
 

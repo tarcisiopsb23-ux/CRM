@@ -30,13 +30,13 @@ export function StagePerformanceTable({
 
   if (loading) {
     return (
-      <Card>
-        <CardHeader>
+      <Card className="mb-6">
+        <CardHeader className="pb-4">
           <h3 className="text-sm font-medium text-muted-foreground">
             Desempenho por Estágio
           </h3>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-0 pb-4">
           <div className="h-[200px] flex items-center justify-center text-muted-foreground">
             Carregando...
           </div>
@@ -46,19 +46,19 @@ export function StagePerformanceTable({
   }
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className="mb-6">
+      <CardHeader className="pb-4">
         <h3 className="text-sm font-medium text-muted-foreground">
           Desempenho por Estágio
         </h3>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          Tempo médio em cada estágio (via lead_stage_history)
+        <p className="text-xs text-muted-foreground mt-1">
+          Tempo médio em cada estágio
           {avgTimeToClose != null && (
             <> · Tempo médio até fechamento: {formatHours(avgTimeToClose)}</>
           )}
         </p>
       </CardHeader>
-      <CardContent>
+      <CardContent className="pt-0 pb-4">
         {filtered.length === 0 ? (
           <p className="text-sm text-muted-foreground py-8 text-center">
             Sem dados de histórico de estágios.

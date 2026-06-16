@@ -37,8 +37,12 @@ export function CrmUsersList({ clientId, organizationId, maxUsers }: CrmUsersLis
     if (!inviteEmail.trim()) { toast.error("Informe o e-mail."); return; }
     setIsInviting(true);
     try {
-      await inviteUser.mutateAsync({ email: inviteEmail.trim(), name: inviteName.trim() || undefined });
-      toast.success("Usuário convidado com sucesso!");
+      const result = await inviteUser.mutateAsync({ email: inviteEmail.trim(), name: inviteName.trim() || undefined });
+      if (result?.temp_password) {
+        toast.success(`Usuário criado! Senha temporária: ${result.temp_password}`, { duration: 10000 });
+      } else {
+        toast.success("Usuário convidado com sucesso!");
+      }
       setInviteOpen(false);
       setInviteEmail("");
       setInviteName("");

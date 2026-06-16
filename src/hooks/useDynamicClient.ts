@@ -31,10 +31,16 @@ export function useDynamicClient(): SupabaseClient | null {
     // temporário (definido logo após o login, antes do primeiro render).
     // NÃO existe fallback para variável de ambiente global — cada cliente
     // tem sua própria chave, armazenada apenas em memória de sessão.
+    //
+    // Hierarquia de busca:
+    //   1. auth.client_supabase_anon_key  (contexto — presente durante o render pós-login)
+    //   2. client_anon_${auth.id}          (UUID do cliente — salvo pelo login atual)
+    //   3. client_anon_${slug}             (slug da URL — fallback para sessões anteriores)
+    const slug = window.location.pathname.split("/")[3] ?? "";
     const anonKey =
       auth.client_supabase_anon_key ??
       sessionStorage.getItem(`client_anon_${auth.id}`) ??
-      sessionStorage.getItem(`client_anon_${window.location.pathname.split("/")[4] ?? ""}`) ??
+      (slug ? sessionStorage.getItem(`client_anon_${slug}`) : null) ??
       null;
 
     // Sem anon_key → null (cliente sem banco configurado corretamente)

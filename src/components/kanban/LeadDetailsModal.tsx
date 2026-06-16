@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Dialog,
   DialogContent,
@@ -19,6 +20,7 @@ import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import useFormPersistence from "@/hooks/useFormPersistence";
 import { ORIGEM_OPTIONS, NICHO_OPTIONS } from "@/constants/crmOptions";
+import { Plus } from "lucide-react";
 
 const PRIORIDADE_LABEL: Record<string, string> = {
   baixa: "Baixa",
@@ -60,6 +62,7 @@ export function LeadDetailsModal({
   onDelete,
   onLeadUpdated,
 }: LeadDetailsModalProps) {
+  const navigate = useNavigate();
   const orgId = useOrganization();
   const { profile } = useAuth();
   const { data: teams = [] } = useTeams(orgId);
@@ -288,27 +291,41 @@ export function LeadDetailsModal({
           )}
         </div>
 
-        <div className="flex justify-end gap-2 mt-4">
-          {hasChanges && !isQualificados && (
-            <Button size="sm" onClick={handleSaveAssignments} disabled={saving}>
-              {saving ? "Salvando..." : "Salvar Alterações"}
-            </Button>
-          )}
-          {onEdit && (
-            <Button variant="outline" onClick={() => onEdit(lead)}>
-              Editar
-            </Button>
-          )}
-          {onDelete && (
-            <Button
-              variant="ghost"
-              className="text-destructive"
-              onClick={() => onDelete(lead.id)}
-            >
-              Excluir
-            </Button>
-          )}
-        </div>
+        <div className="flex justify-between items-center gap-2 mt-4">
+            {lead.etapa_kanban === "emissao_contrato" && (
+              <Button
+                size="sm"
+                onClick={() => {
+                  navigate(`/comercial/propostas/nova?lead_id=${lead.id}`);
+                  onOpenChange(false);
+                }}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Criar Proposta
+              </Button>
+            )}
+            <div className="flex gap-2 ml-auto">
+              {hasChanges && !isQualificados && (
+                <Button size="sm" onClick={handleSaveAssignments} disabled={saving}>
+                  {saving ? "Salvando..." : "Salvar Alterações"}
+                </Button>
+              )}
+              {onEdit && (
+                <Button variant="outline" onClick={() => onEdit(lead)}>
+                  Editar
+                </Button>
+              )}
+              {onDelete && (
+                <Button
+                  variant="ghost"
+                  className="text-destructive"
+                  onClick={() => onDelete(lead.id)}
+                >
+                  Excluir
+                </Button>
+              )}
+            </div>
+          </div>
       </DialogContent>
     </Dialog>
   );

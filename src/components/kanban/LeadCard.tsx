@@ -2,10 +2,11 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileText, GripVertical } from "lucide-react";
+import { FileText, GripVertical, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Lead } from "@/types/database";
 import { formatPhoneBR } from "@/lib/formatters";
+import { useNavigate } from "react-router-dom";
 
 const PRIORIDADE_LABEL: Record<string, string> = {
   baixa: "Baixa",
@@ -28,6 +29,8 @@ interface LeadCardProps {
 }
 
 export function LeadCard({ lead, onDetalhes, isDragging = false }: LeadCardProps) {
+  const navigate = useNavigate();
+  
   const {
     attributes,
     listeners,
@@ -94,18 +97,33 @@ export function LeadCard({ lead, onDetalhes, isDragging = false }: LeadCardProps
               <span className="font-medium">Telefone:</span> {formatPhoneBR(lead.phone)}
             </p>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full mt-2"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDetalhes(lead);
-            }}
-          >
-            <FileText className="h-4 w-4 mr-2" />
-            Detalhes
-          </Button>
+          <div className="flex gap-2 mt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDetalhes(lead);
+              }}
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              Detalhes
+            </Button>
+            {lead.etapa_kanban === "emissao_contrato" && (
+              <Button
+                size="sm"
+                className="flex-1"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(`/comercial/propostas/nova?lead_id=${lead.id}`);
+                }}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Proposta
+              </Button>
+            )}
+          </div>
         </CardContent>
       </Card>
     </div>

@@ -19,6 +19,13 @@
       "parameters": {
         "method": "GET",
         "url": "={{ $env.C8_SCHEMA_RAW_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.GITHUB_TOKEN }}" },
+            { "name": "Accept",        "value": "application/vnd.github.v3.raw" }
+          ]
+        },
         "options": {
           "response": { "response": { "responseFormat": "text" } }
         }
@@ -131,5 +138,5 @@
   },
   "settings": { "executionOrder": "v1" },
   "meta": { "templateId": "c8-update-schemas-v2" },
-  "notes": "## C8 Control — Atualizar Schema (Manual)\n\nSempre disparo manual. Sem agendamento automático.\n\n### Variáveis de ambiente necessárias:\n- SUPABASE_URL — URL da agência\n- SUPABASE_SERVICE_KEY — Service key da agência\n- C8_SCHEMA_RAW_URL — URL raw do bank_b_full_schema.sql no repositório\n\n### Uso:\nAtualizar todos: POST /webhook/c8-update-schemas {}\nAtualizar um cliente: POST /webhook/c8-update-schemas { \"client_id\": \"uuid\" }\n\n### O schema é sempre buscado do repositório na hora da execução.\n### Ao atualizar o arquivo no repositório, a próxima execução já usa a versão nova."
+  "notes": "## C8 Control — Atualizar Schema (Manual)\n\nSempre disparo manual. Sem agendamento automático.\n\n### Variáveis de ambiente necessárias:\n- SUPABASE_URL — URL da agência\n- SUPABASE_SERVICE_KEY — Service key da agência\n- C8_SCHEMA_RAW_URL — URL da API do GitHub para o bank_b_full_schema.sql\n  Ex: https://api.github.com/repos/OWNER/REPO/contents/migrations/bank_b_full_schema.sql\n- GITHUB_TOKEN — Personal Access Token (formato Bearer, com permissão read:repo)\n\n### Uso:\nAtualizar todos: POST /webhook/c8-update-schemas {}\nAtualizar um cliente: POST /webhook/c8-update-schemas { \"client_id\": \"uuid\" }\n\n### O schema é sempre buscado do repositório na hora da execução.\n### Ao atualizar o arquivo no repositório, a próxima execução já usa a versão nova."
 }

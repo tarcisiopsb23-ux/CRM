@@ -19,6 +19,7 @@ interface KanbanBoardProps {
   leads: Lead[];
   onDetalhes: (lead: Lead) => void;
   onEtapaChange: (leadId: string, etapa: EtapaKanban) => void;
+  activeProposalsPerEtapa?: Record<string, number>;
 }
 
 function groupLeadsByEtapa(leads: Lead[]): Record<EtapaKanban, Lead[]> {
@@ -44,6 +45,7 @@ export function KanbanBoard({
   leads,
   onDetalhes,
   onEtapaChange,
+  activeProposalsPerEtapa,
 }: KanbanBoardProps) {
   const [activeLead, setActiveLead] = useState<Lead | null>(null);
 
@@ -102,6 +104,7 @@ export function KanbanBoard({
             label={label}
             leads={groupedLeads[id] ?? []}
             onDetalhes={onDetalhes}
+            activeProposalsCount={activeProposalsPerEtapa?.[id] ?? 0}
           />
         ))}
       </div>

@@ -28,6 +28,8 @@ import type { Lead, EtapaKanban, LeadWithResponsavel } from "@/types/database";
 import { ListasPage } from "@/pages/ListasPage";
 import { LeadsPendingPage } from "@/pages/LeadsPendingPage";
 import { ClosersPerformancePage } from "@/pages/ClosersPerformancePage";
+import { useProposals } from "@/hooks/useProposals";
+import type { Proposal } from "@/types/proposals";
 
 export function LeadsKanbanPage() {
   const organizationId = useOrganization();
@@ -36,6 +38,7 @@ export function LeadsKanbanPage() {
   const { leads, loading, error, updateEtapaKanban, createLead, updateLead, removeLead, importLeadsMapped } =
     useLeadsKanban(organizationId);
   const { data: profiles = [] } = useProfiles(organizationId);
+  const { proposals } = useProposals(organizationId);
 
   // Aba ativa controlada via query param para permitir navegação direta
   const activeTab = searchParams.get("tab") ?? "leads";
@@ -224,6 +227,17 @@ export function LeadsKanbanPage() {
     return { concluida, resultado, notas };
   };
 
+  const activeProposalsPerEtapa = useMemo(() => {
+    const activeProposals = proposals.filter(p => p.status === "enviada" || p.status === "visualizada");
+    const counts: Record<string, number> = {};
+    for (const lead of leads) {
+      const etapa = lead.etapa_kanban ?? "leads_recebidos";
+      const countForLead = activeProposals.filter(p => p.lead_id === lead.id).length;
+      counts[etapa] = (counts[etapa] ?? 0) + countForLead;
+    }
+    return counts;
+  }, [leads, proposals]);
+
   const leadsRecebidos = useMemo(() => {
     return leads.filter((l) => (l.etapa_kanban ?? "leads_recebidos") === "leads_recebidos");
   }, [leads]);
@@ -382,6 +396,7 @@ export function LeadsKanbanPage() {
               leads={leads}
               onDetalhes={handleDetalhes}
               onEtapaChange={handleEtapaChange}
+              activeProposalsPerEtapa={activeProposalsPerEtapa}
             />
           ) : (
             <LeadsListView
@@ -592,6 +607,7 @@ export function LeadsKanbanPage() {
       </Tabs>
 
       <LeadDetailsModal
+        lead={selectedLead}
         open={modalOpen}
         onOpenChange={setModalOpen}
         onEdit={(l) => {

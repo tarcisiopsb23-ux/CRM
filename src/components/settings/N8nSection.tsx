@@ -37,7 +37,7 @@ const FIELD_DEFS: {
   { key: "c8ProvisionWebhookUrl",      label: "Webhook URL: C8 Control — Provisionar cliente (schema + ativação)",           placeholder: "https://n8n.dominio.com/webhook/c8-provision-client",       section: "c8"      },
   { key: "c8UpdateSchemaWebhookUrl",   label: "Webhook URL: C8 Control — Atualizar schema (todos ou por cliente)",            placeholder: "https://n8n.dominio.com/webhook/c8-update-schemas",          section: "c8"      },
   { key: "c8ClientOpsWebhookUrl",      label: "Webhook URL: C8 Control — Operações no banco do cliente (reset senha, criar usuário, teste de conexão)", placeholder: "https://n8n.dominio.com/webhook/c8-client-ops", section: "c8" },
-  { key: "c8SchemaRawUrl",             label: "URL Raw do Schema (bank_b_full_schema.sql no repositório GitHub)",          placeholder: "https://raw.githubusercontent.com/seu-org/seu-repo/main/migrations/bank_b_full_schema.sql", section: "c8" },
+  { key: "c8SchemaRawUrl",             label: "URL Raw do Schema (bank_b_full_schema.sql no repositório GitHub)",          placeholder: "https://api.github.com/repos/seu-usuario/seu-repo/contents/migrations/bank_b_full_schema.sql", section: "c8" },
   { key: "githubToken",                label: "GitHub Token (repositório privado — Personal Access Token com read:repo)", placeholder: "ghp_...",                                                                 section: "c8" },
 ];
 
@@ -331,11 +331,23 @@ export function N8nSection() {
 
         {/* C8 Control */}
         <div className="space-y-4">
-          <h4 className="text-xs font-black uppercase tracking-widest text-slate-500">C8 Control — Webhooks</h4>
+          <h4 className="text-xs font-black uppercase tracking-widest text-slate-500">C8 Control — Webhooks e Repositório</h4>
           <p className="text-[10px] text-slate-400 italic">
             Webhooks dos workflows n8n de provisionamento e atualização de schema do C8 Control.
             Os arquivos JSON estão em <code>n8n-workflows/</code> — importe no seu n8n e configure as URLs aqui.
           </p>
+          <div className="rounded-md bg-blue-50 border border-blue-200 p-3 space-y-1">
+            <p className="text-[10px] font-bold text-blue-700 uppercase tracking-wider">Variáveis de ambiente no n8n</p>
+            <p className="text-[10px] text-blue-600">
+              Configure em Settings → Variables no painel do n8n:
+            </p>
+            <code className="block text-[10px] text-blue-700 font-mono mt-1">
+              SUPABASE_URL = URL da agência<br/>
+              SUPABASE_SERVICE_KEY = Service key da agência<br/>
+              C8_SCHEMA_RAW_URL = URL raw do schema no GitHub<br/>
+              GITHUB_TOKEN = ghp_... (token com read:repo)
+            </code>
+          </div>
           {FIELD_DEFS.filter((f) => f.section === "c8").map(({ key, label, placeholder }) => (
             <SettingsInput key={key} label={label} value={v(key)} onChange={(val) => setValue(key, val)} placeholder={placeholder} />
           ))}
