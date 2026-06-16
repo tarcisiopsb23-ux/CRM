@@ -122,14 +122,14 @@ export function ServiceFormDialog({
           id: service.id,
           name: values.name,
           category: values.category,
-          sub_services: values.sub_services,
+          sub_services: values.sub_services as import("@/types/contracts").SubService[],
         });
         toast.success("Serviço atualizado com sucesso.");
       } else {
         await createService.mutateAsync({
           name: values.name,
           category: values.category,
-          sub_services: values.sub_services,
+          sub_services: values.sub_services as import("@/types/contracts").SubService[],
         });
         toast.success("Serviço criado com sucesso.");
       }

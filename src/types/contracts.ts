@@ -5,9 +5,16 @@
 import type { ContractTemplate } from './proposals';
 
 // ---------------------------------------------------------------------------
-// TipTap JSONContent — imported directly from @tiptap/core (task 10.1)
+// TipTap JSONContent — defined locally to avoid depending on @tiptap/core directly
 // ---------------------------------------------------------------------------
-export type { JSONContent } from '@tiptap/core';
+export type JSONContent = {
+  type?: string;
+  attrs?: Record<string, unknown>;
+  content?: JSONContent[];
+  marks?: Array<{ type: string; attrs?: Record<string, unknown> }>;
+  text?: string;
+  [key: string]: unknown;
+};
 
 // ---------------------------------------------------------------------------
 // Requirement 1.4 — Sub-serviço tipado

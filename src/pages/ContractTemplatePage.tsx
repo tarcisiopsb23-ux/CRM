@@ -26,8 +26,8 @@ const MOCK_CONTRACT = {
   title: "Contrato Exemplo",
   value: 2500,
   min_duration_months: 6,
-  metadata: { services: [], setup_installments: 0 },
-} as const;
+  metadata: { services: [] as import("@/types/contracts").SelectedService[], setup_installments: 0 },
+};
 
 const MOCK_CLAUSES = [
   {

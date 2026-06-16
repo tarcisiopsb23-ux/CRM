@@ -44,10 +44,10 @@ const MOCK_CONTRACT = {
   value: 1500,
   min_duration_months: 0,
   metadata: {
-    services: [],
+    services: [] as import("@/types/contracts").SelectedService[],
     setup_installments: 0,
   },
-} as const;
+};
 
 const MOCK_CLAUSES = [
   {

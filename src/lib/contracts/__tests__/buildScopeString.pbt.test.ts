@@ -31,7 +31,7 @@ describe('Property 12 — buildScopeString monotonic growth', () => {
 
   it('empty array always returns empty string', () => {
     fc.assert(
-      fc.property(fc.constant([]), (arr) => buildScopeString(arr) === ''),
+      fc.property(fc.constant([] as import("../../../types/contracts").SelectedService[]), (arr) => buildScopeString(arr) === ''),
       { numRuns: 1 }
     );
   });

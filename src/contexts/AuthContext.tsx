@@ -15,6 +15,7 @@ import type { Profile } from '@/types/auth';
 interface AuthContextValue {
   user: User | null;
   profile: Profile | null;
+  organizationId: string | null;
   loading: boolean;
   profileLoading: boolean;
   error: Error | null;
@@ -361,6 +362,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       user,
       profile,
+      organizationId: profile?.organization_id ?? null,
       loading,
       profileLoading,
       error,

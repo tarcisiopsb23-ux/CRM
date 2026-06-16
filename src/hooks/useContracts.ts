@@ -554,6 +554,7 @@ export function useContractsWithC8(
         signed_at: (r.signed_at as string | null) ?? null,
         generated_at: (r.generated_at as string | null) ?? null,
         template_id: (r.template_id as string | null) ?? null,
+        min_duration_months: r.min_duration_months ? Number(r.min_duration_months) : null,
       }));
 
       // 2. C8 Control plan — only if not already covered by a contract
@@ -624,6 +625,11 @@ export function useContractsWithC8(
             created_at: null,
             updated_at: null,
             is_dashboard_reference: false,
+            is_signed: false,
+            signed_at: null,
+            generated_at: null,
+            template_id: null,
+            min_duration_months: durationMonths,
           };
           contracts.push(c8Contract);
         }

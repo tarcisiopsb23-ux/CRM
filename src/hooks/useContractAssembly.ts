@@ -187,7 +187,7 @@ export function useContractAssembly(
       contract as Parameters<typeof assembleContract>[0],
       clauses ?? [],
       template,
-      client as Parameters<typeof assembleContract>[3]
+      client as unknown as Parameters<typeof assembleContract>[3]
     );
   }, [contract, client, clauses, template]);
 

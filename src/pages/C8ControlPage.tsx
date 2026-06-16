@@ -131,7 +131,7 @@ function C8IntegrationsOverview({
       ?? "Habilitado por contrato";
 
     const hasBankB = !!(tenant as any)?.client_supabase_url
-      ?? !!pending?.supabase_url;
+      || !!pending?.supabase_url;
 
     // Última atualização: usa activated_at se ativo, senão updated_at do tenant
     const lastUpdate = pending?.c8_activation_status === "ativo"

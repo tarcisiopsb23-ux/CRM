@@ -199,6 +199,10 @@ export default function FiscalPage({ embedded = false }: { embedded?: boolean })
   const [selectedRange, setSelectedRange] = useState<DateRange>(() => getDateRangeFromPreset("current"));
 
   const interval = selectedRange;
+  // Adapta DateRange { from, to } → { start, end } esperado pelo InvoiceList
+  const invoiceInterval = interval
+    ? { start: interval.from, end: interval.to }
+    : null;
 
   // Filtros de data para a query do Supabase (por due_date do pagamento)
   const dateFilters = useMemo(() => {
@@ -624,7 +628,7 @@ export default function FiscalPage({ embedded = false }: { embedded?: boolean })
           <InvoiceList
             organizationId={organizationId}
             initialStatus="processando"
-            periodInterval={interval}
+            periodInterval={invoiceInterval}
             onRequestPdf={handleRequestPdf}
             requestingPdfId={requestingPdfId}
           />
@@ -635,7 +639,7 @@ export default function FiscalPage({ embedded = false }: { embedded?: boolean })
           <InvoiceList
             organizationId={organizationId}
             initialStatus="emitida"
-            periodInterval={interval}
+            periodInterval={invoiceInterval}
             onRequestPdf={handleRequestPdf}
             requestingPdfId={requestingPdfId}
           />
@@ -646,7 +650,7 @@ export default function FiscalPage({ embedded = false }: { embedded?: boolean })
           <InvoiceList
             organizationId={organizationId}
             initialStatus="rejeitada"
-            periodInterval={interval}
+            periodInterval={invoiceInterval}
             extraFilter={(inv) => !!inv.notaas_id}
           />
         </TabsContent>

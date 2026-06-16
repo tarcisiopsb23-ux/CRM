@@ -134,8 +134,7 @@ export function ClauseEditor({
     const next = JSON.stringify(value ?? "");
     if (current !== next) {
       editor.commands.setContent(
-        (value ?? "") as Parameters<typeof editor.commands.setContent>[0],
-        false
+        (value ?? "") as Parameters<typeof editor.commands.setContent>[0]
       );
     }
   }, [editor, value]);

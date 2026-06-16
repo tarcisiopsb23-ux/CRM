@@ -110,7 +110,6 @@ function SortableClauseRow({ clause, onEdit, onDelete }: SortableClauseRowProps)
         <Pencil
           className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
           aria-label="Editável pelo consultor"
-          title="Editável pelo consultor"
         />
       )}
 

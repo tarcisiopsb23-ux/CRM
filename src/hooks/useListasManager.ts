@@ -127,7 +127,7 @@ export function useListasManager(organizationId: string | undefined) {
           origem_principal: input.origem_principal || null,
           observacoes: input.observacoes || null,
           status: 'ativa',
-        } as TablesInsert<'listas'>,
+        } as any,
       ])
       .select()
       .single();
@@ -181,7 +181,7 @@ export function useListasManager(organizationId: string | undefined) {
           origem_principal: input.origem_principal || null,
           observacoes: input.observacoes || null,
           status: 'ativa',
-        } as TablesInsert<'listas'>,
+        } as any,
       ])
       .select()
       .single();
@@ -205,7 +205,7 @@ export function useListasManager(organizationId: string | undefined) {
 
     const { data, error } = await supabase
       .from('listas')
-      .update(input as TablesUpdate<'listas'>)
+      .update(input as any)
       .eq('id', listaId)
       .eq('organization_id', organizationId)
       .select()

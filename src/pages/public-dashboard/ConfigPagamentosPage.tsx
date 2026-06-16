@@ -383,9 +383,9 @@ export function ConfigPagamentosPage() {
   const totalOverdue = overdue.reduce((s, c) => s + c.value, 0);
 
   const paymentMethods: { type: BillingType; label: string; icon: React.ReactNode; enabled: boolean }[] = [
-    { type: "PIX",         label: "Gerar PIX",    icon: <QrCode className="h-5 w-5 text-emerald-400" />,  enabled: pixEnabled },
-    { type: "BOLETO",      label: "Gerar Boleto", icon: <FileText className="h-5 w-5 text-yellow-400" />, enabled: boletoEnabled },
-    { type: "CREDIT_CARD", label: "Cartão",       icon: <CreditCard className="h-5 w-5 text-blue-400" />, enabled: cardEnabled },
+    { type: "PIX" as BillingType,         label: "Gerar PIX",    icon: <QrCode className="h-5 w-5 text-emerald-400" />,  enabled: pixEnabled },
+    { type: "BOLETO" as BillingType,      label: "Gerar Boleto", icon: <FileText className="h-5 w-5 text-yellow-400" />, enabled: boletoEnabled },
+    { type: "CREDIT_CARD" as BillingType, label: "Cartão",       icon: <CreditCard className="h-5 w-5 text-blue-400" />, enabled: cardEnabled },
   ].filter(m => m.enabled);
 
   return (
