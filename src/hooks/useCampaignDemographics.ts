@@ -60,7 +60,7 @@ export function useCampaignDemographics(
       if (range?.to)   q = q.lte("period_date", range.to);
       const { data, error } = await q;
       if (error) throw error;
-      return (data ?? []) as DemographicRow[];
+      return (data ?? []) as unknown as DemographicRow[];
     },
     enabled: !!organizationId && !!clientId,
     staleTime: 5 * 60_000,
