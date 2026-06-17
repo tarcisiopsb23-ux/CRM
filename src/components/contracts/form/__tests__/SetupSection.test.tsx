@@ -14,14 +14,13 @@ function SetupSectionWrapper(props: Partial<Parameters<typeof SetupSection>[0]> 
   return (
     <SetupSection
       enabled={enabled}
-      onEnabledChange={setEnabled}
+      onEnabledChange={(v) => { setEnabled(v); props.onEnabledChange?.(v); }}
       setupValue={fields['setup_value'] as number | undefined}
       setupInstallments={fields['setup_installments'] as number | undefined}
       setupFees={fields['setup_fees'] as number | undefined}
       minDurationMonths={props.minDurationMonths ?? 0}
       onFieldChange={handleFieldChange}
-      {...props}
-      onEnabledChange={(v) => { setEnabled(v); props.onEnabledChange?.(v); }}
+      {...(({ enabled: _e, onEnabledChange: _oe, setupValue: _sv, setupInstallments: _si, setupFees: _sf, minDurationMonths: _md, onFieldChange: _ofc, ...rest }) => rest)(props)}
     />
   );
 }
