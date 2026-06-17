@@ -401,12 +401,21 @@ ALTER TABLE public.client_charges ADD COLUMN IF NOT EXISTS notes        TEXT;
 ALTER TABLE public.client_charges ADD COLUMN IF NOT EXISTS metadata     JSONB DEFAULT '{}';
 ALTER TABLE public.client_charges ADD COLUMN IF NOT EXISTS external_ref TEXT;
 
+-- v3.2: tabelas IA — adiciona coluna rules se não existir
+ALTER TABLE public.ai_promotions  ADD COLUMN IF NOT EXISTS rules TEXT;
+ALTER TABLE public.ai_suggestions ADD COLUMN IF NOT EXISTS rules TEXT;
+ALTER TABLE public.ai_notices     ADD COLUMN IF NOT EXISTS rules TEXT;
+
 INSERT INTO public.schema_migrations (version)
 VALUES ('bank_b_full_schema_v3')
 ON CONFLICT (version) DO NOTHING;
 
 INSERT INTO public.schema_migrations (version)
 VALUES ('bank_b_upgrade_v3_1')
+ON CONFLICT (version) DO NOTHING;
+
+INSERT INTO public.schema_migrations (version)
+VALUES ('bank_b_upgrade_v3_2')
 ON CONFLICT (version) DO NOTHING;
 `;
 

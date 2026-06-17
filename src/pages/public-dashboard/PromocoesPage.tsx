@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -28,6 +29,7 @@ interface AiPromotion {
   description: string | null;
   validity: string | null;
   type: string | null;
+  rules: string | null;
   status: "active" | "inactive";
   created_at: string;
 }
@@ -37,6 +39,7 @@ interface FormState {
   description: string;
   validity: string;
   type: string;
+  rules: string;
   status: boolean; // true = active
 }
 
@@ -45,6 +48,7 @@ const defaultForm: FormState = {
   description: "",
   validity: "",
   type: "",
+  rules: "",
   status: true,
 };
 
@@ -131,6 +135,7 @@ export function PromocoesPage() {
       description: item.description ?? "",
       validity: item.validity ?? "",
       type: item.type ?? "",
+      rules: item.rules ?? "",
       status: item.status === "active",
     });
     setDialogOpen(true);
@@ -147,6 +152,7 @@ export function PromocoesPage() {
       description: form.description.trim() || null,
       validity: form.validity.trim() || null,
       type: form.type.trim() || null,
+      rules: form.rules.trim() || null,
       status: form.status ? ("active" as const) : ("inactive" as const),
     };
 
@@ -345,6 +351,21 @@ export function PromocoesPage() {
                 onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
                 placeholder="ex: Bebida, Prato, Combo"
                 className="bg-background border-border text-foreground placeholder:text-muted-foreground focus-visible:ring-primary"
+              />
+            </div>
+
+            {/* Instruções para o Agente Virtual */}
+            <div className="space-y-1.5">
+              <Label className="text-foreground/90">Instruções para o Agente Virtual</Label>
+              <p className="text-xs text-muted-foreground">
+                Defina o que o agente pode ou não informar sobre esta promoção.
+              </p>
+              <Textarea
+                value={form.rules}
+                onChange={(e) => setForm((f) => ({ ...f, rules: e.target.value }))}
+                placeholder={"Ex: Não informar o custo total do combo.\nInformar que a promoção é válida apenas no salão."}
+                rows={3}
+                className="resize-y bg-background border-border text-foreground placeholder:text-muted-foreground"
               />
             </div>
 

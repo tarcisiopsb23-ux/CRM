@@ -27,8 +27,9 @@ interface AiNotice {
   id: string;
   message: string;
   priority: "alta" | "média" | "baixa";
-  valid_from: string | null; // "YYYY-MM-DD"
-  valid_to:   string | null; // "YYYY-MM-DD"
+  valid_from: string | null;
+  valid_to:   string | null;
+  rules: string | null;
   status: "active" | "inactive";
   created_at: string;
 }
@@ -38,6 +39,7 @@ interface FormState {
   priority: "alta" | "média" | "baixa" | "";
   validityFrom: string;
   validityTo: string;
+  rules: string;
   status: boolean;
 }
 
@@ -60,6 +62,7 @@ const defaultForm: FormState = {
   priority: "",
   validityFrom: "",
   validityTo: "",
+  rules: "",
   status: true,
 };
 
@@ -138,6 +141,7 @@ export function AvisosPage() {
       priority: item.priority,
       validityFrom: item.valid_from ?? "",
       validityTo:   item.valid_to   ?? "",
+      rules: item.rules ?? "",
       status: item.status === "active",
     });
     setDialogOpen(true);
@@ -156,6 +160,7 @@ export function AvisosPage() {
       priority:   form.priority as AiNotice["priority"],
       valid_from: form.validityFrom || null,
       valid_to:   form.validityTo   || null,
+      rules:      form.rules.trim() || null,
       status:     form.status ? ("active" as const) : ("inactive" as const),
     };
 
@@ -332,6 +337,21 @@ export function AvisosPage() {
                 </div>
               </div>
               <p className="text-[11px] text-muted-foreground">Opcional — deixe em branco para aviso sem prazo.</p>
+            </div>
+
+            {/* Instruções para o Agente Virtual */}
+            <div className="grid gap-2">
+              <Label>Instruções para o Agente Virtual</Label>
+              <p className="text-xs text-muted-foreground -mt-1">
+                Defina o que o agente pode ou não informar ao comunicar este aviso.
+              </p>
+              <textarea
+                value={form.rules}
+                onChange={(e) => setForm((f) => ({ ...f, rules: e.target.value }))}
+                placeholder={"Ex: Não mencionar o motivo do fechamento.\nInformar que a operação retorna na próxima segunda-feira."}
+                rows={3}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+              />
             </div>
 
             {/* Status */}

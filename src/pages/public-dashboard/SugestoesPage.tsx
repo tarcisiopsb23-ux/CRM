@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -29,6 +30,7 @@ interface AiSuggestion {
   description: string | null;
   price: number | null;
   image_url: string | null;
+  rules: string | null;
   status: "active" | "inactive";
   created_at: string;
 }
@@ -38,6 +40,7 @@ interface FormState {
   description: string;
   price: string;
   image_url: string;
+  rules: string;
   status: boolean;
 }
 
@@ -46,6 +49,7 @@ const defaultForm: FormState = {
   description: "",
   price: "",
   image_url: "",
+  rules: "",
   status: true,
 };
 
@@ -244,6 +248,7 @@ export function SugestoesPage() {
       description: item.description ?? "",
       price: item.price !== null ? String(item.price) : "",
       image_url: item.image_url ?? "",
+      rules: item.rules ?? "",
       status: item.status === "active",
     });
     setDialogOpen(true);
@@ -259,6 +264,7 @@ export function SugestoesPage() {
       description: form.description.trim() || null,
       price: parsedPrice,
       image_url: form.image_url.trim() || null,
+      rules: form.rules.trim() || null,
       status: form.status ? ("active" as const) : ("inactive" as const),
     };
 
@@ -428,6 +434,21 @@ export function SugestoesPage() {
                 onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))}
                 placeholder="0,00"
                 className="bg-background border-border text-foreground placeholder:text-muted-foreground"
+              />
+            </div>
+
+            {/* Instruções para o Agente Virtual */}
+            <div className="space-y-1.5">
+              <Label className="text-foreground/90">Instruções para o Agente Virtual</Label>
+              <p className="text-xs text-muted-foreground">
+                Defina o que o agente pode ou não informar sobre esta sugestão.
+              </p>
+              <Textarea
+                value={form.rules}
+                onChange={(e) => setForm((f) => ({ ...f, rules: e.target.value }))}
+                placeholder={"Ex: Não informar a margem de lucro do prato.\nInformar que pode ser feito sem glúten mediante pedido."}
+                rows={3}
+                className="resize-y bg-background border-border text-foreground placeholder:text-muted-foreground"
               />
             </div>
 

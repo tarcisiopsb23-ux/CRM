@@ -194,6 +194,7 @@ CREATE TABLE IF NOT EXISTS public.ai_promotions (
   description TEXT,
   validity    TEXT,
   type        TEXT,
+  rules       TEXT,
   status      TEXT        NOT NULL DEFAULT 'active'
               CHECK (status IN ('active', 'inactive')),
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -201,6 +202,7 @@ CREATE TABLE IF NOT EXISTS public.ai_promotions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_ai_promotions_status ON public.ai_promotions(status);
+ALTER TABLE public.ai_promotions ADD COLUMN IF NOT EXISTS rules TEXT;
 
 CREATE TABLE IF NOT EXISTS public.ai_suggestions (
   id          UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -208,6 +210,7 @@ CREATE TABLE IF NOT EXISTS public.ai_suggestions (
   description TEXT,
   price       NUMERIC(10,2),
   image_url   TEXT,
+  rules       TEXT,
   status      TEXT          NOT NULL DEFAULT 'active'
               CHECK (status IN ('active', 'inactive')),
   created_at  TIMESTAMPTZ   NOT NULL DEFAULT now(),
@@ -215,6 +218,7 @@ CREATE TABLE IF NOT EXISTS public.ai_suggestions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_ai_suggestions_status ON public.ai_suggestions(status);
+ALTER TABLE public.ai_suggestions ADD COLUMN IF NOT EXISTS rules TEXT;
 
 CREATE TABLE IF NOT EXISTS public.ai_notices (
   id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -222,6 +226,7 @@ CREATE TABLE IF NOT EXISTS public.ai_notices (
   priority    TEXT        NOT NULL DEFAULT 'baixa'
               CHECK (priority IN ('alta', 'média', 'baixa')),
   validity    TEXT,
+  rules       TEXT,
   status      TEXT        NOT NULL DEFAULT 'active'
               CHECK (status IN ('active', 'inactive')),
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -229,6 +234,7 @@ CREATE TABLE IF NOT EXISTS public.ai_notices (
 );
 
 CREATE INDEX IF NOT EXISTS idx_ai_notices_status ON public.ai_notices(status);
+ALTER TABLE public.ai_notices ADD COLUMN IF NOT EXISTS rules TEXT;
 
 -- ── 8. Lembretes rápidos ──────────────────────────────────────────────────────
 
@@ -652,6 +658,11 @@ ALTER TABLE public.client_charges ADD COLUMN IF NOT EXISTS notes        TEXT;
 ALTER TABLE public.client_charges ADD COLUMN IF NOT EXISTS metadata     JSONB DEFAULT '{}';
 ALTER TABLE public.client_charges ADD COLUMN IF NOT EXISTS external_ref TEXT;
 
+-- v3.2: tabelas IA — adiciona coluna rules se não existir
+ALTER TABLE public.ai_promotions  ADD COLUMN IF NOT EXISTS rules TEXT;
+ALTER TABLE public.ai_suggestions ADD COLUMN IF NOT EXISTS rules TEXT;
+ALTER TABLE public.ai_notices     ADD COLUMN IF NOT EXISTS rules TEXT;
+
 -- ── 15. Registra versão aplicada ─────────────────────────────────────────────
 
 INSERT INTO public.schema_migrations (version)
@@ -660,4 +671,8 @@ ON CONFLICT (version) DO NOTHING;
 
 INSERT INTO public.schema_migrations (version)
 VALUES ('bank_b_upgrade_v3_1')
+ON CONFLICT (version) DO NOTHING;
+
+INSERT INTO public.schema_migrations (version)
+VALUES ('bank_b_upgrade_v3_2')
 ON CONFLICT (version) DO NOTHING;
