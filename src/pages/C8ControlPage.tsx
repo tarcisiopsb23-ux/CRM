@@ -30,7 +30,7 @@ import { useAllClientIntegrations } from "@/hooks/useHubPerformance";
 import { useC8PendingActivation, type C8PendingClient } from "@/hooks/useC8PendingActivation";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+  Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import type { N8nConfig } from "@/types/settings";
 import type { C8Tenant } from "@/hooks/useC8Tenants";
@@ -89,6 +89,8 @@ function C8IntegrationsOverview({
   isUpdatingAllSchemas,
   schemaUpdateResult,
   onClearSchemaResult,
+  schemaErrorDialogOpen,
+  onSchemaErrorDialogOpen,
 }: {
   organizationId: string;
   tenants: C8Tenant[];
@@ -104,6 +106,8 @@ function C8IntegrationsOverview({
     updated_at: string;
   } | null;
   onClearSchemaResult?: () => void;
+  schemaErrorDialogOpen?: boolean;
+  onSchemaErrorDialogOpen?: () => void;
 }) {
   const navigate = useNavigate();
   const { data: allIntegrations = [] } = useAllClientIntegrations(organizationId);
@@ -165,44 +169,36 @@ function C8IntegrationsOverview({
     };
   }).sort((a, b) => a.clientName.localeCompare(b.clientName));
 
-  const hasProvisionWebhook = !!n8nConfig?.c8ProvisionWebhookUrl;
-  const hasUpdateWebhook    = !!n8nConfig?.c8UpdateSchemaWebhookUrl;
-  const webhooksOk = hasProvisionWebhook && hasUpdateWebhook;
+  const hasUpdateWebhook = !!n8nConfig?.c8UpdateSchemaWebhookUrl;
 
   return (
     <div className="space-y-5">
-      {/* Status global dos webhooks */}
-      <div className={`flex items-start gap-3 p-4 rounded-xl border-2 ${webhooksOk ? "border-emerald-300 bg-emerald-50/50" : "border-amber-300 bg-amber-50/50"}`}>
-        {webhooksOk
-          ? <CheckCircle2 className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" />
-          : <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />}
-        <div className="flex-1 space-y-1">
-          <p className="text-sm font-semibold">
-            {webhooksOk ? "Webhooks n8n configurados" : "Webhooks n8n incompletos"}
-          </p>
-          <div className="flex flex-wrap gap-3">
-            <StatusDot ok={hasProvisionWebhook} label="Provisionamento" />
-            <StatusDot ok={hasUpdateWebhook}    label="Atualização de Schema" />
+      {/* Barra de ações */}
+      <div className="flex justify-end">
+        {onUpdateAllSchemas && hasUpdateWebhook && (
+          <div className="relative shrink-0">
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-2 h-9 text-sm px-4 border-primary/40 text-primary hover:bg-primary/5 hover:border-primary"
+              disabled={isUpdatingAllSchemas}
+              onClick={onUpdateAllSchemas}
+            >
+              {isUpdatingAllSchemas
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : <RefreshCcw className="h-4 w-4" />}
+              Atualizar todos os schemas
+            </Button>
+            {schemaUpdateResult && schemaUpdateResult.failed > 0 && (
+              <button
+                onClick={() => onSchemaErrorDialogOpen?.()}
+                className="absolute -top-2 -right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-none flex items-center justify-center hover:bg-red-600 transition-colors"
+                title={`${schemaUpdateResult.failed} falha(s) — clique para ver detalhes`}
+              >
+                {schemaUpdateResult.failed}
+              </button>
+            )}
           </div>
-        </div>
-        {!webhooksOk && (
-          <Button size="sm" variant="outline" className="h-7 text-xs shrink-0" onClick={() => navigate("/settings")}>
-            Configurar
-          </Button>
-        )}
-        {webhooksOk && onUpdateAllSchemas && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5 h-7 text-xs shrink-0"
-            disabled={isUpdatingAllSchemas}
-            onClick={onUpdateAllSchemas}
-          >
-            {isUpdatingAllSchemas
-              ? <Loader2 className="h-3 w-3 animate-spin" />
-              : <RefreshCcw className="h-3 w-3" />}
-            Atualizar todos os schemas
-          </Button>
         )}
       </div>
 
@@ -285,39 +281,23 @@ function C8IntegrationsOverview({
         </div>
       )}
 
-      {/* Dialog de resultado da atualização em massa */}
-      <Dialog open={!!schemaUpdateResult} onOpenChange={open => { if (!open) onClearSchemaResult?.(); }}>
+      {/* Dialog de falhas — abre ao clicar na badge */}
+      <Dialog open={!!schemaErrorDialogOpen} onOpenChange={open => { if (!open) onClearSchemaResult?.(); }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              {schemaUpdateResult?.failed === 0
-                ? <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-                : <AlertCircle className="h-5 w-5 text-amber-500" />}
-              Resultado da Atualização
+              <AlertCircle className="h-5 w-5 text-red-500" />
+              {schemaUpdateResult?.failed} cliente(s) com falha na atualização
             </DialogTitle>
-            <DialogDescription>
-              {schemaUpdateResult?.success} de {schemaUpdateResult?.total} cliente(s) atualizados com sucesso.
-              {schemaUpdateResult?.failed ? ` ${schemaUpdateResult.failed} falha(s).` : ""}
-            </DialogDescription>
           </DialogHeader>
-
-          {schemaUpdateResult && schemaUpdateResult.failed > 0 && (
-            <div className="space-y-2 max-h-72 overflow-y-auto">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Clientes com erro</p>
-              {schemaUpdateResult.failures.map((f, i) => (
-                <div key={f.client_id ?? i} className="rounded-lg border border-red-200 bg-red-50 p-3 space-y-1">
-                  <p className="text-sm font-semibold text-red-800">{f.client_name ?? f.client_id}</p>
-                  <p className="text-xs text-red-600 font-mono break-all">{f.error}</p>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {schemaUpdateResult && schemaUpdateResult.failed === 0 && (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
-              <p className="text-sm text-emerald-700">Todos os bancos foram atualizados sem erros.</p>
-            </div>
-          )}
+          <div className="space-y-2 max-h-72 overflow-y-auto">
+            {schemaUpdateResult?.failures.map((f, i) => (
+              <div key={f.client_id ?? i} className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 space-y-0.5">
+                <p className="text-sm font-semibold text-red-800">{f.client_name ?? f.client_id}</p>
+                <p className="text-xs text-red-600 font-mono break-all">{f.error}</p>
+              </div>
+            ))}
+          </div>
         </DialogContent>
       </Dialog>
     </div>
@@ -347,6 +327,7 @@ export function C8ControlPage() {
     updated_at: string;
   };
   const [schemaUpdateResult, setSchemaUpdateResult] = useState<SchemaUpdateResult | null>(null);
+  const [schemaErrorDialogOpen, setSchemaErrorDialogOpen] = useState(false);
 
   const handleUpdateAllSchemas = async () => {
     const n8nWebhookUrl = (import.meta as any).env?.VITE_N8N_C8_UPDATE_SCHEMA_WEBHOOK
@@ -873,7 +854,7 @@ export function C8ControlPage() {
 
         {/* ── Integrações ── */}
         <TabsContent value="integrations" className="mt-4">
-          {organizationId && <C8IntegrationsOverview organizationId={organizationId} tenants={tenants ?? []} n8nConfig={n8nConfig} onSelectTenant={(clientId) => { const next = new URLSearchParams(searchParams); next.set("tab", "tenants"); setSearchParams(next, { replace: true }); }} onUpdateAllSchemas={handleUpdateAllSchemas} isUpdatingAllSchemas={isUpdatingAllSchemas} schemaUpdateResult={schemaUpdateResult} onClearSchemaResult={() => setSchemaUpdateResult(null)} />}
+          {organizationId && <C8IntegrationsOverview organizationId={organizationId} tenants={tenants ?? []} n8nConfig={n8nConfig} onSelectTenant={(clientId) => { const next = new URLSearchParams(searchParams); next.set("tab", "tenants"); setSearchParams(next, { replace: true }); }} onUpdateAllSchemas={handleUpdateAllSchemas} isUpdatingAllSchemas={isUpdatingAllSchemas} schemaUpdateResult={schemaUpdateResult} onClearSchemaResult={() => { setSchemaUpdateResult(null); setSchemaErrorDialogOpen(false); }} schemaErrorDialogOpen={schemaErrorDialogOpen} onSchemaErrorDialogOpen={() => setSchemaErrorDialogOpen(true)} />}
         </TabsContent>
 
         {/* ── Ativação Pendente ── */}
