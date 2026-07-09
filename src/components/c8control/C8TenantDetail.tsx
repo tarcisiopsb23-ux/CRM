@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
+import { ClientContractsTab } from "@/components/contracts/ClientContractsTab";
 import {
   Dialog,
   DialogContent,
@@ -697,6 +698,9 @@ export function C8TenantDetail({
       const result = await callClientOps(webhookUrl, "apply_schema", tenant.client_id);
       if (result.success) {
         toast.success("Schema atualizado com sucesso!");
+        // Registra timestamp da atualização no Banco A
+        await supabase.rpc("update_c8_schema_timestamp", { p_client_id: tenant.client_id });
+        qc.invalidateQueries({ queryKey: ["c8_tenants", organizationId] });
       } else {
         toast.error(`Erro ao aplicar schema: ${result.error}`);
       }
@@ -883,6 +887,10 @@ export function C8TenantDetail({
               {fiscalPerms.canView && c8ContractId && !tenant.c8_free_access && (
                 <TabsTrigger value="notas-fiscais">Notas Fiscais</TabsTrigger>
               )}
+              <TabsTrigger value="contratos">
+                <FileText className="h-3.5 w-3.5 mr-1" />
+                Contratos
+              </TabsTrigger>
               <TabsTrigger value="configuracoes">Configurações</TabsTrigger>
             </TabsList>
 
@@ -1050,6 +1058,16 @@ export function C8TenantDetail({
               )}
             </TabsContent>
 
+            {/* ── Contratos ── */}
+            <TabsContent value="contratos">
+              <ClientContractsTab
+                clientId={tenant.client_id}
+                clientName={tenant.client_name}
+                organizationId={organizationId}
+                canEdit={canEdit}
+              />
+            </TabsContent>
+
             {/* ── Configurações com sub-abas ── */}
             <TabsContent value="configuracoes" className="space-y-4">
               <Tabs defaultValue="modulos" className="w-full">
@@ -1093,7 +1111,6 @@ export function C8TenantDetail({
                         { key: "whatsapp_enabled"     as const, label: "WhatsApp",              desc: "Conexão e importação de contatos" },
                         { key: "ia_enabled"           as const, label: "Conteúdo IA",           desc: "Agenda, promoções, avisos" },
                         { key: "demographics_enabled" as const, label: "Audiência Demográfica", desc: "Aba no Performance" },
-                        { key: "asaas_enabled"        as const, label: "Asaas (Pagamentos)",    desc: "Gateway de pagamento" },
                       ]).map(({ key, label, desc }) => (
                         <div key={key} className="flex items-center justify-between rounded-lg border border-border bg-secondary/20 px-3 py-2.5">
                           <div>
@@ -1264,7 +1281,7 @@ export function C8TenantDetail({
                       <div>
                         <p className="font-bold text-slate-800">Banco de Dados do Cliente</p>
                         <p className="text-sm text-slate-500">
-                          {n8nConfig?.c8ClientOpsWebhookUrl
+                          {n8nConfig?.c8ClientOpsWebhookUrl || n8nConfig?.c8UpdateSchemaWebhookUrl
                             ? "Webhook configurado"
                             : "Webhook não configurado — configure em Configurações → n8n"}
                         </p>
@@ -1275,9 +1292,9 @@ export function C8TenantDetail({
                         size="sm"
                         variant="outline"
                         className="gap-2 shrink-0"
-                        disabled={isUpdatingSchema || !n8nConfig?.c8ClientOpsWebhookUrl}
+                        disabled={isUpdatingSchema || (!n8nConfig?.c8ClientOpsWebhookUrl && !n8nConfig?.c8UpdateSchemaWebhookUrl)}
                         onClick={handleUpdateSchema}
-                        title={!n8nConfig?.c8ClientOpsWebhookUrl ? "Configure o webhook em Configurações → n8n" : ""}
+                        title={(!n8nConfig?.c8ClientOpsWebhookUrl && !n8nConfig?.c8UpdateSchemaWebhookUrl) ? "Configure o webhook em Configurações → n8n" : ""}
                       >
                         {isUpdatingSchema ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5" />}
                         Atualizar Schema

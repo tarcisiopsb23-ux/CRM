@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { callC8DataApi } from "@/hooks/useC8DataApi";
 import type { SubscriptionStatus } from "@/lib/crmModules";
 
 export interface C8Tenant {
@@ -30,6 +31,8 @@ export interface C8Tenant {
   c8_free_access: boolean;
   free_access_until: string | null;
   free_access_reason: string | null;
+  // Schema
+  c8_schema_updated_at: string | null;
 }
 
 export function useC8Tenants(organizationId: string | undefined) {
@@ -76,8 +79,7 @@ export function useC8Tenants(organizationId: string | undefined) {
       if (plansError) throw plansError;
       if (!plans || plans.length === 0) return [];
 
-      // Query 2: contagem local (excluindo suporte)
-      // Não usa c8Summary pois o C8 Control ainda contabiliza usuários de suporte
+      // Query 2: contagem local do Banco A (fallback) — excluindo suporte
       const [localUsersResult] = await Promise.all([
         supabase
           .from("crm_client_users")
@@ -98,6 +100,20 @@ export function useC8Tenants(organizationId: string | undefined) {
         }
       }
 
+      // Query 3: contagem do Banco B (fonte de verdade) via c8-data-proxy
+      // Sobrepõe o Banco A quando disponível. Falha silenciosa — usa fallback local.
+      const bankBCountMap: Record<string, { active: number; total: number }> = {};
+      try {
+        const summary = await callC8DataApi(organizationId, "all_tenants_summary") as {
+          tenants?: Array<{ tenant_id: string; active_users: number; total_users: number }>;
+        };
+        for (const t of summary?.tenants ?? []) {
+          bankBCountMap[t.tenant_id] = { active: t.active_users, total: t.total_users };
+        }
+      } catch {
+        // Banco B indisponível — usa contagem local do Banco A
+      }
+
       return plans.map((p) => {
         const client = p.clients as unknown as {
           id: string;
@@ -111,8 +127,10 @@ export function useC8Tenants(organizationId: string | undefined) {
           dashboard_slug: string | null;
         };
 
-        const activeCount = localActiveMap[p.client_id] ?? 0;
-        const totalCount = localTotalMap[p.client_id] ?? 0;
+        // Usa Banco B se disponível, senão Banco A como fallback
+        const bankB = bankBCountMap[p.client_id];
+        const activeCount = bankB !== undefined ? bankB.active : (localActiveMap[p.client_id] ?? 0);
+        const totalCount  = bankB !== undefined ? bankB.total  : (localTotalMap[p.client_id]  ?? 0);
         const planAny = p as any;
 
         return {
@@ -143,6 +161,8 @@ export function useC8Tenants(organizationId: string | undefined) {
           c8_free_access: planAny.c8_free_access ?? false,
           free_access_until: planAny.free_access_until ?? null,
           free_access_reason: planAny.free_access_reason ?? null,
+          // Schema
+          c8_schema_updated_at: planAny.c8_schema_updated_at ?? null,
         };
       });
     },

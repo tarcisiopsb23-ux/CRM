@@ -5,7 +5,7 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "c8-update-schemas",
-        "responseMode": "lastNode",
+        "responseMode": "responseNode",
         "options": {}
       },
       "id": "webhook-trigger",
@@ -13,8 +13,10 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [240, 300],
-      "webhookId": "c8-update-schemas"
+      "webhookId": "c8-update-schemas",
+      "notes": "Aceita:\n  POST {} → atualiza todos os clientes\n  POST { \"client_id\": \"uuid\" } → atualiza apenas esse cliente"
     },
+
     {
       "parameters": {
         "method": "GET",
@@ -34,11 +36,13 @@
       "name": "Buscar Schema do Repositório",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [460, 300]
+      "position": [460, 300],
+      "notes": "Busca bank_b_full_schema.sql do GitHub da agência.\nVariáveis necessárias: C8_SCHEMA_RAW_URL, GITHUB_TOKEN"
     },
+
     {
       "parameters": {
-        "jsCode": "const schemaText = $input.first().json?.data ?? $input.first().json ?? '';\nconst body = $('Webhook — Trigger Manual').first().json.body ?? $('Webhook — Trigger Manual').first().json;\nconst clientId = (body.client_id ?? '').toString().trim() || null;\nif (!schemaText || String(schemaText).trim().length < 100) {\n  throw new Error('Schema SQL inválido ou vazio — verifique C8_SCHEMA_RAW_URL');\n}\nconsole.log(clientId ? `Atualização individual: ${clientId}` : 'Atualização em massa');\nreturn [{ json: { client_id: clientId, schema_sql: String(schemaText) } }];"
+        "jsCode": "// Extrai o SQL do GitHub (pode vir como string direta ou em .data)\nconst schemaText = $input.first().json?.data ?? $input.first().json ?? '';\nif (!schemaText || String(schemaText).trim().length < 100) {\n  throw new Error('Schema SQL inválido ou vazio — verifique C8_SCHEMA_RAW_URL e GITHUB_TOKEN');\n}\n\n// Lê client_id do body (opcional — null = modo massa)\nconst body = $('Webhook — Trigger Manual').first().json?.body ?? $('Webhook — Trigger Manual').first().json ?? {};\nconst clientId = (body.client_id ?? '').toString().trim() || null;\n\nconsole.log(clientId ? `Modo individual: ${clientId}` : 'Modo massa: todos os clientes');\nreturn [{ json: { client_id: clientId, schema_sql: String(schemaText) } }];"
       },
       "id": "prepare",
       "name": "Preparar Schema e Modo",
@@ -46,6 +50,7 @@
       "typeVersion": 2,
       "position": [680, 300]
     },
+
     {
       "parameters": {
         "method": "POST",
@@ -63,50 +68,40 @@
         "options": {}
       },
       "id": "fetch-all-clients",
-      "name": "Buscar Clientes da Agência",
+      "name": "Buscar Credenciais dos Clientes",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [900, 300]
+      "position": [900, 300],
+      "notes": "RPC retorna array de { client_id, supabase_url, anon_key, service_key }\nAcesso restrito a service_role — usa SUPABASE_SERVICE_KEY"
     },
+
     {
       "parameters": {
-        "jsCode": "const clientId = $('Preparar Schema e Modo').first().json.client_id;\nconst schemaSql = $('Preparar Schema e Modo').first().json.schema_sql;\nconst raw = $input.first().json;\nlet clients = Array.isArray(raw) ? raw : (raw.data ?? raw ?? []);\nclients = clients.filter(c => c.supabase_url && c.service_key);\nif (clientId) {\n  clients = clients.filter(c => c.client_id === clientId);\n  if (clients.length === 0) throw new Error(`Cliente ${clientId} não encontrado ou sem credenciais.`);\n}\nconsole.log(`Clientes para atualização: ${clients.length}`);\nreturn clients.map(c => ({ json: { ...c, schema_sql: schemaSql } }));"
+        "jsCode": "// Recebe a lista de clientes do Banco A\nconst raw = $input.first().json;\nlet clients = Array.isArray(raw) ? raw : (raw ?? []);\n\n// Filtra apenas clientes com credenciais completas\nclients = clients.filter(c => c.supabase_url && c.service_key);\n\n// Se for modo individual, filtra pelo client_id\nconst clientId = $('Preparar Schema e Modo').first().json.client_id;\nif (clientId) {\n  clients = clients.filter(c => c.client_id === clientId);\n  if (clients.length === 0) {\n    throw new Error(`Cliente ${clientId} não encontrado ou sem credenciais (supabase_url + service_key obrigatórios).`);\n  }\n}\n\nconst schemaSql = $('Preparar Schema e Modo').first().json.schema_sql;\nconsole.log(`Clientes para atualização: ${clients.length}`);\n\n// Propaga schema_sql para cada item — cada item vira uma execução paralela no próximo nó\nreturn clients.map(c => ({ json: { ...c, schema_sql: schemaSql } }));"
       },
       "id": "filter-clients",
-      "name": "Filtrar Clientes",
+      "name": "Filtrar e Distribuir Clientes",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1120, 300]
+      "position": [1120, 300],
+      "notes": "Distribui um item por cliente — o próximo nó processa cada um individualmente"
     },
+
     {
       "parameters": {
-        "method": "POST",
-        "url": "={{ $json.supabase_url }}/rest/v1/rpc/exec_sql",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            { "name": "apikey",        "value": "={{ $json.service_key }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $json.service_key }}" },
-            { "name": "Content-Type",  "value": "application/json" }
-          ]
-        },
-        "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            { "name": "sql_query", "value": "={{ $json.schema_sql }}" }
-          ]
-        },
-        "options": { "response": { "response": { "neverError": true } } }
+        "jsCode": "// Para cada cliente: delega aplicação do schema para a Edge Function provision-client-db\n// Essa Edge Function:\n//   1. Faz bootstrap do exec_sql via /pg/query se banco zerado\n//   2. Aplica o bank_b_full_schema.sql (usa a cópia inline da Edge Function)\n//   3. Faz seed dos estágios do pipeline\n//\n// O schema_sql vindo do GitHub é a fonte de verdade — mas como a Edge Function\n// usa sua própria cópia inline, passamos o client_id para ela resolver internamente.\n// Para forçar uso do schema do GitHub, seria necessário passá-lo no body.\n\nconst { client_id, supabase_url, service_key, client_name } = $json;\n\nconst supabaseAUrl = $env.SUPABASE_URL.replace(/\\/$/, '');\nconst serviceKeyA  = $env.SUPABASE_SERVICE_KEY;\n\ntry {\n  const res = await fetch(`${supabaseAUrl}/functions/v1/provision-client-db`, {\n    method: 'POST',\n    headers: {\n      'Content-Type':  'application/json',\n      'apikey':        serviceKeyA,\n      'Authorization': `Bearer ${serviceKeyA}`,\n    },\n    body: JSON.stringify({ client_id }),\n  });\n\n  const data = await res.json().catch(() => ({}));\n\n  if (res.ok && data.success !== false) {\n    console.log(`✅ ${client_name ?? client_id}: schema aplicado`);\n    return [{ json: { success: true, client_id, client_name: client_name ?? client_id, message: data.message ?? 'Schema aplicado.' } }];\n  } else {\n    const err = data.error ?? data.message ?? `HTTP ${res.status}`;\n    console.error(`❌ ${client_name ?? client_id}: ${err}`);\n    return [{ json: { success: false, client_id, client_name: client_name ?? client_id, error: err } }];\n  }\n} catch (e) {\n  console.error(`❌ ${client_name ?? client_id}: ${e.message}`);\n  return [{ json: { success: false, client_id, client_name: client_name ?? client_id, error: e.message } }];\n}"
       },
       "id": "apply-schema",
       "name": "Aplicar Schema no Cliente",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [1340, 300]
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300],
+      "notes": "Chama provision-client-db para cada cliente individualmente.\nFalhas são capturadas e não interrompem os demais clientes."
     },
+
     {
       "parameters": {
-        "jsCode": "const results = $input.all();\nconst total   = results.length;\nconst success = results.filter(r => r.json.success !== false).length;\nconst failed  = total - success;\nconst failures = results.filter(r => r.json.success === false)\n  .map(r => ({ client_id: r.json.client_id ?? 'desconhecido', error: r.json.error }));\nif (failures.length > 0) console.error('Falhas:', JSON.stringify(failures));\nreturn [{ json: { total, success, failed, failures, updated_at: new Date().toISOString() } }];"
+        "jsCode": "const results = $input.all();\nconst total   = results.length;\nconst success = results.filter(r => r.json.success === true).length;\nconst failed  = total - success;\nconst failures = results\n  .filter(r => r.json.success !== true)\n  .map(r => ({ client_id: r.json.client_id ?? 'desconhecido', client_name: r.json.client_name, error: r.json.error }));\n\nif (failures.length > 0) console.error('Falhas:', JSON.stringify(failures));\nconsole.log(`Resultado: ${success}/${total} sucesso, ${failed} falha(s)`);\n\nreturn [{ json: { total, success, failed, failures, updated_at: new Date().toISOString() } }];"
       },
       "id": "collect-results",
       "name": "Coletar Resultados",
@@ -114,6 +109,7 @@
       "typeVersion": 2,
       "position": [1560, 300]
     },
+
     {
       "parameters": {
         "respondWith": "json",
@@ -124,19 +120,22 @@
       "name": "Responder",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [1780, 300]
+      "position": [1780, 300],
+      "notes": "Retorna: { total, success, failed, failures[], updated_at }"
     }
   ],
+
   "connections": {
-    "Webhook — Trigger Manual":    { "main": [[{ "node": "Buscar Schema do Repositório", "type": "main", "index": 0 }]] },
-    "Buscar Schema do Repositório": { "main": [[{ "node": "Preparar Schema e Modo",      "type": "main", "index": 0 }]] },
-    "Preparar Schema e Modo":      { "main": [[{ "node": "Buscar Clientes da Agência",   "type": "main", "index": 0 }]] },
-    "Buscar Clientes da Agência":  { "main": [[{ "node": "Filtrar Clientes",             "type": "main", "index": 0 }]] },
-    "Filtrar Clientes":            { "main": [[{ "node": "Aplicar Schema no Cliente",    "type": "main", "index": 0 }]] },
-    "Aplicar Schema no Cliente":   { "main": [[{ "node": "Coletar Resultados",           "type": "main", "index": 0 }]] },
-    "Coletar Resultados":          { "main": [[{ "node": "Responder",                    "type": "main", "index": 0 }]] }
+    "Webhook — Trigger Manual":       { "main": [[{ "node": "Buscar Schema do Repositório",    "type": "main", "index": 0 }]] },
+    "Buscar Schema do Repositório":   { "main": [[{ "node": "Preparar Schema e Modo",          "type": "main", "index": 0 }]] },
+    "Preparar Schema e Modo":         { "main": [[{ "node": "Buscar Credenciais dos Clientes", "type": "main", "index": 0 }]] },
+    "Buscar Credenciais dos Clientes":{ "main": [[{ "node": "Filtrar e Distribuir Clientes",  "type": "main", "index": 0 }]] },
+    "Filtrar e Distribuir Clientes":  { "main": [[{ "node": "Aplicar Schema no Cliente",       "type": "main", "index": 0 }]] },
+    "Aplicar Schema no Cliente":      { "main": [[{ "node": "Coletar Resultados",              "type": "main", "index": 0 }]] },
+    "Coletar Resultados":             { "main": [[{ "node": "Responder",                       "type": "main", "index": 0 }]] }
   },
+
   "settings": { "executionOrder": "v1" },
-  "meta": { "templateId": "c8-update-schemas-v2" },
-  "notes": "## C8 Control — Atualizar Schema (Manual)\n\nSempre disparo manual. Sem agendamento automático.\n\n### Variáveis de ambiente necessárias:\n- SUPABASE_URL — URL da agência\n- SUPABASE_SERVICE_KEY — Service key da agência\n- C8_SCHEMA_RAW_URL — URL da API do GitHub para o bank_b_full_schema.sql\n  Ex: https://api.github.com/repos/OWNER/REPO/contents/migrations/bank_b_full_schema.sql\n- GITHUB_TOKEN — Personal Access Token (formato Bearer, com permissão read:repo)\n\n### Uso:\nAtualizar todos: POST /webhook/c8-update-schemas {}\nAtualizar um cliente: POST /webhook/c8-update-schemas { \"client_id\": \"uuid\" }\n\n### O schema é sempre buscado do repositório na hora da execução.\n### Ao atualizar o arquivo no repositório, a próxima execução já usa a versão nova."
+  "meta": { "templateId": "c8-update-schemas-v3" },
+  "notes": "## C8 Control — Atualizar Schema (v3)\n\n### Fluxo:\n1. Busca bank_b_full_schema.sql do GitHub (C8_SCHEMA_RAW_URL + GITHUB_TOKEN)\n2. Determina modo: massa (body={}) ou individual (body={client_id})\n3. Busca credenciais dos clientes via RPC get_client_supabase_credentials_bulk\n4. Para cada cliente: chama Edge Function provision-client-db\n5. Coleta resultados e responde ao frontend\n\n### Variáveis de ambiente necessárias no n8n:\n- SUPABASE_URL         — URL do Supabase da agência (Banco A)\n- SUPABASE_SERVICE_KEY — Service Role Key do Banco A\n- C8_SCHEMA_RAW_URL    — URL da API do GitHub para o bank_b_full_schema.sql\n  Ex: https://api.github.com/repos/OWNER/REPO/contents/migrations/bank_b_full_schema.sql\n- GITHUB_TOKEN         — Personal Access Token (read:repo)\n\n### Uso:\n  Atualizar todos:    POST /webhook/c8-update-schemas {}\n  Atualizar um só:    POST /webhook/c8-update-schemas { \"client_id\": \"uuid\" }\n\n### Resposta:\n  { total, success, failed, failures: [{client_id, client_name, error}], updated_at }"
 }

@@ -5,14 +5,14 @@ import { ptBR } from "date-fns/locale";
 import {
   Package, Users, DollarSign, AlertTriangle, TrendingUp,
   ShieldOff, PauseCircle, XCircle, CalendarClock, UserCheck, ClipboardList, Zap,
-  Database, RefreshCcw, CheckCircle2, XCircle as XCircleIcon, Loader2,
+  Database, RefreshCcw, CheckCircle2, XCircle as XCircleIcon, Loader2, AlertCircle,
 } from "lucide-react";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useModulePermission } from "@/hooks/usePermissions";
 import { useC8Tenants } from "@/hooks/useC8Tenants";
 import { useC8Payments } from "@/hooks/useC8Payments";
 import { useC8Plans } from "@/hooks/useC8Plans";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,6 +29,9 @@ import { C8PendingActivationTab } from "@/components/c8control/C8PendingActivati
 import { useAllClientIntegrations } from "@/hooks/useHubPerformance";
 import { useC8PendingActivation, type C8PendingClient } from "@/hooks/useC8PendingActivation";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from "@/components/ui/dialog";
 import type { N8nConfig } from "@/types/settings";
 import type { C8Tenant } from "@/hooks/useC8Tenants";
 
@@ -82,11 +85,25 @@ function C8IntegrationsOverview({
   tenants,
   n8nConfig,
   onSelectTenant,
+  onUpdateAllSchemas,
+  isUpdatingAllSchemas,
+  schemaUpdateResult,
+  onClearSchemaResult,
 }: {
   organizationId: string;
   tenants: C8Tenant[];
   n8nConfig: N8nConfig | null;
   onSelectTenant: (clientId: string) => void;
+  onUpdateAllSchemas?: () => void;
+  isUpdatingAllSchemas?: boolean;
+  schemaUpdateResult?: {
+    total: number;
+    success: number;
+    failed: number;
+    failures: Array<{ client_id: string; client_name?: string; error: string }>;
+    updated_at: string;
+  } | null;
+  onClearSchemaResult?: () => void;
 }) {
   const navigate = useNavigate();
   const { data: allIntegrations = [] } = useAllClientIntegrations(organizationId);
@@ -133,10 +150,9 @@ function C8IntegrationsOverview({
     const hasBankB = !!(tenant as any)?.client_supabase_url
       || !!pending?.supabase_url;
 
-    // Última atualização: usa activated_at se ativo, senão updated_at do tenant
-    const lastUpdate = pending?.c8_activation_status === "ativo"
-      ? (pending as any)?.c8_activated_at ?? null
-      : (tenant as any)?.updated_at ?? null;
+    // Última atualização: c8_schema_updated_at (data real da última aplicação do schema).
+    // Deixa em branco se ainda não foi aplicado.
+    const lastUpdate = (tenant as any)?.c8_schema_updated_at ?? null;
 
     return {
       clientId,
@@ -172,6 +188,20 @@ function C8IntegrationsOverview({
         {!webhooksOk && (
           <Button size="sm" variant="outline" className="h-7 text-xs shrink-0" onClick={() => navigate("/settings")}>
             Configurar
+          </Button>
+        )}
+        {webhooksOk && onUpdateAllSchemas && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5 h-7 text-xs shrink-0"
+            disabled={isUpdatingAllSchemas}
+            onClick={onUpdateAllSchemas}
+          >
+            {isUpdatingAllSchemas
+              ? <Loader2 className="h-3 w-3 animate-spin" />
+              : <RefreshCcw className="h-3 w-3" />}
+            Atualizar todos os schemas
           </Button>
         )}
       </div>
@@ -254,6 +284,42 @@ function C8IntegrationsOverview({
           </table>
         </div>
       )}
+
+      {/* Dialog de resultado da atualização em massa */}
+      <Dialog open={!!schemaUpdateResult} onOpenChange={open => { if (!open) onClearSchemaResult?.(); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {schemaUpdateResult?.failed === 0
+                ? <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                : <AlertCircle className="h-5 w-5 text-amber-500" />}
+              Resultado da Atualização
+            </DialogTitle>
+            <DialogDescription>
+              {schemaUpdateResult?.success} de {schemaUpdateResult?.total} cliente(s) atualizados com sucesso.
+              {schemaUpdateResult?.failed ? ` ${schemaUpdateResult.failed} falha(s).` : ""}
+            </DialogDescription>
+          </DialogHeader>
+
+          {schemaUpdateResult && schemaUpdateResult.failed > 0 && (
+            <div className="space-y-2 max-h-72 overflow-y-auto">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Clientes com erro</p>
+              {schemaUpdateResult.failures.map((f, i) => (
+                <div key={f.client_id ?? i} className="rounded-lg border border-red-200 bg-red-50 p-3 space-y-1">
+                  <p className="text-sm font-semibold text-red-800">{f.client_name ?? f.client_id}</p>
+                  <p className="text-xs text-red-600 font-mono break-all">{f.error}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {schemaUpdateResult && schemaUpdateResult.failed === 0 && (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+              <p className="text-sm text-emerald-700">Todos os bancos foram atualizados sem erros.</p>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -268,9 +334,19 @@ export function C8ControlPage() {
   const { data: plans = [] } = useC8Plans(organizationId);
   const { pendingCount } = useC8PendingActivation(organizationId);
   const n8nConfig = useN8nConfig(organizationId);
+  const qc = useQueryClient();
 
   // ── Atualização de schema em todos os clientes ────────────────────────────
   const [isUpdatingAllSchemas, setIsUpdatingAllSchemas] = useState(false);
+
+  type SchemaUpdateResult = {
+    total: number;
+    success: number;
+    failed: number;
+    failures: Array<{ client_id: string; client_name?: string; error: string }>;
+    updated_at: string;
+  };
+  const [schemaUpdateResult, setSchemaUpdateResult] = useState<SchemaUpdateResult | null>(null);
 
   const handleUpdateAllSchemas = async () => {
     const n8nWebhookUrl = (import.meta as any).env?.VITE_N8N_C8_UPDATE_SCHEMA_WEBHOOK
@@ -304,10 +380,24 @@ export function C8ControlPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
-      toast.success(
-        `Schema atualizado em ${data.success ?? "?"} cliente(s).`,
-        { description: data.failed > 0 ? `${data.failed} falha(s) — verifique o log do n8n.` : undefined }
-      );
+      const result: SchemaUpdateResult = {
+        total:      data.total    ?? 0,
+        success:    data.success  ?? 0,
+        failed:     data.failed   ?? 0,
+        failures:   data.failures ?? [],
+        updated_at: data.updated_at ?? new Date().toISOString(),
+      };
+      setSchemaUpdateResult(result);
+      if (result.failed === 0) {
+        toast.success(`Schema atualizado em ${result.success} cliente(s).`);
+      } else {
+        toast.warning(
+          `Schema atualizado em ${result.success} de ${result.total} cliente(s).`,
+          { description: `${result.failed} falha(s) — veja os detalhes no relatório.` }
+        );
+      }
+      // Refresca a tabela de Integrações para exibir as novas datas
+      qc.invalidateQueries({ queryKey: ["c8_tenants", organizationId] });
     } catch (e: any) {
       toast.error(`Erro: ${e.message}`);
     } finally {
@@ -783,7 +873,7 @@ export function C8ControlPage() {
 
         {/* ── Integrações ── */}
         <TabsContent value="integrations" className="mt-4">
-          {organizationId && <C8IntegrationsOverview organizationId={organizationId} tenants={tenants ?? []} n8nConfig={n8nConfig} onSelectTenant={(clientId) => { const next = new URLSearchParams(searchParams); next.set("tab", "tenants"); setSearchParams(next, { replace: true }); }} />}
+          {organizationId && <C8IntegrationsOverview organizationId={organizationId} tenants={tenants ?? []} n8nConfig={n8nConfig} onSelectTenant={(clientId) => { const next = new URLSearchParams(searchParams); next.set("tab", "tenants"); setSearchParams(next, { replace: true }); }} onUpdateAllSchemas={handleUpdateAllSchemas} isUpdatingAllSchemas={isUpdatingAllSchemas} schemaUpdateResult={schemaUpdateResult} onClearSchemaResult={() => setSchemaUpdateResult(null)} />}
         </TabsContent>
 
         {/* ── Ativação Pendente ── */}

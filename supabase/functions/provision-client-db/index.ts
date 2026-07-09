@@ -5,10 +5,14 @@
  * Usa o arquivo único `bank_b_full_schema.sql` — idempotente,
  * pode ser executado múltiplas vezes sem efeito colateral.
  *
+ * Bootstrap automático: se exec_sql ainda não existe no Banco B
+ * (primeiro provisionamento de banco zerado), cria a função via
+ * POST /pg/query antes de aplicar o schema completo. Sem etapa manual.
+ *
  * Chamada por:
- *   - n8n ao detectar novo cliente com client_supabase_url preenchido
+ *   - c8-provision-tenant ao criar novo cliente (bootstrap + schema)
+ *   - n8n ao ativar cliente pela aba "Ativação Pendente"
  *   - n8n em massa quando bank_b_full_schema.sql for modificado
- *   - c8-provision-tenant ao criar novo cliente
  *
  * Secrets necessários (Supabase Edge Function Secrets):
  *   SUPABASE_URL              — Banco A (agência)
@@ -285,10 +289,21 @@ BEGIN
   RETURN NEW;
 END; $$;
 
-DROP TRIGGER IF EXISTS trg_sync_auth_user ON auth.users;
-CREATE TRIGGER trg_sync_auth_user
-  AFTER INSERT OR UPDATE OF email, raw_user_meta_data, raw_app_meta_data ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.sync_auth_user_to_crm();
+DO $auth_trg1$
+BEGIN
+  BEGIN
+    DROP TRIGGER IF EXISTS trg_sync_auth_user ON auth.users;
+  EXCEPTION WHEN insufficient_privilege OR others THEN
+    NULL;
+  END;
+  BEGIN
+    CREATE TRIGGER trg_sync_auth_user
+      AFTER INSERT OR UPDATE OF email, raw_user_meta_data, raw_app_meta_data ON auth.users
+      FOR EACH ROW EXECUTE FUNCTION public.sync_auth_user_to_crm();
+  EXCEPTION WHEN duplicate_object OR insufficient_privilege OR others THEN
+    NULL;
+  END;
+END $auth_trg1$;
 
 CREATE OR REPLACE FUNCTION public.update_crm_user_last_seen()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -299,10 +314,21 @@ BEGIN
   RETURN NEW;
 END; $$;
 
-DROP TRIGGER IF EXISTS trg_crm_user_last_seen ON auth.users;
-CREATE TRIGGER trg_crm_user_last_seen
-  AFTER UPDATE OF last_sign_in_at ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.update_crm_user_last_seen();
+DO $auth_trg2$
+BEGIN
+  BEGIN
+    DROP TRIGGER IF EXISTS trg_crm_user_last_seen ON auth.users;
+  EXCEPTION WHEN insufficient_privilege OR others THEN
+    NULL;
+  END;
+  BEGIN
+    CREATE TRIGGER trg_crm_user_last_seen
+      AFTER UPDATE OF last_sign_in_at ON auth.users
+      FOR EACH ROW EXECUTE FUNCTION public.update_crm_user_last_seen();
+  EXCEPTION WHEN duplicate_object OR insufficient_privilege OR others THEN
+    NULL;
+  END;
+END $auth_trg2$;
 
 CREATE OR REPLACE FUNCTION public.save_asaas_settings(
   p_asaas_api_key TEXT DEFAULT NULL,
@@ -484,25 +510,77 @@ serve(async (req) => {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // Executa o schema completo via exec_sql
-  // Na primeira execução o exec_sql ainda não existe — usa rpc diretamente
-  // com o schema completo que inclui a criação do próprio exec_sql
+  // ── Bootstrap: garante que exec_sql existe antes de usá-la ─────────────────
+  //
+  // exec_sql é a função que permite executar SQL arbitrário via RPC.
+  // Ela faz parte do próprio BANK_B_FULL_SCHEMA, então num banco zerado ela
+  // ainda não existe. Criamos ela primeiro via HTTP direto ao endpoint SQL
+  // do Banco B (usando a service_role key que tem permissão para DDL).
+  //
+  // O endpoint POST /pg/query está disponível em todos os projetos Supabase
+  // e aceita a service_role key como Bearer — sem precisar de nenhuma função
+  // pré-existente no banco.
+
+  const BOOTSTRAP_EXEC_SQL = `
+    CREATE OR REPLACE FUNCTION public.exec_sql(sql_query TEXT)
+    RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+    BEGIN
+      EXECUTE sql_query;
+      RETURN jsonb_build_object('success', true);
+    EXCEPTION WHEN OTHERS THEN
+      RETURN jsonb_build_object('success', false, 'error', SQLERRM);
+    END; $$;
+
+    REVOKE ALL ON FUNCTION public.exec_sql(TEXT) FROM PUBLIC;
+    REVOKE ALL ON FUNCTION public.exec_sql(TEXT) FROM anon;
+    REVOKE ALL ON FUNCTION public.exec_sql(TEXT) FROM authenticated;
+  `;
+
   try {
-    const { error } = await bankBAdmin.rpc("exec_sql", { sql_query: BANK_B_FULL_SCHEMA });
-    if (error) {
-      // exec_sql pode não existir ainda (primeiro provisionamento)
-      // Nesse caso o n8n deve rodar o schema via HTTP REST do Supabase
-      console.warn("[provision-client-db] exec_sql não disponível:", error.message);
-      return json({
-        success: false,
-        error:   "exec_sql não disponível neste banco. Execute bank_b_full_schema.sql manualmente uma vez para bootstrap inicial.",
-        hint:    "Após o bootstrap, todas as atualizações futuras funcionarão automaticamente via esta Edge Function.",
-        client_id,
-        client_name: clientData.name,
-      }, 422);
+    // Passo 1: tenta usar exec_sql (já existe em bancos previamente provisionados)
+    const { error: rpcErr } = await bankBAdmin.rpc("exec_sql", { sql_query: "SELECT 1" });
+
+    if (rpcErr) {
+      // exec_sql não existe ainda — banco zerado. Faz bootstrap via /pg/query.
+      console.log("[provision-client-db] exec_sql não encontrada — bootstrap via /pg/query");
+
+      const pgQueryRes = await fetch(`${bankBUrl}/pg/query`, {
+        method: "POST",
+        headers: {
+          "Content-Type":  "application/json",
+          "Authorization": `Bearer ${bankBServiceKey}`,
+          "apikey":        bankBServiceKey,
+        },
+        body: JSON.stringify({ query: BOOTSTRAP_EXEC_SQL }),
+      });
+
+      if (!pgQueryRes.ok) {
+        const pgErr = await pgQueryRes.text();
+        console.error("[provision-client-db] /pg/query falhou:", pgErr);
+        return json({
+          success: false,
+          error:   `Bootstrap falhou (${pgQueryRes.status}): ${pgErr}`,
+          hint:    "Verifique se a service_role key do Banco B está correta.",
+          client_id,
+          client_name: clientData.name,
+        }, 500);
+      }
+
+      console.log("[provision-client-db] exec_sql criada via bootstrap.");
     }
 
-    // Seed dos estágios padrão com o client_id real
+    // Passo 2: aplica o schema completo via exec_sql (agora garantidamente existente)
+    const { error: schemaErr } = await bankBAdmin.rpc("exec_sql", { sql_query: BANK_B_FULL_SCHEMA });
+    if (schemaErr) {
+      return json({
+        success: false,
+        error:   `Erro ao aplicar schema: ${schemaErr.message}`,
+        client_id,
+        client_name: clientData.name,
+      }, 500);
+    }
+
+    // Passo 3: seed dos estágios padrão do pipeline
     const seedSql = `
       UPDATE public.crm_pipeline_stages
       SET client_id = '${client_id}'

@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS public.crm_users (
                CHECK (role IN ('owner','admin','manager','member','viewer')),
   avatar_url   TEXT,
   active       BOOLEAN     NOT NULL DEFAULT true,
+  is_support   BOOLEAN     NOT NULL DEFAULT false, -- true = usuário suporte@agenciac8.com.br; não contabiliza no limite
   last_seen_at TIMESTAMPTZ,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -56,6 +57,28 @@ CREATE TABLE IF NOT EXISTS public.crm_users (
 
 CREATE INDEX IF NOT EXISTS idx_crm_users_client_id
   ON public.crm_users(client_id);
+
+-- Índice parcial criado após garantir que a coluna is_support existe.
+-- O ALTER TABLE da seção v3.3 (upgrades incrementais) adiciona a coluna
+-- em bancos legados — o índice só é criado se a coluna já existir.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name   = 'crm_users'
+      AND column_name  = 'is_support'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public'
+      AND tablename  = 'crm_users'
+      AND indexname  = 'idx_crm_users_not_support'
+  ) THEN
+    EXECUTE 'CREATE INDEX idx_crm_users_not_support
+      ON public.crm_users(client_id, is_support)
+      WHERE is_support = false';
+  END IF;
+END $$;
 
 -- ── 2. Contatos do CRM ────────────────────────────────────────────────────────
 
@@ -446,9 +469,10 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_client_id TEXT;
-  v_role      TEXT;
-  v_full_name TEXT;
+  v_client_id  TEXT;
+  v_role       TEXT;
+  v_full_name  TEXT;
+  v_is_support BOOLEAN;
 BEGIN
   v_client_id := COALESCE(
     NEW.raw_user_meta_data  ->> 'client_id',
@@ -464,28 +488,49 @@ BEGIN
     NEW.raw_user_meta_data  ->> 'name',
     split_part(NEW.email, '@', 1)
   );
+  -- Identifica suporte exclusivamente pelo metadado is_support = true
+  -- (definido pela Edge Function c8-support-user ao criar o usuário)
+  v_is_support := COALESCE(
+    (NEW.raw_user_meta_data ->> 'is_support')::BOOLEAN,
+    (NEW.raw_app_meta_data  ->> 'is_support')::BOOLEAN,
+    false
+  );
 
   -- Sem client_id: usuário órfão, não sincroniza
   IF v_client_id IS NULL OR v_client_id = '' THEN
     RETURN NEW;
   END IF;
 
-  INSERT INTO public.crm_users (id, client_id, email, full_name, role, active)
-  VALUES (NEW.id, v_client_id, NEW.email, v_full_name, v_role, true)
+  INSERT INTO public.crm_users (id, client_id, email, full_name, role, active, is_support)
+  VALUES (NEW.id, v_client_id, NEW.email, v_full_name, v_role, true, v_is_support)
   ON CONFLICT (id) DO UPDATE SET
     email      = EXCLUDED.email,
     full_name  = COALESCE(EXCLUDED.full_name, crm_users.full_name),
+    is_support = EXCLUDED.is_support,
     updated_at = now();
 
   RETURN NEW;
 END;
 $$;
 
-DROP TRIGGER IF EXISTS trg_sync_auth_user ON auth.users;
-CREATE TRIGGER trg_sync_auth_user
-  AFTER INSERT OR UPDATE OF email, raw_user_meta_data, raw_app_meta_data
-  ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.sync_auth_user_to_crm();
+DO $auth_trg1$
+BEGIN
+  -- Remove trigger antigo se existir (ignora erro de permissão em bancos restritos)
+  BEGIN
+    DROP TRIGGER IF EXISTS trg_sync_auth_user ON auth.users;
+  EXCEPTION WHEN insufficient_privilege OR others THEN
+    NULL;
+  END;
+  -- Cria trigger (ignora se já existe ou sem permissão)
+  BEGIN
+    CREATE TRIGGER trg_sync_auth_user
+      AFTER INSERT OR UPDATE OF email, raw_user_meta_data, raw_app_meta_data
+      ON auth.users
+      FOR EACH ROW EXECUTE FUNCTION public.sync_auth_user_to_crm();
+  EXCEPTION WHEN duplicate_object OR insufficient_privilege OR others THEN
+    NULL;
+  END;
+END $auth_trg1$;
 
 -- Atualiza last_seen_at a cada login
 CREATE OR REPLACE FUNCTION public.update_crm_user_last_seen()
@@ -501,10 +546,21 @@ BEGIN
 END;
 $$;
 
-DROP TRIGGER IF EXISTS trg_crm_user_last_seen ON auth.users;
-CREATE TRIGGER trg_crm_user_last_seen
-  AFTER UPDATE OF last_sign_in_at ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.update_crm_user_last_seen();
+DO $auth_trg2$
+BEGIN
+  BEGIN
+    DROP TRIGGER IF EXISTS trg_crm_user_last_seen ON auth.users;
+  EXCEPTION WHEN insufficient_privilege OR others THEN
+    NULL;
+  END;
+  BEGIN
+    CREATE TRIGGER trg_crm_user_last_seen
+      AFTER UPDATE OF last_sign_in_at ON auth.users
+      FOR EACH ROW EXECUTE FUNCTION public.update_crm_user_last_seen();
+  EXCEPTION WHEN duplicate_object OR insufficient_privilege OR others THEN
+    NULL;
+  END;
+END $auth_trg2$;
 
 -- ── 12. RPC: salvar chave Asaas com segurança ─────────────────────────────────
 -- A chave é gravada diretamente no banco; NUNCA retornada ao frontend.
@@ -663,6 +719,36 @@ ALTER TABLE public.ai_promotions  ADD COLUMN IF NOT EXISTS rules TEXT;
 ALTER TABLE public.ai_suggestions ADD COLUMN IF NOT EXISTS rules TEXT;
 ALTER TABLE public.ai_notices     ADD COLUMN IF NOT EXISTS rules TEXT;
 
+-- v3.3: crm_users — adiciona is_support para bancos já provisionados
+ALTER TABLE public.crm_users ADD COLUMN IF NOT EXISTS is_support BOOLEAN NOT NULL DEFAULT false;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public'
+      AND tablename  = 'crm_users'
+      AND indexname  = 'idx_crm_users_not_support'
+  ) THEN
+    EXECUTE 'CREATE INDEX idx_crm_users_not_support
+      ON public.crm_users(client_id, is_support)
+      WHERE is_support = false';
+  END IF;
+END $$;
+
+-- Backfill: identifica suporte pelo metadado is_support = true no auth.users
+DO $backfill_support$
+BEGIN
+  UPDATE public.crm_users cu
+  SET is_support = true
+  FROM auth.users au
+  WHERE au.id = cu.id
+    AND au.raw_user_meta_data ->> 'is_support' = 'true'
+    AND cu.is_support = false;
+EXCEPTION WHEN insufficient_privilege OR others THEN
+  NULL; -- ignora se auth.users não for acessível neste contexto
+END $backfill_support$;
+
 -- ── 15. Registra versão aplicada ─────────────────────────────────────────────
 
 INSERT INTO public.schema_migrations (version)
@@ -675,4 +761,12 @@ ON CONFLICT (version) DO NOTHING;
 
 INSERT INTO public.schema_migrations (version)
 VALUES ('bank_b_upgrade_v3_2')
+ON CONFLICT (version) DO NOTHING;
+
+INSERT INTO public.schema_migrations (version)
+VALUES ('bank_b_upgrade_v3_3')
+ON CONFLICT (version) DO NOTHING;
+
+INSERT INTO public.schema_migrations (version)
+VALUES ('bank_b_upgrade_v3_4_auth_trigger_safe')
 ON CONFLICT (version) DO NOTHING;
