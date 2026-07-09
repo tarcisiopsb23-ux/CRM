@@ -60,6 +60,7 @@ export function useC8Tenants(organizationId: string | undefined) {
           c8_free_access,
           free_access_until,
           free_access_reason,
+          c8_schema_updated_at,
           clients!inner (
             id,
             name,

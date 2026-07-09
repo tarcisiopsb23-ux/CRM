@@ -175,14 +175,15 @@ function C8IntegrationsOverview({
     <div className="space-y-5">
       {/* Barra de ações */}
       <div className="flex justify-end">
-        {onUpdateAllSchemas && hasUpdateWebhook && (
+        {onUpdateAllSchemas && (
           <div className="relative shrink-0">
             <Button
               size="sm"
               variant="outline"
               className="gap-2 h-9 text-sm px-4 border-primary/40 text-primary hover:bg-primary/5 hover:border-primary"
-              disabled={isUpdatingAllSchemas}
+              disabled={isUpdatingAllSchemas || !hasUpdateWebhook}
               onClick={onUpdateAllSchemas}
+              title={!hasUpdateWebhook ? "Configure o webhook em Configurações → n8n → C8 Control — Atualizar schema" : undefined}
             >
               {isUpdatingAllSchemas
                 ? <Loader2 className="h-4 w-4 animate-spin" />
