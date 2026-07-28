@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { toJson } from "@/lib/supabase-utils";
 import { dispatchWebhook } from "@/lib/webhookDispatcher";
@@ -70,10 +70,19 @@ export function useLeadsKanban(
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  // flag to suppress realtime re-fetches during bulk imports
+  const suppressRealtimeRef = useRef(false);
+  // flag: após o primeiro fetch bem-sucedido, refetches subsequentes
+  // não devem setar loading=true para evitar desmontar a UI (e fechar modais abertas)
+  const hasLoadedOnceRef = useRef(false);
 
   const fetchLeads = useCallback(async () => {
     if (!organizationId) return;
-    setLoading(true);
+    // Só mostra loading na tela no primeiro carregamento.
+    // Refetches silenciosos (realtime, pós-save) não devem desmontar a UI.
+    if (!hasLoadedOnceRef.current) {
+      setLoading(true);
+    }
     setError(null);
     const { data, error: fetchError } = await supabase
       .from("leads")
@@ -118,6 +127,7 @@ export function useLeadsKanban(
         setLeads(filtered);
       }
     }
+    hasLoadedOnceRef.current = true;
     setLoading(false);
   }, [organizationId, includeConverted]);
 
@@ -138,6 +148,7 @@ export function useLeadsKanban(
           filter: `organization_id=eq.${organizationId}`,
         },
         () => {
+          if (suppressRealtimeRef.current) return;
           fetchLeads();
         }
       )
@@ -289,7 +300,8 @@ export function useLeadsKanban(
   const importLeadsMapped = useCallback(
     async (
       rows: CreateLeadRow[],
-      profileNameToId?: (name: string) => string | null
+      profileNameToId?: (name: string) => string | null,
+      listaId?: string | null
     ): Promise<{ created: number; errors: string[] }> => {
       if (!organizationId) throw new Error("Sem organização");
       const etapa = "leads_recebidos" as const;
@@ -299,69 +311,101 @@ export function useLeadsKanban(
       const looksLikeUuid = (v: string) =>
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 
-      for (let i = 0; i < rows.length; i++) {
-        const r = rows[i] ?? {};
-        const rawName = (r.name ?? "").toString().trim();
-        const rawCompany = (r.company ?? "").toString().trim();
-        const name = rawName || rawCompany;
-        const company = rawCompany || rawName;
-        if (!name) {
-          errors.push(`Linha ${i + 2}: Nome/Empresa vazio`);
-          continue;
-        }
-
-        let assignedTo: string | null = (r.assigned_to ?? null) as string | null;
-        if (assignedTo && !looksLikeUuid(assignedTo) && profileNameToId) {
-          assignedTo = profileNameToId(assignedTo) ?? null;
-        }
-
-        try {
-          const payload: Record<string, unknown> = {
-            organization_id: organizationId,
-            etapa_kanban: etapa,
-            stage_id: etapa,
-            name,
-            company,
-            email: r.email ?? null,
-            phone: r.phone ?? null,
-            nicho: r.nicho ?? null,
-            source: r.source ?? null,
-            value: r.value ?? 0,
-            prioridade: r.prioridade ?? "media",
-            assigned_to: assignedTo,
-            notes: r.notes ?? null,
-            first_contact_date: r.first_contact_date ?? null,
-            last_contact_date: r.last_contact_date ?? null,
-            product_service: r.product_service ?? null,
-            cpf_cnpj: r.cpf_cnpj ?? null,
-            contact_origin: r.contact_origin ?? null,
-            decision_maker: r.decision_maker ?? null,
-            decision_maker_name: r.decision_maker_name ?? null,
-            decision_maker_phone: r.decision_maker_phone ?? null,
-            gbp_url: r.gbp_url ?? null,
-            instagram_url: r.instagram_url ?? null,
-            website_url: r.website_url ?? null,
-            gmn_status: r.gmn_status ?? null,
-            google_ads_level: r.google_ads_level ?? null,
-            meta_ads_level: r.meta_ads_level ?? null,
-            social_media_status: r.social_media_status ?? null,
-            lost_reason: r.lost_reason ?? null,
-            cadence: r.cadence ?? null,
-            temperature: r.temperature ?? null,
-            ...(r.metadata ? { metadata: toJson(r.metadata) } : {}),
-          };
-
-          const { error: insertError } = await supabase
-            .from("leads")
-            .insert(payload as unknown as TablesInsert<"leads">);
-          if (insertError) throw insertError;
-          created++;
-        } catch (err) {
-          errors.push(`Linha ${i + 2}: ${err instanceof Error ? err.message : String(err)}`);
+      // If a lista was selected, fetch its cidade/nicho once to use as fallback
+      // for rows that have no cidade of their own.
+      let listaCidade: string | null = null;
+      let listaNicho: string | null = null;
+      if (listaId) {
+        const { data: listaData } = await (supabase as any)
+          .from("listas")
+          .select("cidade, nicho")
+          .eq("id", listaId)
+          .single();
+        if (listaData) {
+          listaCidade = listaData.cidade ?? null;
+          listaNicho = listaData.nicho ?? null;
         }
       }
 
-      if (created > 0) fetchLeads();
+      // Suppress realtime subscription callbacks for the duration of the import
+      // to avoid 95+ re-renders (one per insert event)
+      suppressRealtimeRef.current = true;
+
+      try {
+        for (let i = 0; i < rows.length; i++) {
+          const r = rows[i] ?? {};
+          const rawName = (r.name ?? "").toString().trim();
+          const rawCompany = (r.company ?? "").toString().trim();
+          const name = rawName || rawCompany;
+          const company = rawCompany || rawName;
+          if (!name) {
+            errors.push(`Linha ${i + 2}: Nome/Empresa vazio`);
+            continue;
+          }
+
+          let assignedTo: string | null = (r.assigned_to ?? null) as string | null;
+          if (assignedTo && !looksLikeUuid(assignedTo) && profileNameToId) {
+            assignedTo = profileNameToId(assignedTo) ?? null;
+          }
+
+          try {
+            const payload: Record<string, unknown> = {
+              organization_id: organizationId,
+              etapa_kanban: etapa,
+              stage_id: etapa,
+              name,
+              company,
+              email: r.email ?? null,
+              phone: r.phone ?? null,
+              nicho: r.nicho ?? listaNicho ?? null,
+              source: r.source ?? null,
+              value: r.value ?? 0,
+              prioridade: r.prioridade ?? "media",
+              assigned_to: assignedTo,
+              notes: r.notes ?? null,
+              first_contact_date: r.first_contact_date ?? null,
+              last_contact_date: r.last_contact_date ?? null,
+              product_service: r.product_service ?? null,
+              cpf_cnpj: r.cpf_cnpj ?? null,
+              contact_origin: r.contact_origin ?? null,
+              decision_maker: r.decision_maker ?? null,
+              decision_maker_name: r.decision_maker_name ?? null,
+              decision_maker_phone: r.decision_maker_phone ?? null,
+              gbp_url: r.gbp_url ?? null,
+              instagram_url: r.instagram_url ?? null,
+              website_url: r.website_url ?? null,
+              gmn_status: r.gmn_status ?? null,
+              google_ads_level: r.google_ads_level ?? null,
+              meta_ads_level: r.meta_ads_level ?? null,
+              social_media_status: r.social_media_status ?? null,
+              lost_reason: r.lost_reason ?? null,
+              cadence: r.cadence ?? null,
+              temperature: r.temperature ?? null,
+              ...(listaId ? { lista_id: listaId } : {}),
+              ...(r.metadata ? { metadata: toJson({
+                // If the row had no cidade, inherit it from the lista
+                ...(listaCidade && !(r.metadata as Record<string,unknown>)?.cidade
+                  ? { cidade: listaCidade }
+                  : {}),
+                ...(r.metadata as Record<string,unknown>),
+              }) } : listaCidade ? { metadata: toJson({ cidade: listaCidade }) } : {}),
+            };
+
+            const { error: insertError } = await supabase
+              .from("leads")
+              .insert(payload as unknown as TablesInsert<"leads">);
+            if (insertError) throw insertError;
+            created++;
+          } catch (err) {
+            errors.push(`Linha ${i + 2}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+      } finally {
+        suppressRealtimeRef.current = false;
+      }
+
+      // Single fetch after all inserts are done
+      if (created > 0) await fetchLeads();
       return { created, errors };
     },
     [organizationId, fetchLeads]

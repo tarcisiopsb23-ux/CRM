@@ -10,11 +10,13 @@ import {
   PermissionsSection,
   HolidaysSection,
   C8ControlSection,
+  EmailTemplatesTab,
 } from "@/components/settings";
 import { FiscalSettingsTab } from "@/components/settings/FiscalSettingsTab";
 import { RecruitmentSection } from "@/components/settings/RecruitmentSection";
 import { ContractSettingsTab } from "@/components/settings/ContractSettingsTab";
 import { ServiceCatalogTab } from "@/components/contracts/settings/ServiceCatalogTab";
+import { ProposalTemplateTab } from "@/components/propostas/ProposalTemplateTab";
 import { InviteMemberDialog } from "@/components/team/InviteMemberDialog";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -57,10 +59,10 @@ import { Label } from "@/components/ui/label";
 export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { theme, setTheme, fontSize, setFontSize, sidebarColor, setSidebarColor } = useUserPreferences();
-  const validTabs = useMemo(() => new Set(["permissions", "integrations", "fiscal", "recruitment", "general", "contracts", "products"]), []);
+  const validTabs = useMemo(() => new Set(["permissions", "integrations", "fiscal", "recruitment", "general", "contracts", "products", "email-templates", "propostas-template"]), []);
   const tabParamRaw = searchParams.get("tab");
   const tabParam = tabParamRaw === "api" ? "integrations" : tabParamRaw;
-  const tab = (tabParam && validTabs.has(tabParam) ? tabParam : "permissions") as "permissions" | "integrations" | "fiscal" | "recruitment" | "general" | "contracts";
+  const tab = (tabParam && validTabs.has(tabParam) ? tabParam : "permissions") as "permissions" | "integrations" | "fiscal" | "recruitment" | "general" | "contracts" | "email-templates" | "propostas-template";
 
   const { canView: canViewBranding } = usePermissionForScope("settings", "general");
   const organizationId = useOrganization();
@@ -185,6 +187,8 @@ export function SettingsPage() {
           <TabsTrigger value="recruitment">Recrutamento</TabsTrigger>
           <TabsTrigger value="contracts">Contratos</TabsTrigger>
           <TabsTrigger value="products">Serviços/Produtos</TabsTrigger>
+          <TabsTrigger value="email-templates">Templates de E-mail</TabsTrigger>
+          <TabsTrigger value="propostas-template">Template de Proposta</TabsTrigger>
           <TabsTrigger value="general">Configurações gerais</TabsTrigger>
         </TabsList>
 
@@ -350,6 +354,14 @@ export function SettingsPage() {
 
         <TabsContent value="products" className="space-y-6">
           <ServiceCatalogTab />
+        </TabsContent>
+
+        <TabsContent value="email-templates" className="space-y-6 data-[state=active]:flex data-[state=active]:flex-col">
+          <EmailTemplatesTab />
+        </TabsContent>
+
+        <TabsContent value="propostas-template" className="space-y-6">
+          <ProposalTemplateTab />
         </TabsContent>
 
         <TabsContent value="general" className="space-y-6">

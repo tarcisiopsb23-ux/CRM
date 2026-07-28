@@ -14,6 +14,8 @@ import { useContractMetrics } from "@/hooks/useContractMetrics";
 import { useModulePermission } from "@/hooks/usePermissions";
 import { getDriveFoldersFromOrganizationSettings, useOrganizationSettings } from "@/hooks/useSettings";
 import { useAuth } from "@/contexts/AuthContext";
+import { RepresentativesEditor } from "@/components/clients/RepresentativesEditor";
+import { useClientRepresentatives, QUALIFICACAO_LABELS } from "@/hooks/useClientRepresentatives";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -59,9 +61,11 @@ import { DocumentsCard } from "@/components/documents/DocumentsCard";
 import { DRIVE_AUTO_FOLDERS } from "@/constants/driveAutoFolders";
 import { ServicesSelectorSection } from "@/components/contracts/form/ServicesSelectorSection";
 import { SetupSection } from "@/components/contracts/form/SetupSection";
+import { PaymentMethodSelect } from "@/components/contracts/form/PaymentMethodSelect";
 import { generatePayments } from "@/lib/contracts/generatePayments";
 import { calcSetupParcel } from "@/lib/contracts/calcSetupParcel";
 import type { SelectedService } from "@/types/contracts";
+import { useServiceCatalog } from "@/hooks/useServiceCatalog";
 
 import { ClientIntegrationsTab } from "@/components/clients/ClientIntegrationsTab";
 import { ClientKPIsTab } from "@/components/clients/ClientKPIsTab";
@@ -83,7 +87,7 @@ const SERVICE_LABELS: Record<string, string> = {
   consultoria: "Consultoria",
   gmn: "GMN",
   site: "Site",
-  agente_ia: "Agente IA",
+  agente_ia: "Ecossistema de Atendimento",
   outros: "Outros",
 };
 
@@ -96,6 +100,7 @@ export default function ClientsPage() {
   const { canCreate, canEdit, canDelete } = useModulePermission("clients");
   const { canEdit: canManageContracts } = useModulePermission("financial");
   const { data: clients = [], isLoading, error: fetchError, create, update, remove, deactivate, activate, hardDelete } = useClients(organizationId);
+  const { services: catalogServices } = useServiceCatalog(organizationId ?? "");
   const { autoCreateFolder } = useDriveFolder(organizationId);
   const { data: teams = [] } = useTeams(organizationId);
   const { data: allProfiles = [] } = useProfiles(organizationId);
@@ -108,8 +113,15 @@ export default function ClientsPage() {
   const [editing, setEditing] = useState<Client | null>(null);
   const [fromLeadId, setFromLeadId] = useState<string | null>(null);
   const [viewing, setViewing] = useState<Client | null>(null);
+  // Tipo de assinatura do cliente em edição
+  const [editingSigningType, setEditingSigningType] = useState<"individual" | "joint">("individual");
   const [contractModalOpen, setContractModalOpen] = useState(false);
   const [contractEditingId, setContractEditingId] = useState<string | null>(null);
+
+  // Representantes legais do cliente cujo contrato está sendo criado/editado
+  // contractForm.client_id é preenchido ao abrir o modal de contrato
+  const [contractClientIdForReps, setContractClientIdForReps] = useState<string | undefined>(undefined);
+  const { legalRepresentatives: contractLegalReps = [] } = useClientRepresentatives(contractClientIdForReps);
   const [contractEndOpen, setContractEndOpen] = useState(false);
   const [contractEndReason, setContractEndReason] = useState("");
   const [contractTargetId, setContractTargetId] = useState<string | null>(null);
@@ -474,6 +486,7 @@ export default function ClientsPage() {
     setup_first_due_date: undefined as string | undefined,
     setup_payment_method: undefined as string | undefined,
     min_duration_months: 0,
+    signing_representative_ids: [] as string[],
   });
 
   const [suspendedMonthOpen, setSuspendedMonthOpen] = useState(false);
@@ -515,6 +528,7 @@ export default function ClientsPage() {
   const openEdit = (c: Client) => {
     setEditing(c);
     setFromLeadId(null);
+    setEditingSigningType(((c as any).signing_type as "individual" | "joint") ?? "individual");
     const migrated = migrateResponsibleToDecisionMaker(c);
     setForm({
       name: c.name,
@@ -535,6 +549,7 @@ export default function ClientsPage() {
       decision_maker_name: migrated.decision_maker_name ?? "",
       decision_maker_phone: migrated.decision_maker_phone ?? "",
       portfolio_team_id: c.portfolio_team_id ?? "",
+      ...(({ estado_civil: (c as any).estado_civil ?? "", nacionalidade: (c as any).nacionalidade ?? "" } as any)),
     });
     setModalOpen(true);
   };
@@ -641,6 +656,7 @@ export default function ClientsPage() {
             setup_payment_method: undefined,
             min_duration_months: 0,
           });
+          setContractClientIdForReps(contractForm.client_id || "");
           setContractModalOpen(true);
         }
       }
@@ -1129,6 +1145,39 @@ export default function ClientsPage() {
                   required
                 />
               </div>
+
+              {/* Estado civil e nacionalidade — apenas para PF (CPF, 11 dígitos) */}
+              {(form.document ?? "").replace(/\D/g, "").length <= 11 &&
+               (form.document ?? "").replace(/\D/g, "").length >= 9 && (
+                <>
+                  <div>
+                    <Label>Estado Civil</Label>
+                    <p className="text-[11px] text-muted-foreground mb-1">Usado na qualificação do contrato.</p>
+                    <Select
+                      value={(form as any).estado_civil ?? ""}
+                      onValueChange={(v) => setForm({ ...form, ...(({ estado_civil: v } as any)) })}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="solteiro">Solteiro(a)</SelectItem>
+                        <SelectItem value="casado">Casado(a)</SelectItem>
+                        <SelectItem value="viuvo">Viúvo(a)</SelectItem>
+                        <SelectItem value="divorciado">Divorciado(a)</SelectItem>
+                        <SelectItem value="uniao_estavel">União estável</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Nacionalidade</Label>
+                    <Input
+                      value={(form as any).nacionalidade ?? ""}
+                      onChange={(e) => setForm({ ...form, ...({ nacionalidade: e.target.value } as any) })}
+                      placeholder="Ex: brasileiro(a)"
+                    />
+                  </div>
+                </>
+              )}
+
               <div>
                 <Label>E-mail</Label>
                 <Input
@@ -1333,6 +1382,30 @@ export default function ClientsPage() {
               </Button>
             </DialogFooter>
           </form>
+
+          {/* Representantes legais — obrigatório para CNPJ, opcional para CPF */}
+          {editing?.id && (() => {
+            const isCnpj = (form.document ?? "").replace(/\D/g, "").length === 14;
+            return (
+              <div className="border-t pt-4 mt-2">
+                {!isCnpj && (
+                  <p className="text-[11px] text-muted-foreground mb-3">
+                    Representantes legais são opcionais para pessoas físicas (CPF).
+                  </p>
+                )}
+                <RepresentativesEditor
+                  clientId={editing.id}
+                  required={isCnpj}
+                  isPf={!isCnpj}
+                  signingType={editingSigningType}
+                  onSigningTypeChange={async (type) => {
+                    setEditingSigningType(type);
+                    await update.mutateAsync({ id: editing.id, signing_type: type } as any);
+                  }}
+                />
+              </div>
+            );
+          })()}
         </DialogContent>
       </Dialog>
 
@@ -1540,6 +1613,7 @@ export default function ClientsPage() {
                         setup_payment_method: (ct.metadata as any)?.setup_payment_method as string | undefined,
                         min_duration_months: ct.min_duration_months ?? 0,
                       });
+                      setContractClientIdForReps(viewing?.id || "");
                       setContractModalOpen(true);
                     }}
                     onSuspend={() => {
@@ -1597,6 +1671,7 @@ export default function ClientsPage() {
                   setup_payment_method: undefined,
                   min_duration_months: 0,
                 });
+                setContractClientIdForReps(viewing?.id || "");
                 setContractModalOpen(true);
               }}
               disabled={!canCreate}
@@ -1724,6 +1799,7 @@ export default function ClientsPage() {
                                   setup_payment_method: (ct.metadata as any)?.setup_payment_method as string | undefined,
                                   min_duration_months: ct.min_duration_months ?? 0,
                                 });
+                                setContractClientIdForReps(viewing?.id || "");
                                 setContractModalOpen(true);
                               }}
                               disabled={!canManageContracts} aria-label="Alterar" className="bg-background hover:bg-muted"
@@ -1920,6 +1996,13 @@ export default function ClientsPage() {
               const newMetadata: Record<string, unknown> = {
                 ...extraMeta,
                 services: contractForm.services.length > 0 ? contractForm.services : undefined,
+                // Snapshot dos itens do catálogo referenciados — usado por assembleContract
+                // para enriquecer {{servicos}} com modalidade, escopo e detalhes dos entregáveis
+                catalogItems: contractForm.services.length > 0
+                  ? catalogServices.filter((s) =>
+                      contractForm.services.some((sel) => sel.service_id === s.id)
+                    )
+                  : undefined,
                 ...(contractForm.setup_enabled ? {
                   setup_value: contractForm.setup_value,
                   setup_installments: contractForm.setup_installments,
@@ -2057,6 +2140,8 @@ export default function ClientsPage() {
                 }
               }
               setContractModalOpen(false);
+              setContractEditingId(null);
+              setContractClientIdForReps(undefined);
             }}
           >
             {/* Linha 1: Serviço, Tipo, Data, Duração, Encerramento */}
@@ -2161,20 +2246,11 @@ export default function ClientsPage() {
               </div>
               <div>
                 <Label>Forma do 1º pagamento</Label>
-                <Select
+                <PaymentMethodSelect
                   value={contractForm.first_payment_method}
                   onValueChange={(v) => setContractForm({ ...contractForm, first_payment_method: v })}
                   disabled={contractEditingId ? !canEdit : !canCreate}
-                >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="pix">PIX</SelectItem>
-                    <SelectItem value="boleto">Boleto</SelectItem>
-                    <SelectItem value="cartao">Cartão</SelectItem>
-                    <SelectItem value="transferencia">Transferência</SelectItem>
-                    <SelectItem value="outro">Outro</SelectItem>
-                  </SelectContent>
-                </Select>
+                />
               </div>
               <div>
                 <Label>Data do 1º pagamento</Label>
@@ -2233,20 +2309,11 @@ export default function ClientsPage() {
                 </div>
                 <div>
                   <Label>Forma de pagamento mensal</Label>
-                  <Select
+                  <PaymentMethodSelect
                     value={contractForm.recurring_payment_method}
                     onValueChange={(v) => setContractForm({ ...contractForm, recurring_payment_method: v })}
                     disabled={contractEditingId ? !canEdit : !canCreate}
-                  >
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="pix">PIX</SelectItem>
-                      <SelectItem value="boleto">Boleto</SelectItem>
-                      <SelectItem value="cartao">Cartão</SelectItem>
-                      <SelectItem value="transferencia">Transferência</SelectItem>
-                      <SelectItem value="outro">Outro</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  />
                 </div>
               </div>
             )}
@@ -2255,14 +2322,25 @@ export default function ClientsPage() {
             <div className="col-span-full">
               <SetupSection
                 enabled={contractForm.setup_enabled}
-                onEnabledChange={(enabled) => setContractForm({ ...contractForm, setup_enabled: enabled })}
+                onEnabledChange={(enabled) => setContractForm(prev => ({
+                  ...prev,
+                  setup_enabled: enabled,
+                  // Ao desativar, limpa todos os campos de setup
+                  ...(enabled ? {} : {
+                    setup_value:          undefined,
+                    setup_installments:   undefined,
+                    setup_fees:           undefined,
+                    setup_first_due_date: undefined,
+                    setup_payment_method: undefined,
+                  }),
+                }))}
                 setupValue={contractForm.setup_value}
                 setupInstallments={contractForm.setup_installments}
                 setupFees={contractForm.setup_fees}
                 setupFirstDueDate={contractForm.setup_first_due_date}
                 setupPaymentMethod={contractForm.setup_payment_method}
                 minDurationMonths={contractForm.min_duration_months}
-                onFieldChange={(field, value) => setContractForm({ ...contractForm, [field]: value })}
+                onFieldChange={(field, value) => setContractForm(prev => ({ ...prev, [field]: value }))}
                 disabled={contractEditingId ? !canEdit : !canCreate}
               />
             </div>
@@ -2288,6 +2366,111 @@ export default function ClientsPage() {
               </div>
             </div>
 
+            {/* Responsáveis pela assinatura deste contrato */}
+            {contractLegalReps.length > 0 && (() => {
+              const isJoint      = editingSigningType === "joint";
+              const isIndividual = editingSigningType === "individual";
+              const singleRep    = isIndividual && contractLegalReps.length === 1;
+              const allIds       = contractLegalReps.map(r => r.id);
+
+              // Auto-selecionar: individual com 1 rep → seleciona automaticamente
+              // Conjunta → seleciona todos automaticamente
+              if (singleRep) {
+                // garante seleção automática sem renderizar seletor
+                if (contractForm.signing_representative_ids[0] !== contractLegalReps[0].id) {
+                  setTimeout(() => setContractForm(prev => ({
+                    ...prev,
+                    signing_representative_ids: [contractLegalReps[0].id],
+                  })), 0);
+                }
+                return (
+                  <div className="col-span-full">
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-violet-50 border border-violet-200 text-xs text-violet-700">
+                      <span className="font-medium">{contractLegalReps[0].nome}</span>
+                      <span className="text-violet-400">·</span>
+                      <span>Responsável pela assinatura (único representante legal)</span>
+                    </div>
+                  </div>
+                );
+              }
+
+              if (isJoint) {
+                // garante seleção automática de todos
+                const sorted    = [...allIds].sort();
+                const current   = [...contractForm.signing_representative_ids].sort();
+                if (JSON.stringify(sorted) !== JSON.stringify(current)) {
+                  setTimeout(() => setContractForm(prev => ({
+                    ...prev,
+                    signing_representative_ids: allIds,
+                  })), 0);
+                }
+                return (
+                  <div className="col-span-full space-y-1.5">
+                    <Label className="text-sm font-medium">Responsáveis pela assinatura (conjunta)</Label>
+                    <div className="space-y-1">
+                      {contractLegalReps.map(rep => (
+                        <div key={rep.id} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-violet-50 border border-violet-200 text-xs text-violet-700">
+                          <span className="font-medium">{rep.nome}</span>
+                          {rep.qualificacao && (
+                            <><span className="text-violet-400">·</span>
+                            <span>{QUALIFICACAO_LABELS[rep.qualificacao as keyof typeof QUALIFICACAO_LABELS]}</span></>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      Todos os representantes legais assinarão — definido pelo tipo de assinatura conjunta.
+                    </p>
+                  </div>
+                );
+              }
+
+              // Individual com mais de 1 representante — exibe seletor de radio
+              return (
+                <div className="col-span-full space-y-2">
+                  <Label className="text-sm font-medium">Responsável pela assinatura</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Selecione qual representante legal assinará este contrato.
+                  </p>
+                  <div className="space-y-1.5">
+                    {contractLegalReps.map(rep => {
+                      const selected = contractForm.signing_representative_ids.includes(rep.id);
+                      const disabled = contractEditingId ? !canEdit : !canCreate;
+                      return (
+                        <div
+                          key={rep.id}
+                          onClick={() => {
+                            if (disabled) return;
+                            setContractForm(prev => ({ ...prev, signing_representative_ids: [rep.id] }));
+                          }}
+                          className={`flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-colors ${
+                            selected ? "border-violet-400 bg-violet-50" : "hover:bg-muted/40 border-border"
+                          } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
+                        >
+                          <input
+                            type="radio"
+                            checked={selected}
+                            readOnly
+                            className="accent-violet-600 pointer-events-none"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium">{rep.nome}</p>
+                            <p className="text-[11px] text-muted-foreground">
+                              CPF: {rep.cpf}
+                              {rep.qualificacao && ` · ${QUALIFICACAO_LABELS[rep.qualificacao as keyof typeof QUALIFICACAO_LABELS]}`}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {contractForm.signing_representative_ids.length === 0 && (
+                    <p className="text-[11px] text-amber-600">Selecione o responsável pela assinatura.</p>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Observação — linha inteira */}
             <div>
               <Label>Observação</Label>
@@ -2301,7 +2484,7 @@ export default function ClientsPage() {
             </div>
 
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setContractModalOpen(false)}>
+              <Button type="button" variant="outline" onClick={() => { setContractModalOpen(false); setContractEditingId(null); setContractClientIdForReps(undefined); }}>
                 Cancelar
               </Button>
               <Button

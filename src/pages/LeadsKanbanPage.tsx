@@ -1,8 +1,10 @@
-import { useMemo, useState } from "react";
+﻿import { useMemo, useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { KanbanBoard, LeadDetailsModal, LeadsListView } from "@/components/kanban";
 import { NovoLeadDialog } from "@/components/kanban/NovoLeadDialog";
+import { LeadStatusBadge } from "@/components/kanban/LeadStatusBadge";
 import { useLeadsKanban, type CreateLeadInput, type CreateLeadRow } from "@/hooks/useLeadsKanban";
+import { useListasManager } from "@/hooks/useListasManager";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useProfiles } from "@/hooks/useProfiles";
 import { Button } from "@/components/ui/button";
@@ -10,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "@/components/ui/input";
 import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -19,15 +22,18 @@ import { toast } from "sonner";
 import { PinAuthDialog } from "@/components/shared/PinAuthDialog";
 import { usePinConfirm } from "@/hooks/usePinConfirm";
 import { Switch } from "@/components/ui/switch";
-import { ChevronDown, ChevronUp, Flame, CheckCircle2, Plus, Loader2, Upload, LayoutList, Kanban as KanbanIcon, Search } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, ExternalLink, Flame, CheckCircle2, Plus, Loader2, Upload, LayoutList, Kanban as KanbanIcon, Search, ListChecks } from "lucide-react";
 import { fetchAddressByCep } from "@/lib/viacep";
 import { parseCsvText } from "@/lib/parseCsv";
 import { differenceInCalendarDays, parseISO } from "date-fns";
 import { formatPhoneBR } from "@/lib/formatters";
+import { NICHO_OPTIONS, ORIGEM_OPTIONS } from "@/constants/crmOptions";
 import type { Lead, EtapaKanban, LeadWithResponsavel } from "@/types/database";
+import { PRODUCT_SERVICE_OPTIONS } from "@/types/database";
 import { ListasPage } from "@/pages/ListasPage";
 import { LeadsPendingPage } from "@/pages/LeadsPendingPage";
 import { ClosersPerformancePage } from "@/pages/ClosersPerformancePage";
+import { FormLeadsTab } from "@/components/kanban/FormLeadsTab";
 import { useProposals } from "@/hooks/useProposals";
 import type { Proposal } from "@/types/proposals";
 
@@ -35,10 +41,11 @@ export function LeadsKanbanPage() {
   const organizationId = useOrganization();
   const { pinProps, requirePin } = usePinConfirm();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { leads, loading, error, updateEtapaKanban, createLead, updateLead, removeLead, importLeadsMapped } =
+  const { leads, loading, error, updateEtapaKanban, createLead, updateLead, removeLead, importLeadsMapped, refetch } =
     useLeadsKanban(organizationId);
   const { data: profiles = [] } = useProfiles(organizationId);
   const { proposals } = useProposals(organizationId);
+  const { listas, fetchListas, createLista, getLista } = useListasManager(organizationId);
 
   // Aba ativa controlada via query param para permitir navegação direta
   const activeTab = searchParams.get("tab") ?? "leads";
@@ -51,13 +58,36 @@ export function LeadsKanbanPage() {
   const [viewMode, setViewMode] = useState<"kanban" | "list">("kanban");
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+
+  // Mantém selectedLead sincronizado com o array de leads após qualquer refetch,
+  // para que a modal de detalhes reflita alterações sem precisar fechar/reabrir.
+  useEffect(() => {
+    if (selectedLead) {
+      const fresh = leads.find((l) => l.id === selectedLead.id);
+      // Só atualiza se o objeto for diferente (evita re-renders desnecessários)
+      if (fresh && fresh !== selectedLead) setSelectedLead(fresh);
+    }
+    // Só reage quando leads muda — não incluir selectedLead para evitar loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leads]);
   const [novoLeadOpen, setNovoLeadOpen] = useState(false);
   const [csvOpen, setCsvOpen] = useState(false);
+  const [csvStep, setCsvStep] = useState<"lista" | "mapping">("lista");
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [csvRows, setCsvRows] = useState<Array<Record<string, string>>>([]);
   const [csvMapping, setCsvMapping] = useState<Record<string, string>>({});
   const [csvImporting, setCsvImporting] = useState(false);
   const [csvImportResult, setCsvImportResult] = useState<{ created: number; errors: string[] } | null>(null);
+  // lista step state
+  const [csvListaMode, setCsvListaMode] = useState<"new" | "existing" | "none">("none");
+  const [csvListaId, setCsvListaId] = useState<string | null>(null);
+  const [csvListaCreating, setCsvListaCreating] = useState(false);
+  const [csvListaForm, setCsvListaForm] = useState({
+    nome: "",
+    cidade: "",
+    estado: "",
+    nicho: "",
+  });
   const [editing, setEditing] = useState<Lead | null>(null);
   const [preQualLead, setPreQualLead] = useState<Lead | null>(null);
   const [searchingCep, setSearchingCep] = useState(false);
@@ -73,6 +103,7 @@ export function LeadsKanbanPage() {
     nicho: "",
     source: "",
     cidade: "",
+    estado: "",
     value: "",
     prioridade: "media" as "baixa" | "media" | "alta" | "urgente",
     assigned_to: "" as string | undefined,
@@ -87,6 +118,7 @@ export function LeadsKanbanPage() {
       | "site"
       | "agente_ia"
       | "outros",
+    outros_servicos: [] as string[],
     cpf_cnpj: "",
     contact_origin: "" as
       | ""
@@ -109,8 +141,8 @@ export function LeadsKanbanPage() {
       | "desatualizado"
       | "incompleto"
       | "completo",
-    google_ads_level: "" as "" | "sem_anuncios" | "poucos_anuncios" | "muitos_anuncios",
-    meta_ads_level: "" as "" | "sem_anuncios" | "poucos_anuncios" | "muitos_anuncios",
+    google_ads_level: "" as "" | "sem_anuncios" | "poucos_anuncios" | "muitos_anuncios" | "conta_nao_encontrada",
+    meta_ads_level: "" as "" | "sem_anuncios" | "poucos_anuncios" | "muitos_anuncios" | "conta_nao_encontrada",
     social_media_status: "" as
       | ""
       | "sem_frequencia"
@@ -143,6 +175,7 @@ export function LeadsKanbanPage() {
           setPreQualLeadForm((f) => ({
             ...f,
             cidade: address.localidade,
+            estado: address.uf,
           }));
           toast.success("Cidade preenchida pelo CEP!");
         } else {
@@ -163,9 +196,30 @@ export function LeadsKanbanPage() {
     phone: "",
     nicho: "",
     source: "",
+    cidade: "",
+    estado: "",
     value: "",
     prioridade: "media" as "baixa" | "media" | "alta" | "urgente",
     assigned_to: "" as string | undefined,
+    notes: "",
+    first_contact_date: "",
+    last_contact_date: "",
+    cpf_cnpj: "",
+    contact_origin: "" as "" | "indicacao" | "prospeccao" | "campanha_google" | "campanha_meta" | "organico" | "outras",
+    decision_maker: false,
+    decision_maker_name: "",
+    decision_maker_phone: "",
+    gbp_url: "",
+    instagram_url: "",
+    website_url: "",
+    gmn_status: "" as "" | "nao_possui" | "desatualizado_desativado" | "desatualizado" | "incompleto" | "completo",
+    google_ads_level: "" as "" | "conta_nao_encontrada" | "sem_anuncios" | "poucos_anuncios" | "muitos_anuncios",
+    meta_ads_level: "" as "" | "conta_nao_encontrada" | "sem_anuncios" | "poucos_anuncios" | "muitos_anuncios",
+    social_media_status: "" as "" | "sem_frequencia" | "parado_inexistente" | "frequente_sem_estrategia" | "frequente_estruturado",
+    product_service: "" as "" | "assessoria" | "consultoria" | "gmn" | "site" | "agente_ia" | "outros",
+    lost_reason: "" as "" | "capacidade_produtiva" | "orcamento" | "desqualificado" | "barrado_pelo_sa" | "sem_contato" | "limite_da_franquia" | "concorrencia" | "perda_de_contato" | "cadencia_excedida" | "outros",
+    cadence: "",
+    temperature: 0,
   });
 
   const handleDetalhes = (lead: Lead) => {
@@ -196,24 +250,28 @@ export function LeadsKanbanPage() {
     }
 
     setCsvImportResult(null);
-    setCsvImporting(true);
     try {
       const text = await file.text();
       const parsed = parseCsvText(text);
       if (!parsed.headers.length) {
         toast.error("CSV vazio ou inválido.");
-        setCsvImporting(false);
         e.target.value = "";
         return;
       }
       setCsvHeaders(parsed.headers);
       setCsvRows(parsed.rows);
       setCsvMapping(Object.fromEntries(parsed.headers.map((h) => [h, "ignore"])));
+      // Reset lista step
+      setCsvStep("lista");
+      setCsvListaMode("none");
+      setCsvListaId(null);
+      setCsvListaForm({ nome: "", cidade: "", estado: "", nicho: "" });
+      // Load existing listas for the selector
+      fetchListas({ status: "ativa" });
       setCsvOpen(true);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao ler CSV.");
     } finally {
-      setCsvImporting(false);
       e.target.value = "";
     }
   };
@@ -263,6 +321,8 @@ export function LeadsKanbanPage() {
     const st = getPreQualStatus(lead);
     const meta = (lead.metadata ?? {}) as Record<string, unknown>;
     const cidade = typeof meta.cidade === "string" ? meta.cidade : "";
+    const listaEstado = lead.lista_id ? (listas.find((l) => l.id === lead.lista_id)?.estado ?? "") : "";
+    const estado = typeof meta.estado === "string" && meta.estado ? meta.estado : listaEstado;
     setPreQualLead(lead);
     setPreQualForm({
       resultado: st.resultado ?? "apto",
@@ -276,13 +336,17 @@ export function LeadsKanbanPage() {
       nicho: lead.nicho ?? "",
       source: lead.source ?? "",
       cidade,
+      estado,
       value: typeof lead.value === "number" ? String(lead.value) : "",
       prioridade: ((lead.prioridade as "baixa" | "media" | "alta" | "urgente") ?? "media"),
       assigned_to: lead.assigned_to ?? "",
       notes: lead.notes ?? "",
       first_contact_date: lead.first_contact_date ?? "",
       last_contact_date: lead.last_contact_date ?? "",
-      product_service: lead.product_service ?? "",
+      product_service: (lead.product_service ?? "") as "" | "assessoria" | "consultoria" | "gmn" | "site" | "agente_ia" | "outros",
+      outros_servicos: Array.isArray((lead.metadata as Record<string, unknown>)?.outros_servicos)
+        ? (lead.metadata as Record<string, unknown>).outros_servicos as string[]
+        : [],
       cpf_cnpj: lead.cpf_cnpj !== null && lead.cpf_cnpj !== undefined ? String(lead.cpf_cnpj) : "",
       contact_origin: lead.contact_origin ?? "",
       decision_maker: !!(typeof lead.decision_maker === "boolean" ? lead.decision_maker : lead.decision_maker === "true"),
@@ -302,6 +366,57 @@ export function LeadsKanbanPage() {
       cadence: lead.cadence !== null && lead.cadence !== undefined ? String(lead.cadence) : "",
       temperature: typeof lead.temperature === "number" ? lead.temperature : 0,
     });
+  };
+
+  // Salva os dados do formulário sem alterar o status de qualificação.
+  // Chamado tanto pelo botão "Salvar" quanto automaticamente ao fechar o dialog.
+  const handleSavePreQual = async (
+    leadId: string,
+    form: typeof preQualLeadForm,
+    qualForm: typeof preQualForm,
+    concluida: boolean
+  ) => {
+    await updateLead(leadId, {
+      company: form.company,
+      name: form.name,
+      email: form.email || null,
+      phone: form.phone || null,
+      nicho: form.nicho || null,
+      source: form.source || null,
+      value: form.value ? Number(form.value) : null,
+      prioridade: form.prioridade,
+      assigned_to: form.assigned_to || null,
+      notes: form.notes || null,
+      first_contact_date: form.first_contact_date || null,
+      last_contact_date: form.last_contact_date || null,
+      product_service: form.product_service || null,
+      cpf_cnpj: form.cpf_cnpj ? Number(form.cpf_cnpj) : null,
+      contact_origin: form.contact_origin || null,
+      decision_maker: form.decision_maker,
+      decision_maker_name: form.decision_maker_name || null,
+      decision_maker_phone: form.decision_maker_phone ? Number(form.decision_maker_phone) : null,
+      gbp_url: form.gbp_url || null,
+      instagram_url: form.instagram_url || null,
+      website_url: form.website_url || null,
+      gmn_status: form.gmn_status || null,
+      google_ads_level: form.google_ads_level || null,
+      meta_ads_level: form.meta_ads_level || null,
+      social_media_status: form.social_media_status || null,
+      lost_reason: form.lost_reason || null,
+      cadence: form.cadence || null,
+      temperature: form.temperature,
+      metadata: {
+        cidade: form.cidade || null,
+        estado: form.estado || null,
+        outros_servicos: form.outros_servicos.length > 0 ? form.outros_servicos : null,
+        pre_qualificacao: {
+          concluida,
+          resultado: concluida ? qualForm.resultado : undefined,
+          notas: qualForm.notas,
+          concluida_em: concluida ? new Date().toISOString() : undefined,
+        },
+      },
+    } as Partial<Lead>);
   };
 
   if (!organizationId) {
@@ -341,6 +456,7 @@ export function LeadsKanbanPage() {
         <TabsList>
           <TabsTrigger value="leads">Leads</TabsTrigger>
           <TabsTrigger value="prequal">Pré-qualificação</TabsTrigger>
+          <TabsTrigger value="formulario">Recebidos do Formulário</TabsTrigger>
           <TabsTrigger value="listas">Listas</TabsTrigger>
           <TabsTrigger value="pendentes">Leads Pendentes</TabsTrigger>
           <TabsTrigger value="performance">Performance Closers</TabsTrigger>
@@ -404,6 +520,7 @@ export function LeadsKanbanPage() {
               onDetalhes={handleDetalhes}
               onEdit={(l) => {
                 setEditing(l);
+                const meta = (l.metadata ?? {}) as Record<string, unknown>;
                 setEditForm({
                   company: l.company ?? "",
                   name: l.name ?? "",
@@ -411,9 +528,30 @@ export function LeadsKanbanPage() {
                   phone: l.phone ?? "",
                   nicho: l.nicho ?? "",
                   source: l.source ?? "",
+                  cidade: (meta.cidade as string) ?? "",
+                  estado: (meta.estado as string) ?? "",
                   value: String(l.value ?? ""),
                   prioridade: ((l.prioridade as "baixa" | "media" | "alta" | "urgente") ?? "media"),
                   assigned_to: l.assigned_to ?? "",
+                  notes: l.notes ?? "",
+                  first_contact_date: l.first_contact_date ?? "",
+                  last_contact_date: l.last_contact_date ?? "",
+                  cpf_cnpj: l.cpf_cnpj != null ? String(l.cpf_cnpj) : "",
+                  contact_origin: (l.contact_origin ?? "") as typeof editForm.contact_origin,
+                  decision_maker: !!(typeof l.decision_maker === "boolean" ? l.decision_maker : l.decision_maker === "true"),
+                  decision_maker_name: l.decision_maker_name ?? "",
+                  decision_maker_phone: l.decision_maker_phone != null ? String(l.decision_maker_phone) : "",
+                  gbp_url: l.gbp_url ?? "",
+                  instagram_url: l.instagram_url ?? "",
+                  website_url: l.website_url ?? "",
+                  gmn_status: (l.gmn_status ?? "") as typeof editForm.gmn_status,
+                  google_ads_level: (l.google_ads_level ?? "") as typeof editForm.google_ads_level,
+                  meta_ads_level: (l.meta_ads_level ?? "") as typeof editForm.meta_ads_level,
+                  social_media_status: (l.social_media_status ?? "") as typeof editForm.social_media_status,
+                  product_service: (l.product_service ?? "") as typeof editForm.product_service,
+                  lost_reason: (l.lost_reason ?? "") as typeof editForm.lost_reason,
+                  cadence: l.cadence != null ? String(l.cadence) : "",
+                  temperature: typeof l.temperature === "number" ? l.temperature : 0,
                 });
               }}
               onDelete={(id) => {
@@ -442,7 +580,7 @@ export function LeadsKanbanPage() {
           </div>
 
           <div className="rounded-md border bg-background overflow-hidden">
-            <div className="overflow-x-auto">
+            <div className="table-scroll-container">
               <Table className="border-separate border-spacing-0 min-w-[3000px]">
                 <TableHeader className="sticky top-0 z-30 bg-background shadow-sm">
                   <TableRow className="bg-background hover:bg-background">
@@ -536,7 +674,7 @@ export function LeadsKanbanPage() {
                             {cidade}
                           </TableCell>
                           <TableCell className="bg-background group-hover:bg-muted text-sm capitalize">
-                            {lead.product_service || "—"}
+                            {lead.product_service?.replace(/_/g, " ") || "—"}
                           </TableCell>
                           <TableCell className="bg-background group-hover:bg-muted text-sm">
                             {lead.cpf_cnpj || "—"}
@@ -544,17 +682,17 @@ export function LeadsKanbanPage() {
                           <TableCell className="bg-background group-hover:bg-muted text-sm capitalize">
                             {lead.contact_origin?.replace("_", " ") || "—"}
                           </TableCell>
-                          <TableCell className="bg-background group-hover:bg-muted text-sm capitalize">
-                            {lead.gmn_status?.replace("_", " ") || "—"}
+                          <TableCell className="bg-background group-hover:bg-muted">
+                            <LeadStatusBadge field="gmn" value={lead.gmn_status} />
                           </TableCell>
-                          <TableCell className="bg-background group-hover:bg-muted text-sm capitalize">
-                            {lead.google_ads_level?.replace("_", " ") || "—"}
+                          <TableCell className="bg-background group-hover:bg-muted">
+                            <LeadStatusBadge field="ads" value={lead.google_ads_level} />
                           </TableCell>
-                          <TableCell className="bg-background group-hover:bg-muted text-sm capitalize">
-                            {lead.meta_ads_level?.replace("_", " ") || "—"}
+                          <TableCell className="bg-background group-hover:bg-muted">
+                            <LeadStatusBadge field="ads" value={lead.meta_ads_level} />
                           </TableCell>
-                          <TableCell className="bg-background group-hover:bg-muted text-sm capitalize">
-                            {lead.social_media_status?.replace("_", " ") || "—"}
+                          <TableCell className="bg-background group-hover:bg-muted">
+                            <LeadStatusBadge field="social" value={lead.social_media_status} />
                           </TableCell>
                           <TableCell className="bg-background group-hover:bg-muted">
                             {st.concluida ? (
@@ -604,14 +742,23 @@ export function LeadsKanbanPage() {
           <ClosersPerformancePage />
         </TabsContent>
 
+        {/* ── Recebidos do Formulário ── */}
+        <TabsContent value="formulario">
+          <FormLeadsTab />
+        </TabsContent>
+
       </Tabs>
 
       <LeadDetailsModal
         lead={selectedLead}
         open={modalOpen}
         onOpenChange={setModalOpen}
+        onLeadUpdated={async () => {
+          await refetch();
+        }}
         onEdit={(l) => {
           setEditing(l);
+          const meta = (l.metadata ?? {}) as Record<string, unknown>;
           setEditForm({
             company: l.company ?? "",
             name: l.name ?? "",
@@ -619,9 +766,30 @@ export function LeadsKanbanPage() {
             phone: l.phone ?? "",
             nicho: l.nicho ?? "",
             source: l.source ?? "",
+            cidade: (meta.cidade as string) ?? "",
+            estado: (meta.estado as string) ?? "",
             value: String(l.value ?? ""),
             prioridade: ((l.prioridade as "baixa" | "media" | "alta" | "urgente") ?? "media"),
             assigned_to: l.assigned_to ?? "",
+            notes: l.notes ?? "",
+            first_contact_date: l.first_contact_date ?? "",
+            last_contact_date: l.last_contact_date ?? "",
+            cpf_cnpj: l.cpf_cnpj != null ? String(l.cpf_cnpj) : "",
+            contact_origin: (l.contact_origin ?? "") as typeof editForm.contact_origin,
+            decision_maker: !!(typeof l.decision_maker === "boolean" ? l.decision_maker : l.decision_maker === "true"),
+            decision_maker_name: l.decision_maker_name ?? "",
+            decision_maker_phone: l.decision_maker_phone != null ? String(l.decision_maker_phone) : "",
+            gbp_url: l.gbp_url ?? "",
+            instagram_url: l.instagram_url ?? "",
+            website_url: l.website_url ?? "",
+            gmn_status: (l.gmn_status ?? "") as typeof editForm.gmn_status,
+            google_ads_level: (l.google_ads_level ?? "") as typeof editForm.google_ads_level,
+            meta_ads_level: (l.meta_ads_level ?? "") as typeof editForm.meta_ads_level,
+            social_media_status: (l.social_media_status ?? "") as typeof editForm.social_media_status,
+            product_service: (l.product_service ?? "") as typeof editForm.product_service,
+            lost_reason: (l.lost_reason ?? "") as typeof editForm.lost_reason,
+            cadence: l.cadence != null ? String(l.cadence) : "",
+            temperature: typeof l.temperature === "number" ? l.temperature : 0,
           });
           setModalOpen(false);
         }}
@@ -641,7 +809,22 @@ export function LeadsKanbanPage() {
         profiles={profiles}
       />
 
-      <Dialog open={!!preQualLead} onOpenChange={(o) => { if (!o) setPreQualLead(null); }}>
+      <Dialog open={!!preQualLead} onOpenChange={async (o) => {
+          if (!o && preQualLead) {
+            // Salva silenciosamente ao fechar (signout, ESC, clique fora, Cancelar)
+            // preserva o estado concluida atual do lead — não regride qualificações já feitas
+            const jaQualificado = !!(preQualLead.metadata as Record<string, unknown> | null)
+              ?.pre_qualificacao
+              ? ((preQualLead.metadata as Record<string, unknown>).pre_qualificacao as Record<string, unknown>)?.concluida === true
+              : false;
+            try {
+              await handleSavePreQual(preQualLead.id, preQualLeadForm, preQualForm, jaQualificado);
+            } catch {
+              // falha silenciosa — não bloquear o fechamento
+            }
+            setPreQualLead(null);
+          }
+        }}>
         <DialogContent className="max-w-[80vw] w-full max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Pré-qualificação</DialogTitle>
@@ -653,45 +836,7 @@ export function LeadsKanbanPage() {
                 e.preventDefault();
                 const leadId = preQualLead.id;
                 try {
-                  await updateLead(leadId, {
-                    company: preQualLeadForm.company,
-                    name: preQualLeadForm.name,
-                    email: preQualLeadForm.email || null,
-                    phone: preQualLeadForm.phone || null,
-                    nicho: preQualLeadForm.nicho || null,
-                    source: preQualLeadForm.source || null,
-                    value: preQualLeadForm.value ? Number(preQualLeadForm.value) : null,
-                    prioridade: preQualLeadForm.prioridade,
-                    assigned_to: preQualLeadForm.assigned_to || null,
-                    notes: preQualLeadForm.notes || null,
-                    first_contact_date: preQualLeadForm.first_contact_date || null,
-                    last_contact_date: preQualLeadForm.last_contact_date || null,
-                    product_service: preQualLeadForm.product_service || null,
-                    cpf_cnpj: preQualLeadForm.cpf_cnpj ? Number(preQualLeadForm.cpf_cnpj) : null,
-                    contact_origin: preQualLeadForm.contact_origin || null,
-                    decision_maker: preQualLeadForm.decision_maker,
-                    decision_maker_name: preQualLeadForm.decision_maker_name || null,
-                    decision_maker_phone: preQualLeadForm.decision_maker_phone ? Number(preQualLeadForm.decision_maker_phone) : null,
-                    gbp_url: preQualLeadForm.gbp_url || null,
-                    instagram_url: preQualLeadForm.instagram_url || null,
-                    website_url: preQualLeadForm.website_url || null,
-                    gmn_status: preQualLeadForm.gmn_status || null,
-                    google_ads_level: preQualLeadForm.google_ads_level || null,
-                    meta_ads_level: preQualLeadForm.meta_ads_level || null,
-                    social_media_status: preQualLeadForm.social_media_status || null,
-                    lost_reason: preQualLeadForm.lost_reason || null,
-                    cadence: preQualLeadForm.cadence || null,
-                    temperature: preQualLeadForm.temperature,
-                    metadata: {
-                      cidade: preQualLeadForm.cidade || null,
-                      pre_qualificacao: {
-                        concluida: true,
-                        resultado: preQualForm.resultado,
-                        notas: preQualForm.notas,
-                        concluida_em: new Date().toISOString(),
-                      },
-                    },
-                  } as Partial<Lead>);
+                  await handleSavePreQual(leadId, preQualLeadForm, preQualForm, true);
                   toast.success("Pré-qualificação salva.");
                   setPreQualLead(null);
                 } catch (err) {
@@ -730,78 +875,28 @@ export function LeadsKanbanPage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>CPF/CNPJ</Label>
-                    <Input
-                      value={preQualLeadForm.cpf_cnpj}
-                      inputMode="numeric"
-                      onChange={(e) => setPreQualLeadForm({ ...preQualLeadForm, cpf_cnpj: e.target.value })}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>E-mail</Label>
-                    <Input
-                      value={preQualLeadForm.email}
-                      onChange={(e) => setPreQualLeadForm({ ...preQualLeadForm, email: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-2">
                     <Label>Telefone</Label>
                     <Input
                       value={preQualLeadForm.phone}
                       onChange={(e) => setPreQualLeadForm({ ...preQualLeadForm, phone: e.target.value })}
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label>Primeiro Contato</Label>
-                    <Input
-                      type="date"
-                      value={preQualLeadForm.first_contact_date}
-                      onChange={(e) => setPreQualLeadForm({ ...preQualLeadForm, first_contact_date: e.target.value })}
-                    />
-                  </div>
 
                   <div className="space-y-2">
                     <Label>Nicho</Label>
-                    <Input
+                    <Select
                       value={preQualLeadForm.nicho}
-                      onChange={(e) => setPreQualLeadForm({ ...preQualLeadForm, nicho: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Origem</Label>
-                    <Input
-                      value={preQualLeadForm.source}
-                      onChange={(e) => setPreQualLeadForm({ ...preQualLeadForm, source: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Último Contato</Label>
-                    <Input
-                      type="date"
-                      value={preQualLeadForm.last_contact_date}
-                      onChange={(e) => setPreQualLeadForm({ ...preQualLeadForm, last_contact_date: e.target.value })}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>CEP</Label>
-                    <div className="relative">
-                      <Input
-                        placeholder="Pesquisar CEP..."
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          if (val.replace(/\D/g, "").length === 8) {
-                            handleCepSearch(val);
-                          }
-                        }}
-                      />
-                      {searchingCep && (
-                        <div className="absolute right-2 top-1/2 -translate-y-1/2">
-                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                        </div>
-                      )}
-                    </div>
+                      onValueChange={(v) => setPreQualLeadForm({ ...preQualLeadForm, nicho: v })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {NICHO_OPTIONS.map((n) => (
+                          <SelectItem key={n} value={n}>{n}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   <div className="space-y-2">
@@ -812,11 +907,20 @@ export function LeadsKanbanPage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Valor (R$)</Label>
-                    <CurrencyInput
-                      value={preQualLeadForm.value}
-                      onChange={(v) => setPreQualLeadForm({ ...preQualLeadForm, value: v })}
-                    />
+                    <Label>UF</Label>
+                    <Select
+                      value={preQualLeadForm.estado}
+                      onValueChange={(v) => setPreQualLeadForm({ ...preQualLeadForm, estado: v })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="UF" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"].map((uf) => (
+                          <SelectItem key={uf} value={uf}>{uf}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-2">
                     <Label>Produto/Serviço</Label>
@@ -833,12 +937,9 @@ export function LeadsKanbanPage() {
                         <SelectValue placeholder="Selecione..." />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="assessoria">Assessoria</SelectItem>
-                        <SelectItem value="consultoria">Consultoria</SelectItem>
-                        <SelectItem value="gmn">GMN</SelectItem>
-                        <SelectItem value="site">Site</SelectItem>
-                        <SelectItem value="agente_ia">Agente IA</SelectItem>
-                        <SelectItem value="outros">Outros</SelectItem>
+                        {PRODUCT_SERVICE_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -914,64 +1015,52 @@ export function LeadsKanbanPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Decisor</Label>
-                    <div className="flex items-center gap-2 h-10">
-                      <Switch
-                        checked={preQualLeadForm.decision_maker}
-                        onCheckedChange={(checked) =>
-                          setPreQualLeadForm({ ...preQualLeadForm, decision_maker: checked })
-                        }
-                      />
-                      <span className="text-sm text-muted-foreground">
-                        {preQualLeadForm.decision_maker ? "Sim" : "Não"}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Nome do Decisor</Label>
-                    <Input
-                      value={preQualLeadForm.decision_maker_name}
-                      onChange={(e) =>
-                        setPreQualLeadForm({ ...preQualLeadForm, decision_maker_name: e.target.value })
-                      }
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Telefone do Decisor</Label>
-                    <Input
-                      value={preQualLeadForm.decision_maker_phone}
-                      inputMode="numeric"
-                      onChange={(e) =>
-                        setPreQualLeadForm({ ...preQualLeadForm, decision_maker_phone: e.target.value })
-                      }
-                    />
-                  </div>
-
-                  <div className="space-y-2">
                     <Label>GBP</Label>
-                    <Input
-                      type="url"
-                      value={preQualLeadForm.gbp_url}
-                      onChange={(e) => setPreQualLeadForm({ ...preQualLeadForm, gbp_url: e.target.value })}
-                    />
+                    <div className="relative">
+                      <Input
+                        type="url"
+                        value={preQualLeadForm.gbp_url}
+                        onChange={(e) => setPreQualLeadForm({ ...preQualLeadForm, gbp_url: e.target.value })}
+                        className={preQualLeadForm.gbp_url ? "pr-9" : ""}
+                      />
+                      {preQualLeadForm.gbp_url && (
+                        <a href={preQualLeadForm.gbp_url} target="_blank" rel="noopener noreferrer" className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary" tabIndex={-1}>
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      )}
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <Label>Instagram</Label>
-                    <Input
-                      type="url"
-                      value={preQualLeadForm.instagram_url}
-                      onChange={(e) => setPreQualLeadForm({ ...preQualLeadForm, instagram_url: e.target.value })}
-                    />
+                    <div className="relative">
+                      <Input
+                        type="url"
+                        value={preQualLeadForm.instagram_url}
+                        onChange={(e) => setPreQualLeadForm({ ...preQualLeadForm, instagram_url: e.target.value })}
+                        className={preQualLeadForm.instagram_url ? "pr-9" : ""}
+                      />
+                      {preQualLeadForm.instagram_url && (
+                        <a href={preQualLeadForm.instagram_url} target="_blank" rel="noopener noreferrer" className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary" tabIndex={-1}>
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      )}
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <Label>Website</Label>
-                    <Input
-                      type="url"
-                      value={preQualLeadForm.website_url}
-                      onChange={(e) => setPreQualLeadForm({ ...preQualLeadForm, website_url: e.target.value })}
-                    />
+                    <div className="relative">
+                      <Input
+                        type="url"
+                        value={preQualLeadForm.website_url}
+                        onChange={(e) => setPreQualLeadForm({ ...preQualLeadForm, website_url: e.target.value })}
+                        className={preQualLeadForm.website_url ? "pr-9" : ""}
+                      />
+                      {preQualLeadForm.website_url && (
+                        <a href={preQualLeadForm.website_url} target="_blank" rel="noopener noreferrer" className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary" tabIndex={-1}>
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      )}
+                    </div>
                   </div>
 
                   <div className="space-y-2">
@@ -983,14 +1072,16 @@ export function LeadsKanbanPage() {
                       }
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Selecione..." />
+                        {preQualLeadForm.gmn_status
+                          ? <LeadStatusBadge field="gmn" value={preQualLeadForm.gmn_status} />
+                          : <span className="text-muted-foreground text-sm">Selecione...</span>}
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="nao_possui">Não possui</SelectItem>
-                        <SelectItem value="desatualizado_desativado">Desatualizado/Desativado</SelectItem>
-                        <SelectItem value="desatualizado">Desatualizado</SelectItem>
-                        <SelectItem value="incompleto">Imcompleto</SelectItem>
-                        <SelectItem value="completo">Completo</SelectItem>
+                        <SelectItem value="nao_possui"><LeadStatusBadge field="gmn" value="nao_possui" /></SelectItem>
+                        <SelectItem value="desatualizado_desativado"><LeadStatusBadge field="gmn" value="desatualizado_desativado" /></SelectItem>
+                        <SelectItem value="desatualizado"><LeadStatusBadge field="gmn" value="desatualizado" /></SelectItem>
+                        <SelectItem value="incompleto"><LeadStatusBadge field="gmn" value="incompleto" /></SelectItem>
+                        <SelectItem value="completo"><LeadStatusBadge field="gmn" value="completo" /></SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -1007,12 +1098,15 @@ export function LeadsKanbanPage() {
                       }
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Selecione..." />
+                        {preQualLeadForm.google_ads_level
+                          ? <LeadStatusBadge field="ads" value={preQualLeadForm.google_ads_level} />
+                          : <span className="text-muted-foreground text-sm">Selecione...</span>}
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="sem_anuncios">Sem anúncios</SelectItem>
-                        <SelectItem value="poucos_anuncios">Poucos anúncios</SelectItem>
-                        <SelectItem value="muitos_anuncios">Muitos anúncios</SelectItem>
+                        <SelectItem value="conta_nao_encontrada"><LeadStatusBadge field="ads" value="conta_nao_encontrada" /></SelectItem>
+                        <SelectItem value="sem_anuncios"><LeadStatusBadge field="ads" value="sem_anuncios" /></SelectItem>
+                        <SelectItem value="poucos_anuncios"><LeadStatusBadge field="ads" value="poucos_anuncios" /></SelectItem>
+                        <SelectItem value="muitos_anuncios"><LeadStatusBadge field="ads" value="muitos_anuncios" /></SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -1029,12 +1123,15 @@ export function LeadsKanbanPage() {
                       }
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Selecione..." />
+                        {preQualLeadForm.meta_ads_level
+                          ? <LeadStatusBadge field="ads" value={preQualLeadForm.meta_ads_level} />
+                          : <span className="text-muted-foreground text-sm">Selecione...</span>}
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="sem_anuncios">Sem anúncios</SelectItem>
-                        <SelectItem value="poucos_anuncios">Poucos anúncios</SelectItem>
-                        <SelectItem value="muitos_anuncios">Muitos anúncios</SelectItem>
+                        <SelectItem value="conta_nao_encontrada"><LeadStatusBadge field="ads" value="conta_nao_encontrada" /></SelectItem>
+                        <SelectItem value="sem_anuncios"><LeadStatusBadge field="ads" value="sem_anuncios" /></SelectItem>
+                        <SelectItem value="poucos_anuncios"><LeadStatusBadge field="ads" value="poucos_anuncios" /></SelectItem>
+                        <SelectItem value="muitos_anuncios"><LeadStatusBadge field="ads" value="muitos_anuncios" /></SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -1051,81 +1148,17 @@ export function LeadsKanbanPage() {
                       }
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Selecione..." />
+                        {preQualLeadForm.social_media_status
+                          ? <LeadStatusBadge field="social" value={preQualLeadForm.social_media_status} />
+                          : <span className="text-muted-foreground text-sm">Selecione...</span>}
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="sem_frequencia">Sem frequência</SelectItem>
-                        <SelectItem value="parado_inexistente">Parado/Inexistente</SelectItem>
-                        <SelectItem value="frequente_sem_estrategia">Frequente/Sem estratégia</SelectItem>
-                        <SelectItem value="frequente_estruturado">Frequente/Estruturado</SelectItem>
+                        <SelectItem value="sem_frequencia"><LeadStatusBadge field="social" value="sem_frequencia" /></SelectItem>
+                        <SelectItem value="parado_inexistente"><LeadStatusBadge field="social" value="parado_inexistente" /></SelectItem>
+                        <SelectItem value="frequente_sem_estrategia"><LeadStatusBadge field="social" value="frequente_sem_estrategia" /></SelectItem>
+                        <SelectItem value="frequente_estruturado"><LeadStatusBadge field="social" value="frequente_estruturado" /></SelectItem>
                       </SelectContent>
                     </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Motivo da Perda</Label>
-                    <Select
-                      value={preQualLeadForm.lost_reason}
-                      onValueChange={(v) =>
-                        setPreQualLeadForm({ ...preQualLeadForm, lost_reason: v as typeof preQualLeadForm.lost_reason })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecione..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="capacidade_produtiva">Capacidade produtiva</SelectItem>
-                        <SelectItem value="orcamento">Orçamento</SelectItem>
-                        <SelectItem value="desqualificado">Desqualificado</SelectItem>
-                        <SelectItem value="barrado_pelo_sa">Barrado pelo(a) SA</SelectItem>
-                        <SelectItem value="sem_contato">Sem contato</SelectItem>
-                        <SelectItem value="limite_da_franquia">Limite da franquia</SelectItem>
-                        <SelectItem value="concorrencia">Concorrência</SelectItem>
-                        <SelectItem value="perda_de_contato">Perda de contato</SelectItem>
-                        <SelectItem value="cadencia_excedida">Cadência excedida</SelectItem>
-                        <SelectItem value="outros">Outros</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Cadência</Label>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        onClick={() => {
-                          const current = Number(preQualLeadForm.cadence || 0);
-                          const safe = Number.isFinite(current) ? current : 0;
-                          const next = Math.max(0, Math.floor(safe) - 1);
-                          setPreQualLeadForm({ ...preQualLeadForm, cadence: String(next) });
-                        }}
-                        aria-label="Diminuir cadência"
-                      >
-                        <ChevronDown className="h-4 w-4" />
-                      </Button>
-                      <Input
-                        type="number"
-                        value={String(Math.max(0, Math.floor(Number(preQualLeadForm.cadence || 0) || 0)))}
-                        readOnly
-                        className="text-center"
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        onClick={() => {
-                          const current = Number(preQualLeadForm.cadence || 0);
-                          const safe = Number.isFinite(current) ? current : 0;
-                          const next = Math.max(0, Math.floor(safe) + 1);
-                          setPreQualLeadForm({ ...preQualLeadForm, cadence: String(next) });
-                        }}
-                        aria-label="Aumentar cadência"
-                      >
-                        <ChevronUp className="h-4 w-4" />
-                      </Button>
-                    </div>
                   </div>
 
                   <div className="space-y-2">
@@ -1141,8 +1174,8 @@ export function LeadsKanbanPage() {
                           <Flame
                             className={
                               i <= preQualLeadForm.temperature
-                                ? "h-5 w-5 text-orange-500"
-                                : "h-5 w-5 text-muted-foreground"
+                                ? "h-5 w-5 text-orange-500 fill-orange-500"
+                                : "h-5 w-5 text-muted-foreground/30"
                             }
                           />
                         </button>
@@ -1151,14 +1184,34 @@ export function LeadsKanbanPage() {
                     </div>
                   </div>
 
-                  <div className="md:col-span-3 space-y-2">
-                    <Label>Observações do Lead</Label>
-                    <Textarea
-                      value={preQualLeadForm.notes}
-                      onChange={(e) => setPreQualLeadForm({ ...preQualLeadForm, notes: e.target.value })}
-                      rows={3}
-                    />
-                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Outros Serviços Compatíveis</Label>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-1 rounded-md border p-2 bg-background">
+                  {PRODUCT_SERVICE_OPTIONS.filter((opt) => opt.value !== preQualLeadForm.product_service).map((opt) => {
+                    const selected = preQualLeadForm.outros_servicos.includes(opt.value);
+                    return (
+                      <label key={opt.value} className="flex items-center gap-2 cursor-pointer rounded px-2 py-1 hover:bg-muted select-none">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-primary shrink-0"
+                          checked={selected}
+                          onChange={(e) => {
+                            const updated = e.target.checked
+                              ? [...preQualLeadForm.outros_servicos, opt.value]
+                              : preQualLeadForm.outros_servicos.filter((v) => v !== opt.value);
+                            setPreQualLeadForm({ ...preQualLeadForm, outros_servicos: updated });
+                          }}
+                        />
+                        <span className="text-sm">{opt.label}</span>
+                      </label>
+                    );
+                  })}
+                  {PRODUCT_SERVICE_OPTIONS.filter((opt) => opt.value !== preQualLeadForm.product_service).length === 0 && (
+                    <p className="text-xs text-muted-foreground col-span-full px-1">Todos os serviços já estão selecionados.</p>
+                  )}
                 </div>
               </div>
 
@@ -1201,45 +1254,7 @@ export function LeadsKanbanPage() {
                     if (!preQualLead) return;
                     const leadId = preQualLead.id;
                     try {
-                      await updateLead(leadId, {
-                        company: preQualLeadForm.company,
-                        name: preQualLeadForm.name,
-                        email: preQualLeadForm.email || null,
-                        phone: preQualLeadForm.phone || null,
-                        nicho: preQualLeadForm.nicho || null,
-                        source: preQualLeadForm.source || null,
-                        value: preQualLeadForm.value ? Number(preQualLeadForm.value) : null,
-                        prioridade: preQualLeadForm.prioridade,
-                        assigned_to: preQualLeadForm.assigned_to || null,
-                        notes: preQualLeadForm.notes || null,
-                        first_contact_date: preQualLeadForm.first_contact_date || null,
-                        last_contact_date: preQualLeadForm.last_contact_date || null,
-                        product_service: preQualLeadForm.product_service || null,
-                        cpf_cnpj: preQualLeadForm.cpf_cnpj ? Number(preQualLeadForm.cpf_cnpj) : null,
-                        lost_reason: preQualLeadForm.lost_reason || null,
-                        cadence: preQualLeadForm.cadence || null,
-                        temperature: preQualLeadForm.temperature,
-                        contact_origin: preQualLeadForm.contact_origin || null,
-                        decision_maker: preQualLeadForm.decision_maker,
-                        decision_maker_name: preQualLeadForm.decision_maker_name || null,
-                        decision_maker_phone: preQualLeadForm.decision_maker_phone ? Number(preQualLeadForm.decision_maker_phone) : null,
-                        gbp_url: preQualLeadForm.gbp_url || null,
-                        instagram_url: preQualLeadForm.instagram_url || null,
-                        website_url: preQualLeadForm.website_url || null,
-                        gmn_status: preQualLeadForm.gmn_status || null,
-                        google_ads_level: preQualLeadForm.google_ads_level || null,
-                        meta_ads_level: preQualLeadForm.meta_ads_level || null,
-                        social_media_status: preQualLeadForm.social_media_status || null,
-                        metadata: {
-                          cidade: preQualLeadForm.cidade || null,
-                          pre_qualificacao: {
-                            concluida: true,
-                            resultado: preQualForm.resultado,
-                            notas: preQualForm.notas,
-                            concluida_em: new Date().toISOString(),
-                          },
-                        },
-                      } as Partial<Lead>);
+                      await handleSavePreQual(leadId, preQualLeadForm, preQualForm, true);
                       await handleEtapaChange(leadId, "qualificados");
                       setPreQualLead(null);
                     } catch (err) {
@@ -1259,12 +1274,17 @@ export function LeadsKanbanPage() {
 
       {/* Edit Lead Dialog */}
       <Dialog open={!!editing} onOpenChange={(o) => { if (!o) setEditing(null); }}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
+        <DialogContent
+          className="flex flex-col gap-0 p-0 overflow-hidden"
+          style={{ width: "75vw", maxWidth: "75vw", height: "90vh", maxHeight: "90vh" }}
+        >
+          <DialogHeader className="px-6 py-4 border-b shrink-0">
             <DialogTitle>Editar Lead</DialogTitle>
           </DialogHeader>
+
           {editing && (
             <form
+              id="edit-lead-form"
               onSubmit={async (e) => {
                 e.preventDefault();
                 if (!editing) return;
@@ -1278,48 +1298,94 @@ export function LeadsKanbanPage() {
                   value: editForm.value ? Number(editForm.value) : null,
                   prioridade: editForm.prioridade,
                   assigned_to: editForm.assigned_to || null,
+                  notes: editForm.notes || null,
+                  first_contact_date: editForm.first_contact_date || null,
+                  last_contact_date: editForm.last_contact_date || null,
+                  cpf_cnpj: editForm.cpf_cnpj ? Number(editForm.cpf_cnpj) : null,
+                  contact_origin: editForm.contact_origin || null,
+                  decision_maker: editForm.decision_maker,
+                  decision_maker_name: editForm.decision_maker_name || null,
+                  decision_maker_phone: editForm.decision_maker_phone ? Number(editForm.decision_maker_phone) : null,
+                  gbp_url: editForm.gbp_url || null,
+                  instagram_url: editForm.instagram_url || null,
+                  website_url: editForm.website_url || null,
+                  gmn_status: editForm.gmn_status || null,
+                  google_ads_level: editForm.google_ads_level || null,
+                  meta_ads_level: editForm.meta_ads_level || null,
+                  social_media_status: editForm.social_media_status || null,
+                  product_service: editForm.product_service || null,
+                  lost_reason: editForm.lost_reason || null,
+                  cadence: editForm.cadence || null,
+                  temperature: editForm.temperature,
+                  metadata: {
+                    ...((editing.metadata ?? {}) as Record<string, unknown>),
+                    cidade: editForm.cidade || null,
+                    estado: editForm.estado || null,
+                  },
                 } as Partial<Lead>);
                 setEditing(null);
               }}
-              className="space-y-3"
+              className="flex-1 overflow-y-auto px-6 py-5"
             >
-              <div>
-                <Label>Empresa</Label>
-                <Input value={editForm.company} onChange={(e) => setEditForm({ ...editForm, company: e.target.value })} />
-              </div>
-              <div>
-                <Label>Contato/Nome</Label>
-                <Input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>E-mail</Label>
-                  <Input value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
+              <div className="grid grid-cols-3 gap-x-6 gap-y-3 text-sm">
+
+                {/* ── Identificação ── */}
+                <div className="col-span-3">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide border-b pb-1 mb-3">Identificação</p>
                 </div>
-                <div>
-                  <Label>Telefone</Label>
+                <div className="space-y-1">
+                  <Label className="text-xs">Empresa</Label>
+                  <Input value={editForm.company} onChange={(e) => setEditForm({ ...editForm, company: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Contato / Nome</Label>
+                  <Input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">E-mail</Label>
+                  <Input type="email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Telefone</Label>
                   <Input value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} />
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>Nicho</Label>
-                  <Input value={editForm.nicho} onChange={(e) => setEditForm({ ...editForm, nicho: e.target.value })} />
+                <div className="space-y-1">
+                  <Label className="text-xs">CPF / CNPJ</Label>
+                  <Input value={editForm.cpf_cnpj} onChange={(e) => setEditForm({ ...editForm, cpf_cnpj: e.target.value })} />
                 </div>
-                <div>
-                  <Label>Origem</Label>
-                  <Input value={editForm.source} onChange={(e) => setEditForm({ ...editForm, source: e.target.value })} />
+                <div className="space-y-1">
+                  <Label className="text-xs">Cidade</Label>
+                  <Input value={editForm.cidade} onChange={(e) => setEditForm({ ...editForm, cidade: e.target.value })} />
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>Valor (R$)</Label>
+                <div className="space-y-1">
+                  <Label className="text-xs">Estado</Label>
+                  <Input value={editForm.estado} onChange={(e) => setEditForm({ ...editForm, estado: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Primeiro Contato</Label>
+                  <Input type="date" value={editForm.first_contact_date} onChange={(e) => setEditForm({ ...editForm, first_contact_date: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Último Contato</Label>
+                  <Input type="date" value={editForm.last_contact_date} onChange={(e) => setEditForm({ ...editForm, last_contact_date: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Valor (R$)</Label>
                   <CurrencyInput value={editForm.value} onChange={(v) => setEditForm({ ...editForm, value: v })} />
                 </div>
-                <div>
-                  <Label>Prioridade</Label>
-                  <Select value={editForm.prioridade} onValueChange={(v) => setEditForm({ ...editForm, prioridade: v as "baixa" | "media" | "alta" | "urgente" })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                <div className="space-y-1">
+                  <Label className="text-xs">Cadência</Label>
+                  <Input value={editForm.cadence} onChange={(e) => setEditForm({ ...editForm, cadence: e.target.value })} />
+                </div>
+
+                {/* ── Qualificação ── */}
+                <div className="col-span-3 mt-2">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide border-b pb-1 mb-3">Qualificação</p>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Prioridade</Label>
+                  <Select value={editForm.prioridade} onValueChange={(v) => setEditForm({ ...editForm, prioridade: v as typeof editForm.prioridade })}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="baixa">Baixa</SelectItem>
                       <SelectItem value="media">Média</SelectItem>
@@ -1328,25 +1394,226 @@ export function LeadsKanbanPage() {
                     </SelectContent>
                   </Select>
                 </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Nicho</Label>
+                  <Select value={editForm.nicho || "__none__"} onValueChange={(v) => setEditForm({ ...editForm, nicho: v === "__none__" ? "" : v })}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Selecionar..." /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">—</SelectItem>
+                      {NICHO_OPTIONS.map((n) => <SelectItem key={n} value={n}>{n}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Origem</Label>
+                  <Select value={editForm.source || "__none__"} onValueChange={(v) => setEditForm({ ...editForm, source: v === "__none__" ? "" : v })}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Selecionar..." /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">—</SelectItem>
+                      {ORIGEM_OPTIONS.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Origem do Contato</Label>
+                  <Select value={editForm.contact_origin || "__none__"} onValueChange={(v) => setEditForm({ ...editForm, contact_origin: v === "__none__" ? "" : v as typeof editForm.contact_origin })}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Selecionar..." /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">—</SelectItem>
+                      <SelectItem value="indicacao">Indicação</SelectItem>
+                      <SelectItem value="prospeccao">Prospecção</SelectItem>
+                      <SelectItem value="campanha_google">Campanha Google</SelectItem>
+                      <SelectItem value="campanha_meta">Campanha Meta</SelectItem>
+                      <SelectItem value="organico">Orgânico</SelectItem>
+                      <SelectItem value="outras">Outras</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Produto / Serviço</Label>
+                  <Select value={editForm.product_service || "__none__"} onValueChange={(v) => setEditForm({ ...editForm, product_service: v === "__none__" ? "" : v as typeof editForm.product_service })}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Selecionar..." /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">—</SelectItem>
+                      {PRODUCT_SERVICE_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Responsável</Label>
+                  <Select value={editForm.assigned_to || "__none__"} onValueChange={(v) => setEditForm({ ...editForm, assigned_to: v === "__none__" ? "" : v })}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Selecionar..." /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Sem responsável</SelectItem>
+                      {profiles.map((p) => <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2 pt-5">
+                  <input
+                    type="checkbox"
+                    id="edit_decision_maker"
+                    checked={editForm.decision_maker}
+                    onChange={(e) => setEditForm({ ...editForm, decision_maker: e.target.checked })}
+                    className="h-4 w-4 rounded border-input"
+                  />
+                  <Label htmlFor="edit_decision_maker" className="text-xs cursor-pointer">Decisor presente</Label>
+                </div>
+                {editForm.decision_maker && (
+                  <>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Nome do Decisor</Label>
+                      <Input value={editForm.decision_maker_name} onChange={(e) => setEditForm({ ...editForm, decision_maker_name: e.target.value })} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Telefone do Decisor</Label>
+                      <Input value={editForm.decision_maker_phone} onChange={(e) => setEditForm({ ...editForm, decision_maker_phone: e.target.value })} />
+                    </div>
+                  </>
+                )}
+                <div className="space-y-1">
+                  <Label className="text-xs">Motivo da Perda</Label>
+                  <Select value={editForm.lost_reason || "__none__"} onValueChange={(v) => setEditForm({ ...editForm, lost_reason: v === "__none__" ? "" : v as typeof editForm.lost_reason })}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Selecionar..." /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">—</SelectItem>
+                      <SelectItem value="capacidade_produtiva">Capacidade produtiva</SelectItem>
+                      <SelectItem value="orcamento">Orçamento</SelectItem>
+                      <SelectItem value="desqualificado">Desqualificado</SelectItem>
+                      <SelectItem value="barrado_pelo_sa">Barrado pelo SA</SelectItem>
+                      <SelectItem value="sem_contato">Sem contato</SelectItem>
+                      <SelectItem value="limite_da_franquia">Limite da franquia</SelectItem>
+                      <SelectItem value="concorrencia">Concorrência</SelectItem>
+                      <SelectItem value="perda_de_contato">Perda de contato</SelectItem>
+                      <SelectItem value="cadencia_excedida">Cadência excedida</SelectItem>
+                      <SelectItem value="outros">Outros</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* ── Presença Digital ── */}
+                <div className="col-span-3 mt-2">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide border-b pb-1 mb-3">Presença Digital</p>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">GMN</Label>
+                  <Select value={editForm.gmn_status || "__none__"} onValueChange={(v) => setEditForm({ ...editForm, gmn_status: v === "__none__" ? "" : v as typeof editForm.gmn_status })}>
+                    <SelectTrigger className="h-8 text-xs">
+                      {editForm.gmn_status
+                        ? <LeadStatusBadge field="gmn" value={editForm.gmn_status} />
+                        : <span className="text-muted-foreground text-xs">Selecione...</span>}
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">—</SelectItem>
+                      <SelectItem value="nao_possui"><LeadStatusBadge field="gmn" value="nao_possui" /></SelectItem>
+                      <SelectItem value="desatualizado_desativado"><LeadStatusBadge field="gmn" value="desatualizado_desativado" /></SelectItem>
+                      <SelectItem value="desatualizado"><LeadStatusBadge field="gmn" value="desatualizado" /></SelectItem>
+                      <SelectItem value="incompleto"><LeadStatusBadge field="gmn" value="incompleto" /></SelectItem>
+                      <SelectItem value="completo"><LeadStatusBadge field="gmn" value="completo" /></SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Google Ads</Label>
+                  <Select value={editForm.google_ads_level || "__none__"} onValueChange={(v) => setEditForm({ ...editForm, google_ads_level: v === "__none__" ? "" : v as typeof editForm.google_ads_level })}>
+                    <SelectTrigger className="h-8 text-xs">
+                      {editForm.google_ads_level
+                        ? <LeadStatusBadge field="ads" value={editForm.google_ads_level} />
+                        : <span className="text-muted-foreground text-xs">Selecione...</span>}
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">—</SelectItem>
+                      <SelectItem value="conta_nao_encontrada"><LeadStatusBadge field="ads" value="conta_nao_encontrada" /></SelectItem>
+                      <SelectItem value="sem_anuncios"><LeadStatusBadge field="ads" value="sem_anuncios" /></SelectItem>
+                      <SelectItem value="poucos_anuncios"><LeadStatusBadge field="ads" value="poucos_anuncios" /></SelectItem>
+                      <SelectItem value="muitos_anuncios"><LeadStatusBadge field="ads" value="muitos_anuncios" /></SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Meta Ads</Label>
+                  <Select value={editForm.meta_ads_level || "__none__"} onValueChange={(v) => setEditForm({ ...editForm, meta_ads_level: v === "__none__" ? "" : v as typeof editForm.meta_ads_level })}>
+                    <SelectTrigger className="h-8 text-xs">
+                      {editForm.meta_ads_level
+                        ? <LeadStatusBadge field="ads" value={editForm.meta_ads_level} />
+                        : <span className="text-muted-foreground text-xs">Selecione...</span>}
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">—</SelectItem>
+                      <SelectItem value="conta_nao_encontrada"><LeadStatusBadge field="ads" value="conta_nao_encontrada" /></SelectItem>
+                      <SelectItem value="sem_anuncios"><LeadStatusBadge field="ads" value="sem_anuncios" /></SelectItem>
+                      <SelectItem value="poucos_anuncios"><LeadStatusBadge field="ads" value="poucos_anuncios" /></SelectItem>
+                      <SelectItem value="muitos_anuncios"><LeadStatusBadge field="ads" value="muitos_anuncios" /></SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Social Media</Label>
+                  <Select value={editForm.social_media_status || "__none__"} onValueChange={(v) => setEditForm({ ...editForm, social_media_status: v === "__none__" ? "" : v as typeof editForm.social_media_status })}>
+                    <SelectTrigger className="h-8 text-xs">
+                      {editForm.social_media_status
+                        ? <LeadStatusBadge field="social" value={editForm.social_media_status} />
+                        : <span className="text-muted-foreground text-xs">Selecione...</span>}
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">—</SelectItem>
+                      <SelectItem value="sem_frequencia"><LeadStatusBadge field="social" value="sem_frequencia" /></SelectItem>
+                      <SelectItem value="parado_inexistente"><LeadStatusBadge field="social" value="parado_inexistente" /></SelectItem>
+                      <SelectItem value="frequente_sem_estrategia"><LeadStatusBadge field="social" value="frequente_sem_estrategia" /></SelectItem>
+                      <SelectItem value="frequente_estruturado"><LeadStatusBadge field="social" value="frequente_estruturado" /></SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">GBP (URL)</Label>
+                  <Input type="url" value={editForm.gbp_url} onChange={(e) => setEditForm({ ...editForm, gbp_url: e.target.value })} placeholder="https://..." />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Instagram (URL)</Label>
+                  <Input type="url" value={editForm.instagram_url} onChange={(e) => setEditForm({ ...editForm, instagram_url: e.target.value })} placeholder="https://..." />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Website (URL)</Label>
+                  <Input type="url" value={editForm.website_url} onChange={(e) => setEditForm({ ...editForm, website_url: e.target.value })} placeholder="https://..." />
+                </div>
+
+                {/* ── Observações — largura total ── */}
+                <div className="col-span-3 space-y-1 mt-2">
+                  <Label className="text-xs">Observações</Label>
+                  <textarea
+                    value={editForm.notes}
+                    onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                    rows={3}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-none"
+                    placeholder="Observações sobre o lead..."
+                  />
+                </div>
+
               </div>
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setEditing(null)}>Cancelar</Button>
-                <Button type="submit">Salvar</Button>
-              </DialogFooter>
             </form>
           )}
+
+          <div className="flex justify-end gap-2 px-6 py-4 border-t shrink-0">
+            <Button type="button" variant="outline" onClick={() => setEditing(null)}>Cancelar</Button>
+            <Button type="submit" form="edit-lead-form">Salvar</Button>
+          </div>
         </DialogContent>
       </Dialog>
 
       <Dialog
         open={csvOpen}
         onOpenChange={(o) => {
+          if (csvImporting) return; // block close while importing
           setCsvOpen(o);
           if (!o) {
             setCsvImportResult(null);
             setCsvRows([]);
             setCsvHeaders([]);
             setCsvMapping({});
+            setCsvStep("lista");
+            setCsvListaMode("none");
+            setCsvListaId(null);
+            setCsvListaForm({ nome: "", cidade: "", estado: "", nicho: "" });
           }
         }}
       >
@@ -1355,19 +1622,35 @@ export function LeadsKanbanPage() {
             <DialogTitle>Importar Leads via CSV</DialogTitle>
           </DialogHeader>
 
-          {csvImportResult ? (
-            <div className="space-y-4">
-              <p className="text-sm">
-                <strong>{csvImportResult.created}</strong> lead(s) importado(s) com sucesso.
-              </p>
+          {csvImporting ? (
+            <div className="flex flex-col items-center justify-center gap-4 py-16">
+              <Loader2 className="h-10 w-10 animate-spin text-primary" />
+              <div className="text-center">
+                <p className="text-sm font-medium">Importando leads...</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Isso pode levar alguns segundos. Não feche esta janela.
+                </p>
+              </div>
+            </div>
+          ) : csvImportResult ? (
+            <div className="space-y-4 py-2">
+              <div className="flex items-center gap-3 rounded-lg border p-4 bg-muted/30">
+                <CheckCircle2 className="h-6 w-6 text-green-500 shrink-0" />
+                <p className="text-sm">
+                  <strong>{csvImportResult.created}</strong> lead(s) importado(s) com sucesso.
+                  {csvListaId && (
+                    <span className="text-muted-foreground"> Vinculados à lista selecionada.</span>
+                  )}
+                </p>
+              </div>
               {csvImportResult.errors.length > 0 && (
-                <div>
+                <div className="rounded-lg border border-destructive/30 p-4">
                   <p className="text-sm font-medium text-destructive mb-2">
                     {csvImportResult.errors.length} erro(s):
                   </p>
                   <ul className="text-sm text-muted-foreground max-h-64 overflow-y-auto space-y-1">
                     {csvImportResult.errors.map((e, i) => (
-                      <li key={i}>{e}</li>
+                      <li key={i} className="font-mono text-xs">{e}</li>
                     ))}
                   </ul>
                 </div>
@@ -1376,12 +1659,185 @@ export function LeadsKanbanPage() {
                 <Button onClick={() => setCsvOpen(false)}>Fechar</Button>
               </div>
             </div>
+          ) : csvStep === "lista" ? (
+            /* ── PASSO 1: CONFIGURAR LISTA ─────────────────────────────── */
+            <div className="space-y-5">
+              {/* indicador de passos */}
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground font-medium text-[11px]">1</span>
+                <span className="font-medium text-foreground">Configurar lista</span>
+                <span className="mx-1">›</span>
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-muted font-medium text-[11px]">2</span>
+                <span>Mapear colunas</span>
+              </div>
+
+              <p className="text-sm text-muted-foreground">
+                {csvRows.length} linha(s) detectada(s). Deseja vincular estes leads a uma lista?
+              </p>
+
+              <RadioGroup
+                value={csvListaMode}
+                onValueChange={(v) => {
+                  setCsvListaMode(v as "new" | "existing" | "none");
+                  setCsvListaId(null);
+                }}
+                className="space-y-3"
+              >
+                <label className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/30 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5 transition-colors">
+                  <RadioGroupItem value="none" className="mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium">Não vincular a nenhuma lista</p>
+                    <p className="text-xs text-muted-foreground">Os leads serão importados sem associação a lista.</p>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/30 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5 transition-colors">
+                  <RadioGroupItem value="existing" className="mt-0.5" />
+                  <div className="flex-1 space-y-3">
+                    <div>
+                      <p className="text-sm font-medium">Usar lista existente</p>
+                      <p className="text-xs text-muted-foreground">Selecione uma lista ativa para vincular os leads.</p>
+                    </div>
+                    {csvListaMode === "existing" && (
+                      <Select value={csvListaId ?? ""} onValueChange={setCsvListaId}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione uma lista..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {listas.length === 0 ? (
+                            <SelectItem value="__none__" disabled>Nenhuma lista ativa encontrada</SelectItem>
+                          ) : (
+                            listas.map((l) => (
+                              <SelectItem key={l.id} value={l.id}>
+                                {l.nome} — {l.cidade}{l.estado ? ` (${l.estado})` : ""} · {l.nicho} · {new Date(l.created_at).toLocaleDateString('pt-BR')}
+                              </SelectItem>
+                            ))
+                          )}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/30 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5 transition-colors">
+                  <RadioGroupItem value="new" className="mt-0.5" />
+                  <div className="flex-1 space-y-3">
+                    <div>
+                      <p className="text-sm font-medium">Criar nova lista</p>
+                      <p className="text-xs text-muted-foreground">Preencha os dados abaixo para criar e vincular.</p>
+                    </div>
+                    {csvListaMode === "new" && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="col-span-2 space-y-1">
+                          <Label className="text-xs">Nome da lista <span className="text-destructive">*</span></Label>
+                          <Input
+                            placeholder="Ex.: Clínicas BH Junho/25"
+                            value={csvListaForm.nome}
+                            onChange={(e) => setCsvListaForm(f => ({ ...f, nome: e.target.value }))}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Cidade <span className="text-destructive">*</span></Label>
+                          <Input
+                            placeholder="Ex.: Belo Horizonte"
+                            value={csvListaForm.cidade}
+                            onChange={(e) => setCsvListaForm(f => ({ ...f, cidade: e.target.value }))}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Estado <span className="text-destructive">*</span></Label>
+                          <Select
+                            value={csvListaForm.estado}
+                            onValueChange={(v) => setCsvListaForm(f => ({ ...f, estado: v }))}
+                          >
+                            <SelectTrigger><SelectValue placeholder="UF" /></SelectTrigger>
+                            <SelectContent>
+                              {["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"].map((uf) => (
+                                <SelectItem key={uf} value={uf}>{uf}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="col-span-2 space-y-1">
+                          <Label className="text-xs">Nicho <span className="text-destructive">*</span></Label>
+                          <Select
+                            value={csvListaForm.nicho}
+                            onValueChange={(v) => setCsvListaForm(f => ({ ...f, nicho: v }))}
+                          >
+                            <SelectTrigger><SelectValue placeholder="Selecione o nicho..." /></SelectTrigger>
+                            <SelectContent>
+                              {NICHO_OPTIONS.map((n) => (
+                                <SelectItem key={n} value={n}>{n}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </label>
+              </RadioGroup>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setCsvOpen(false)}>Cancelar</Button>
+                <Button
+                  disabled={
+                    csvListaCreating ||
+                    (csvListaMode === "existing" && !csvListaId) ||
+                    (csvListaMode === "new" && (!csvListaForm.nome.trim() || !csvListaForm.cidade.trim() || !csvListaForm.estado || !csvListaForm.nicho))
+                  }
+                  onClick={async () => {
+                    if (csvListaMode === "new") {
+                      setCsvListaCreating(true);
+                      try {
+                        // Check for existing lista with same cidade+nicho
+                        const existing = await getLista(csvListaForm.cidade, csvListaForm.nicho);
+                        if (existing) {
+                          toast.error(`Já existe a lista "${existing.nome}" para ${csvListaForm.cidade} / ${csvListaForm.nicho}. Selecione-a na opção "Usar lista existente".`);
+                          return;
+                        }
+                        const lista = await createLista(csvListaForm);
+                        setCsvListaId(lista.id);
+                        toast.success(`Lista "${lista.nome}" criada!`);
+                      } catch (err) {
+                        toast.error(err instanceof Error ? err.message : "Erro ao criar lista.");
+                        return;
+                      } finally {
+                        setCsvListaCreating(false);
+                      }
+                    }
+                    setCsvStep("mapping");
+                  }}
+                >
+                  {csvListaCreating ? (
+                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Criando lista...</>
+                  ) : (
+                    <>Próximo: Mapear colunas</>
+                  )}
+                </Button>
+              </DialogFooter>
+            </div>
           ) : (
             <div className="space-y-4">
               {csvRows.length === 0 ? (
                 <div className="text-sm text-muted-foreground">Nenhuma linha encontrada no CSV.</div>
               ) : (
                 <>
+                  {/* indicador de passos */}
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-muted font-medium text-[11px]">1</span>
+                    <span>Configurar lista</span>
+                    <span className="mx-1">›</span>
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground font-medium text-[11px]">2</span>
+                    <span className="font-medium text-foreground">Mapear colunas</span>
+                    {csvListaId && (
+                      <span className="ml-auto flex items-center gap-1 text-green-600">
+                        <ListChecks className="h-3.5 w-3.5" />
+                        {listas.find(l => l.id === csvListaId)?.nome ?? "Lista selecionada"}
+                      </span>
+                    )}
+                  </div>
+
                   <div className="text-sm text-muted-foreground">
                     {csvRows.length} linha(s) detectada(s). Faça o mapeamento das colunas.
                   </div>
@@ -1454,8 +1910,8 @@ export function LeadsKanbanPage() {
                   </div>
 
                   <DialogFooter>
-                    <Button type="button" variant="outline" onClick={() => setCsvOpen(false)}>
-                      Cancelar
+                    <Button type="button" variant="outline" onClick={() => setCsvStep("lista")}>
+                      Voltar
                     </Button>
                     <Button
                       type="button"
@@ -1664,12 +2120,17 @@ export function LeadsKanbanPage() {
                             }
                           }
                           if (Object.keys(meta).length > 0) out.metadata = meta;
+                          // Inject lista's estado into metadata if not already set from CSV
+                          const listaForImport = csvListaId ? listas.find((l) => l.id === csvListaId) : null;
+                          if (listaForImport?.estado && !meta.estado) {
+                            out.metadata = { ...((out.metadata as Record<string, unknown>) ?? {}), estado: listaForImport.estado };
+                          }
                           return out;
                         });
 
                         setCsvImporting(true);
                         try {
-                          const result = await importLeadsMapped(rowsToInsert, profileByName);
+                          const result = await importLeadsMapped(rowsToInsert, profileByName, csvListaId ?? undefined);
                           setCsvImportResult(result);
                         } catch (err) {
                           setCsvImportResult({

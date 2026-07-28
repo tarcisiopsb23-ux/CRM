@@ -55,6 +55,7 @@ import AuthorizationsPage from "@/pages/AuthorizationsPage";
 import { PublicVagasRouter } from "@/router/PublicVagasRouter";
 import { PublicDashboardLayout } from "./pages/public-dashboard/PublicDashboardLayout";
 import { RedirectPage } from "./pages/public-dashboard/RedirectPage";
+import { SetPasswordPage as DashboardSetPasswordPage } from "./pages/public-dashboard/SetPasswordPage";
 
 const DashboardGeralPage  = lazy(() => import("./pages/public-dashboard/DashboardGeralPage").then(m => ({ default: m.DashboardGeralPage })));
 const PerformancePage     = lazy(() => import("./pages/public-dashboard/PerformancePage").then(m => ({ default: m.PerformancePage })));
@@ -74,8 +75,14 @@ const WhatsAppPage        = lazy(() => import("./pages/public-dashboard/WhatsApp
 const ConfigUsuariosPage  = lazy(() => import("./pages/public-dashboard/ConfigUsuariosPage").then(m => ({ default: m.ConfigUsuariosPage })));
 const ConfigIntegracoesPage = lazy(() => import("./pages/public-dashboard/ConfigIntegracoesPage").then(m => ({ default: m.ConfigIntegracoesPage })));
 const ConfigPagamentosPage  = lazy(() => import("./pages/public-dashboard/ConfigPagamentosPage").then(m => ({ default: m.ConfigPagamentosPage })));
-
+// Fase 5 — Agenda
+const AgendaMainPage      = lazy(() => import("./pages/public-dashboard/AgendaPage").then(m => ({ default: m.AgendaPage })));
+const AgendaConfigPage    = lazy(() => import("./pages/public-dashboard/AgendaConfigPage").then(m => ({ default: m.AgendaConfigPage })));
+const AgendaLinkPage      = lazy(() => import("./pages/public-dashboard/AgendaLinkPage").then(m => ({ default: m.AgendaLinkPage })));
+// Página pública de booking (sem autenticação)
+import BookingPage from "./pages/BookingPage";
 const PropostaEditorPage     = lazy(() => import("./pages/PropostaEditorPage"));
+const PropostaWizardPage     = lazy(() => import("./pages/PropostaWizardPage"));
 const PropostaDetalhesPage   = lazy(() => import("./pages/PropostaDetalhesPage"));
 const ContractTemplatePage   = lazy(() => import("./pages/ContractTemplatePage"));
 const ComercialDashboardPage = lazy(() => import("./pages/ComercialDashboardPage"));
@@ -152,8 +159,15 @@ function App() {
                     <Route path="configuracoes/usuarios"    element={<Suspense fallback={<PageLoader />}><ConfigUsuariosPage /></Suspense>} />
                     <Route path="configuracoes/integracoes" element={<Suspense fallback={<PageLoader />}><ConfigIntegracoesPage /></Suspense>} />
                     <Route path="configuracoes/pagamentos"  element={<Suspense fallback={<PageLoader />}><ConfigPagamentosPage /></Suspense>} />
+                    {/* Fase 5 — Agenda */}
+                    <Route path="agenda"                    element={<Suspense fallback={<PageLoader />}><AgendaMainPage /></Suspense>} />
+                    <Route path="agenda/configuracoes"      element={<Suspense fallback={<PageLoader />}><AgendaConfigPage /></Suspense>} />
+                    <Route path="agenda/link"               element={<Suspense fallback={<PageLoader />}><AgendaLinkPage /></Suspense>} />
                   </Route>
+                  {/* Página pública de booking — sem autenticação */}
+                  <Route path="/booking/:slug" element={<BookingPage />} />
                   <Route path="/public/dashboard/:slug/login" element={<PublicDashboardLoginPage />} />
+                  <Route path="/public/dashboard/:slug/set-password" element={<DashboardSetPasswordPage />} />
                   <Route path="/public/dashboard/:slug/crm/login" element={<C8ControlLoginPage />} />
                   <Route path="/vagas/*" element={<PublicVagasRouter />} />
                   {/* ── Rotas internas ── */}
@@ -200,7 +214,7 @@ function App() {
                       <Route path="/c8control" element={<C8ControlPage />} />
                       <Route path="/settings" element={<SettingsPage />} />
                       <Route path="/comercial/propostas" element={<PropostasPage />} />
-                      <Route path="/comercial/propostas/nova" element={<Suspense fallback={<PageLoader />}><PropostaEditorPage /></Suspense>} />
+                      <Route path="/comercial/propostas/nova" element={<Suspense fallback={<PageLoader />}><PropostaWizardPage /></Suspense>} />
                       <Route path="/comercial/propostas/:id" element={<Suspense fallback={<PageLoader />}><PropostaEditorPage /></Suspense>} />
                       <Route path="/comercial/propostas/:id/detalhes" element={<Suspense fallback={<PageLoader />}><PropostaDetalhesPage /></Suspense>} />
                       <Route path="/comercial/dashboard" element={<Suspense fallback={<PageLoader />}><ComercialDashboardPage /></Suspense>} />
