@@ -324,23 +324,51 @@ function InfoCard({ label, value }: { label: string; value: string | null | unde
 /**
  * Exibe como o lead chegou (cta_origem) com informações detalhadas:
  * - "whatsapp"    → banner verde indicando que o lead iniciou conversa por conta própria
- * - "agendamento" → exibe modalidade, dias da semana e data solicitada
- * - outros/null   → exibe "formulário" de forma neutra
+ * - "agendamento" → exibe modalidade, dias da semana, turno e data solicitada
+ * - outros/null   → sem banner (silencioso)
  *
- * Lê cta_origem tanto do nível raiz de detalhes_funil (workflow GMN/Universal antigo)
- * quanto do sub-objeto agendamento (workflow Universal v2).
+ * Compatível com:
+ *  - Universal v2: detalhes_funil = { cta_origem, agendamento: { modalidade, dias_semana, data_solicitacao }, ...funil }
+ *  - GMN antigo:   detalhes_funil = { cta_origem, agendamento_modalidade, agendamento_dias_semana, agendamento_data_solicitacao }
+ *
+ * O campo dias_semana do GMN vem formatado como "Segunda (Manhã), Quarta (Tarde)"
+ * — o turno já está embutido. Exibimos separado quando conseguimos extrair.
  */
 function CtaOrigemCard({ detalhesFunil }: { detalhesFunil: Record<string, unknown> | null }) {
   if (!detalhesFunil) return null;
 
-  // Suporte a ambas as estruturas de agendamento
   const ctaOrigem = (detalhesFunil.cta_origem as string | undefined) ?? null;
 
-  // Sub-objeto agendamento (workflow universal v2) ou campos planos (workflow GMN antigo)
+  // Sub-objeto estruturado (Universal v2)
   const agendamentoObj = detalhesFunil.agendamento as Record<string, string> | undefined;
-  const modalidade = agendamentoObj?.modalidade ?? (detalhesFunil.agendamento_modalidade as string | undefined) ?? null;
-  const diasSemana = agendamentoObj?.dias_semana ?? (detalhesFunil.agendamento_dias_semana as string | undefined) ?? null;
-  const dataStr = agendamentoObj?.data_solicitacao ?? (detalhesFunil.agendamento_data_solicitacao as string | undefined) ?? null;
+
+  // Campos planos — fallback para GMN antigo
+  const modalidade = agendamentoObj?.modalidade
+    ?? (detalhesFunil.agendamento_modalidade as string | undefined)
+    ?? null;
+
+  const diasSemanaRaw = agendamentoObj?.dias_semana
+    ?? (detalhesFunil.agendamento_dias_semana as string | undefined)
+    ?? null;
+
+  const dataStr = agendamentoObj?.data_solicitacao
+    ?? (detalhesFunil.agendamento_data_solicitacao as string | undefined)
+    ?? null;
+
+  // Extrai turno do campo dias_semana quando está embutido no formato "Dia (Período)"
+  // Ex: "Segunda (Manhã), Quarta (Tarde)" → turno = "Manhã / Tarde" ou só o primeiro
+  let diasSemana = diasSemanaRaw;
+  let turno: string | null = null;
+  if (diasSemanaRaw) {
+    const periodos = [...diasSemanaRaw.matchAll(/\(([^)]+)\)/g)].map((m) => m[1]);
+    if (periodos.length > 0) {
+      // Turno único ou ambos
+      const unique = [...new Set(periodos)];
+      turno = unique.join(" e ");
+      // Remove os períodos do campo de dias para evitar redundância
+      diasSemana = diasSemanaRaw.replace(/\s*\([^)]+\)/g, "").trim();
+    }
+  }
 
   let dataFormatada: string | null = null;
   if (dataStr) {
@@ -371,10 +399,11 @@ function CtaOrigemCard({ detalhesFunil }: { detalhesFunil: Record<string, unknow
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
           Agendamento solicitado
         </p>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-          <InfoCard label="Modalidade / Período" value={modalidade} />
-          <InfoCard label="Dias da semana" value={diasSemana} />
-          <InfoCard label="Data solicitada" value={dataFormatada} />
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+          <InfoCard label="Modalidade de contato" value={modalidade} />
+          <InfoCard label="Dias disponíveis" value={diasSemana} />
+          <InfoCard label="Turno preferido" value={turno} />
+          <InfoCard label="Data da solicitação" value={dataFormatada} />
         </div>
       </div>
     );
