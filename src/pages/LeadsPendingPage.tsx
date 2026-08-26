@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useOrganization } from '@/hooks/useOrganization';
 import { useListasManager, type CreateListaInput } from '@/hooks/useListasManager';
 import { useLeadsKanban } from '@/hooks/useLeadsKanban';
 import { useProfiles } from '@/hooks/useProfiles';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -13,14 +13,14 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertCircle, Link2, Plus, Loader2, Zap } from 'lucide-react';
+import { AlertCircle, Link2, Plus, Loader2, Zap, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Lead } from '@/types/database';
 
 export function LeadsPendingPage() {
   const organizationId = useOrganization();
   const { data: profiles = [] } = useProfiles(organizationId);
-  const { leads: allLeads } = useLeadsKanban(organizationId);
+  const { leads: allLeads, removeLead } = useLeadsKanban(organizationId);
   const {
     listas,
     loading: listasLoading,
@@ -42,6 +42,10 @@ export function LeadsPendingPage() {
   const [creatingLista, setCreatingLista] = useState(false);
   const [autoLinking, setAutoLinking] = useState(false);
   const [filtering, setFiltering] = useState(false);
+
+  // estado de exclusão
+  const [deleteTarget, setDeleteTarget] = useState<Lead | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const [createForm, setCreateForm] = useState<CreateListaInput>({
     nome: '',
@@ -162,10 +166,30 @@ export function LeadsPendingPage() {
   };
 
   // ==================
+  // EXCLUIR LEAD PERMANENTEMENTE
+  // ==================
+  const handleDeleteLead = async () => {
+    if (!deleteTarget) return;
+    try {
+      setDeleting(true);
+      await removeLead(deleteTarget.id);
+      toast.success(`${deleteTarget.company || deleteTarget.name} excluído permanentemente.`);
+      setDeleteTarget(null);
+      // Remove da seleção em lote se estava marcado
+      setSelectedLeads(prev => { const s = new Set(prev); s.delete(deleteTarget.id); return s; });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erro ao excluir lead.');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  // ==================
   // OBTER DADOS ADICIONAIS
   // ==================
   const getCidadeFromLead = (lead: Lead) => {
-    return (lead.metadata?.cidade as string) || '—';
+    // Prefer the dedicated column; fall back to metadata for leads not yet migrated
+    return lead.cidade || (lead.metadata?.cidade as string) || '—';
   };
 
   const getResponsavelName = (profileId: string | null | undefined) => {
@@ -275,7 +299,7 @@ export function LeadsPendingPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
+              <div className="table-scroll-container">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -342,18 +366,28 @@ export function LeadsPendingPage() {
                             )}
                           </TableCell>
                           <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setSelectedLead(lead);
-                                setLinkDialogOpen(true);
-                              }}
-                              className="gap-1"
-                            >
-                              <Link2 className="h-4 w-4" />
-                              Vincular
-                            </Button>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedLead(lead);
+                                  setLinkDialogOpen(true);
+                                }}
+                                className="gap-1"
+                              >
+                                <Link2 className="h-4 w-4" />
+                                Vincular
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="gap-1 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                onClick={() => setDeleteTarget(lead)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
@@ -432,6 +466,27 @@ export function LeadsPendingPage() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* DIALOG: EXCLUIR LEAD */}
+      <Dialog open={!!deleteTarget} onOpenChange={(o) => { if (!o) setDeleteTarget(null); }}>
+        <DialogContent className="max-w-sm border-border bg-card">
+          <DialogHeader>
+            <DialogTitle>Excluir Lead</DialogTitle>
+            <DialogDescription>
+              <strong>{deleteTarget?.company || deleteTarget?.name}</strong> será excluído permanentemente da base de dados. Esta ação não pode ser desfeita.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>
+              Cancelar
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteLead} disabled={deleting}>
+              {deleting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Excluir permanentemente
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
