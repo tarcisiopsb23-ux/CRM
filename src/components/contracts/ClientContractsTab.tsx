@@ -158,6 +158,7 @@ export function ClientContractsTab({ clientId, clientName, clientCnpj, clientAdd
   const totalContracts = contracts.length + legacyContracts.length;
 
   return (
+    <>
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
@@ -390,5 +391,6 @@ export function ClientContractsTab({ clientId, clientName, clientCnpj, clientAdd
         </div>
       </DialogContent>
     </Dialog>
+    </>
   );
 }
