@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Edge Function: oauth-exchange
  *
  * Exchanges an OAuth authorization code for access + refresh tokens.
@@ -97,6 +97,15 @@ Deno.serve(async (req) => {
         tokenData.access_token = longToken.access_token;
         tokenData.expires_in = longToken.expires_in;
       }
+
+      // Busca o Facebook User ID para uso no webhook de deauth
+      try {
+        const meRes = await fetch(
+          `https://graph.facebook.com/v19.0/me?fields=id&access_token=${tokenData.access_token}`
+        );
+        const meData = await meRes.json() as Record<string, unknown>;
+        if (meData.id) tokenData.meta_user_id = String(meData.id);
+      } catch { /* silencioso — nao bloqueia o fluxo */ }
     } else {
       return jsonResponse({ error: "Provider não suportado" }, 400);
     }
@@ -113,13 +122,15 @@ Deno.serve(async (req) => {
     const { error: dbError } = await supabase
       .from("oauth_tokens")
       .upsert({
-        tenant_id: tenantId,
+        tenant_id:     tenantId,
         provider,
-        access_token: tokenData.access_token,
+        access_token:  tokenData.access_token,
         refresh_token: tokenData.refresh_token ?? null,
-        expires_at: expiresAt,
-        scope: tokenData.scope ?? null,
-        updated_at: new Date().toISOString(),
+        expires_at:    expiresAt,
+        scope:         tokenData.scope ?? null,
+        // Salva o Facebook User ID para permitir revogacao via webhook deauth
+        ...(tokenData.meta_user_id ? { meta_user_id: tokenData.meta_user_id } : {}),
+        updated_at:    new Date().toISOString(),
       }, { onConflict: "tenant_id,provider" });
 
     if (dbError) {

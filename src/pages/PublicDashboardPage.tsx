@@ -1,4 +1,4 @@
-﻿import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { TenantSelector } from "@/components/auth/TenantSelector";
@@ -119,12 +119,15 @@ export function PublicDashboardPage() {
   // Fetch client metadata from CRM_DB using RLS (tenant_id from JWT)
   // Suporte com tenant_id próprio (novo modelo): usa tenantId diretamente
   // Suporte sem tenant_id (modelo antigo): usa selectedTenantId do TenantSelector
+  // Usuário normal do C8 Control: tenantId vem do JWT (client_id via hook)
   const isSupportWithTenant = isSupport && !!tenantId;
   const effectiveTenantId = isSupportWithTenant
     ? tenantId
     : isSupport
       ? selectedTenantId
-      : tenantId;
+      : tenantId
+        ?? session?.user?.user_metadata?.client_id  // fallback se JWT hook não emitiu tenant_id
+        ?? null;
   useEffect(() => {
     if (!effectiveTenantId || effectiveTenantId === "") return;
     const fetchClientData = async () => {
@@ -429,8 +432,10 @@ export function PublicDashboardPage() {
   );
 
   // Suporte sem tenant_id (modelo antigo) — mostrar seletor de tenant
-  // Suporte com tenant_id (novo modelo do Maestr.IA) — vai direto para o dashboard
-  if (isSupport && !tenantId && !selectedTenantId) {
+  // Só mostra para roles de agência (agency/support) — nunca para owner/admin/member
+  // que são roles de clientes do C8 Control
+  const clientRoles = ["owner", "admin", "manager", "member", "viewer"];
+  if (isSupport && !tenantId && !selectedTenantId && !clientRoles.includes(role)) {
     return (
       <TenantSelector
         onSelect={(id, name) => {
@@ -1073,8 +1078,8 @@ export function PublicDashboardPage() {
                 metaConnected={!!metaToken}
                 isLoadingGoogle={ga4Query.isLoading || gadsQuery.isLoading}
                 isLoadingMeta={metaQuery.isLoading}
-                onConnectGoogle={() => clientId && initiateGoogleOAuth(clientId)}
-                onConnectMeta={() => clientId && initiateMetaOAuth(clientId)}
+                onConnectGoogle={() => clientId && initiateGoogleOAuth(clientId, "")}
+                onConnectMeta={() => clientId && initiateMetaOAuth(clientId, "")}
               />
             </CardContent>
           </Card>

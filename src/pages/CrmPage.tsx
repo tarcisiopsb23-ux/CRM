@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   DndContext, DragOverlay, closestCorners,
@@ -8,94 +8,192 @@ import {
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Plus, Upload, FileText, CheckCircle2, XCircle, AlertTriangle, Loader2 } from "lucide-react";
+import {
+  Plus, Upload, FileText, CheckCircle2, XCircle,
+  AlertTriangle, Loader2, Settings2, Columns3,
+} from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { parseCsvFile } from "@/lib/csvParser";
-import type { Lead, LeadStatus } from "@/components/crm/types";
-import { COLUMNS } from "@/components/crm/types";
+import type { Lead, CrmData, CrmPipeline, CrmStage, CrmCustomField } from "@/components/crm/types";
 import { KanbanColumn } from "@/components/crm/KanbanColumn";
 import { LeadCard } from "@/components/crm/LeadCard";
 import { LeadForm } from "@/components/crm/LeadForm";
+import { PipelineSettingsModal } from "@/components/crm/PipelineSettingsModal";
+import { CustomFieldsSettingsModal } from "@/components/crm/CustomFieldsSettingsModal";
 
-// ─── CSV Import constants ─────────────────────────────────────────────────────
+// ─── CSV Import ───────────────────────────────────────────────────────────────
 const CRM_FIELDS = [
-  { value: "name",            label: "Nome (name)" },
-  { value: "phone",           label: "Telefone (phone)" },
-  { value: "email",           label: "E-mail (email)" },
-  { value: "address",         label: "Endereço (address)" },
-  { value: "company",         label: "Empresa (company)" },
-  { value: "origin",          label: "Origem (origin)" },
-  { value: "notes",           label: "Observações (notes)" },
-  { value: "proposal_value",  label: "Valor Proposta (proposal_value)" },
-  { value: "potential_value", label: "Valor Potencial (potential_value)" },
-  { value: "temperature",     label: "Temperatura (temperature)" },
-  { value: "status",          label: "Status (status)" },
+  { value: "name",            label: "Nome" },
+  { value: "phone",           label: "Telefone" },
+  { value: "email",           label: "E-mail" },
+  { value: "address",         label: "Endereço" },
+  { value: "company",         label: "Empresa" },
+  { value: "origin",          label: "Origem" },
+  { value: "notes",           label: "Observações" },
+  { value: "proposal_value",  label: "Valor Proposta" },
+  { value: "potential_value", label: "Valor Potencial" },
+  { value: "temperature",     label: "Temperatura" },
 ];
 const IGNORE_VALUE = "__ignore__";
 type CsvStep = "upload" | "mapping" | "importing" | "done";
 type ImportReport = { total: number; success: number; skipped: { row: number; reason: string }[] };
 
-// ─── Página Principal ─────────────────────────────────────────────────────────
+// ─── helpers ──────────────────────────────────────────────────────────────────
+function getSession() {
+  try { return JSON.parse(localStorage.getItem("client_auth") ?? "{}"); } catch { return {}; }
+}
 
+// Converte a cor hex da stage em classe Tailwind de borda superior
+function stageColorToBorder(hex: string): string {
+  const map: Record<string, string> = {
+    "#6366f1": "border-t-indigo-500",
+    "#3b82f6": "border-t-blue-500",
+    "#06b6d4": "border-t-cyan-500",
+    "#f59e0b": "border-t-amber-500",
+    "#f97316": "border-t-orange-500",
+    "#ec4899": "border-t-pink-500",
+    "#10b981": "border-t-emerald-500",
+    "#ef4444": "border-t-red-500",
+    "#64748b": "border-t-slate-500",
+    "#84cc16": "border-t-lime-500",
+  };
+  return map[hex] ?? "border-t-indigo-500";
+}
+
+// ─── Componente Principal ─────────────────────────────────────────────────────
 export function CrmPage() {
   const navigate = useNavigate();
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editing, setEditing] = useState<Lead | null>(null);
-  const [activeLead, setActiveLead] = useState<Lead | null>(null);
 
-  // CSV import state
+  // ── Estado de dados ──
+  const [leads, setLeads]           = useState<Lead[]>([]);
+  const [crmData, setCrmData]       = useState<CrmData>({ pipelines: [], stages: [], custom_fields: [] });
+  const [activePipelineId, setActivePipelineId] = useState<string | null>(null);
+  const [loading, setLoading]       = useState(true);
+  const [crmLoading, setCrmLoading] = useState(true);
+
+  // ── Estado de UI ──
+  const [dialogOpen, setDialogOpen]               = useState(false);
+  const [editing, setEditing]                     = useState<Lead | null>(null);
+  const [activeLead, setActiveLead]               = useState<Lead | null>(null);
+  const [pipelineSettingsOpen, setPipelineSettingsOpen] = useState(false);
+  const [customFieldsOpen, setCustomFieldsOpen]   = useState(false);
+
+  // ── Estado CSV ──
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [csvOpen, setCsvOpen] = useState(false);
-  const [csvStep, setCsvStep] = useState<CsvStep>("upload");
+  const [csvOpen, setCsvOpen]       = useState(false);
+  const [csvStep, setCsvStep]       = useState<CsvStep>("upload");
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [csvPreview, setCsvPreview] = useState<Record<string, string>[]>([]);
-  const [csvRows, setCsvRows] = useState<Record<string, string>[]>([]);
+  const [csvRows, setCsvRows]       = useState<Record<string, string>[]>([]);
   const [csvMapping, setCsvMapping] = useState<Record<string, string>>({});
-  const [csvReport, setCsvReport] = useState<ImportReport | null>(null);
-  const [csvError, setCsvError] = useState<string | null>(null);
+  const [csvReport, setCsvReport]   = useState<ImportReport | null>(null);
+  const [csvError, setCsvError]     = useState<string | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
-  // Carrega leads do Supabase
-  const fetchLeads = async () => {
+  // ── Pipeline ativo (stages filtradas) ──
+  const activeStages: CrmStage[] = activePipelineId
+    ? crmData.stages.filter(s => s.pipeline_id === activePipelineId).sort((a, b) => a.order - b.order)
+    : [];
+
+  const activePipeline: CrmPipeline | undefined =
+    crmData.pipelines.find(p => p.id === activePipelineId);
+
+  // ── Carrega estrutura do CRM (pipelines, stages, custom fields) ──
+  const fetchCrmData = useCallback(async () => {
+    const session = getSession();
+    if (!session?.client_id) return;
+    setCrmLoading(true);
+    const { data, error } = await supabase.rpc("get_crm_data", { p_client_id: session.client_id });
+    if (error) {
+      toast.error("Erro ao carregar configuração do pipeline");
+      setCrmLoading(false);
+      return;
+    }
+    const result = data as CrmData;
+    setCrmData(result);
+    // Seleciona o pipeline padrão (ou o primeiro disponível)
+    const def = result.pipelines.find(p => p.is_default) ?? result.pipelines[0];
+    if (def) setActivePipelineId(def.id);
+    setCrmLoading(false);
+  }, []);
+
+  // ── Carrega leads ──
+  const fetchLeads = useCallback(async () => {
+    setLoading(true);
     const { data, error } = await supabase
       .from("crm_leads")
       .select("*")
       .order("created_at", { ascending: false });
-    if (error) { toast.error("Erro ao carregar leads"); return; }
+    if (error) { toast.error("Erro ao carregar leads"); setLoading(false); return; }
     setLeads(data || []);
     setLoading(false);
-  };
+  }, []);
 
-  useEffect(() => { fetchLeads(); }, []);
+  useEffect(() => {
+    fetchCrmData();
+    fetchLeads();
+  }, [fetchCrmData, fetchLeads]);
 
+  // ── Salvar lead ──
   const handleSave = async (form: Omit<Lead, "id" | "created_at">) => {
-    if (editing) {
-      const { error } = await supabase.from("crm_leads").update(form).eq("id", editing.id);
-      if (error) { toast.error("Erro ao atualizar"); return; }
-      toast.success("Lead atualizado");
-    } else {
-      const { error } = await supabase.from("crm_leads").insert(form);
-      if (error) { toast.error("Erro ao criar lead"); return; }
-      toast.success("Lead criado");
+    const session = getSession();
+    if (!session?.client_id) { navigate("/login"); return; }
+
+    const customValues = (form.custom_values ?? []).map(cv => ({
+      field_id: cv.field_id,
+      value: cv.value ?? null,
+    }));
+
+    const { data, error } = await supabase.rpc("save_crm_lead", {
+      p_client_id:        session.client_id,
+      p_lead_id:          editing?.id ?? null,
+      p_name:             form.name,
+      p_phone:            form.phone,
+      p_email:            form.email,
+      p_company:          form.company,
+      p_address:          form.address,
+      p_origin:           form.origin,
+      p_temperature:      form.temperature,
+      p_tags:             form.tags,
+      p_pipeline_id:      form.pipeline_id ?? activePipelineId,
+      p_stage_id:         form.stage_id ?? activeStages[0]?.id ?? null,
+      p_status:           form.status ?? "novo",
+      p_proposal_value:   form.proposal_value,
+      p_potential_value:  form.potential_value,
+      p_product_id:       form.product_id,
+      p_product_name:     form.product_name,
+      p_whatsapp_link:    form.whatsapp_link,
+      p_last_contact_at:  form.last_contact_at,
+      p_next_followup_at: form.next_followup_at,
+      p_lost_reason:      form.lost_reason,
+      p_notes:            form.notes,
+      p_custom_values:    customValues,
+    });
+
+    if (error || !data?.success) {
+      toast.error(data?.error ?? "Erro ao salvar lead");
+      return;
     }
+
+    toast.success(editing ? "Lead atualizado" : "Lead criado");
     setDialogOpen(false);
     setEditing(null);
     fetchLeads();
   };
 
+  // ── Excluir lead ──
   const handleDelete = async (id: string) => {
     if (!confirm("Excluir este lead?")) return;
     const { error } = await supabase.from("crm_leads").delete().eq("id", id);
-    if (error) { toast.error("Erro ao excluir"); return; }
+    if (error) { toast.error("Erro ao excluir lead"); return; }
     toast.success("Lead excluído");
-    fetchLeads();
+    setLeads(prev => prev.filter(l => l.id !== id));
   };
 
+  // ── Drag & Drop ──
   const handleDragStart = (e: DragStartEvent) => {
     setActiveLead(leads.find(l => l.id === e.active.id) ?? null);
   };
@@ -104,16 +202,43 @@ export function CrmPage() {
     setActiveLead(null);
     const { active, over } = e;
     if (!over) return;
-    const newStatus = COLUMNS.find(c => c.id === over.id)?.id;
-    if (!newStatus || newStatus === leads.find(l => l.id === active.id)?.status) return;
-    setLeads(prev => prev.map(l => l.id === active.id ? { ...l, status: newStatus } : l));
-    await supabase.from("crm_leads").update({ status: newStatus }).eq("id", String(active.id));
+    const targetStageId = String(over.id);
+    const lead = leads.find(l => l.id === active.id);
+    if (!lead || lead.stage_id === targetStageId) return;
+
+    // Atualiza localmente primeiro (UX otimista)
+    setLeads(prev => prev.map(l =>
+      l.id === lead.id ? { ...l, stage_id: targetStageId } : l
+    ));
+
+    const session = getSession();
+    const { data, error } = await supabase.rpc("move_crm_lead", {
+      p_client_id: session.client_id,
+      p_lead_id:   lead.id,
+      p_stage_id:  targetStageId,
+    });
+
+    if (error || !data?.success) {
+      toast.error("Erro ao mover lead");
+      // Reverte
+      setLeads(prev => prev.map(l =>
+        l.id === lead.id ? { ...l, stage_id: lead.stage_id } : l
+      ));
+    }
   };
 
-  const grouped = COLUMNS.reduce((acc, c) => {
-    acc[c.id] = leads.filter(l => l.status === c.id);
+  // ── Agrupar leads por stage ──
+  const grouped = activeStages.reduce((acc, stage) => {
+    acc[stage.id] = leads.filter(l =>
+      l.pipeline_id === activePipelineId && l.stage_id === stage.id
+    );
     return acc;
-  }, {} as Record<LeadStatus, Lead[]>);
+  }, {} as Record<string, Lead[]>);
+
+  // Leads sem stage (ou de outros pipelines) ficam numa coluna "Sem etapa"
+  const unstagedLeads = leads.filter(l =>
+    l.pipeline_id === activePipelineId && !activeStages.find(s => s.id === l.stage_id)
+  );
 
   // ── CSV helpers ──
   const handleCsvFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -139,15 +264,19 @@ export function CrmPage() {
   };
 
   const handleCsvImport = async () => {
-    const raw = localStorage.getItem("client_auth");
-    const session = raw ? JSON.parse(raw) : null;
-    if (!session) { navigate("/login"); return; }
+    const session = getSession();
+    if (!session?.client_id) { navigate("/login"); return; }
     setCsvStep("importing");
     const skipped: ImportReport["skipped"] = [];
     let successCount = 0;
     for (let i = 0; i < csvRows.length; i++) {
       const row = csvRows[i];
-      const record: Record<string, string | number | null> = { client_id: session.client_id };
+      const record: Record<string, string | number | null> = {
+        client_id:   session.client_id,
+        pipeline_id: activePipelineId,
+        stage_id:    activeStages[0]?.id ?? null,
+        status:      "novo",
+      };
       Object.entries(csvMapping).forEach(([col, field]) => {
         if (field === IGNORE_VALUE) return;
         const val = row[col]?.trim() ?? "";
@@ -176,41 +305,114 @@ export function CrmPage() {
 
   const closeCsv = () => { resetCsv(); setCsvOpen(false); };
 
+  // ── Render ──
+  const isReady = !crmLoading;
+
   return (
     <div className="min-h-screen bg-[#0F172A] text-slate-100 p-6">
-      <div className="max-w-[1800px] mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
+      <div className="max-w-[1800px] mx-auto space-y-4">
+
+        {/* ── Header ── */}
+        <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-black text-white uppercase tracking-tight">CRM</h1>
             <p className="text-slate-400 text-sm">{leads.length} leads no total</p>
           </div>
-          <div className="flex items-center gap-2">
-            <Button onClick={() => { resetCsv(); setCsvOpen(true); }}
-              variant="outline" className="border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white gap-2">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            <Button
+              onClick={() => setCustomFieldsOpen(true)}
+              variant="outline"
+              className="border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white gap-2"
+            >
+              <Settings2 className="h-4 w-4" /> Campos
+            </Button>
+            <Button
+              onClick={() => setPipelineSettingsOpen(true)}
+              variant="outline"
+              className="border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white gap-2"
+            >
+              <Columns3 className="h-4 w-4" /> Pipeline
+            </Button>
+            <Button
+              onClick={() => { resetCsv(); setCsvOpen(true); }}
+              variant="outline"
+              className="border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white gap-2"
+            >
               <Upload className="h-4 w-4" /> Importar CSV
             </Button>
-            <Button onClick={() => { setEditing(null); setDialogOpen(true); }}
-              className="bg-[#7C3AED] hover:bg-[#7C3AED]/90 gap-2">
+            <Button
+              onClick={() => { setEditing(null); setDialogOpen(true); }}
+              className="bg-[#7C3AED] hover:bg-[#7C3AED]/90 gap-2"
+              disabled={!isReady || activeStages.length === 0}
+            >
               <Plus className="h-4 w-4" /> Novo Lead
             </Button>
           </div>
         </div>
 
-        {/* Kanban */}
-        {loading ? (
+        {/* ── Seletor de Pipeline ── */}
+        {isReady && crmData.pipelines.length > 1 && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500 uppercase font-bold tracking-widest">Funil:</span>
+            <div className="flex gap-1 flex-wrap">
+              {crmData.pipelines.map(p => (
+                <button
+                  key={p.id}
+                  onClick={() => setActivePipelineId(p.id)}
+                  className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${
+                    activePipelineId === p.id
+                      ? "bg-[#7C3AED] text-white"
+                      : "bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white"
+                  }`}
+                >
+                  {p.name}
+                  {p.is_default && <span className="ml-1 opacity-60">★</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Kanban ── */}
+        {crmLoading ? (
           <div className="flex items-center justify-center py-20">
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#7C3AED] border-t-transparent" />
           </div>
+        ) : activeStages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 gap-4 text-center">
+            <Columns3 className="h-12 w-12 text-slate-700" />
+            <p className="text-slate-400 font-bold">Nenhuma etapa configurada</p>
+            <p className="text-slate-500 text-sm">Configure o pipeline para começar a usar o CRM.</p>
+            <Button onClick={() => setPipelineSettingsOpen(true)} className="bg-[#7C3AED] hover:bg-[#7C3AED]/90 gap-2">
+              <Settings2 className="h-4 w-4" /> Configurar Pipeline
+            </Button>
+          </div>
         ) : (
-          <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCorners}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
             <div className="flex gap-4 overflow-x-auto pb-4">
-              {COLUMNS.map(col => (
-                <KanbanColumn key={col.id} col={col} leads={grouped[col.id] ?? []}
+              {activeStages.map(stage => (
+                <KanbanColumn
+                  key={stage.id}
+                  col={{ id: stage.id, label: stage.name, color: stageColorToBorder(stage.color) }}
+                  leads={grouped[stage.id] ?? []}
                   onEdit={l => { setEditing(l); setDialogOpen(true); }}
                   onDelete={handleDelete}
                 />
               ))}
+              {/* Coluna "Sem etapa" — leads órfãos que existiam antes do pipeline dinâmico */}
+              {unstagedLeads.length > 0 && (
+                <KanbanColumn
+                  col={{ id: "__unstaged__", label: "Sem etapa", color: "border-t-slate-600" }}
+                  leads={unstagedLeads}
+                  onEdit={l => { setEditing(l); setDialogOpen(true); }}
+                  onDelete={handleDelete}
+                />
+              )}
             </div>
             <DragOverlay>
               {activeLead && (
@@ -223,7 +425,7 @@ export function CrmPage() {
         )}
       </div>
 
-      {/* CSV Import Dialog */}
+      {/* ── CSV Import Dialog ── */}
       <Dialog open={csvOpen} onOpenChange={open => { if (!open) closeCsv(); }}>
         <DialogContent className="bg-[#1E293B] border-slate-700 text-slate-100 max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -232,11 +434,12 @@ export function CrmPage() {
             </DialogTitle>
           </DialogHeader>
 
-          {/* Upload */}
           {csvStep === "upload" && (
             <div className="space-y-4">
-              <div className="border-2 border-dashed border-slate-700 rounded-xl p-10 text-center cursor-pointer hover:border-[#7C3AED] transition-colors"
-                onClick={() => fileInputRef.current?.click()}>
+              <div
+                className="border-2 border-dashed border-slate-700 rounded-xl p-10 text-center cursor-pointer hover:border-[#7C3AED] transition-colors"
+                onClick={() => fileInputRef.current?.click()}
+              >
                 <FileText className="h-10 w-10 text-slate-600 mx-auto mb-3" />
                 <p className="text-slate-300 font-bold">Clique para selecionar o arquivo CSV</p>
                 <p className="text-slate-500 text-xs mt-1">Separadores: vírgula ou ponto-e-vírgula. Máx: 5 MB.</p>
@@ -251,50 +454,68 @@ export function CrmPage() {
             </div>
           )}
 
-          {/* Mapping */}
           {csvStep === "mapping" && (
             <div className="space-y-4">
               <div className="overflow-x-auto rounded-lg border border-slate-700">
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b border-slate-700 bg-slate-900/40">
-                      {csvHeaders.map(h => <th key={h} className="text-left py-2 px-3 text-slate-400 font-black uppercase tracking-wider whitespace-nowrap">{h}</th>)}
+                      {csvHeaders.map(h => (
+                        <th key={h} className="text-left py-2 px-3 text-slate-400 font-black uppercase tracking-wider whitespace-nowrap">{h}</th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
                     {csvPreview.map((row, i) => (
                       <tr key={i}>
-                        {csvHeaders.map(h => <td key={h} className="py-2 px-3 text-slate-300 whitespace-nowrap max-w-[150px] truncate">{row[h] || <span className="text-slate-600 italic">vazio</span>}</td>)}
+                        {csvHeaders.map(h => (
+                          <td key={h} className="py-2 px-3 text-slate-300 whitespace-nowrap max-w-[150px] truncate">
+                            {row[h] || <span className="text-slate-600 italic">vazio</span>}
+                          </td>
+                        ))}
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              <p className="text-slate-500 text-xs">Total: <span className="text-slate-300 font-bold">{csvRows.length}</span> linhas</p>
+              <p className="text-slate-500 text-xs">
+                Total: <span className="text-slate-300 font-bold">{csvRows.length}</span> linhas
+                {activePipeline && (
+                  <span className="ml-2">→ importados para <span className="text-[#7C3AED] font-bold">{activePipeline.name}</span> / etapa <span className="text-[#7C3AED] font-bold">{activeStages[0]?.name}</span></span>
+                )}
+              </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {csvHeaders.map(header => (
                   <div key={header} className="space-y-1">
                     <Label className="text-slate-300 text-xs font-bold uppercase tracking-wide">{header}</Label>
-                    <Select value={csvMapping[header] ?? IGNORE_VALUE} onValueChange={val => setCsvMapping(prev => ({ ...prev, [header]: val }))}>
+                    <Select
+                      value={csvMapping[header] ?? IGNORE_VALUE}
+                      onValueChange={val => setCsvMapping(prev => ({ ...prev, [header]: val }))}
+                    >
                       <SelectTrigger className="bg-slate-900/50 border-slate-700 text-slate-200 h-9">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="bg-[#1E293B] border-slate-700 text-slate-200">
                         <SelectItem value={IGNORE_VALUE} className="text-slate-500 focus:bg-slate-800">— Ignorar —</SelectItem>
-                        {CRM_FIELDS.map(f => <SelectItem key={f.value} value={f.value} className="focus:bg-slate-800">{f.label}</SelectItem>)}
+                        {CRM_FIELDS.map(f => (
+                          <SelectItem key={f.value} value={f.value} className="focus:bg-slate-800">{f.label}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
                 ))}
               </div>
               <div className="flex gap-3 pt-2">
-                <Button variant="outline" className="border-slate-700 text-slate-300 hover:bg-slate-800" onClick={resetCsv}>Voltar</Button>
-                <Button className="bg-[#7C3AED] hover:bg-[#7C3AED]/90 font-bold flex-1" onClick={handleCsvImport}>Importar</Button>
+                <Button variant="outline" className="border-slate-700 text-slate-300 hover:bg-slate-800" onClick={resetCsv}>
+                  Voltar
+                </Button>
+                <Button className="bg-[#7C3AED] hover:bg-[#7C3AED]/90 font-bold flex-1" onClick={handleCsvImport}>
+                  Importar
+                </Button>
               </div>
             </div>
           )}
 
-          {/* Importing */}
           {csvStep === "importing" && (
             <div className="flex flex-col items-center justify-center py-12 gap-4">
               <Loader2 className="h-10 w-10 animate-spin text-[#7C3AED]" />
@@ -302,7 +523,6 @@ export function CrmPage() {
             </div>
           )}
 
-          {/* Done */}
           {csvStep === "done" && csvReport && (
             <div className="space-y-4">
               <div className="grid grid-cols-3 gap-3">
@@ -332,38 +552,44 @@ export function CrmPage() {
                 </div>
               )}
               <div className="flex gap-3">
-                <Button variant="outline" className="border-slate-700 text-slate-300 hover:bg-slate-800" onClick={resetCsv}>Nova Importação</Button>
-                <Button className="bg-[#7C3AED] hover:bg-[#7C3AED]/90 font-bold flex-1" onClick={closeCsv}>Fechar</Button>
+                <Button variant="outline" className="border-slate-700 text-slate-300 hover:bg-slate-800" onClick={resetCsv}>
+                  Nova Importação
+                </Button>
+                <Button className="bg-[#7C3AED] hover:bg-[#7C3AED]/90 font-bold flex-1" onClick={closeCsv}>
+                  Fechar
+                </Button>
               </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
 
+      {/* ── Lead Form ── */}
       <LeadForm
         open={dialogOpen}
         onClose={() => { setDialogOpen(false); setEditing(null); }}
-        initial={editing ? {
-          name: editing.name,
-          phone: editing.phone,
-          email: editing.email,
-          company: editing.company,
-          address: editing.address,
-          origin: editing.origin,
-          temperature: editing.temperature,
-          proposal_value: editing.proposal_value,
-          potential_value: editing.potential_value,
-          product_id: editing.product_id,
-          product_name: editing.product_name,
-          whatsapp_link: editing.whatsapp_link,
-          last_contact_at: editing.last_contact_at,
-          next_followup_at: editing.next_followup_at,
-          lost_reason: editing.lost_reason,
-          tags: editing.tags,
-          notes: editing.notes,
-          status: editing.status,
-        } : null}
+        initial={editing ?? null}
+        stages={activeStages}
+        customFields={crmData.custom_fields}
+        defaultStageId={activeStages[0]?.id ?? null}
+        defaultPipelineId={activePipelineId}
         onSave={handleSave}
+      />
+
+      {/* ── Pipeline Settings ── */}
+      <PipelineSettingsModal
+        open={pipelineSettingsOpen}
+        onClose={() => setPipelineSettingsOpen(false)}
+        crmData={crmData}
+        onRefresh={fetchCrmData}
+      />
+
+      {/* ── Custom Fields Settings ── */}
+      <CustomFieldsSettingsModal
+        open={customFieldsOpen}
+        onClose={() => setCustomFieldsOpen(false)}
+        customFields={crmData.custom_fields}
+        onRefresh={fetchCrmData}
       />
     </div>
   );

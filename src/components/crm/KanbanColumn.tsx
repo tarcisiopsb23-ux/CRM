@@ -1,11 +1,16 @@
 import { useDroppable } from "@dnd-kit/core";
 import { cn } from "@/lib/utils";
 import type { Lead } from "./types";
-import { COLUMNS } from "./types";
 import { LeadCard } from "./LeadCard";
 
+export interface KanbanColDef {
+  id: string;
+  label: string;
+  color: string; // classe Tailwind de borda superior, ex: "border-t-indigo-500"
+}
+
 interface KanbanColumnProps {
-  col: typeof COLUMNS[0];
+  col: KanbanColDef;
   leads: Lead[];
   onEdit: (l: Lead) => void;
   onDelete: (id: string) => void;
@@ -27,7 +32,6 @@ export function KanbanColumn({ col, leads, onEdit, onDelete }: KanbanColumnProps
         <span className="text-xs font-black uppercase tracking-widest text-slate-300">{col.label}</span>
         <span className="text-xs font-bold text-slate-500 bg-slate-700 px-2 py-0.5 rounded-full">{leads.length}</span>
       </div>
-      {/* Lista de cards: altura máxima de 2 cards visíveis, scroll quando houver mais */}
       <div
         className="flex flex-col gap-2 min-h-[80px] overflow-y-auto pr-2"
         style={{ maxHeight: "22rem" }}

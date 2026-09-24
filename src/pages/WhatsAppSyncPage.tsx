@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabaseCrm } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";

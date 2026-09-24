@@ -108,10 +108,11 @@ export function useAuth() {
     // isSupport: verdadeiro se:
     // 1. Role for da agência (agency/support) — modelo antigo sem tenant_id
     // 2. E-mail terminar com @agenciac8.com.br — novo modelo com tenant_id específico
-    // 3. tenant_id === null e role não for member — fallback sem hook JWT
+    // NÃO marca como suporte apenas por tenantId === null — isso causaria falso positivo
+    // para usuários do C8 Control cujo JWT hook ainda não emitiu tenant_id
     const email = session.user.email ?? "";
     const isSupportEmail = email.toLowerCase().endsWith("@agenciac8.com.br");
-    const resolvedIsSupport = isAgencyRole(role) || isSupportEmail || (tenantId === null && role !== "member");
+    const resolvedIsSupport = isAgencyRole(role) || isSupportEmail;
 
     setState({
       session,

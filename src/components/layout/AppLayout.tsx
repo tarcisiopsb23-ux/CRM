@@ -1,0 +1,20 @@
+import { Outlet } from "react-router-dom";
+import { AppSidebar } from "./AppSidebar";
+import { AppHeader } from "./AppHeader";
+import { ChatProvider } from "@/contexts/ChatContext";
+
+export function AppLayout() {
+  return (
+    <ChatProvider>
+      <div className="flex h-screen w-full overflow-hidden bg-background">
+        <AppSidebar />
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <AppHeader />
+          <main className="flex-1 overflow-auto p-6">
+            <Outlet />
+          </main>
+        </div>
+      </div>
+    </ChatProvider>
+  );
+}

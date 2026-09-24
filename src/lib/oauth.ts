@@ -1,21 +1,21 @@
 /**
- * OAuth helpers for Google and Meta integrations.
+ * OAuth helpers — Google e Meta Ads
  *
- * Os client_id/app_id são configurados por tenant no metadata da tabela clients.
- * Não dependem mais de variáveis de ambiente — cada cliente configura o seu.
+ * Os App IDs e Secrets ficam EXCLUSIVAMENTE nos Secrets das Edge Functions
+ * (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, META_APP_ID, META_APP_SECRET).
  *
- * Flow:
- *   1. Client clicks "Conectar Google/Meta" → redirected to provider OAuth page
- *   2. Provider redirects back to /oauth/callback?provider=google&code=...
- *   3. OAuthCallbackPage exchanges code for tokens via Supabase Edge Function
- *   4. Tokens stored in oauth_tokens table
- *   5. Dashboard reads data using stored tokens
+ * O cliente nunca ve nem configura esses valores.
+ * As funcoes abaixo apenas iniciam o redirect OAuth para o provedor.
+ *
+ * Fluxo:
+ *   1. Cliente clica "Conectar" → redirect para o provedor (Google/Meta)
+ *   2. Provedor redireciona de volta para /oauth/callback?code=...&state=...
+ *   3. OAuthCallbackPage chama a Edge Function oauth-exchange
+ *   4. Edge Function troca o codigo por tokens usando os secrets do servidor
+ *   5. Tokens salvos em oauth_tokens (nunca expostos ao frontend)
  */
 
-// Fallback para variáveis de ambiente (compatibilidade retroativa)
-const ENV_GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
-const ENV_META_APP_ID      = import.meta.env.VITE_META_APP_ID      ?? "";
-
+// Scopes necessarios para leitura de metricas de campanhas
 const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/analytics.readonly",
   "https://www.googleapis.com/auth/adwords",
@@ -27,16 +27,23 @@ const META_SCOPES = [
   "read_insights",
 ].join(",");
 
-export function initiateGoogleOAuth(clientId: string, googleClientId?: string) {
-  const resolvedClientId = googleClientId || ENV_GOOGLE_CLIENT_ID;
-  if (!resolvedClientId) {
-    throw new Error("Google Client ID não configurado. Adicione-o nas configurações de integrações.");
+/**
+ * Inicia o fluxo OAuth com o Google.
+ * O GOOGLE_CLIENT_ID e gerenciado pelo servidor — nao precisa de configuracao do cliente.
+ */
+export function initiateGoogleOAuth(clientId: string, slug: string) {
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string;
+  if (!googleClientId) {
+    throw new Error(
+      "Conexao com Google nao configurada. Contate a agencia para habilitar esta integracao."
+    );
   }
+
   const redirectUri = `${window.location.origin}/oauth/callback`;
-  const state = btoa(JSON.stringify({ provider: "google", clientId }));
+  const state = btoa(JSON.stringify({ provider: "google", clientId, slug }));
 
   const params = new URLSearchParams({
-    client_id:     resolvedClientId,
+    client_id:     googleClientId,
     redirect_uri:  redirectUri,
     response_type: "code",
     scope:         GOOGLE_SCOPES,
@@ -48,16 +55,23 @@ export function initiateGoogleOAuth(clientId: string, googleClientId?: string) {
   window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
 }
 
-export function initiateMetaOAuth(clientId: string, metaAppId?: string) {
-  const resolvedAppId = metaAppId || ENV_META_APP_ID;
-  if (!resolvedAppId) {
-    throw new Error("Meta App ID não configurado. Adicione-o nas configurações de integrações.");
+/**
+ * Inicia o fluxo OAuth com o Meta (Facebook/Instagram).
+ * O META_APP_ID e gerenciado pelo servidor — nao precisa de configuracao do cliente.
+ */
+export function initiateMetaOAuth(clientId: string, slug: string) {
+  const metaAppId = import.meta.env.VITE_META_APP_ID as string;
+  if (!metaAppId) {
+    throw new Error(
+      "Conexao com Meta nao configurada. Contate a agencia para habilitar esta integracao."
+    );
   }
+
   const redirectUri = `${window.location.origin}/oauth/callback`;
-  const state = btoa(JSON.stringify({ provider: "meta", clientId }));
+  const state = btoa(JSON.stringify({ provider: "meta", clientId, slug }));
 
   const params = new URLSearchParams({
-    client_id:     resolvedAppId,
+    client_id:     metaAppId,
     redirect_uri:  redirectUri,
     scope:         META_SCOPES,
     response_type: "code",
@@ -67,10 +81,11 @@ export function initiateMetaOAuth(clientId: string, metaAppId?: string) {
   window.location.href = `https://www.facebook.com/v19.0/dialog/oauth?${params}`;
 }
 
-export function isGoogleConfigured(googleClientId?: string) {
-  return !!(googleClientId || ENV_GOOGLE_CLIENT_ID);
+// Helpers de verificacao — usados apenas internamente
+export function isGoogleConfigured(): boolean {
+  return !!(import.meta.env.VITE_GOOGLE_CLIENT_ID as string);
 }
 
-export function isMetaConfigured(metaAppId?: string) {
-  return !!(metaAppId || ENV_META_APP_ID);
+export function isMetaConfigured(): boolean {
+  return !!(import.meta.env.VITE_META_APP_ID as string);
 }

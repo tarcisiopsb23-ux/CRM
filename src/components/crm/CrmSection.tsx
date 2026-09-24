@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   DndContext, DragOverlay, closestCorners,
   PointerSensor, useSensor, useSensors,
@@ -13,33 +13,39 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { parseCsvFile } from "@/lib/csvParser";
 import { toast } from "sonner";
-import { Plus, Clock, Users, CheckCircle2, DollarSign, MessageCircle, Upload, FileText, AlertTriangle, Loader2, XCircle } from "lucide-react";
+import {
+  Plus, Clock, Users, CheckCircle2, DollarSign, MessageCircle,
+  Upload, FileText, AlertTriangle, Loader2, XCircle,
+  KanbanSquare, Settings2, Columns3,
+} from "lucide-react";
 import { startOfMonth, endOfMonth, format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import type { Lead, LeadStatus } from "./types";
-import { COLUMNS } from "./types";
+import type { Lead, CrmData, CrmStage, CrmCustomField, CrmCustomValue } from "./types";
 import { KanbanColumn } from "./KanbanColumn";
 import { LeadCard } from "./LeadCard";
 import { LeadForm } from "./LeadForm";
+import { CrmSettingsPanel } from "./CrmSettingsPanel";
 import { useAuditLog } from "@/hooks/useAuditLog";
 
+// ─── CSV Import ───────────────────────────────────────────────────────────────
 const CRM_FIELDS = [
-  { value: "name",            label: "Nome (name)" },
-  { value: "phone",           label: "Telefone (phone)" },
-  { value: "email",           label: "E-mail (email)" },
-  { value: "address",         label: "Endereço (address)" },
-  { value: "company",         label: "Empresa (company)" },
-  { value: "origin",          label: "Origem (origin)" },
-  { value: "notes",           label: "Observações (notes)" },
-  { value: "proposal_value",  label: "Valor Proposta (proposal_value)" },
-  { value: "potential_value", label: "Valor Potencial (potential_value)" },
-  { value: "temperature",     label: "Temperatura (temperature)" },
-  { value: "status",          label: "Status (status)" },
+  { value: "name",            label: "Nome" },
+  { value: "phone",           label: "Telefone" },
+  { value: "email",           label: "E-mail" },
+  { value: "address",         label: "Endereço" },
+  { value: "company",         label: "Empresa" },
+  { value: "origin",          label: "Origem" },
+  { value: "notes",           label: "Observações" },
+  { value: "proposal_value",  label: "Valor Proposta" },
+  { value: "potential_value", label: "Valor Potencial" },
+  { value: "temperature",     label: "Temperatura" },
 ];
 const IGNORE_VALUE = "__ignore__";
 type CsvStep = "upload" | "mapping" | "importing" | "done";
 type ImportReport = { total: number; success: number; skipped: { row: number; reason: string }[] };
+type CrmTab = "kanban" | "settings";
 
+// ─── Props ────────────────────────────────────────────────────────────────────
 interface CrmSectionProps {
   clientId: string;
   clientMetadata?: {
@@ -59,7 +65,31 @@ interface CrmStats {
   valorFechadosMes: number;
 }
 
-function StatCard({ icon, label, value, sub }: { icon: React.ReactNode; label: string; value: string | number; sub?: string }) {
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function getSession() {
+  try { return JSON.parse(localStorage.getItem("client_auth") ?? "{}"); } catch { return {}; }
+}
+
+function stageColorToBorder(hex: string): string {
+  const map: Record<string, string> = {
+    "#6366f1": "border-t-indigo-500",
+    "#3b82f6": "border-t-blue-500",
+    "#06b6d4": "border-t-cyan-500",
+    "#f59e0b": "border-t-amber-500",
+    "#f97316": "border-t-orange-500",
+    "#ec4899": "border-t-pink-500",
+    "#10b981": "border-t-emerald-500",
+    "#ef4444": "border-t-red-500",
+    "#64748b": "border-t-slate-500",
+    "#84cc16": "border-t-lime-500",
+  };
+  return map[hex] ?? "border-t-indigo-500";
+}
+
+// ─── StatCard ─────────────────────────────────────────────────────────────────
+function StatCard({ icon, label, value, sub }: {
+  icon: React.ReactNode; label: string; value: string | number; sub?: string;
+}) {
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-center gap-4">
       <div className="h-10 w-10 rounded-lg bg-slate-800 flex items-center justify-center shrink-0">
@@ -74,42 +104,77 @@ function StatCard({ icon, label, value, sub }: { icon: React.ReactNode; label: s
   );
 }
 
+// ─── Componente Principal ─────────────────────────────────────────────────────
 export function CrmSection({ clientId: _clientId, clientMetadata }: CrmSectionProps) {
   const { log } = useAuditLog();
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editing, setEditing] = useState<Lead | null>(null);
-  const [activeLead, setActiveLead] = useState<Lead | null>(null);
-  const [stats, setStats] = useState<CrmStats>({ waPendentes: 0, leadsAtivos: 0, atendidosMes: 0, fechadosMes: 0, valorFechadosMes: 0 });
 
-  // CSV import state
+  // ── Estado de dados ──
+  const [leads, setLeads]           = useState<Lead[]>([]);
+  const [crmData, setCrmData]       = useState<CrmData>({ pipelines: [], stages: [], custom_fields: [] });
+  const [activePipelineId, setActivePipelineId] = useState<string | null>(null);
+  const [loading, setLoading]       = useState(true);
+  const [crmLoading, setCrmLoading] = useState(true);
+  const [stats, setStats]           = useState<CrmStats>({
+    waPendentes: 0, leadsAtivos: 0, atendidosMes: 0, fechadosMes: 0, valorFechadosMes: 0,
+  });
+
+  // ── Estado de UI ──
+  const [activeTab, setActiveTab]   = useState<CrmTab>("kanban");
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing]       = useState<Lead | null>(null);
+  const [activeLead, setActiveLead] = useState<Lead | null>(null);
+
+  // ── Estado CSV ──
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [csvOpen, setCsvOpen] = useState(false);
-  const [csvStep, setCsvStep] = useState<CsvStep>("upload");
+  const [csvOpen, setCsvOpen]       = useState(false);
+  const [csvStep, setCsvStep]       = useState<CsvStep>("upload");
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [csvPreview, setCsvPreview] = useState<Record<string, string>[]>([]);
-  const [csvRows, setCsvRows] = useState<Record<string, string>[]>([]);
+  const [csvRows, setCsvRows]       = useState<Record<string, string>[]>([]);
   const [csvMapping, setCsvMapping] = useState<Record<string, string>>({});
-  const [csvReport, setCsvReport] = useState<ImportReport | null>(null);
-  const [csvError, setCsvError] = useState<string | null>(null);
+  const [csvReport, setCsvReport]   = useState<ImportReport | null>(null);
+  const [csvError, setCsvError]     = useState<string | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
-  const fetchLeads = async () => {
+  // ── Stages do pipeline ativo ──
+  const activeStages: CrmStage[] = activePipelineId
+    ? crmData.stages.filter(s => s.pipeline_id === activePipelineId).sort((a, b) => a.order - b.order)
+    : [];
+
+  const activePipeline = crmData.pipelines.find(p => p.id === activePipelineId);
+
+  // ── Carrega estrutura do CRM ──
+  const fetchCrmData = useCallback(async () => {
+    const session = getSession();
+    if (!session?.client_id) return;
+    setCrmLoading(true);
+    const { data, error } = await supabase.rpc("get_crm_data", { p_client_id: session.client_id });
+    if (error) { toast.error("Erro ao carregar pipeline"); setCrmLoading(false); return; }
+    const result = data as CrmData;
+    setCrmData(result);
+    const def = result.pipelines.find(p => p.is_default) ?? result.pipelines[0];
+    if (def) setActivePipelineId(def.id);
+    setCrmLoading(false);
+  }, []);
+
+  // ── Carrega leads ──
+  const fetchLeads = useCallback(async () => {
+    setLoading(true);
     const { data, error } = await supabase
-      .from("crm_leads").select("*").order("created_at", { ascending: false });
-    if (error) { toast.error("Erro ao carregar leads"); return; }
+      .from("crm_leads")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (error) { toast.error("Erro ao carregar leads"); setLoading(false); return; }
     const all: Lead[] = data || [];
     setLeads(all);
     setLoading(false);
 
-    // Calcular métricas do CRM
+    // ── Métricas ──
     const now = new Date();
     const mesInicio = format(startOfMonth(now), "yyyy-MM-dd");
-    const mesFim = format(endOfMonth(now), "yyyy-MM-dd");
-
-    const ativos = all.filter(l => !["fechado", "follow_up", "perdido"].includes(l.status)).length;
+    const mesFim    = format(endOfMonth(now), "yyyy-MM-dd");
+    const ativos = all.filter(l => !["fechado", "perdido"].includes(l.status)).length;
     const fechadosMes = all.filter(l =>
       l.status === "fechado" &&
       (l.updated_at ?? l.created_at) >= mesInicio &&
@@ -119,77 +184,93 @@ export function CrmSection({ clientId: _clientId, clientMetadata }: CrmSectionPr
       l.last_contact_at && l.last_contact_at >= mesInicio
     ).length;
     const valorMes = fechadosMes.reduce((acc, l) => acc + (l.proposal_value ?? 0), 0);
+    setStats(s => ({
+      ...s, leadsAtivos: ativos, atendidosMes,
+      fechadosMes: fechadosMes.length, valorFechadosMes: valorMes,
+    }));
+  }, []);
 
-    setStats(s => ({ ...s, leadsAtivos: ativos, atendidosMes, fechadosMes: fechadosMes.length, valorFechadosMes: valorMes }));
-  };
-
-  // Busca pendentes do WhatsApp
+  // Pendentes WhatsApp
   useEffect(() => {
     const webhookUrl = clientMetadata?.whatsapp_webhook_url;
     if (!webhookUrl) return;
     fetch(`${webhookUrl.replace(/\/$/, "")}/api/contatos?status=pendente`)
       .then(r => r.json())
-      .then((data: any[]) => setStats(s => ({ ...s, waPendentes: data.length })))
+      .then((d: unknown[]) => setStats(s => ({ ...s, waPendentes: d.length })))
       .catch(() => {});
   }, [clientMetadata?.whatsapp_webhook_url]);
 
-  useEffect(() => { fetchLeads(); }, []);
+  useEffect(() => {
+    fetchCrmData();
+    fetchLeads();
+  }, [fetchCrmData, fetchLeads]);
 
+  // ── Salvar lead ──
   const handleSave = async (form: Omit<Lead, "id" | "created_at">) => {
+    const session = getSession();
+    if (!session?.client_id) return;
+
     const n8nUrl = clientMetadata?.n8n_webhook_url ?? "";
     const n8nKey = clientMetadata?.n8n_api_key ?? "";
 
+    const customValues = (form.custom_values ?? []).map((cv: CrmCustomValue) => ({
+      field_id: cv.field_id,
+      value: cv.value ?? null,
+    }));
+
+    const { data, error } = await supabase.rpc("save_crm_lead", {
+      p_client_id:        session.client_id,
+      p_lead_id:          editing?.id ?? null,
+      p_name:             form.name,
+      p_phone:            form.phone,
+      p_email:            form.email,
+      p_company:          form.company,
+      p_address:          form.address,
+      p_origin:           form.origin,
+      p_temperature:      form.temperature,
+      p_tags:             form.tags,
+      p_pipeline_id:      form.pipeline_id ?? activePipelineId,
+      p_stage_id:         form.stage_id ?? activeStages[0]?.id ?? null,
+      p_status:           form.status ?? "novo",
+      p_proposal_value:   form.proposal_value,
+      p_potential_value:  form.potential_value,
+      p_product_id:       form.product_id,
+      p_product_name:     form.product_name,
+      p_whatsapp_link:    form.whatsapp_link,
+      p_last_contact_at:  form.last_contact_at,
+      p_next_followup_at: form.next_followup_at,
+      p_lost_reason:      form.lost_reason,
+      p_notes:            form.notes,
+      p_custom_values:    customValues,
+    });
+
+    if (error || !data?.success) { toast.error(data?.error ?? "Erro ao salvar lead"); return; }
+
     if (editing) {
-      const prevStatus = editing.status;
-      const { error } = await supabase.from("crm_leads").update(form).eq("id", editing.id);
-      if (error) { toast.error("Erro ao atualizar"); return; }
       toast.success("Lead atualizado");
-      log({ action: `Lead editado: ${form.name}`, category: "lead", entity_type: "lead", entity_id: editing.id, details: { status: form.status, origin: form.origin } });
+      log({ action: `Lead editado: ${form.name}`, category: "lead", entity_type: "lead", entity_id: editing.id, details: { stage_id: form.stage_id } });
       if (form.status === "fechado" && clientMetadata) fireConversionEvents(clientMetadata);
-      // Disparar webhook n8n se status mudou
-      if (form.status !== prevStatus) {
-        void fireN8nWebhook(n8nUrl, n8nKey, {
-          event:       form.status === "fechado" ? "lead.closed" : "lead.status_changed",
-          lead_id:     editing.id,
-          lead_name:   form.name,
-          status:      form.status,
-          prev_status: prevStatus,
-          phone:       form.phone ?? null,
-          origin:      form.origin ?? null,
-          tenant_id:   _clientId,
-          timestamp:   new Date().toISOString(),
-        });
-      }
+      void fireN8nWebhook(n8nUrl, n8nKey, {
+        event: "lead.updated", lead_id: editing.id, lead_name: form.name,
+        status: form.status, tenant_id: _clientId, timestamp: new Date().toISOString(),
+      });
     } else {
-      const { data: inserted, error } = await supabase
-        .from("crm_leads").insert(form).select("id, status, created_at").single();
-      if (error) { toast.error("Erro ao criar lead"); return; }
       toast.success("Lead criado");
-      log({ action: `Lead criado: ${form.name}`, category: "lead", entity_type: "lead", entity_id: inserted?.id, details: { status: form.status, origin: form.origin } });
-      if (inserted) {
-        await supabase.from("crm_lead_stage_history").insert({
-          lead_id: inserted.id, stage: inserted.status,
-          entered_at: inserted.created_at, implicit: false,
-        });
-        // Disparar webhook n8n para lead criado
-        void fireN8nWebhook(n8nUrl, n8nKey, {
-          event:     "lead.created",
-          lead_id:   inserted.id,
-          lead_name: form.name,
-          status:    inserted.status,
-          phone:     form.phone ?? null,
-          origin:    form.origin ?? null,
-          tenant_id: _clientId,
-          timestamp: inserted.created_at,
-        });
-      }
+      log({ action: `Lead criado: ${form.name}`, category: "lead", entity_type: "lead", entity_id: data.lead_id, details: { origin: form.origin } });
       if (form.status === "fechado" && clientMetadata) fireConversionEvents(clientMetadata);
+      void fireN8nWebhook(n8nUrl, n8nKey, {
+        event: "lead.created", lead_id: data.lead_id, lead_name: form.name,
+        status: form.status, phone: form.phone ?? null, origin: form.origin ?? null,
+        tenant_id: _clientId, timestamp: new Date().toISOString(),
+      });
     }
+
     setDialogOpen(false);
     setEditing(null);
     fetchLeads();
   };
 
+  // ── Excluir lead ──
   const handleDelete = async (id: string) => {
     if (!confirm("Excluir este lead?")) return;
     const lead = leads.find(l => l.id === id);
@@ -197,55 +278,69 @@ export function CrmSection({ clientId: _clientId, clientMetadata }: CrmSectionPr
     if (error) { toast.error("Erro ao excluir"); return; }
     toast.success("Lead excluído");
     log({ action: `Lead excluído: ${lead?.name ?? id}`, category: "lead", entity_type: "lead", entity_id: id });
-    fetchLeads();
+    setLeads(prev => prev.filter(l => l.id !== id));
   };
 
+  // ── Drag & Drop ──
   const handleDragStart = (e: DragStartEvent) => {
-    setActiveLead(leads.find((l) => l.id === e.active.id) ?? null);
+    setActiveLead(leads.find(l => l.id === e.active.id) ?? null);
   };
 
   const handleDragEnd = async (e: DragEndEvent) => {
     setActiveLead(null);
     const { active, over } = e;
     if (!over) return;
-    const newStatus = COLUMNS.find((c) => c.id === over.id)?.id;
-    if (!newStatus || newStatus === leads.find((l) => l.id === active.id)?.status) return;
-    const movedLead = leads.find((l) => l.id === active.id);
-    const prevStatus = movedLead?.status;
-    setLeads((prev) => prev.map((l) => l.id === active.id ? { ...l, status: newStatus } : l));
-    const { error } = await supabase.from("crm_leads").update({ status: newStatus }).eq("id", String(active.id));
-    if (!error) {
-      log({ action: `Lead movido para "${newStatus}": ${movedLead?.name ?? active.id}`, category: "crm", entity_type: "lead", entity_id: String(active.id), details: { from: prevStatus, to: newStatus } });
-      if (newStatus === "fechado" && clientMetadata) fireConversionEvents(clientMetadata);
-      // Disparar webhook n8n
+    const targetStageId = String(over.id);
+    const lead = leads.find(l => l.id === active.id);
+    if (!lead || lead.stage_id === targetStageId) return;
+
+    const prevStageId = lead.stage_id;
+    setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, stage_id: targetStageId } : l));
+
+    const session = getSession();
+    const { data, error } = await supabase.rpc("move_crm_lead", {
+      p_client_id: session.client_id,
+      p_lead_id:   lead.id,
+      p_stage_id:  targetStageId,
+    });
+
+    if (error || !data?.success) {
+      toast.error("Erro ao mover lead");
+      setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, stage_id: prevStageId } : l));
+      return;
+    }
+
+    const stageName = activeStages.find(s => s.id === targetStageId)?.name ?? targetStageId;
+    log({
+      action: `Lead movido para "${stageName}": ${lead.name}`,
+      category: "crm", entity_type: "lead", entity_id: lead.id,
+      details: { from: prevStageId, to: targetStageId },
+    });
+
+    if (clientMetadata) {
       void fireN8nWebhook(
-        clientMetadata?.n8n_webhook_url ?? "",
-        clientMetadata?.n8n_api_key ?? "",
+        clientMetadata.n8n_webhook_url ?? "",
+        clientMetadata.n8n_api_key ?? "",
         {
-          event:       newStatus === "fechado" ? "lead.closed" : "lead.status_changed",
-          lead_id:     String(active.id),
-          lead_name:   movedLead?.name ?? "",
-          status:      newStatus,
-          prev_status: prevStatus,
-          phone:       movedLead?.phone ?? null,
-          origin:      movedLead?.origin ?? null,
-          tenant_id:   _clientId,
-          timestamp:   new Date().toISOString(),
+          event: "lead.stage_changed", lead_id: lead.id, lead_name: lead.name,
+          stage_id: targetStageId, stage_name: stageName,
+          phone: lead.phone ?? null, tenant_id: _clientId, timestamp: new Date().toISOString(),
         }
       );
     }
-    fetchLeads();
   };
 
-  const grouped = COLUMNS.reduce((acc, c) => {
-    acc[c.id] = leads.filter((l) => l.status === c.id);
+  // ── Agrupamento por stage ──
+  const grouped = activeStages.reduce((acc, stage) => {
+    acc[stage.id] = leads.filter(l =>
+      l.pipeline_id === activePipelineId && l.stage_id === stage.id
+    );
     return acc;
-  }, {} as Record<LeadStatus, Lead[]>);
+  }, {} as Record<string, Lead[]>);
 
-  const fmtCurrency = (v: number) =>
-    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(v);
-
-  const mesAtual = format(new Date(), "MMMM", { locale: ptBR });
+  const unstagedLeads = leads.filter(l =>
+    l.pipeline_id === activePipelineId && !activeStages.find(s => s.id === l.stage_id)
+  );
 
   // ── CSV helpers ──
   const handleCsvFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -271,12 +366,19 @@ export function CrmSection({ clientId: _clientId, clientMetadata }: CrmSectionPr
   };
 
   const handleCsvImport = async () => {
+    const session = getSession();
+    if (!session?.client_id) return;
     setCsvStep("importing");
     const skipped: ImportReport["skipped"] = [];
     let successCount = 0;
     for (let i = 0; i < csvRows.length; i++) {
       const row = csvRows[i];
-      const record: Record<string, string | number | null> = {};
+      const record: Record<string, string | number | null> = {
+        client_id:   session.client_id,
+        pipeline_id: activePipelineId,
+        stage_id:    activeStages[0]?.id ?? null,
+        status:      "novo",
+      };
       Object.entries(csvMapping).forEach(([col, field]) => {
         if (field === IGNORE_VALUE) return;
         const val = row[col]?.trim() ?? "";
@@ -302,88 +404,163 @@ export function CrmSection({ clientId: _clientId, clientMetadata }: CrmSectionPr
     setCsvMapping({}); setCsvReport(null); setCsvError(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
-
   const closeCsv = () => { resetCsv(); setCsvOpen(false); };
+
+  const fmtCurrency = (v: number) =>
+    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(v);
+  const mesAtual = format(new Date(), "MMMM", { locale: ptBR });
+
+  const isReady = !crmLoading;
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+
+      {/* ── Header ── */}
+      <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h2 className="text-2xl font-black text-white uppercase tracking-tight">CRM</h2>
           <p className="text-slate-400 text-sm">{leads.length} leads no total</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button onClick={() => { resetCsv(); setCsvOpen(true); }}
-            variant="outline" className="border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white gap-2">
-            <Upload className="h-4 w-4" /> Importar CSV
-          </Button>
-          <Button onClick={() => { setEditing(null); setDialogOpen(true); }} className="bg-[#7C3AED] hover:bg-[#7C3AED]/90 gap-2">
-            <Plus className="h-4 w-4" /> Novo Lead
-          </Button>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {activeTab === "kanban" && (
+            <>
+              <Button onClick={() => { resetCsv(); setCsvOpen(true); }}
+                variant="outline"
+                className="border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white gap-2">
+                <Upload className="h-4 w-4" /> Importar CSV
+              </Button>
+              <Button
+                onClick={() => { setEditing(null); setDialogOpen(true); }}
+                disabled={!isReady || activeStages.length === 0}
+                className="bg-[#7C3AED] hover:bg-[#7C3AED]/90 gap-2">
+                <Plus className="h-4 w-4" /> Novo Lead
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
-      {/* Mini Dashboard */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-        <StatCard
-          icon={<Clock className="h-5 w-5 text-yellow-400" />}
-          label="Pendentes WhatsApp"
-          value={stats.waPendentes}
-          sub="aguardando classificação"
-        />
-        <StatCard
-          icon={<Users className="h-5 w-5 text-[#7C3AED]" />}
-          label="Leads Ativos"
-          value={stats.leadsAtivos}
-          sub="em andamento no CRM"
-        />
-        <StatCard
-          icon={<MessageCircle className="h-5 w-5 text-blue-400" />}
-          label="Atendidos no Mês"
-          value={stats.atendidosMes}
-          sub={`contatos em ${mesAtual}`}
-        />
-        <StatCard
-          icon={<CheckCircle2 className="h-5 w-5 text-emerald-400" />}
-          label="Fechados no Mês"
-          value={stats.fechadosMes}
-          sub={`negócios em ${mesAtual}`}
-        />
-        <StatCard
-          icon={<DollarSign className="h-5 w-5 text-emerald-400" />}
-          label="Valor Gerado"
-          value={fmtCurrency(stats.valorFechadosMes)}
-          sub={`fechamentos em ${mesAtual}`}
-        />
+      {/* ── Abas: Kanban / Configurações ── */}
+      <div className="flex items-center gap-1 border-b border-slate-800 pb-0">
+        <button
+          onClick={() => setActiveTab("kanban")}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold border-b-2 -mb-px transition-colors ${
+            activeTab === "kanban"
+              ? "border-[#7C3AED] text-white"
+              : "border-transparent text-slate-500 hover:text-slate-300"
+          }`}
+        >
+          <KanbanSquare className="h-4 w-4" /> Kanban
+        </button>
+        <button
+          onClick={() => setActiveTab("settings")}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold border-b-2 -mb-px transition-colors ${
+            activeTab === "settings"
+              ? "border-[#7C3AED] text-white"
+              : "border-transparent text-slate-500 hover:text-slate-300"
+          }`}
+        >
+          <Settings2 className="h-4 w-4" /> Configurações
+        </button>
       </div>
 
-      {/* Kanban */}
-      {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#7C3AED] border-t-transparent" />
-        </div>
-      ) : (
-        <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-          <div className="flex gap-4 overflow-x-auto pb-4">
-            {COLUMNS.map((col) => (
-              <KanbanColumn key={col.id} col={col} leads={grouped[col.id] ?? []}
-                onEdit={(l) => { setEditing(l); setDialogOpen(true); }}
-                onDelete={handleDelete}
-              />
-            ))}
+      {/* ══ ABA: KANBAN ══════════════════════════════════════════════════════ */}
+      {activeTab === "kanban" && (
+        <div className="space-y-6">
+
+          {/* Mini Dashboard */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+            <StatCard icon={<Clock className="h-5 w-5 text-yellow-400" />}
+              label="Pendentes WhatsApp" value={stats.waPendentes} sub="aguardando classificação" />
+            <StatCard icon={<Users className="h-5 w-5 text-[#7C3AED]" />}
+              label="Leads Ativos" value={stats.leadsAtivos} sub="em andamento no CRM" />
+            <StatCard icon={<MessageCircle className="h-5 w-5 text-blue-400" />}
+              label="Atendidos no Mês" value={stats.atendidosMes} sub={`contatos em ${mesAtual}`} />
+            <StatCard icon={<CheckCircle2 className="h-5 w-5 text-emerald-400" />}
+              label="Fechados no Mês" value={stats.fechadosMes} sub={`negócios em ${mesAtual}`} />
+            <StatCard icon={<DollarSign className="h-5 w-5 text-emerald-400" />}
+              label="Valor Gerado" value={fmtCurrency(stats.valorFechadosMes)} sub={`fechamentos em ${mesAtual}`} />
           </div>
-          <DragOverlay>
-            {activeLead && (
-              <div className="opacity-90 rotate-1 scale-105 pointer-events-none">
-                <LeadCard lead={activeLead} onEdit={() => {}} onDelete={() => {}} isDragging />
+
+          {/* Seletor de pipeline (quando há mais de um) */}
+          {isReady && crmData.pipelines.length > 1 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-slate-500 uppercase font-bold tracking-widest">Funil:</span>
+              {crmData.pipelines.map(p => (
+                <button key={p.id} onClick={() => setActivePipelineId(p.id)}
+                  className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${
+                    activePipelineId === p.id
+                      ? "bg-[#7C3AED] text-white"
+                      : "bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white"
+                  }`}>
+                  {p.name}{p.is_default && <span className="ml-1 opacity-60">★</span>}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Kanban */}
+          {crmLoading ? (
+            <div className="flex items-center justify-center py-20">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#7C3AED] border-t-transparent" />
+            </div>
+          ) : activeStages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-4 text-center">
+              <Columns3 className="h-12 w-12 text-slate-700" />
+              <p className="text-slate-400 font-bold">Nenhuma etapa configurada</p>
+              <p className="text-slate-500 text-sm max-w-xs">
+                Configure o pipeline na aba Configurações para começar a usar o CRM.
+              </p>
+              <Button onClick={() => setActiveTab("settings")}
+                className="bg-[#7C3AED] hover:bg-[#7C3AED]/90 gap-2">
+                <Settings2 className="h-4 w-4" /> Ir para Configurações
+              </Button>
+            </div>
+          ) : (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCorners}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+            >
+              <div className="flex gap-4 overflow-x-auto pb-4">
+                {activeStages.map(stage => (
+                  <KanbanColumn
+                    key={stage.id}
+                    col={{ id: stage.id, label: stage.name, color: stageColorToBorder(stage.color) }}
+                    leads={grouped[stage.id] ?? []}
+                    onEdit={l => { setEditing(l); setDialogOpen(true); }}
+                    onDelete={handleDelete}
+                  />
+                ))}
+                {unstagedLeads.length > 0 && (
+                  <KanbanColumn
+                    col={{ id: "__unstaged__", label: "Sem etapa", color: "border-t-slate-600" }}
+                    leads={unstagedLeads}
+                    onEdit={l => { setEditing(l); setDialogOpen(true); }}
+                    onDelete={handleDelete}
+                  />
+                )}
               </div>
-            )}
-          </DragOverlay>
-        </DndContext>
+              <DragOverlay>
+                {activeLead && (
+                  <div className="opacity-90 rotate-1 scale-105 pointer-events-none">
+                    <LeadCard lead={activeLead} onEdit={() => {}} onDelete={() => {}} isDragging />
+                  </div>
+                )}
+              </DragOverlay>
+            </DndContext>
+          )}
+        </div>
       )}
 
-      {/* CSV Import Dialog */}
+      {/* ══ ABA: CONFIGURAÇÕES ═══════════════════════════════════════════════ */}
+      {activeTab === "settings" && (
+        <CrmSettingsPanel crmData={crmData} onRefresh={fetchCrmData} />
+      )}
+
+      {/* ── CSV Import Dialog ── */}
       <input ref={fileInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleCsvFile} />
       <Dialog open={csvOpen} onOpenChange={open => { if (!open) closeCsv(); }}>
         <DialogContent className="bg-[#1E293B] border-slate-700 text-slate-100 w-[80vw] max-w-[80vw] max-h-[90vh] overflow-y-auto">
@@ -416,38 +593,54 @@ export function CrmSection({ clientId: _clientId, clientMetadata }: CrmSectionPr
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b border-slate-700 bg-slate-900/40">
-                      {csvHeaders.map(h => <th key={h} className="text-left py-2 px-3 text-slate-400 font-black uppercase tracking-wider whitespace-nowrap">{h}</th>)}
+                      {csvHeaders.map(h => (
+                        <th key={h} className="text-left py-2 px-3 text-slate-400 font-black uppercase tracking-wider whitespace-nowrap">{h}</th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
                     {csvPreview.map((row, i) => (
                       <tr key={i}>
-                        {csvHeaders.map(h => <td key={h} className="py-2 px-3 text-slate-300 whitespace-nowrap max-w-[150px] truncate">{row[h] || <span className="text-slate-600 italic">vazio</span>}</td>)}
+                        {csvHeaders.map(h => (
+                          <td key={h} className="py-2 px-3 text-slate-300 whitespace-nowrap max-w-[150px] truncate">
+                            {row[h] || <span className="text-slate-600 italic">vazio</span>}
+                          </td>
+                        ))}
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              <p className="text-slate-500 text-xs">Total: <span className="text-slate-300 font-bold">{csvRows.length}</span> linhas</p>
+              <p className="text-slate-500 text-xs">
+                Total: <span className="text-slate-300 font-bold">{csvRows.length}</span> linhas
+                {activePipeline && activeStages[0] && (
+                  <span className="ml-2">→ importados para <span className="text-[#7C3AED] font-bold">{activePipeline.name}</span> / <span className="text-[#7C3AED] font-bold">{activeStages[0].name}</span></span>
+                )}
+              </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {csvHeaders.map(header => (
                   <div key={header} className="space-y-1">
                     <Label className="text-slate-300 text-xs font-bold uppercase tracking-wide">{header}</Label>
-                    <Select value={csvMapping[header] ?? IGNORE_VALUE} onValueChange={val => setCsvMapping(prev => ({ ...prev, [header]: val }))}>
-                      <SelectTrigger className="bg-slate-900/50 border-slate-700 text-slate-200 h-9">
-                        <SelectValue />
-                      </SelectTrigger>
+                    <Select value={csvMapping[header] ?? IGNORE_VALUE}
+                      onValueChange={val => setCsvMapping(prev => ({ ...prev, [header]: val }))}>
+                      <SelectTrigger className="bg-slate-900/50 border-slate-700 text-slate-200 h-9"><SelectValue /></SelectTrigger>
                       <SelectContent className="bg-[#1E293B] border-slate-700 text-slate-200">
                         <SelectItem value={IGNORE_VALUE} className="text-slate-500 focus:bg-slate-800">— Ignorar —</SelectItem>
-                        {CRM_FIELDS.map(f => <SelectItem key={f.value} value={f.value} className="focus:bg-slate-800">{f.label}</SelectItem>)}
+                        {CRM_FIELDS.map(f => (
+                          <SelectItem key={f.value} value={f.value} className="focus:bg-slate-800">{f.label}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
                 ))}
               </div>
               <div className="flex gap-3 pt-2">
-                <Button variant="outline" className="border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white" onClick={resetCsv}>Voltar</Button>
-                <Button className="bg-[#7C3AED] hover:bg-[#7C3AED]/90 font-bold flex-1" onClick={handleCsvImport}>Importar</Button>
+                <Button variant="outline" className="border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white" onClick={resetCsv}>
+                  Voltar
+                </Button>
+                <Button className="bg-[#7C3AED] hover:bg-[#7C3AED]/90 font-bold flex-1" onClick={handleCsvImport}>
+                  Importar
+                </Button>
               </div>
             </div>
           )}
@@ -488,27 +681,27 @@ export function CrmSection({ clientId: _clientId, clientMetadata }: CrmSectionPr
                 </div>
               )}
               <div className="flex gap-3">
-                <Button variant="outline" className="border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white" onClick={resetCsv}>Nova Importação</Button>
-                <Button className="bg-[#7C3AED] hover:bg-[#7C3AED]/90 font-bold flex-1" onClick={closeCsv}>Fechar</Button>
+                <Button variant="outline" className="border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white" onClick={resetCsv}>
+                  Nova Importação
+                </Button>
+                <Button className="bg-[#7C3AED] hover:bg-[#7C3AED]/90 font-bold flex-1" onClick={closeCsv}>
+                  Fechar
+                </Button>
               </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
 
+      {/* ── Lead Form ── */}
       <LeadForm
         open={dialogOpen}
         onClose={() => { setDialogOpen(false); setEditing(null); }}
-        initial={editing ? {
-          name: editing.name, phone: editing.phone, email: editing.email,
-          company: editing.company, address: editing.address, origin: editing.origin,
-          temperature: editing.temperature, proposal_value: editing.proposal_value,
-          potential_value: editing.potential_value, product_id: editing.product_id,
-          product_name: editing.product_name, whatsapp_link: editing.whatsapp_link,
-          last_contact_at: editing.last_contact_at, next_followup_at: editing.next_followup_at,
-          lost_reason: editing.lost_reason, tags: editing.tags, notes: editing.notes,
-          status: editing.status,
-        } : null}
+        initial={editing ?? null}
+        stages={activeStages}
+        customFields={crmData.custom_fields}
+        defaultStageId={activeStages[0]?.id ?? null}
+        defaultPipelineId={activePipelineId}
         onSave={handleSave}
       />
     </div>

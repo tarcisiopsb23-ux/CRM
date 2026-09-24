@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap');
+﻿@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap');
 @import url("https://fonts.googleapis.com/css2?family=Inter&display=swap");
 @import url("https://fonts.googleapis.com/css2?family=Lora&display=swap");
 
@@ -14,28 +14,28 @@
     --card-foreground: 213 30% 17%;
     --popover: 0 0% 100%;
     --popover-foreground: 213 30% 17%;
-    --primary: 265 62% 46%;
+    --primary: 265 60% 45%;
     --primary-foreground: 0 0% 100%;
     --secondary: 213 30% 17%;
     --secondary-foreground: 0 0% 100%;
     --muted: 228 25% 93%;
     --muted-foreground: 215 16% 47%;
-    --accent: 265 40% 94%;
-    --accent-foreground: 265 62% 46%;
+    --accent: 260 45% 88%;
+    --accent-foreground: 265 60% 40%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
     --border: 220 20% 90%;
     --input: 220 20% 90%;
-    --ring: 265 62% 46%;
+    --ring: 265 60% 45%;
     --radius: 0.625rem;
-    --sidebar-background: 265 45% 20%;
+    --sidebar-background: 260 55% 20%;
     --sidebar-foreground: 220 20% 90%;
-    --sidebar-primary: 265 62% 56%;
+    --sidebar-primary: 265 60% 50%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 265 40% 25%;
+    --sidebar-accent: 260 50% 26%;
     --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 265 40% 25%;
-    --sidebar-ring: 265 62% 56%;
+    --sidebar-border: 260 50% 26%;
+    --sidebar-ring: 265 60% 50%;
     --success: 152 60% 42%;
     --success-foreground: 0 0% 100%;
     --warning: 38 92% 50%;
@@ -47,8 +47,8 @@
     --chart-3: 152 60% 42%;
     --chart-4: 38 92% 50%;
     --chart-5: 0 84% 60%;
-    --gradient-primary: linear-gradient(135deg, hsl(265 62% 46%), hsl(280 70% 55%));
-    --gradient-sidebar: linear-gradient(180deg, hsl(265 45% 20%), hsl(265 50% 15%));
+    --gradient-primary: linear-gradient(135deg, hsl(260 60% 40%), hsl(280 65% 45%));
+    --gradient-sidebar: linear-gradient(180deg, hsl(260 55% 22%), hsl(270 65% 14%));
     --font-serif: Lora, ui-serif, Georgia, Cambria, Times New Roman, Times, serif;
   }
 
@@ -91,27 +91,27 @@
     --card-foreground: 220 20% 90%;
     --popover: 213 30% 14%;
     --popover-foreground: 220 20% 90%;
-    --primary: 265 62% 56%;
+    --primary: 265 60% 50%;
     --primary-foreground: 0 0% 100%;
     --secondary: 213 25% 22%;
     --secondary-foreground: 220 20% 90%;
     --muted: 213 25% 20%;
     --muted-foreground: 215 16% 60%;
-    --accent: 265 30% 22%;
-    --accent-foreground: 265 62% 70%;
+    --accent: 260 40% 25%;
+    --accent-foreground: 265 60% 75%;
     --destructive: 0 62% 30%;
     --destructive-foreground: 0 0% 100%;
     --border: 213 25% 22%;
     --input: 213 25% 22%;
-    --ring: 265 62% 56%;
-    --sidebar-background: 265 45% 15%;
+    --ring: 265 60% 50%;
+    --sidebar-background: 260 50% 18%;
     --sidebar-foreground: 220 20% 90%;
-    --sidebar-primary: 265 62% 56%;
+    --sidebar-primary: 265 60% 55%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 265 40% 20%;
+    --sidebar-accent: 260 45% 24%;
     --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 265 40% 20%;
-    --sidebar-ring: 265 62% 56%;
+    --sidebar-border: 260 45% 24%;
+    --sidebar-ring: 265 60% 55%;
     --font-serif: Lora, ui-serif, Georgia, Cambria, Times New Roman, Times, serif;
   }
 }
@@ -154,6 +154,47 @@
     border: 2px solid transparent;
     background-clip: padding-box;
   }
+  /* Tabelas com scroll horizontal fixo na viewport */
+  .table-scroll-container {
+    overflow-x: auto;
+    overflow-y: auto;
+    max-height: calc(100vh - 320px);
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  .table-scroll-container::-webkit-scrollbar {
+    height: 8px;
+    width: 6px;
+  }
+  .table-scroll-container::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .table-scroll-container::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  /* Scrollbar moderna para o sidebar */
+  .sidebar-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--sidebar-accent)) transparent;
+  }
+  .sidebar-scroll::-webkit-scrollbar {
+    width: 6px;
+  }
+  .sidebar-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .sidebar-scroll::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--sidebar-accent));
+    border-radius: 9999px;
+    border: 1px solid transparent;
+    background-clip: padding-box;
+  }
+  .sidebar-scroll::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--sidebar-ring));
+  }
 }
 
 @media print {
@@ -175,3 +216,345 @@
     box-shadow: none;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PUBLIC DASHBOARD — tema dark premium (ember-booth)
+   Aplicado apenas dentro de .public-dashboard-root
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.public-dashboard-root {
+  /* Backgrounds */
+  --pd-bg:          220 27% 8%;   /* #0F1115 */
+  --pd-bg-elevated: 222 26% 12%;  /* #151922 */
+  --pd-card:        222 24% 16%;  /* #1B2230 */
+
+  /* Primary: violeta */
+  --pd-primary:     270 65% 60%;  /* oklch ~0.65 0.18 285 */
+  --pd-primary-fg:  0 0% 98%;
+
+  /* Secondary surface */
+  --pd-secondary:   222 22% 20%;
+
+  /* Muted */
+  --pd-muted:       222 22% 20%;
+  --pd-muted-fg:    215 16% 55%;
+
+  /* Border */
+  --pd-border:      222 20% 22%;
+
+  /* Success */
+  --pd-success:     145 60% 45%;
+
+  /* Warning */
+  --pd-warning:     38 92% 50%;
+
+  /* Destructive */
+  --pd-destructive: 0 72% 51%;
+
+  /* Sidebar */
+  --pd-sidebar:     222 25% 13%;
+  --pd-sidebar-border: 222 22% 18%;
+
+  /* Gradiente ember (violeta → roxo) */
+  --pd-gradient-ember: linear-gradient(135deg, hsl(270 65% 60%), hsl(285 70% 68%));
+  --pd-gradient-surface: linear-gradient(180deg, hsl(222 24% 16%), hsl(222 24% 14%));
+  --pd-gradient-glow: radial-gradient(circle at 50% 0%, hsl(270 65% 60% / 0.18), transparent 70%);
+  --pd-shadow-glow: 0 10px 40px -10px hsl(270 65% 60% / 0.35);
+  --pd-shadow-elevated: 0 8px 30px -12px hsl(0 0% 0% / 0.6);
+
+  /* Sobrescreve as CSS vars do shadcn dentro do public dashboard */
+  --background:   var(--pd-bg);
+  --foreground:   0 0% 95%;
+  --card:         var(--pd-card);
+  --card-foreground: 0 0% 95%;
+  --popover:      var(--pd-card);
+  --popover-foreground: 0 0% 95%;
+  --primary:      var(--pd-primary);
+  --primary-foreground: var(--pd-primary-fg);
+  --secondary:    var(--pd-secondary);
+  --secondary-foreground: 0 0% 90%;
+  --muted:        var(--pd-muted);
+  --muted-foreground: var(--pd-muted-fg);
+  --accent:       var(--pd-secondary);
+  --accent-foreground: 0 0% 90%;
+  --destructive:  var(--pd-destructive);
+  --destructive-foreground: 0 0% 100%;
+  --border:       var(--pd-border);
+  --input:        var(--pd-border);
+  --ring:         var(--pd-primary);
+  --success:      var(--pd-success);
+  --success-foreground: 0 0% 100%;
+  --warning:      var(--pd-warning);
+  --warning-foreground: 0 0% 100%;
+  --sidebar-background: var(--pd-sidebar);
+  --sidebar-foreground: 0 0% 90%;
+  --sidebar-primary: var(--pd-primary);
+  --sidebar-primary-foreground: var(--pd-primary-fg);
+  --sidebar-accent: var(--pd-secondary);
+  --sidebar-accent-foreground: 0 0% 90%;
+  --sidebar-border: var(--pd-sidebar-border);
+  --sidebar-ring:  var(--pd-primary);
+
+  background-color: hsl(var(--pd-bg));
+  color: hsl(0 0% 95%);
+  color-scheme: dark;
+  background-image:
+    radial-gradient(ellipse at top, hsl(270 65% 60% / 0.06), transparent 60%),
+    radial-gradient(ellipse at bottom right, hsl(280 50% 40% / 0.04), transparent 60%);
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+/* Utilitários do tema ember */
+.public-dashboard-root .bg-gradient-ember,
+.public-dashboard-root .bg-gradient-ember {
+  background: var(--pd-gradient-ember) !important;
+}
+
+.public-dashboard-root .text-gradient-ember {
+  background: var(--pd-gradient-ember);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.public-dashboard-root .shadow-glow {
+  box-shadow: var(--pd-shadow-glow);
+}
+
+.public-dashboard-root .shadow-elevated {
+  box-shadow: var(--pd-shadow-elevated);
+}
+
+.public-dashboard-root .card-surface {
+  background: var(--pd-gradient-surface);
+  border: 1px solid hsl(var(--pd-border));
+  border-radius: var(--radius);
+}
+
+/* font-display = Space Grotesk */
+.public-dashboard-root .font-display,
+.public-dashboard-root h1,
+.public-dashboard-root h2,
+.public-dashboard-root h3,
+.public-dashboard-root h4 {
+  font-family: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+  letter-spacing: -0.02em;
+}
+
+/* Botões com gradiente ember */
+.public-dashboard-root .bg-gradient-ember {
+  background: var(--pd-gradient-ember) !important;
+  color: hsl(var(--pd-primary-fg)) !important;
+}
+
+/* ── Scrollbar do public dashboard ── */
+.public-dashboard-root *::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.public-dashboard-root *::-webkit-scrollbar-track {
+  background: hsl(var(--pd-bg-elevated));
+  border-radius: 999px;
+}
+.public-dashboard-root *::-webkit-scrollbar-thumb {
+  background: hsl(var(--pd-border));
+  border-radius: 999px;
+  border: 1px solid hsl(var(--pd-bg-elevated));
+  background-clip: padding-box;
+}
+.public-dashboard-root *::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--pd-primary) / 0.6);
+  border-color: hsl(var(--pd-bg-elevated));
+  background-clip: padding-box;
+}
+.public-dashboard-root *::-webkit-scrollbar-corner {
+  background: hsl(var(--pd-bg-elevated));
+}
+/* Firefox */
+.public-dashboard-root * {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--pd-border)) hsl(var(--pd-bg-elevated));
+}
+
+/* ── Scrollbar global quando o tema dark está ativo (cobre portais/modais) ── */
+/* O public dashboard força a classe .dark no <html>, portanto este seletor  */
+/* alcança todos os portais do Radix (Dialog, Popover, DropdownMenu, etc.)   */
+/* que são renderizados fora de .public-dashboard-root no DOM.               */
+.dark *::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.dark *::-webkit-scrollbar-track {
+  background: hsl(222 26% 12%);   /* --pd-bg-elevated */
+  border-radius: 999px;
+}
+.dark *::-webkit-scrollbar-thumb {
+  background: hsl(222 20% 22%);   /* --pd-border */
+  border-radius: 999px;
+  border: 1px solid hsl(222 26% 12%);
+  background-clip: padding-box;
+}
+.dark *::-webkit-scrollbar-thumb:hover {
+  background: hsl(270 65% 60% / 0.6);  /* --pd-primary */
+  border-color: hsl(222 26% 12%);
+  background-clip: padding-box;
+}
+.dark *::-webkit-scrollbar-corner {
+  background: hsl(222 26% 12%);
+}
+/* Firefox */
+.dark * {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(222 20% 22%) hsl(222 26% 12%);
+}
+
+/* ── Scrollbar customization ── */
+
+/* ── Scrollbar do dashboard interno (fundo claro) ── */
+.scrollbar-light::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.scrollbar-light::-webkit-scrollbar-track {
+  background: hsl(var(--muted));
+  border-radius: 999px;
+}
+.scrollbar-light::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 999px;
+  border: 1px solid hsl(var(--muted));
+  background-clip: padding-box;
+}
+.scrollbar-light::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--primary) / 0.5);
+  background-clip: padding-box;
+}
+.scrollbar-light {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--border)) hsl(var(--muted));
+}
+
+/* ── Editor de contratos e alíneas (TipTap) ──────────────────────────────────
+   Espelha exatamente o contractCss do ContractViewer para que o editor
+   mostre o mesmo espaçamento que aparece no preview e na impressão.
+   ─────────────────────────────────────────────────────────────────────────── */
+.contract-editor {
+  font-family: "Calibri", Calibri, sans-serif;
+  font-size: 12pt;
+  line-height: 1.6;
+  color: #000;
+}
+
+/* Parágrafos — mesma margem do contractCss */
+.contract-editor p {
+  margin: 3pt 0;
+  text-align: justify;
+}
+
+/* Parágrafo vazio (Enter) — garante altura visível */
+.contract-editor p:empty,
+.contract-editor p:has(> br:only-child) {
+  min-height: 1.4em;
+  display: block;
+}
+
+/* Títulos */
+.contract-editor h1 {
+  font-size: 14pt;
+  font-weight: bold;
+  text-align: center;
+  text-transform: uppercase;
+  margin: 0 0 16pt;
+  letter-spacing: 0.5pt;
+  border: none;
+}
+
+.contract-editor h2 {
+  font-size: 12pt;
+  font-weight: bold;
+  text-transform: uppercase;
+  border-bottom: 1px solid #888;
+  padding-bottom: 2pt;
+  margin: 8pt 0 4pt;
+}
+
+/* Listas — mesma margem do contractCss */
+.contract-editor ul {
+  list-style-type: disc;
+  margin: 5pt 0 5pt 22pt;
+  padding: 0;
+}
+
+.contract-editor ol {
+  list-style-type: decimal;
+  margin: 5pt 0 5pt 22pt;
+  padding: 0;
+}
+
+.contract-editor li {
+  margin: 2pt 0;
+  display: list-item;
+  text-align: justify;
+}
+
+/* Aninhamento nível 2 */
+.contract-editor ul ul,
+.contract-editor ol ul {
+  list-style-type: circle;
+  margin-left: 22pt;
+}
+
+.contract-editor ul ol,
+.contract-editor ol ol {
+  list-style-type: lower-alpha;
+  margin-left: 22pt;
+}
+
+/* Aninhamento nível 3 */
+.contract-editor ul ul ul { list-style-type: square; }
+.contract-editor ol ol ol { list-style-type: lower-roman; }
+
+/* Texto */
+.contract-editor strong { font-weight: bold; }
+.contract-editor em     { font-style: italic; }
+.contract-editor u      { text-decoration: underline; }
+
+/* Cursor e foco */
+.contract-editor:focus-visible { outline: none; }
+
+/* Placeholder do TipTap */
+.contract-editor p.is-empty::before {
+  content: attr(data-placeholder);
+  color: #aaa;
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+/* ── Marcador de letra a), b), c)... no editor TipTap ───────────────────────── */
+.contract-editor p[data-alpha-list]::before {
+  content: attr(data-alpha-list) ") ";
+  font-weight: normal;
+  /* O marcador recua junto com o parágrafo via text-indent negativo */
+  margin-left: -1.5em;
+  display: inline-block;
+  width: 1.5em;
+}
+
+/* Bloco inteiro recuado — texto alinhado com a letra */
+.contract-editor p[data-alpha-list] {
+  padding-left: 2em;
+}
+
+/* ── Hierarquia de nós (migration 00216) ────────────────────────────────────── */
+.contract-editor .contract-node       { display: block; }
+.contract-editor .clause-node-row     { display: flex; gap: 6pt; align-items: baseline; }
+.contract-editor .clause-marker       { flex-shrink: 0; font-weight: normal; min-width: 2em; }
+.contract-editor .clause-node-content { flex: 1; }
+.contract-editor .clause-node-content p { margin: 5pt 0; text-align: justify; }
+.contract-editor .clause-children     { margin-left: 18pt; }
+.contract-editor .clause-depth-0      { margin-bottom: 4pt; }
+.contract-editor .clause-depth-1      { margin-bottom: 3pt; }
+.contract-editor .clause-depth-2      { margin-bottom: 2pt; }
+.contract-editor .clause-depth-3      { margin-bottom: 2pt; }

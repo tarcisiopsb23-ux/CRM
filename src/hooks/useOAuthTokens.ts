@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseCrm } from "@/lib/supabase";
 
 export interface OAuthToken {
@@ -16,19 +17,20 @@ export interface OAuthToken {
   updated_at: string;
 }
 
-export function useOAuthTokens(tenantId?: string) {
+export function useOAuthTokens(tenantId?: string, dbClient?: SupabaseClient | null) {
   const qc = useQueryClient();
+  const db = dbClient ?? supabaseCrm;
 
   const query = useQuery<OAuthToken[]>({
     queryKey: ["oauth_tokens", tenantId],
     queryFn: async () => {
       if (!tenantId) return [];
-      const { data, error } = await supabaseCrm
+      const { data, error } = await db
         .from("oauth_tokens")
         .select("*")
         .eq("tenant_id", tenantId);
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as OAuthToken[];
     },
     enabled: !!tenantId,
   });
@@ -41,7 +43,7 @@ export function useOAuthTokens(tenantId?: string) {
       meta_ad_account_id?: string;
     }) => {
       if (!tenantId) throw new Error("tenant_id required");
-      const { error } = await supabaseCrm
+      const { error } = await db
         .from("oauth_tokens")
         .update({
           ga4_property_id: params.ga4_property_id,
@@ -59,7 +61,7 @@ export function useOAuthTokens(tenantId?: string) {
   const disconnect = useMutation({
     mutationFn: async (provider: "google" | "meta") => {
       if (!tenantId) throw new Error("tenant_id required");
-      const { error } = await supabaseCrm
+      const { error } = await db
         .from("oauth_tokens")
         .delete()
         .eq("tenant_id", tenantId)
