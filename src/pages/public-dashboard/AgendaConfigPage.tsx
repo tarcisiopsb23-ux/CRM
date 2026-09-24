@@ -15,7 +15,7 @@ import { ptBR } from "date-fns/locale";
 import {
   Plus, Pencil, Trash2, Loader2, Clock, Calendar,
   CheckCircle2, Unlink, AlertCircle, Users, Settings2,
-  Eye, EyeOff, Package, Info, Palette, Upload, ImageIcon, MessageCircle,
+  Eye, EyeOff, Package, Info, Palette, Upload, ImageIcon, MessageCircle, Mail,
 } from "lucide-react";
 import { Button }   from "@/components/ui/button";
 import { Input }    from "@/components/ui/input";
@@ -303,20 +303,38 @@ export function AgendaConfigPage() {
   const [localDisplay, setLocalDisplay] = useState<{ show_services: boolean; show_professionals: boolean } | null>(null);
   const currentDisplay = localDisplay ?? displayConfig;
 
-  // ── Notificações WhatsApp ─────────────────────────────────────────────────
-  // Só disponível quando automation_enabled = true (módulo Chatbot ativo)
+  // ── Notificações (WhatsApp + E-mail) ─────────────────────────────────────
+  // Aba "Notificações" aparece sempre que agenda está habilitada
   const chatbotEnabled = auth?.modules_config?.automation_enabled === true;
+
   const [notifyConfig, setNotifyConfig] = useState<{
-    whatsapp_notify_enabled:     boolean;
-    whatsapp_notify_on_created:  boolean;
-    whatsapp_notify_on_confirmed:boolean;
-    whatsapp_notify_on_cancelled:boolean;
-    whatsapp_notify_on_reminder: boolean;
-    whatsapp_reminder_hours:     number;
-    whatsapp_msg_created:        string;
-    whatsapp_msg_confirmed:      string;
-    whatsapp_msg_cancelled:      string;
-    whatsapp_msg_reminder:       string;
+    // WhatsApp
+    whatsapp_notify_enabled:      boolean;
+    whatsapp_notify_on_created:   boolean;
+    whatsapp_notify_on_confirmed: boolean;
+    whatsapp_notify_on_cancelled: boolean;
+    whatsapp_notify_on_reminder:  boolean;
+    whatsapp_reminder_hours:      number;
+    whatsapp_msg_created:         string;
+    whatsapp_msg_confirmed:       string;
+    whatsapp_msg_cancelled:       string;
+    whatsapp_msg_reminder:        string;
+    // E-mail
+    email_notify_enabled:         boolean;
+    email_notify_on_created:      boolean;
+    email_notify_on_confirmed:    boolean;
+    email_notify_on_cancelled:    boolean;
+    email_notify_on_reminder:     boolean;
+    email_reminder_hours:         number;
+    email_notify_from:            string;
+    email_subject_created:        string;
+    email_subject_confirmed:      string;
+    email_subject_cancelled:      string;
+    email_subject_reminder:       string;
+    email_msg_created:            string;
+    email_msg_confirmed:          string;
+    email_msg_cancelled:          string;
+    email_msg_reminder:           string;
   }>({
     whatsapp_notify_enabled:      false,
     whatsapp_notify_on_created:   true,
@@ -328,16 +346,40 @@ export function AgendaConfigPage() {
     whatsapp_msg_confirmed:       "",
     whatsapp_msg_cancelled:       "",
     whatsapp_msg_reminder:        "",
+    email_notify_enabled:         false,
+    email_notify_on_created:      true,
+    email_notify_on_confirmed:    true,
+    email_notify_on_cancelled:    true,
+    email_notify_on_reminder:     true,
+    email_reminder_hours:         24,
+    email_notify_from:            "",
+    email_subject_created:        "",
+    email_subject_confirmed:      "",
+    email_subject_cancelled:      "",
+    email_subject_reminder:       "",
+    email_msg_created:            "",
+    email_msg_confirmed:          "",
+    email_msg_cancelled:          "",
+    email_msg_reminder:           "",
   });
   const [notifyLoaded,  setNotifyLoaded]  = useState(false);
   const [savingNotify,  setSavingNotify]  = useState(false);
 
-  // Carrega config de notificações do Banco A
+  // Carrega config de notificações do Banco A (WhatsApp + E-mail)
   useState(() => {
     if (!dc || !clientId || notifyLoaded) return;
     setNotifyLoaded(true);
     dc.from("client_ai_settings")
-      .select("whatsapp_notify_enabled,whatsapp_notify_on_created,whatsapp_notify_on_confirmed,whatsapp_notify_on_cancelled,whatsapp_notify_on_reminder,whatsapp_reminder_hours,whatsapp_msg_created,whatsapp_msg_confirmed,whatsapp_msg_cancelled,whatsapp_msg_reminder")
+      .select([
+        "whatsapp_notify_enabled","whatsapp_notify_on_created","whatsapp_notify_on_confirmed",
+        "whatsapp_notify_on_cancelled","whatsapp_notify_on_reminder","whatsapp_reminder_hours",
+        "whatsapp_msg_created","whatsapp_msg_confirmed","whatsapp_msg_cancelled","whatsapp_msg_reminder",
+        "email_notify_enabled","email_notify_on_created","email_notify_on_confirmed",
+        "email_notify_on_cancelled","email_notify_on_reminder","email_reminder_hours",
+        "email_notify_from","email_subject_created","email_subject_confirmed",
+        "email_subject_cancelled","email_subject_reminder",
+        "email_msg_created","email_msg_confirmed","email_msg_cancelled","email_msg_reminder",
+      ].join(","))
       .eq("client_id", clientId)
       .limit(1)
       .maybeSingle()
@@ -353,6 +395,21 @@ export function AgendaConfigPage() {
           whatsapp_msg_confirmed:       data.whatsapp_msg_confirmed       ?? "",
           whatsapp_msg_cancelled:       data.whatsapp_msg_cancelled       ?? "",
           whatsapp_msg_reminder:        data.whatsapp_msg_reminder        ?? "",
+          email_notify_enabled:         data.email_notify_enabled         ?? false,
+          email_notify_on_created:      data.email_notify_on_created      ?? true,
+          email_notify_on_confirmed:    data.email_notify_on_confirmed    ?? true,
+          email_notify_on_cancelled:    data.email_notify_on_cancelled    ?? true,
+          email_notify_on_reminder:     data.email_notify_on_reminder     ?? true,
+          email_reminder_hours:         data.email_reminder_hours         ?? 24,
+          email_notify_from:            data.email_notify_from            ?? "",
+          email_subject_created:        data.email_subject_created        ?? "",
+          email_subject_confirmed:      data.email_subject_confirmed      ?? "",
+          email_subject_cancelled:      data.email_subject_cancelled      ?? "",
+          email_subject_reminder:       data.email_subject_reminder       ?? "",
+          email_msg_created:            data.email_msg_created            ?? "",
+          email_msg_confirmed:          data.email_msg_confirmed          ?? "",
+          email_msg_cancelled:          data.email_msg_cancelled          ?? "",
+          email_msg_reminder:           data.email_msg_reminder           ?? "",
         });
       });
   });
@@ -448,7 +505,7 @@ export function AgendaConfigPage() {
           <TabsTrigger value="servicos" className="gap-1.5"><Package     className="h-3.5 w-3.5" /> Serviços</TabsTrigger>
           <TabsTrigger value="profissionais" className="gap-1.5"><Users className="h-3.5 w-3.5" /> Profissionais</TabsTrigger>
           <TabsTrigger value="exibicao" className="gap-1.5"><Eye        className="h-3.5 w-3.5" /> Exibição</TabsTrigger>
-          {chatbotEnabled && (
+          {(
             <TabsTrigger value="notificacoes" className="gap-1.5"><MessageCircle className="h-3.5 w-3.5" /> Notificações</TabsTrigger>
           )}
         </TabsList>
@@ -966,118 +1023,278 @@ export function AgendaConfigPage() {
         {/* ── Aba: Notificações WhatsApp (só quando chatbot ativo) ── */}
         {chatbotEnabled && (
           <TabsContent value="notificacoes">
-            <Card className="card-surface">
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <MessageCircle className="h-4 w-4 text-primary" /> Notificações WhatsApp
-                </CardTitle>
-                <CardDescription>
-                  Envie mensagens automáticas para os clientes ao criar, confirmar ou cancelar agendamentos.
-                  Usa a conexão WhatsApp configurada em Integrações → Meta Connections.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-5">
+            <div className="space-y-4">
 
-                {/* Toggle principal */}
-                <div className="flex items-center justify-between rounded-lg border border-border bg-secondary/20 px-4 py-3">
-                  <div>
-                    <p className="text-sm font-semibold">Ativar notificações WhatsApp</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Requer uma conexão WhatsApp ativa em Configurações → Integrações → Meta Connections.
-                    </p>
-                  </div>
-                  <Switch
-                    checked={notifyConfig.whatsapp_notify_enabled}
-                    onCheckedChange={v => setNotifyConfig(c => ({ ...c, whatsapp_notify_enabled: v }))}
-                    disabled={!canEdit}
-                  />
-                </div>
-
-                {notifyConfig.whatsapp_notify_enabled && (
-                  <>
-                    {/* Quais eventos notificar */}
-                    <div className="space-y-2">
-                      <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Eventos</p>
-                      {([
-                        { key: "whatsapp_notify_on_created"   as const, label: "Agendamento criado",    desc: "Enviado quando um novo agendamento é criado" },
-                        { key: "whatsapp_notify_on_confirmed" as const, label: "Agendamento confirmado", desc: "Enviado quando o status muda para confirmado" },
-                        { key: "whatsapp_notify_on_cancelled" as const, label: "Agendamento cancelado",  desc: "Enviado quando um agendamento é cancelado" },
-                        { key: "whatsapp_notify_on_reminder"  as const, label: "Lembrete",               desc: "Enviado X horas antes do agendamento" },
-                      ] as const).map(({ key, label, desc }) => (
-                        <div key={key} className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
-                          <div>
-                            <p className="text-sm font-medium">{label}</p>
-                            <p className="text-xs text-muted-foreground">{desc}</p>
-                          </div>
-                          <Switch
-                            checked={notifyConfig[key]}
-                            onCheckedChange={v => setNotifyConfig(c => ({ ...c, [key]: v }))}
-                            disabled={!canEdit}
-                          />
-                        </div>
-                      ))}
+              {/* ── Seção: WhatsApp ── */}
+              <Card className="card-surface">
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <MessageCircle className="h-4 w-4 text-emerald-500" /> Notificações por WhatsApp
+                  </CardTitle>
+                  <CardDescription>
+                    Envie mensagens automáticas via WhatsApp ao criar, confirmar ou cancelar agendamentos.
+                    Requer uma conexão WhatsApp ativa em Configurações → Integrações → Meta Connections.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  {/* Toggle principal WhatsApp */}
+                  <div className="flex items-center justify-between rounded-lg border border-border bg-secondary/20 px-4 py-3">
+                    <div>
+                      <p className="text-sm font-semibold">Ativar notificações WhatsApp</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Requer conexão WhatsApp ativa em Configurações → Integrações → Meta Connections.
+                      </p>
                     </div>
+                    <Switch
+                      checked={notifyConfig.whatsapp_notify_enabled}
+                      onCheckedChange={v => setNotifyConfig(c => ({ ...c, whatsapp_notify_enabled: v }))}
+                      disabled={!canEdit}
+                    />
+                  </div>
 
-                    {/* Antecedência do lembrete */}
-                    {notifyConfig.whatsapp_notify_on_reminder && (
+                  {notifyConfig.whatsapp_notify_enabled && (
+                    <>
+                      {/* Eventos WhatsApp */}
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Eventos</p>
+                        {([
+                          { key: "whatsapp_notify_on_created"   as const, label: "Agendamento criado",    desc: "Enviado quando um novo agendamento é criado" },
+                          { key: "whatsapp_notify_on_confirmed" as const, label: "Agendamento confirmado", desc: "Enviado quando o status muda para confirmado" },
+                          { key: "whatsapp_notify_on_cancelled" as const, label: "Agendamento cancelado",  desc: "Enviado quando um agendamento é cancelado" },
+                          { key: "whatsapp_notify_on_reminder"  as const, label: "Lembrete",               desc: "Enviado X horas antes do agendamento" },
+                        ] as const).map(({ key, label, desc }) => (
+                          <div key={key} className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                            <div>
+                              <p className="text-sm font-medium">{label}</p>
+                              <p className="text-xs text-muted-foreground">{desc}</p>
+                            </div>
+                            <Switch
+                              checked={notifyConfig[key]}
+                              onCheckedChange={v => setNotifyConfig(c => ({ ...c, [key]: v }))}
+                              disabled={!canEdit}
+                            />
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Antecedência do lembrete WhatsApp */}
+                      {notifyConfig.whatsapp_notify_on_reminder && (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                            Enviar lembrete com antecedência de
+                          </Label>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number" min={1} max={168}
+                              value={notifyConfig.whatsapp_reminder_hours}
+                              onChange={e => setNotifyConfig(c => ({ ...c, whatsapp_reminder_hours: Math.max(1, parseInt(e.target.value) || 24) }))}
+                              disabled={!canEdit}
+                              className="h-8 w-20 rounded-md border border-border bg-background px-2 text-sm text-foreground"
+                            />
+                            <span className="text-sm text-muted-foreground">horas antes do agendamento</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Templates WhatsApp */}
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                          Mensagens personalizadas
+                          <span className="ml-2 normal-case font-normal text-muted-foreground">(deixe em branco para usar o padrão)</span>
+                        </p>
+                        {([
+                          { key: "whatsapp_msg_created"   as const, label: "Mensagem de criação",     placeholder: "✅ Olá, {nome}! Seu agendamento de {servico} foi confirmado para {data}." },
+                          { key: "whatsapp_msg_confirmed" as const, label: "Mensagem de confirmação",  placeholder: "📋 Olá, {nome}! Seu agendamento foi atualizado para {data}." },
+                          { key: "whatsapp_msg_cancelled" as const, label: "Mensagem de cancelamento", placeholder: "❌ Olá, {nome}! Seu agendamento de {servico} foi cancelado." },
+                          { key: "whatsapp_msg_reminder"  as const, label: "Mensagem de lembrete",    placeholder: "⏰ Olá, {nome}! Lembrete: você tem {servico} amanhã às {hora}." },
+                        ] as const).map(({ key, label, placeholder }) => (
+                          <div key={key} className="space-y-1">
+                            <Label className="text-xs">{label}</Label>
+                            <textarea
+                              value={notifyConfig[key]}
+                              onChange={e => setNotifyConfig(c => ({ ...c, [key]: e.target.value }))}
+                              placeholder={placeholder}
+                              disabled={!canEdit}
+                              rows={2}
+                              className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+                            />
+                          </div>
+                        ))}
+                        <p className="text-[10px] text-muted-foreground">
+                          Variáveis disponíveis: <code className="bg-muted px-1 rounded">{"{nome}"}</code> <code className="bg-muted px-1 rounded">{"{servico}"}</code> <code className="bg-muted px-1 rounded">{"{data}"}</code> <code className="bg-muted px-1 rounded">{"{hora}"}</code>
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* ── Seção: E-mail ── */}
+              <Card className="card-surface">
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Mail className="h-4 w-4 text-blue-500" /> Notificações por E-mail
+                  </CardTitle>
+                  <CardDescription>
+                    Envie e-mails automáticos ao criar, confirmar ou cancelar agendamentos.
+                    Usa as configurações de e-mail da organização (Resend).
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  {/* Toggle principal E-mail */}
+                  <div className="flex items-center justify-between rounded-lg border border-border bg-secondary/20 px-4 py-3">
+                    <div>
+                      <p className="text-sm font-semibold">Ativar notificações por e-mail</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Usa o serviço de e-mail configurado em Configurações → Integrações → Resend.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={notifyConfig.email_notify_enabled}
+                      onCheckedChange={v => setNotifyConfig(c => ({ ...c, email_notify_enabled: v }))}
+                      disabled={!canEdit}
+                    />
+                  </div>
+
+                  {notifyConfig.email_notify_enabled && (
+                    <>
+                      {/* E-mail remetente */}
                       <div className="space-y-1.5">
                         <Label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-                          Enviar lembrete com antecedência de
+                          E-mail remetente <span className="normal-case font-normal">(opcional)</span>
                         </Label>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="number"
-                            min={1}
-                            max={168}
-                            value={notifyConfig.whatsapp_reminder_hours}
-                            onChange={e => setNotifyConfig(c => ({ ...c, whatsapp_reminder_hours: Math.max(1, parseInt(e.target.value) || 24) }))}
-                            disabled={!canEdit}
-                            className="h-8 w-20 rounded-md border border-border bg-background px-2 text-sm text-foreground"
-                          />
-                          <span className="text-sm text-muted-foreground">horas antes do agendamento</span>
-                        </div>
+                        <input
+                          type="email"
+                          value={notifyConfig.email_notify_from}
+                          onChange={e => setNotifyConfig(c => ({ ...c, email_notify_from: e.target.value }))}
+                          placeholder="agenda@seudominio.com.br"
+                          disabled={!canEdit}
+                          className="h-8 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+                        />
+                        <p className="text-[10px] text-muted-foreground">Se em branco, usa o remetente padrão configurado no Resend.</p>
                       </div>
-                    )}
 
-                    {/* Templates personalizados (colapsados por padrão) */}
-                    <div className="space-y-2">
-                      <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-                        Mensagens personalizadas
-                        <span className="ml-2 normal-case font-normal text-muted-foreground">(deixe em branco para usar o padrão)</span>
-                      </p>
-                      {([
-                        { key: "whatsapp_msg_created"   as const, label: "Mensagem de criação",    placeholder: "✅ Olá, {nome}! Seu agendamento de {servico} foi confirmado para {data}." },
-                        { key: "whatsapp_msg_confirmed" as const, label: "Mensagem de confirmação", placeholder: "📋 Olá, {nome}! Seu agendamento foi atualizado para {data}." },
-                        { key: "whatsapp_msg_cancelled" as const, label: "Mensagem de cancelamento",placeholder: "❌ Olá, {nome}! Seu agendamento de {servico} foi cancelado." },
-                        { key: "whatsapp_msg_reminder"  as const, label: "Mensagem de lembrete",   placeholder: "⏰ Olá, {nome}! Lembrete: você tem {servico} amanhã às {hora}." },
-                      ] as const).map(({ key, label, placeholder }) => (
-                        <div key={key} className="space-y-1">
-                          <Label className="text-xs">{label}</Label>
-                          <textarea
-                            value={notifyConfig[key]}
-                            onChange={e => setNotifyConfig(c => ({ ...c, [key]: e.target.value }))}
-                            placeholder={placeholder}
-                            disabled={!canEdit}
-                            rows={2}
-                            className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
-                          />
+                      {/* Eventos E-mail */}
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Eventos</p>
+                        {([
+                          { key: "email_notify_on_created"   as const, label: "Agendamento criado",    desc: "Enviado quando um novo agendamento é criado" },
+                          { key: "email_notify_on_confirmed" as const, label: "Agendamento confirmado", desc: "Enviado quando o status muda para confirmado" },
+                          { key: "email_notify_on_cancelled" as const, label: "Agendamento cancelado",  desc: "Enviado quando um agendamento é cancelado" },
+                          { key: "email_notify_on_reminder"  as const, label: "Lembrete",               desc: "Enviado X horas antes do agendamento" },
+                        ] as const).map(({ key, label, desc }) => (
+                          <div key={key} className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                            <div>
+                              <p className="text-sm font-medium">{label}</p>
+                              <p className="text-xs text-muted-foreground">{desc}</p>
+                            </div>
+                            <Switch
+                              checked={notifyConfig[key]}
+                              onCheckedChange={v => setNotifyConfig(c => ({ ...c, [key]: v }))}
+                              disabled={!canEdit}
+                            />
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Antecedência do lembrete E-mail */}
+                      {notifyConfig.email_notify_on_reminder && (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                            Enviar lembrete com antecedência de
+                          </Label>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number" min={1} max={168}
+                              value={notifyConfig.email_reminder_hours}
+                              onChange={e => setNotifyConfig(c => ({ ...c, email_reminder_hours: Math.max(1, parseInt(e.target.value) || 24) }))}
+                              disabled={!canEdit}
+                              className="h-8 w-20 rounded-md border border-border bg-background px-2 text-sm text-foreground"
+                            />
+                            <span className="text-sm text-muted-foreground">horas antes do agendamento</span>
+                          </div>
                         </div>
-                      ))}
-                      <p className="text-[10px] text-muted-foreground">
-                        Variáveis disponíveis: <code className="bg-muted px-1 rounded">{"{nome}"}</code> <code className="bg-muted px-1 rounded">{"{servico}"}</code> <code className="bg-muted px-1 rounded">{"{data}"}</code> <code className="bg-muted px-1 rounded">{"{hora}"}</code>
-                      </p>
-                    </div>
-                  </>
-                )}
+                      )}
 
-                {canEdit && (
-                  <Button onClick={handleSaveNotifications} disabled={savingNotify} className="w-full">
-                    {savingNotify && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                    Salvar Configurações de Notificação
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
+                      {/* Assuntos + Templates E-mail */}
+                      <div className="space-y-3">
+                        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                          Assunto e corpo do e-mail
+                          <span className="ml-2 normal-case font-normal text-muted-foreground">(deixe em branco para usar o padrão)</span>
+                        </p>
+                        {([
+                          {
+                            subjectKey: "email_subject_created"   as const,
+                            msgKey:     "email_msg_created"        as const,
+                            label:      "E-mail de criação",
+                            subjectPh:  "Agendamento confirmado — {servico}",
+                            msgPh:      "Olá, {nome}! Seu agendamento de {servico} foi confirmado para {data} às {hora}.",
+                          },
+                          {
+                            subjectKey: "email_subject_confirmed"  as const,
+                            msgKey:     "email_msg_confirmed"       as const,
+                            label:      "E-mail de confirmação",
+                            subjectPh:  "Seu agendamento foi atualizado",
+                            msgPh:      "Olá, {nome}! Seu agendamento foi atualizado para {data} às {hora}.",
+                          },
+                          {
+                            subjectKey: "email_subject_cancelled"  as const,
+                            msgKey:     "email_msg_cancelled"       as const,
+                            label:      "E-mail de cancelamento",
+                            subjectPh:  "Agendamento cancelado — {servico}",
+                            msgPh:      "Olá, {nome}! Infelizmente seu agendamento de {servico} foi cancelado.",
+                          },
+                          {
+                            subjectKey: "email_subject_reminder"   as const,
+                            msgKey:     "email_msg_reminder"        as const,
+                            label:      "E-mail de lembrete",
+                            subjectPh:  "Lembrete: {servico} amanhã",
+                            msgPh:      "Olá, {nome}! Lembramos que você tem {servico} amanhã às {hora}.",
+                          },
+                        ]).map(({ subjectKey, msgKey, label, subjectPh, msgPh }) => (
+                          <div key={subjectKey} className="space-y-1.5 rounded-lg border border-border p-3">
+                            <p className="text-xs font-semibold text-foreground">{label}</p>
+                            <div className="space-y-1">
+                              <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">Assunto</Label>
+                              <input
+                                type="text"
+                                value={notifyConfig[subjectKey]}
+                                onChange={e => setNotifyConfig(c => ({ ...c, [subjectKey]: e.target.value }))}
+                                placeholder={subjectPh}
+                                disabled={!canEdit}
+                                className="h-8 w-full rounded-md border border-border bg-background px-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">Mensagem</Label>
+                              <textarea
+                                value={notifyConfig[msgKey]}
+                                onChange={e => setNotifyConfig(c => ({ ...c, [msgKey]: e.target.value }))}
+                                placeholder={msgPh}
+                                disabled={!canEdit}
+                                rows={2}
+                                className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+                              />
+                            </div>
+                          </div>
+                        ))}
+                        <p className="text-[10px] text-muted-foreground">
+                          Variáveis disponíveis: <code className="bg-muted px-1 rounded">{"{nome}"}</code> <code className="bg-muted px-1 rounded">{"{servico}"}</code> <code className="bg-muted px-1 rounded">{"{data}"}</code> <code className="bg-muted px-1 rounded">{"{hora}"}</code>
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Botão salvar unificado */}
+              {canEdit && (
+                <Button onClick={handleSaveNotifications} disabled={savingNotify} className="w-full">
+                  {savingNotify && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  Salvar Configurações de Notificação
+                </Button>
+              )}
+            </div>
           </TabsContent>
         )}
       </Tabs>
