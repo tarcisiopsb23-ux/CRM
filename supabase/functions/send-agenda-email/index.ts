@@ -150,10 +150,11 @@ serve(async (req) => {
   const SUPA_URL  = Deno.env.get("SUPABASE_URL")!;
   const SVC_KEY   = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const RESEND_KEY = Deno.env.get("RESEND_API_KEY");
-  const FROM_EMAIL = Deno.env.get("RESEND_FROM_EMAIL") ?? "noreply@agenciac8.com.br";
+  const FROM_EMAIL = Deno.env.get("RESEND_FROM_EMAIL") ?? "noreply@c8control.com.br";
   // Domínio verificado usado no From — ex: "agenciac8.com.br"
   const FROM_DOMAIN = Deno.env.get("RESEND_FROM_DOMAIN")
-    ?? FROM_EMAIL.replace(/.*@/, "").replace(/>.*/, "").trim();
+    ?? FROM_EMAIL.replace(/.*@/, "").replace(/>.*/, "").trim()
+    ?? "c8control.com.br";
 
   if (!RESEND_KEY) {
     return json({ error: "RESEND_API_KEY não configurada" }, 503);
