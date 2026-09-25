@@ -97,6 +97,12 @@ const FIELDS_AGENDA: FieldDef[] = [
     placeholder: "https://xxxx.supabase.co/functions/v1/agenda-n8n-receiver",
     hint: "URL da Edge Function agenda-n8n-receiver. Configure esta URL no workflow n8n para sincronizar eventos do Google Calendar de volta ao C8.",
   },
+  {
+    key: "agendaEmailWebhookUrl",
+    label: "Webhook: Notificações por E-mail",
+    placeholder: "https://n8n.dominio.com/webhook/agenda-email-notify",
+    hint: "URL do workflow n8n que envia e-mails de agendamento via Resend (criado, confirmado, cancelado). Usa o padrão on-behalf-of: From no domínio c8control.com.br, Reply-To do cliente.",
+  },
 ];
 
 // ─── Componente ───────────────────────────────────────────────────────────────

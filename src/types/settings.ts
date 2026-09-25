@@ -97,6 +97,8 @@ export interface C8ControlConfig {
   agendaReceiverUrl?: string;
   /** URL do workflow n8n que recebe notificações push do Google Calendar (watch channel) */
   agendaN8nGoogleWebhookUrl?: string;
+  /** Webhook n8n para envio de notificações de agenda por e-mail (Resend on-behalf-of) */
+  agendaEmailWebhookUrl?: string;
 }
 
 export interface WhatsAppConfig {
