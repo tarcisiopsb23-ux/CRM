@@ -13,7 +13,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { supabaseCrm } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
 import { initiateGoogleOAuth, initiateMetaOAuth } from "@/lib/oauth";
 import { useOAuthTokens } from "@/hooks/useOAuthTokens";
 import { Input } from "@/components/ui/input";
@@ -28,13 +28,13 @@ interface Props {
   clientId:  string | null;
   /** slug do cliente — para o redirect pos-OAuth voltar para a pagina certa */
   slug:      string;
-  /** Cliente Supabase autenticado (dc). Usa supabaseCrm como fallback. */
+  /** Ignorado — mantido apenas para compatibilidade de props com o chamador */
   dbClient?: SupabaseClient | null;
 }
 
-export function OAuthIntegrations({ clientId, slug, dbClient }: Props) {
-  const db = dbClient ?? supabaseCrm;
-  const { googleToken, metaToken, updateConfig, disconnect } = useOAuthTokens(clientId ?? undefined, db);
+export function OAuthIntegrations({ clientId, slug }: Props) {
+  // oauth_tokens vive no Banco A — sempre usa supabase, nunca dc (Banco B)
+  const { googleToken, metaToken, updateConfig, disconnect } = useOAuthTokens(clientId ?? undefined, supabase);
 
   // Campos pos-conexao: ID de conta de anuncios e propriedade GA4
   const [ga4Id,          setGa4Id]          = useState(googleToken?.ga4_property_id   ?? "");

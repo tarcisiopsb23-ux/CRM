@@ -15,16 +15,29 @@
  *   5. Tokens salvos em oauth_tokens (nunca expostos ao frontend)
  */
 
-// Scopes necessarios para leitura de metricas de campanhas
+// Scopes Google: métricas de campanhas + Analytics
 const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/analytics.readonly",
   "https://www.googleapis.com/auth/adwords",
 ].join(" ");
 
+// Scopes Meta: Ads + Instagram DMs + WhatsApp Business + páginas
 const META_SCOPES = [
+  // Ads
   "ads_read",
   "ads_management",
   "read_insights",
+  // Páginas Facebook (necessário para mensagens)
+  "pages_show_list",
+  "pages_read_engagement",
+  "pages_messaging",
+  // Instagram
+  "instagram_basic",
+  "instagram_manage_messages",
+  "instagram_manage_comments",
+  // WhatsApp Business
+  "whatsapp_business_management",
+  "whatsapp_business_messaging",
 ].join(",");
 
 /**
