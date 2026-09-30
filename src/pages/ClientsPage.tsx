@@ -209,6 +209,8 @@ export default function ClientsPage() {
     decision_maker_name: "",
     decision_maker_phone: "",
     portfolio_team_id: "",
+    inscricao_estadual: "",
+    inscricao_municipal: "",
     revenue: undefined,
   };
   const [form, setForm, clearForm] = useFormPersistence<Partial<Client>>(formPersistKey, INITIAL_FORM);
@@ -588,6 +590,8 @@ export default function ClientsPage() {
       decision_maker_phone: migrated.decision_maker_phone ?? "",
       portfolio_team_id: c.portfolio_team_id ?? "",
       ...(({ estado_civil: (c as any).estado_civil ?? "", nacionalidade: (c as any).nacionalidade ?? "" } as any)),
+      inscricao_estadual: (c as any).inscricao_estadual ?? "",
+      inscricao_municipal: (c as any).inscricao_municipal ?? "",
       revenue: c.revenue ?? undefined,
     });
     setModalOpen(true);
@@ -1261,6 +1265,23 @@ export default function ClientsPage() {
                   </div>
                 </>
               )}
+
+              <div>
+                <Label>Inscrição Estadual (IE)</Label>
+                <Input
+                  value={form.inscricao_estadual ?? ""}
+                  onChange={(e) => setForm({ ...form, inscricao_estadual: e.target.value })}
+                  placeholder="Ex: 123.456.789.000"
+                />
+              </div>
+              <div>
+                <Label>Inscrição Municipal (IM)</Label>
+                <Input
+                  value={form.inscricao_municipal ?? ""}
+                  onChange={(e) => setForm({ ...form, inscricao_municipal: e.target.value })}
+                  placeholder="Ex: 00123456"
+                />
+              </div>
 
               <div>
                 <Label>E-mail</Label>

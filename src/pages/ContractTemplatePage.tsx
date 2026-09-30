@@ -42,6 +42,12 @@ const VARIABLES = [
   "{{chave_pix}}",                 // Chave PIX da agência
   "{{cronograma_pagamento}}",      // Tabela completa do cronograma de pagamento
   "{{texto_pagamento}}",           // Frase completa: via PIX (chave X), vencimento dia Y, primeira em Z
+  // Comissão
+  "{{comissao_tipo}}",             // Percentual sobre o valor | Valor fixo por resultado
+  "{{comissao_taxa}}",             // 10% ou R$ 500,00
+  "{{comissao_descricao}}",        // O que é um resultado
+  "{{comissao_periodicidade}}",    // Semanal | Quinzenal | Mensal
+  "{{comissao_periodicidade_extenso}}", // semanalmente | quinzenalmente | mensalmente
   // ── Financeiro — setup ────────────────────────────────────────────────────
   "{{valor_setup}}",               // Valor total do setup (R$)
   "{{parcelas_setup}}",            // Número de parcelas do setup

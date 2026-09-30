@@ -176,10 +176,14 @@ Deno.serve(async (req) => {
 
       // Buscar nome do tenant para personalizar o e-mail
       const { data: clientRow } = await crmClient
-        .from("clients").select("name, company").eq("tenant_id", tenant_id).maybeSingle();
+        .from("clients").select("name, company, dashboard_slug").eq("tenant_id", tenant_id).maybeSingle();
       const tenantName = clientRow?.company || clientRow?.name || "C8 Control";
+      const tenantSlug = clientRow?.dashboard_slug ?? null;
 
-      // Criar usuário com senha temporária
+      const appUrl    = Deno.env.get("APP_URL") ?? "https://c8control.com.br";
+      const loginUrl  = tenantSlug ? `${appUrl.replace(/\/$/, "")}/${tenantSlug}` : `${appUrl.replace(/\/$/, "")}/login`;
+      // Remetente sempre no domínio c8control.com.br
+      const fromEmail = Deno.env.get("C8_FROM_EMAIL") ?? "noreply@c8control.com.br";
       const { data: newUser, error: createErr } = await crmClient.auth.admin.createUser({
         email,
         email_confirm: true,
@@ -226,7 +230,7 @@ Deno.serve(async (req) => {
               "Content-Type":  "application/json",
             },
             body: JSON.stringify({
-              from:    "Suporte Agência C8 <suporte@agenciac8.com.br>",
+              from:    `C8 Control <${fromEmail}>`,
               to:      email,
               subject: `Você foi convidado para o ${tenantName} no C8 Control`,
               html: `
@@ -248,7 +252,7 @@ Deno.serve(async (req) => {
                   <p style="color:#94a3b8;font-size:13px;margin:0 0 20px;">
                     Você será solicitado a criar uma nova senha no primeiro acesso.
                   </p>
-                  <a href="${appUrl}/login" style="display:inline-block;background:#7C3AED;color:#fff;font-weight:700;padding:12px 28px;border-radius:8px;text-decoration:none;font-size:15px;">
+                  <a href="${loginUrl}" style="display:inline-block;background:#7C3AED;color:#fff;font-weight:700;padding:12px 28px;border-radius:8px;text-decoration:none;font-size:15px;">
                     Acessar o Dashboard
                   </a>
                   <p style="color:#475569;font-size:11px;margin-top:28px;border-top:1px solid #1E293B;padding-top:16px;">
@@ -307,13 +311,16 @@ Deno.serve(async (req) => {
       const userEmail = updatedUser.user.email ?? "";
 
       // Buscar nome do tenant
-      const { data: clientRow } = await crmClient
-        .from("clients").select("name, company").eq("tenant_id", tenant_id).maybeSingle();
-      const tenantName = clientRow?.company || clientRow?.name || "C8 Control";
+      const { data: clientRow2 } = await crmClient
+        .from("clients").select("name, company, dashboard_slug").eq("tenant_id", tenant_id).maybeSingle();
+      const tenantName2 = clientRow2?.company || clientRow2?.name || "C8 Control";
+      const tenantSlug2 = clientRow2?.dashboard_slug ?? null;
 
       // Reenviar e-mail via Resend
       const resendKey = Deno.env.get("RESEND_API_KEY");
       const appUrl    = Deno.env.get("APP_URL") ?? "https://c8control.com.br";
+      const loginUrl2 = tenantSlug2 ? `${appUrl.replace(/\/$/, "")}/${tenantSlug2}` : `${appUrl.replace(/\/$/, "")}/login`;
+      const fromEmail2 = Deno.env.get("C8_FROM_EMAIL") ?? "noreply@c8control.com.br";
       if (resendKey && userEmail) {
         try {
           await fetch("https://api.resend.com/emails", {
@@ -323,9 +330,9 @@ Deno.serve(async (req) => {
               "Content-Type":  "application/json",
             },
             body: JSON.stringify({
-              from:    "Suporte Agência C8 <suporte@agenciac8.com.br>",
+              from:    `C8 Control <${fromEmail2}>`,
               to:      userEmail,
-              subject: `Novo acesso ao ${tenantName} — C8 Control`,
+              subject: `Novo acesso ao ${tenantName2} — C8 Control`,
               html: `
                 <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;background:#0F172A;color:#e2e8f0;border-radius:12px;">
                   <div style="text-align:center;margin-bottom:24px;">
@@ -335,7 +342,7 @@ Deno.serve(async (req) => {
                   </div>
                   <h2 style="color:#fff;font-size:20px;font-weight:800;margin:0 0 8px;">Nova senha gerada</h2>
                   <p style="color:#94a3b8;margin:0 0 20px;">
-                    Uma nova senha temporária foi gerada para o seu acesso ao dashboard <strong style="color:#e2e8f0;">${tenantName}</strong>.
+                    Uma nova senha temporária foi gerada para o seu acesso ao dashboard <strong style="color:#e2e8f0;">${tenantName2}</strong>.
                   </p>
                   <div style="background:#1E293B;border-radius:8px;padding:16px;margin-bottom:20px;">
                     <p style="margin:0 0 6px;font-size:12px;color:#64748b;text-transform:uppercase;font-weight:700;letter-spacing:1px;">Seus dados de acesso</p>
@@ -345,11 +352,11 @@ Deno.serve(async (req) => {
                   <p style="color:#94a3b8;font-size:13px;margin:0 0 20px;">
                     Você será solicitado a criar uma nova senha permanente no primeiro acesso.
                   </p>
-                  <a href="${appUrl}/login" style="display:inline-block;background:#7C3AED;color:#fff;font-weight:700;padding:12px 28px;border-radius:8px;text-decoration:none;font-size:15px;">
+                  <a href="${loginUrl2}" style="display:inline-block;background:#7C3AED;color:#fff;font-weight:700;padding:12px 28px;border-radius:8px;text-decoration:none;font-size:15px;">
                     Acessar o Dashboard
                   </a>
                   <p style="color:#475569;font-size:11px;margin-top:28px;border-top:1px solid #1E293B;padding-top:16px;">
-                    Powered by Agência C8 · Este e-mail foi enviado automaticamente, não responda.
+                    C8 Control · Este e-mail foi enviado automaticamente, não responda.
                   </p>
                 </div>
               `,

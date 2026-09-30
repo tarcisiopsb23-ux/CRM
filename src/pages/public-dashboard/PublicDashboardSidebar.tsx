@@ -28,16 +28,17 @@ import { cn } from "@/lib/utils";
 // ─── Nav definitions ──────────────────────────────────────────────────────────
 
 const RESULTADOS_NAV = [
-  { title: "Dashboard Geral", url: "",            icon: LayoutDashboard },
-  { title: "Performance",     url: "performance", icon: BarChart3 },
-  { title: "Conversas",       url: "atendimento", icon: MessageCircle },
+  { title: "Dashboard Geral",      url: "",            icon: LayoutDashboard },
+  { title: "Performance",          url: "performance", icon: BarChart3 },
+  { title: "Conversas",            url: "atendimento", icon: MessageCircle },
 ];
 
 const CRM_NAV = [
-  { title: "Clientes",          url: "crm/clientes",  icon: Users },
-  { title: "Funis de Vendas",   url: "crm/pipeline",  icon: GitMerge },
-  { title: "Produtos/Serviços", url: "crm/produtos",  icon: Package },
-  { title: "Campos",            url: "crm/campos",    icon: Settings },
+  { title: "Clientes",          url: "crm/clientes",              icon: Users },
+  { title: "Funis de Vendas",   url: "crm/pipeline",              icon: GitMerge },
+  { title: "Produtos/Serviços", url: "crm/produtos",              icon: Package },
+  { title: "Campos",            url: "crm/campos",                icon: Settings },
+  { title: "Formulários",       url: "configuracoes/formularios", icon: ListChecks },
 ];
 
 const AGENDA_NAV = [
@@ -62,8 +63,6 @@ const CONFIG_NAV = [
   { title: "Usuários",          url: "configuracoes/usuarios",              icon: Users },
   { title: "Pagamentos",        url: "configuracoes/pagamentos",            icon: CreditCard },
   { title: "Integrações",       url: "configuracoes/integracoes",           icon: Link2 },
-  { title: "Teste de Pixels",   url: "configuracoes/integracoes/testes",    icon: ShieldCheck },
-  { title: "Formulários",       url: "configuracoes/formularios",           icon: ListChecks },
   { title: "Meta App Review",   url: "meta-review",                         icon: ShieldCheck },
 ];
 
@@ -190,12 +189,11 @@ export function PublicDashboardSidebar() {
   const location  = useLocation();
 
   const modules       = auth?.modules_config;
-  const crmEnabled       = modules?.crm_enabled    !== false;
-  const agendaEnabled    = modules?.agenda_enabled  !== false;
+  const crmEnabled       = modules?.crm_enabled    === true;
+  const agendaEnabled    = modules?.agenda_enabled  === true;
+  const demographicsEnabled = modules?.demographics_enabled === true;
   const messagingEnabled = modules?.messaging_enabled === true;
   const chatbotEnabled   = modules?.automation_enabled === true;
-  // Legado: mostrar grupo WhatsApp apenas se whatsapp_enabled=true E chatbot não estiver ativo
-  const waLegacyEnabled  = modules?.whatsapp_enabled === true && !chatbotEnabled;
   // Legado: mostrar Conteúdo IA apenas se show_ia_content=true E chatbot não estiver ativo
   const iaLegacyEnabled  = auth?.show_ia_content === true && !chatbotEnabled;
   const userRole      = auth?.user?.role ?? "viewer";
@@ -257,6 +255,16 @@ export function PublicDashboardSidebar() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
             ))}
+            {demographicsEnabled && (
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={isActive("performance/audiencia")} tooltip="Audiência Demográfica">
+                  <Link to={`/${slug}/performance?tab=audiencia`} className="flex items-center gap-3">
+                    <BarChart3 className="h-4 w-4" />
+                    <span>Audiência Demográfica</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            )}
           </SidebarMenu>
         </AccordionGroup>
 
@@ -300,22 +308,6 @@ export function PublicDashboardSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
-            </SidebarMenu>
-          </AccordionGroup>
-        )}
-
-        {/* ── WhatsApp (legado — exibido apenas quando chatbot não está ativo) ── */}
-        {waLegacyEnabled && (
-          <AccordionGroup label="WhatsApp" collapsed={collapsed} defaultOpen={true}>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={isActive("whatsapp")} tooltip="WhatsApp">
-                  <Link to={`/${slug}/whatsapp`} className="flex items-center gap-3">
-                    <MessageCircle className="h-4 w-4 text-green-500" />
-                    <span>WhatsApp</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
             </SidebarMenu>
           </AccordionGroup>
         )}

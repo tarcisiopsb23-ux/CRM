@@ -219,7 +219,6 @@ export function C8TenantDetail({
     messaging_enabled:     mc.messaging_enabled      ?? false,
     automation_enabled:    mc.automation_enabled     ?? false,
     demographics_enabled:  mc.demographics_enabled   ?? false,
-    asaas_enabled:         mc.asaas_enabled          ?? false,
     // Legado (preservados no payload mas não exibidos como toggles novos)
     whatsapp_enabled:      mc.whatsapp_enabled       ?? false,
     ia_enabled:            mc.ia_enabled             ?? false,
@@ -320,7 +319,6 @@ export function C8TenantDetail({
           messaging_enabled:  modules.messaging_enabled,
           automation_enabled: modules.automation_enabled,
           demographics_enabled: modules.demographics_enabled,
-          asaas_enabled:      modules.asaas_enabled,
           // Preserva valores legados existentes sem sobrescrever
           whatsapp_enabled:   modules.whatsapp_enabled,
           ia_enabled:         modules.ia_enabled,
@@ -825,7 +823,6 @@ export function C8TenantDetail({
                         { key: "messaging_enabled"     as const, label: "Mensagens",             desc: "Caixa de entrada — WhatsApp/Instagram" },
                         { key: "automation_enabled"    as const, label: "Chatbot / Automações",  desc: "Canais Meta, agente IA, base de conhecimento" },
                         { key: "demographics_enabled"  as const, label: "Audiência Demográfica", desc: "Aba de audiência no Performance" },
-                        { key: "asaas_enabled"         as const, label: "Pagamentos (Asaas)",    desc: "Cobranças e boletos via Asaas" },
                       ]).map(({ key, label, desc }) => (
                         <div key={key} className="flex items-center justify-between rounded-lg border border-border bg-secondary/20 px-3 py-2.5">
                           <div>

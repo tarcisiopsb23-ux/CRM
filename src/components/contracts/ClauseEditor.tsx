@@ -102,6 +102,14 @@ const CLAUSE_VARIABLES = [
   { key: "vencimento_primeira_mensalidade", label: "Vencimento da 1ª mensalidade recorrente", group: "Financeiro" },
   { key: "cronograma_pagamento",     label: "Bloco do cronograma de pagamento",            group: "Financeiro" },
   { key: "texto_pagamento",          label: "Frase completa de pagamento (via PIX/boleto + chave + datas)", group: "Financeiro" },
+  // ── Comissão variável ────────────────────────────────────────────────────
+  { key: "comissao_habilitada",            label: "'Sim' ou 'Não' — comissão variável habilitada",                    group: "Comissão" },
+  { key: "comissao_tipo",                  label: "'Percentual sobre o valor' ou 'Valor fixo por resultado'",          group: "Comissão" },
+  { key: "comissao_taxa",                  label: "Valor da taxa (ex: 10% ou R$ 500,00)",                              group: "Comissão" },
+  { key: "comissao_descricao",             label: "O que é um resultado (ex: lead convertido)",                        group: "Comissão" },
+  { key: "comissao_periodicidade",         label: "'Semanal', 'Quinzenal' ou 'Mensal'",                                group: "Comissão" },
+  { key: "comissao_periodicidade_extenso", label: "'semanalmente', 'quinzenalmente' ou 'mensalmente'",                 group: "Comissão" },
+  { key: "comissao_prazo_pagamento",       label: "Prazo em dias úteis para pagamento após o período de apuração",     group: "Comissão" },
   { key: "clausula_multa_atraso",    label: "Cláusula de multa por atraso",                group: "Financeiro" },
   { key: "clausula_suspensao",       label: "Cláusula de suspensão por inadimplência",     group: "Financeiro" },
 
@@ -216,6 +224,10 @@ const PREVIEW_VARS: Record<string, string> = {
   data_inicio: "01/08/2025", data_assinatura: new Date().toLocaleDateString("pt-BR"),
   data: new Date().toLocaleDateString("pt-BR"),
   carencia_meses: "1", carencia_extenso: "um (1) mês",
+  comissao_habilitada: "Sim", comissao_tipo: "Percentual sobre o valor",
+  comissao_taxa: "percentual de 10% (dez por cento)", comissao_descricao: "lead convertido em cliente",
+  comissao_periodicidade: "Mensal", comissao_periodicidade_extenso: "mensalmente",
+  comissao_prazo_pagamento: "05 (cinco)",
   cidade_estado: "São Paulo/SP", foro_cidade: "São Paulo/SP",
   cronograma_pagamento: "",
   bloco_assinaturas: `<table style="width:100%;margin-top:24pt;border-collapse:collapse"><tbody><tr>

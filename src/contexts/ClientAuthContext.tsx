@@ -35,7 +35,6 @@ export interface ModulesConfig {
   dashboard_enabled?: boolean;
   max_contacts?: number;
   max_users?: number;
-  asaas_enabled?: boolean;
   pixel_config?: {
     meta_pixel_id?: string;
     google_tag_id?: string;

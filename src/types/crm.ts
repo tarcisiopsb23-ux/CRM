@@ -33,6 +33,8 @@ export interface Client {
   folder_id: string | null;
   folder_url: string | null;
   asaas_id?: string | null;
+  inscricao_estadual?: string | null;
+  inscricao_municipal?: string | null;
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;

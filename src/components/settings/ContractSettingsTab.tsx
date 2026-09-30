@@ -94,6 +94,12 @@ function buildPreviewVariables(
     primeiro_pagamento:            fmtDate(today),
     cronograma_pagamento:          "<p>R$ 2.500,00 mensais, vencimento todo dia 10.</p>",
     texto_pagamento:               "Os pagamentos serão realizados exclusivamente via <strong>PIX</strong> (Chave CNPJ nº <strong>62.659.676/0001-49 – Agência C8 LTDA</strong>), vencendo-se a primeira parcela em <strong>10 de agosto de 2025</strong> e as demais no dia <strong>10</strong> de cada mês, sendo a adimplência condição indispensável para a continuidade da prestação dos serviços.",
+    comissao_habilitada:           "Sim",
+    comissao_tipo:                 "Percentual sobre o valor",
+    comissao_taxa:                 "10%",
+    comissao_descricao:            "contrato fechado",
+    comissao_periodicidade:        "Mensal",
+    comissao_periodicidade_extenso: "mensalmente",
     clausula_multa_atraso:         "O atraso no pagamento acarretará multa de 10% e juros de 1% ao mês.",
     clausula_suspensao:            "Atrasos superiores a 20 dias podem resultar na suspensão dos serviços.",
     // Serviços
