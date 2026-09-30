@@ -2,7 +2,7 @@
  * Edge Function: oauth-exchange
  *
  * Exchanges an OAuth authorization code for access + refresh tokens.
- * Stores the tokens in the oauth_tokens table associated with the caller's tenant_id.
+ * Stores the tokens in the oauth_tokens table associated with the client_id.
  *
  * Required Supabase secrets:
  *   GOOGLE_CLIENT_ID
@@ -11,13 +11,10 @@
  *   META_APP_SECRET
  *   SUPABASE_URL         (auto-injected)
  *   SUPABASE_SERVICE_ROLE_KEY (auto-injected)
- *   SAAS_JWT_SECRET
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { verifyJwt } from "../_shared/jwt.ts";
 
-const allowedOrigin = Deno.env.get("APP_URL") ?? "*";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -34,25 +31,27 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    // Verificar JWT com assinatura
-    const auth = req.headers.get("Authorization") ?? "";
-    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-    if (!token) return jsonResponse({ error: "Não autorizado" }, 401);
+    const { code, provider, clientId, redirectUri } = await req.json();
 
-    const jwtSecret = Deno.env.get("SAAS_JWT_SECRET") ?? "";
-    let payload: { tenant_id?: string | null; role?: string };
-    try {
-      payload = await verifyJwt(token, jwtSecret);
-    } catch {
-      return jsonResponse({ error: "Token inválido ou expirado" }, 401);
+    if (!code || !provider || !clientId || !redirectUri) {
+      return jsonResponse({ error: "Missing required fields: code, provider, clientId, redirectUri" }, 400);
     }
 
-    const tenantId = payload.tenant_id ?? null;
-    if (!tenantId) return jsonResponse({ error: "tenant_id não encontrado no token" }, 401);
+    // Valida que o clientId existe na tabela clients (evita uso indevido)
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+    );
 
-    const { code, provider, redirectUri } = await req.json();
-    if (!code || !provider || !redirectUri) {
-      return jsonResponse({ error: "Missing required fields: code, provider, redirectUri" }, 400);
+    const { data: clientRow, error: clientErr } = await supabase
+      .from("clients")
+      .select("id")
+      .eq("id", clientId)
+      .maybeSingle();
+
+    if (clientErr || !clientRow) {
+      console.error("[oauth-exchange] cliente não encontrado:", clientId);
+      return jsonResponse({ error: "Cliente não encontrado" }, 404);
     }
 
     let tokenData: any;
@@ -63,30 +62,28 @@ Deno.serve(async (req) => {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
           code,
-          client_id: Deno.env.get("GOOGLE_CLIENT_ID") ?? "",
+          client_id:     Deno.env.get("GOOGLE_CLIENT_ID") ?? "",
           client_secret: Deno.env.get("GOOGLE_CLIENT_SECRET") ?? "",
-          redirect_uri: redirectUri,
-          grant_type: "authorization_code",
+          redirect_uri:  redirectUri,
+          grant_type:    "authorization_code",
         }),
       });
       tokenData = await res.json();
       if (tokenData.error) throw new Error(tokenData.error_description ?? tokenData.error);
 
     } else if (provider === "meta") {
-      const res = await fetch("https://graph.facebook.com/v19.0/oauth/access_token", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          code,
-          client_id: Deno.env.get("META_APP_ID") ?? "",
-          client_secret: Deno.env.get("META_APP_SECRET") ?? "",
-          redirect_uri: redirectUri,
-        }),
-      });
+      const callbackUrl = redirectUri;
+      const tokenUrl = new URL("https://graph.facebook.com/v19.0/oauth/access_token");
+      tokenUrl.searchParams.set("client_id",     Deno.env.get("META_APP_ID") ?? "");
+      tokenUrl.searchParams.set("client_secret", Deno.env.get("META_APP_SECRET") ?? "");
+      tokenUrl.searchParams.set("redirect_uri",  callbackUrl);
+      tokenUrl.searchParams.set("code",          code);
+
+      const res = await fetch(tokenUrl.toString());
       tokenData = await res.json();
       if (tokenData.error) throw new Error(tokenData.error.message ?? "Meta OAuth error");
 
-      // Exchange short-lived token for long-lived token (60 days)
+      // Troca por token de longa duração (60 dias)
       const longRes = await fetch(
         `https://graph.facebook.com/v19.0/oauth/access_token?` +
         `grant_type=fb_exchange_token&client_id=${Deno.env.get("META_APP_ID")}&` +
@@ -95,17 +92,16 @@ Deno.serve(async (req) => {
       const longToken = await longRes.json();
       if (!longToken.error) {
         tokenData.access_token = longToken.access_token;
-        tokenData.expires_in = longToken.expires_in;
+        tokenData.expires_in   = longToken.expires_in;
       }
 
       // Busca o Facebook User ID para uso no webhook de deauth
       try {
-        const meRes = await fetch(
-          `https://graph.facebook.com/v19.0/me?fields=id&access_token=${tokenData.access_token}`
-        );
+        const meRes  = await fetch(`https://graph.facebook.com/v19.0/me?fields=id&access_token=${tokenData.access_token}`);
         const meData = await meRes.json() as Record<string, unknown>;
         if (meData.id) tokenData.meta_user_id = String(meData.id);
-      } catch { /* silencioso — nao bloqueia o fluxo */ }
+      } catch { /* silencioso */ }
+
     } else {
       return jsonResponse({ error: "Provider não suportado" }, 400);
     }
@@ -114,10 +110,14 @@ Deno.serve(async (req) => {
       ? new Date(Date.now() + tokenData.expires_in * 1000).toISOString()
       : null;
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-    );
+    // Resolve tenant_id: tenta crm_client_plans, senão usa client_id diretamente
+    let tenantId: string = clientId;
+    const { data: planRow } = await supabase
+      .from("crm_client_plans")
+      .select("tenant_id")
+      .eq("client_id", clientId)
+      .maybeSingle();
+    if (planRow?.tenant_id) tenantId = planRow.tenant_id;
 
     const { error: dbError } = await supabase
       .from("oauth_tokens")
@@ -128,7 +128,6 @@ Deno.serve(async (req) => {
         refresh_token: tokenData.refresh_token ?? null,
         expires_at:    expiresAt,
         scope:         tokenData.scope ?? null,
-        // Salva o Facebook User ID para permitir revogacao via webhook deauth
         ...(tokenData.meta_user_id ? { meta_user_id: tokenData.meta_user_id } : {}),
         updated_at:    new Date().toISOString(),
       }, { onConflict: "tenant_id,provider" });
@@ -142,6 +141,6 @@ Deno.serve(async (req) => {
 
   } catch (err: any) {
     console.error("[oauth-exchange]", err.message);
-    return jsonResponse({ error: "Erro interno" }, 500);
+    return jsonResponse({ error: err.message ?? "Erro interno" }, 500);
   }
 });
