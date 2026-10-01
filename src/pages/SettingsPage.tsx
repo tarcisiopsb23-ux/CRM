@@ -4,7 +4,6 @@ import {
   SettingsSection,
   WebhooksSection,
   N8nSection,
-  WhatsAppSection,
   GoogleCalendarSection,
   ResendSection,
   PermissionsSection,
@@ -391,7 +390,6 @@ export function SettingsPage() {
           <WebhooksSection />
           <N8nSection />
           <ResendSection />
-          <WhatsAppSection />
           <GoogleCalendarSection />
           <C8ControlSection />
         </TabsContent>

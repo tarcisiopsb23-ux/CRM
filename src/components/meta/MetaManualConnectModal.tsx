@@ -107,19 +107,20 @@ function ValidationRow({
 // ── Modal Principal ───────────────────────────────────────────────────────────
 
 export function MetaManualConnectModal({ open, onOpenChange, editConnectionId, organizationId: externalOrgId }: Props) {
-  const { validate, create, checkDuplicate } = useMetaConnections(externalOrgId);
+  const { validate, create, checkDuplicate, agencyCredential } = useMetaConnections(externalOrgId);
 
   // Etapa
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
 
   // Etapa 1 — Provider
-  const [provider,    setProvider]    = useState<ProviderChoice>("facebook");
-  const [environment, setEnvironment] = useState<ConnectionEnvironment>("production");
-  const [displayName, setDisplayName] = useState("");
+  const [provider,       setProvider]       = useState<ProviderChoice>("facebook");
+  const [environment,    setEnvironment]    = useState<ConnectionEnvironment>("production");
+  const [displayName,    setDisplayName]    = useState("");
 
-  // Etapa 2 — Token (mantido em memória apenas durante o fluxo)
-  const [accessToken,   setAccessToken]   = useState("");
-  const [showToken,     setShowToken]     = useState(false);
+  // Etapa 2 — Token
+  const [useAgencyToken, setUseAgencyToken] = useState(false);
+  const [accessToken,    setAccessToken]    = useState("");
+  const [showToken,      setShowToken]      = useState(false);
 
   // Etapa 3 — IDs de ativos
   const [metaUserId,          setMetaUserId]          = useState("");
@@ -146,6 +147,7 @@ export function MetaManualConnectModal({ open, onOpenChange, editConnectionId, o
     setProvider("facebook");
     setEnvironment("production");
     setDisplayName("");
+    setUseAgencyToken(false);
     setAccessToken("");
     setShowToken(false);
     setMetaUserId("");
@@ -178,11 +180,11 @@ export function MetaManualConnectModal({ open, onOpenChange, editConnectionId, o
 
   // ── Etapa 2 → 3 ─────────────────────────────────────────────────────────
   const goToStep3 = () => {
-    if (!accessToken.trim()) {
+    if (!useAgencyToken && !accessToken.trim()) {
       toast.error("Informe o access token antes de continuar.");
       return;
     }
-    setShowToken(false); // oculta o token ao avançar
+    setShowToken(false);
     setStep(3);
   };
 
@@ -205,7 +207,8 @@ export function MetaManualConnectModal({ open, onOpenChange, editConnectionId, o
       }
 
       const result = await validate.mutateAsync({
-        access_token:          accessToken,
+        access_token:          useAgencyToken ? undefined : accessToken,
+        use_agency_token:      useAgencyToken,
         provider:              toMetaProvider(provider),
         facebook_page_id:      facebookPageId      || undefined,
         instagram_account_id:  instagramAccountId  || undefined,
@@ -237,7 +240,8 @@ export function MetaManualConnectModal({ open, onOpenChange, editConnectionId, o
         provider:                     toMetaProvider(provider),
         connection_environment:       environment,
         display_name:                 displayName || undefined,
-        access_token:                 accessToken,
+        access_token:                 useAgencyToken ? undefined : accessToken,
+        use_agency_token:             useAgencyToken,
         meta_user_id:                 metaUserId          || undefined,
         business_id:                  businessId          || undefined,
         facebook_page_id:             facebookPageId      || undefined,
@@ -385,40 +389,71 @@ export function MetaManualConnectModal({ open, onOpenChange, editConnectionId, o
               </ul>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="access_token">Meta Access Token</Label>
-              <div className="relative">
-                <Input
-                  id="access_token"
-                  type={showToken ? "text" : "password"}
-                  value={accessToken}
-                  onChange={(e) => setAccessToken(e.target.value)}
-                  placeholder="EAAGm0PX..."
-                  className="font-mono text-sm pr-10"
-                  autoComplete="off"
-                  // Impede que o browser salve este campo
-                  data-lpignore="true"
-                  data-form-type="other"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowToken((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  title={showToken ? "Ocultar token" : "Mostrar token temporariamente"}
-                >
-                  {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
+            {/* Toggle: usar token da agência */}
+            {agencyCredential?.token_is_set && (
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setUseAgencyToken((v) => !v)}
+                onKeyDown={(e) => e.key === "Enter" && setUseAgencyToken((v) => !v)}
+                className={cn(
+                  "flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all",
+                  useAgencyToken
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:border-primary/40 hover:bg-muted/20"
+                )}
+              >
+                <div className={cn(
+                  "mt-0.5 h-4 w-4 shrink-0 rounded border-2 flex items-center justify-center transition-colors",
+                  useAgencyToken ? "bg-primary border-primary" : "border-muted-foreground"
+                )}>
+                  {useAgencyToken && <CheckCircle2 className="h-3 w-3 text-white" />}
+                </div>
+                <div>
+                  <p className="text-sm font-medium">Usar token da agência</p>
+                  <p className="text-xs text-muted-foreground">
+                    {agencyCredential.display_name} — {agencyCredential.token_preview}
+                  </p>
+                </div>
               </div>
-              <p className="text-[10px] text-muted-foreground">
-                Use um User Access Token, Page Access Token ou System User Token com as permissões necessárias para os ativos que deseja conectar.
-              </p>
-            </div>
+            )}
+
+            {/* Campo de token próprio (oculto quando usa token da agência) */}
+            {!useAgencyToken && (
+              <div className="space-y-2">
+                <Label htmlFor="access_token">Meta Access Token</Label>
+                <div className="relative">
+                  <Input
+                    id="access_token"
+                    type={showToken ? "text" : "password"}
+                    value={accessToken}
+                    onChange={(e) => setAccessToken(e.target.value)}
+                    placeholder="EAAGm0PX..."
+                    className="font-mono text-sm pr-10"
+                    autoComplete="off"
+                    data-lpignore="true"
+                    data-form-type="other"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowToken((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    title={showToken ? "Ocultar token" : "Mostrar token temporariamente"}
+                  >
+                    {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  Use um User Access Token, Page Access Token ou System User Token com as permissões necessárias para os ativos que deseja conectar.
+                </p>
+              </div>
+            )}
 
             <div className="flex justify-between">
               <Button variant="outline" onClick={() => setStep(1)}>
                 <ChevronLeft className="h-4 w-4 mr-1" /> Voltar
               </Button>
-              <Button onClick={goToStep3} disabled={!accessToken.trim()}>
+              <Button onClick={goToStep3} disabled={!useAgencyToken && !accessToken.trim()}>
                 Próximo <ChevronRight className="h-4 w-4 ml-1" />
               </Button>
             </div>
