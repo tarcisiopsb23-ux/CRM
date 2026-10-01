@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useDynamicClient } from "@/hooks/useDynamicClient";
+import { useClientAuth } from "@/hooks/useClientAuth";
 import { PageHeader } from "./components/PageHeader";
 import { StatusBadge } from "./components/StatusBadge";
 import { CredentialsErrorState } from "./components/CredentialsErrorState";
