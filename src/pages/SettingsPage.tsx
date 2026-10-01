@@ -4,7 +4,6 @@ import {
   SettingsSection,
   WebhooksSection,
   N8nSection,
-  WhatsAppSection,
   GoogleCalendarSection,
   ResendSection,
   PermissionsSection,
@@ -12,7 +11,9 @@ import {
   C8ControlSection,
   EmailTemplatesTab,
 } from "@/components/settings";
+import { AgencyMetaTokenSection } from "@/components/settings/AgencyMetaTokenSection";
 import { FiscalSettingsTab } from "@/components/settings/FiscalSettingsTab";
+import { PixKeysSection } from "@/components/settings/PixKeysSection";
 import { RecruitmentSection } from "@/components/settings/RecruitmentSection";
 import { ContractSettingsTab } from "@/components/settings/ContractSettingsTab";
 import { ServiceCatalogTab } from "@/components/contracts/settings/ServiceCatalogTab";
@@ -20,8 +21,8 @@ import { ProposalTemplateTab } from "@/components/propostas/ProposalTemplateTab"
 import { InviteMemberDialog } from "@/components/team/InviteMemberDialog";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Mail, Link as LinkIcon, Sun, Moon, Monitor, Type, Palette, Cloud, UserPlus, FolderOpen, ImagePlus, Loader2, Megaphone, FileText } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Mail, Link as LinkIcon, Sun, Moon, Monitor, Type, Palette, Cloud, UserPlus, FolderOpen, ImagePlus, Loader2, Megaphone, FileText, ChevronLeft, ChevronRight } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { useOrganization, useOrganizationData } from "@/hooks/useOrganization";
@@ -69,6 +70,34 @@ export function SettingsPage() {
   const orgData = useOrganizationData(organizationId);
   const orgSettings = useOrganizationSettings(organizationId);
   const qc = useQueryClient();
+
+  // ── Tabs scroll com setas ─────────────────────────────────────────────────
+  const tabsScrollRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft,  setCanScrollLeft]  = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const updateScrollState = () => {
+    const el = tabsScrollRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 2);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
+  };
+
+  useEffect(() => {
+    const el = tabsScrollRef.current;
+    if (!el) return;
+    updateScrollState();
+    el.addEventListener("scroll", updateScrollState, { passive: true });
+    const ro = new ResizeObserver(updateScrollState);
+    ro.observe(el);
+    return () => { el.removeEventListener("scroll", updateScrollState); ro.disconnect(); };
+  }, []);
+
+  const scrollTabs = (dir: "left" | "right") => {
+    const el = tabsScrollRef.current;
+    if (!el) return;
+    el.scrollBy({ left: dir === "left" ? -160 : 160, behavior: "smooth" });
+  };
   const driveFolders = useMemo(
     () => getDriveFoldersFromOrganizationSettings(orgSettings.data),
     [orgSettings.data]
@@ -180,17 +209,45 @@ export function SettingsPage() {
       </div>
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="space-y-6">
-        <TabsList className="w-full flex flex-wrap justify-start">
-          <TabsTrigger value="permissions">Cargos e Permissões</TabsTrigger>
-          <TabsTrigger value="integrations">Integrações</TabsTrigger>
-          <TabsTrigger value="fiscal">Fiscal / NFS-e</TabsTrigger>
-          <TabsTrigger value="recruitment">Recrutamento</TabsTrigger>
-          <TabsTrigger value="contracts">Contratos</TabsTrigger>
-          <TabsTrigger value="products">Serviços/Produtos</TabsTrigger>
-          <TabsTrigger value="email-templates">Templates de E-mail</TabsTrigger>
-          <TabsTrigger value="propostas-template">Template de Proposta</TabsTrigger>
-          <TabsTrigger value="general">Configurações gerais</TabsTrigger>
-        </TabsList>
+        {/* ── Tabs com scroll horizontal e setas ── */}
+        <div className="relative flex items-center">
+          {/* Seta esquerda */}
+          <button
+            onClick={() => scrollTabs("left")}
+            className={`absolute left-0 z-10 h-full px-1 flex items-center bg-gradient-to-r from-background via-background/90 to-transparent transition-opacity ${canScrollLeft ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+            aria-label="Rolar para a esquerda"
+          >
+            <ChevronLeft className="h-4 w-4 text-muted-foreground" />
+          </button>
+
+          {/* Container scrollável sem scrollbar visível */}
+          <div
+            ref={tabsScrollRef}
+            className="overflow-x-auto w-full [&::-webkit-scrollbar]:hidden"
+            style={{ scrollbarWidth: "none", msOverflowStyle: "none" } as React.CSSProperties}
+          >
+            <TabsList className="flex flex-nowrap [&>*]:shrink-0 w-max min-w-full h-10">
+              <TabsTrigger value="permissions">Cargos e Permissões</TabsTrigger>
+              <TabsTrigger value="integrations">Integrações</TabsTrigger>
+              <TabsTrigger value="fiscal">Fiscal / NFS-e</TabsTrigger>
+              <TabsTrigger value="recruitment">Recrutamento</TabsTrigger>
+              <TabsTrigger value="contracts">Contratos</TabsTrigger>
+              <TabsTrigger value="products">Serviços/Produtos</TabsTrigger>
+              <TabsTrigger value="email-templates">Templates de E-mail</TabsTrigger>
+              <TabsTrigger value="propostas-template">Template de Proposta</TabsTrigger>
+              <TabsTrigger value="general">Configurações gerais</TabsTrigger>
+            </TabsList>
+          </div>
+
+          {/* Seta direita */}
+          <button
+            onClick={() => scrollTabs("right")}
+            className={`absolute right-0 z-10 h-full px-1 flex items-center bg-gradient-to-l from-background via-background/90 to-transparent transition-opacity ${canScrollRight ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+            aria-label="Rolar para a direita"
+          >
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          </button>
+        </div>
 
         <TabsContent value="permissions" className="space-y-6">
           <PermissionsSection />
@@ -334,8 +391,8 @@ export function SettingsPage() {
 
           <WebhooksSection />
           <N8nSection />
+          <AgencyMetaTokenSection />
           <ResendSection />
-          <WhatsAppSection />
           <GoogleCalendarSection />
           <C8ControlSection />
         </TabsContent>
@@ -349,6 +406,7 @@ export function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="contracts" className="space-y-6">
+          <PixKeysSection />
           <ContractSettingsTab />
         </TabsContent>
 
