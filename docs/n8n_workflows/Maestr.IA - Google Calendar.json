@@ -293,40 +293,12 @@
     },
     {
       "parameters": {
-        "jsCode": "// Mapeia a ação do GCal para o tipo de evento de e-mail\nconst parsed = $('Parsear Evento').item.json;\nconst body   = $('Webhook — Agenda Maestr.ia').item.json.body || $('Webhook — Agenda Maestr.ia').item.json;\n\nconst actionMap = { create: 'created', update: 'confirmed', delete: 'cancelled' };\nconst emailEvent = actionMap[parsed.action] || parsed.action;\n\n// Dados do agendamento — vêm no payload original do agenda-booking\nreturn [{ json: {\n  event:          emailEvent,\n  client_id:      body.client_id      || null,\n  appointment_id: body.appointment_id || null,\n  customer_email: body.customer_email || null,\n  customer_name:  body.customer_name  || null,\n  service_name:   body.service_name   || null,\n  start_at:       parsed.start_at     || null,\n  end_at:         parsed.end_at       || null,\n}}];"
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true }) }}",
+        "options": {}
       },
-      "id": "prep-email",
-      "name": "Preparar Disparo E-mail",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [0, -240]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $env.AGENDA_EMAIL_WEBHOOK_URL || 'https://ia-n8n.whlwlh.easypanel.host/webhook/agenda-email-notify' }}",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            { "name": "Content-Type", "value": "application/json" },
-            { "name": "X-Webhook-Token", "value": "={{ $env.N8N_AGENDA_WEBHOOK_TOKEN || '' }}" }
-          ]
-        },
-        "sendBody": true,
-        "contentType": "raw",
-        "rawContentType": "application/json",
-        "body": "={{ JSON.stringify($json) }}",
-        "options": {
-          "timeout": 5000,
-          "response": { "response": { "neverError": true } }
-        }
-      },
-      "id": "fire-email",
-      "name": "Disparar E-mail (fire-and-forget)",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.3,
-      "position": [240, -240]
-    },
+      "id": "respond-ok",
+      "name": "Resposta",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
       "position": [-240, 0]
@@ -381,13 +353,13 @@
       "main": [[{ "node": "Salvar gcal_event_id Filhos", "type": "main", "index": 0 }]]
     },
     "Salvar gcal_event_id Filhos": {
-      "main": [[{ "node": "Preparar Disparo E-mail", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]]
     },
     "Preparar Atualizar": {
       "main": [[{ "node": "HTTP — Atualizar Evento", "type": "main", "index": 0 }]]
     },
     "HTTP — Atualizar Evento": {
-      "main": [[{ "node": "Preparar Disparo E-mail", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]]
     },
     "Tem GCal ID?": {
       "main": [
@@ -404,21 +376,15 @@
       ]
     },
     "HTTP — Excluir Este": {
-      "main": [[{ "node": "Preparar Disparo E-mail", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]]
     },
     "Preparar Excluir Seguintes": {
       "main": [[{ "node": "HTTP — Truncar Série", "type": "main", "index": 0 }]]
     },
     "HTTP — Truncar Série": {
-      "main": [[{ "node": "Preparar Disparo E-mail", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]]
     },
     "HTTP — Excluir Todos": {
-      "main": [[{ "node": "Preparar Disparo E-mail", "type": "main", "index": 0 }]]
-    },
-    "Preparar Disparo E-mail": {
-      "main": [[{ "node": "Disparar E-mail (fire-and-forget)", "type": "main", "index": 0 }]]
-    },
-    "Disparar E-mail (fire-and-forget)": {
       "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]]
     }
   },
