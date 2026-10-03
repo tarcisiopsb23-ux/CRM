@@ -103,6 +103,18 @@ const FIELDS_AGENDA: FieldDef[] = [
     placeholder: "https://n8n.dominio.com/webhook/agenda-email-notify",
     hint: "URL do workflow n8n que envia e-mails de agendamento via Resend (criado, confirmado, cancelado). Usa o padrão on-behalf-of: From no domínio c8control.com.br, Reply-To do cliente.",
   },
+  {
+    key: "agendaWhatsappWebhookUrl",
+    label: "Webhook: Notificações por WhatsApp",
+    placeholder: "https://n8n.dominio.com/webhook/agenda-whatsapp-notify",
+    hint: "URL do workflow n8n que envia mensagens WhatsApp de agendamento (criado, confirmado, cancelado). Usa a conexão Meta configurada em Integrações.",
+  },
+  {
+    key: "agendaReminderWebhookUrl",
+    label: "Webhook: Lembretes (Schedule)",
+    placeholder: "https://n8n.dominio.com/webhook/agenda-reminder",
+    hint: "URL do workflow n8n de lembretes. Executado por Schedule Trigger — busca agendamentos próximos e dispara e-mail e/ou WhatsApp conforme configurado pelo cliente.",
+  },
 ];
 
 // ─── Componente ───────────────────────────────────────────────────────────────
