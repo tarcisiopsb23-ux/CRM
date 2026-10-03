@@ -99,6 +99,10 @@ export interface C8ControlConfig {
   agendaN8nGoogleWebhookUrl?: string;
   /** Webhook n8n para envio de notificações de agenda por e-mail (Resend on-behalf-of) */
   agendaEmailWebhookUrl?: string;
+  /** Webhook n8n para envio de notificações de agenda por WhatsApp (Meta API) */
+  agendaWhatsappWebhookUrl?: string;
+  /** Webhook n8n para envio de lembretes de agendamento (Schedule Trigger — e-mail + WhatsApp) */
+  agendaReminderWebhookUrl?: string;
 }
 
 export interface WhatsAppConfig {
