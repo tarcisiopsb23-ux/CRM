@@ -1,0 +1,207 @@
+{
+  "name": "Agenda — Notificações por WhatsApp",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agenda-whatsapp-notify",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-in",
+      "name": "Webhook — Evento de Agendamento",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Valida e normaliza o payload recebido do agenda-upsert\nconst body = $input.first().json.body ?? $input.first().json;\n\nconst event      = body.event;            // 'created' | 'confirmed' | 'cancelled'\nconst clientId   = body.client_id;\nconst apptId     = body.appointment_id;\n\nif (!event || !clientId) {\n  throw new Error('Payload inválido: event e client_id são obrigatórios');\n}\n\n// Se os dados do paciente já vieram no payload, usa direto\n// Caso contrário, serão buscados no próximo node\nreturn [{\n  json: {\n    event,\n    client_id:      clientId,\n    appointment_id: apptId ?? null,\n    customer_phone: body.customer_phone ?? null,\n    customer_name:  body.customer_name  ?? null,\n    service_name:   body.service_name   ?? null,\n    start_at:       body.start_at       ?? null,\n    end_at:         body.end_at         ?? null,\n    needs_lookup:   !body.customer_phone || !body.start_at,\n  }\n}];"
+      },
+      "id": "parse-payload",
+      "name": "Parsear Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{ $json.needs_lookup }}", "value2": true }]
+        }
+      },
+      "id": "needs-lookup",
+      "name": "Precisa buscar dados?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/client_appointments",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "id",     "value": "=eq.{{ $json.appointment_id }}" },
+            { "name": "select", "value": "id,customer_name,customer_phone,whatsapp_notify_phone,service_name,start_at,end_at,client_id" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-appointment",
+      "name": "Buscar Agendamento",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mescla dados buscados com payload original\nconst appt = $input.first().json[0] ?? $input.first().json;\nconst orig = $('Parsear Payload').first().json;\n\n// whatsapp_notify_phone tem prioridade sobre customer_phone\nconst phone = appt.whatsapp_notify_phone ?? appt.customer_phone ?? orig.customer_phone;\n\nreturn [{\n  json: {\n    event:          orig.event,\n    client_id:      appt.client_id      ?? orig.client_id,\n    appointment_id: appt.id             ?? orig.appointment_id,\n    customer_phone: phone,\n    customer_name:  appt.customer_name  ?? orig.customer_name,\n    service_name:   appt.service_name   ?? orig.service_name,\n    start_at:       appt.start_at       ?? orig.start_at,\n    end_at:         appt.end_at         ?? orig.end_at,\n  }\n}];"
+      },
+      "id": "merge-data",
+      "name": "Mesclar Dados",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/client_ai_settings",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "client_id", "value": "=eq.{{ $json.client_id }}" },
+            { "name": "select",    "value": "whatsapp_notify_enabled,whatsapp_notify_on_created,whatsapp_notify_on_confirmed,whatsapp_notify_on_cancelled,whatsapp_msg_created,whatsapp_msg_confirmed,whatsapp_msg_cancelled,whatsapp_connection_id,establishment_name" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-config",
+      "name": "Buscar Config WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const apptData = $('Mesclar Dados').first().json ?? $('Parsear Payload').first().json;\nconst cfgArr   = $input.first().json;\nconst cfg      = Array.isArray(cfgArr) ? cfgArr[0] : cfgArr;\n\nif (!cfg) throw new Error('Config WhatsApp não encontrada para client_id: ' + apptData.client_id);\n\n// Verifica se o canal está habilitado para este evento\nconst enabled  = cfg.whatsapp_notify_enabled ?? false;\nconst eventKey = `whatsapp_notify_on_${apptData.event}`;\nconst eventOn  = cfg[eventKey] ?? false;\n\nif (!enabled || !eventOn) {\n  return [{ json: { skip: true, reason: `${eventKey} desabilitado` } }];\n}\n\nif (!apptData.customer_phone) {\n  return [{ json: { skip: true, reason: 'customer_phone não disponível' } }];\n}\n\n// Formata data/hora em pt-BR\nconst fmtDate = (iso) => {\n  try {\n    return new Date(iso).toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });\n  } catch { return iso; }\n};\nconst fmtTime = (iso) => {\n  try {\n    return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });\n  } catch { return iso; }\n};\n\n// Substitui variáveis de template\nconst vars = {\n  nome:    apptData.customer_name  ?? 'Cliente',\n  servico: apptData.service_name   ?? 'Agendamento',\n  data:    fmtDate(apptData.start_at),\n  hora:    fmtTime(apptData.start_at),\n};\nconst applyVars = (tpl) => tpl.replace(/\\{(\\w+)\\}/g, (_, k) => vars[k] ?? `{${k}}`);\n\n// Templates padrão por evento\nconst defaults = {\n  created:   `✅ Olá, ${vars.nome}! Seu agendamento de *${vars.servico}* foi confirmado para ${vars.data} às ${vars.hora}.`,\n  confirmed: `📋 Olá, ${vars.nome}! Seu agendamento de *${vars.servico}* foi atualizado para ${vars.data} às ${vars.hora}.`,\n  cancelled: `❌ Olá, ${vars.nome}! Seu agendamento de *${vars.servico}* foi cancelado. Entre em contato para remarcar.`,\n};\n\nconst msgKey = `whatsapp_msg_${apptData.event}`;\nconst rawMsg = cfg[msgKey];\nconst message = rawMsg?.trim() ? applyVars(rawMsg) : defaults[apptData.event] ?? `Notificação de agendamento: ${vars.servico} em ${vars.data} às ${vars.hora}.`;\n\n// Normaliza número — remove tudo que não for dígito, garante +55\nlet phone = apptData.customer_phone.replace(/\\D/g, '');\nif (!phone.startsWith('55')) phone = '55' + phone;\nphone = '+' + phone;\n\nreturn [{\n  json: {\n    skip:          false,\n    client_id:     apptData.client_id,\n    connection_id: cfg.whatsapp_connection_id ?? null,\n    phone,\n    message,\n    event:         apptData.event,\n    client_name:   cfg.establishment_name ?? 'Estabelecimento',\n  }\n}];"
+      },
+      "id": "build-message",
+      "name": "Montar Mensagem",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{ $json.skip }}", "value2": true }]
+        }
+      },
+      "id": "check-skip",
+      "name": "Deve enviar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1780, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/functions/v1/send-message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({\n  connection_id:   $json.connection_id,\n  organization_id: null,\n  channel_type:    'whatsapp',\n  recipient_id:    $json.phone,\n  message_type:    'text',\n  content:         $json.message\n}) }}",
+        "options": {}
+      },
+      "id": "send-whatsapp",
+      "name": "Enviar WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2000, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $input.first().json;\nconst skip   = result.skip;\nif (skip) {\n  console.log(`WhatsApp pulado: ${result.reason}`);\n} else if (result.messages) {\n  console.log(`WhatsApp enviado para: ${$('Montar Mensagem').first().json.phone}`);\n} else {\n  console.error(`Erro ao enviar WhatsApp:`, JSON.stringify(result));\n}\nreturn $input.all();"
+      },
+      "id": "log-result",
+      "name": "Log Resultado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"received\": true } }}"
+      },
+      "id": "respond",
+      "name": "Resposta",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2220, 300]
+    }
+  ],
+  "connections": {
+    "Webhook — Evento de Agendamento": {
+      "main": [[{ "node": "Parsear Payload", "type": "main", "index": 0 }]]
+    },
+    "Parsear Payload": {
+      "main": [[{ "node": "Precisa buscar dados?", "type": "main", "index": 0 }]]
+    },
+    "Precisa buscar dados?": {
+      "main": [
+        [{ "node": "Buscar Agendamento",   "type": "main", "index": 0 }],
+        [{ "node": "Buscar Config WhatsApp","type": "main", "index": 0 }]
+      ]
+    },
+    "Buscar Agendamento": {
+      "main": [[{ "node": "Mesclar Dados", "type": "main", "index": 0 }]]
+    },
+    "Mesclar Dados": {
+      "main": [[{ "node": "Buscar Config WhatsApp", "type": "main", "index": 0 }]]
+    },
+    "Buscar Config WhatsApp": {
+      "main": [[{ "node": "Montar Mensagem", "type": "main", "index": 0 }]]
+    },
+    "Montar Mensagem": {
+      "main": [[{ "node": "Deve enviar?", "type": "main", "index": 0 }]]
+    },
+    "Deve enviar?": {
+      "main": [
+        [{ "node": "Log Resultado",  "type": "main", "index": 0 }],
+        [{ "node": "Enviar WhatsApp","type": "main", "index": 0 }]
+      ]
+    },
+    "Enviar WhatsApp": {
+      "main": [[{ "node": "Log Resultado", "type": "main", "index": 0 }]]
+    },
+    "Log Resultado": {
+      "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "description": "Recebe eventos de agendamento (criado/confirmado/cancelado) e envia mensagem WhatsApp ao paciente/cliente via Edge Function send-message.\n\nBusca config em client_ai_settings (whatsapp_notify_enabled, whatsapp_notify_on_*, whatsapp_msg_*, whatsapp_connection_id).\nRespeit o número configurado em client_appointments.whatsapp_notify_phone (prioridade) ou customer_phone.\n\nVariáveis de ambiente necessárias:\n  SUPABASE_URL         = https://owwaulaenabbdalycusx.supabase.co\n  SUPABASE_SERVICE_KEY = eyJ...\n\nWebhook path: /webhook/agenda-whatsapp-notify\nConfigure o campo 'Webhook: Notificações por WhatsApp' nas Configurações do CRM."
+  }
+}

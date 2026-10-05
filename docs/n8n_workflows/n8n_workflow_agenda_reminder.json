@@ -1,0 +1,317 @@
+{
+  "name": "Agenda — Lembretes (E-mail + WhatsApp)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "cronExpression", "expression": "*/30 * * * *" }]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule — A cada 30 minutos",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/get_appointments_needing_reminder",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={}",
+        "options": {}
+      },
+      "id": "fetch-pending",
+      "name": "Buscar Agendamentos Pendentes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [{ "value1": "={{ $json.length }}", "operation": "larger", "value2": 0 }]
+        }
+      },
+      "id": "has-appointments",
+      "name": "Tem agendamentos?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "=",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "id": "split-items",
+      "name": "Dividir por Agendamento",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Cada item é um agendamento que precisa de lembrete\n// Estrutura esperada da RPC get_appointments_needing_reminder:\n// {\n//   id, client_id, customer_name, customer_email, customer_phone,\n//   whatsapp_notify_phone, service_name, start_at, end_at,\n//   email_notify_enabled, email_notify_on_reminder, email_reminder_hours,\n//   whatsapp_notify_enabled, whatsapp_notify_on_reminder, whatsapp_reminder_hours,\n//   email_reminder_sent_at, reminder_sent_at  -- null = ainda não enviado\n// }\nconst appt = $input.first().json;\n\n// Formata data/hora\nconst fmtDate = (iso) => {\n  try {\n    return new Date(iso).toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });\n  } catch { return iso; }\n};\nconst fmtTime = (iso) => {\n  try {\n    return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });\n  } catch { return iso; }\n};\n\n// Normaliza telefone para WhatsApp\nconst normalizePhone = (phone) => {\n  if (!phone) return null;\n  let p = phone.replace(/\\D/g, '');\n  if (!p.startsWith('55')) p = '55' + p;\n  return '+' + p;\n};\n\nconst sendEmail    = (appt.email_notify_enabled    && appt.email_notify_on_reminder    && !appt.email_reminder_sent_at);\nconst sendWhatsapp = (appt.whatsapp_notify_enabled && appt.whatsapp_notify_on_reminder && !appt.reminder_sent_at);\n\nreturn [{\n  json: {\n    appointment_id: appt.id,\n    client_id:      appt.client_id,\n    customer_name:  appt.customer_name,\n    customer_email: appt.customer_email,\n    customer_phone: normalizePhone(appt.whatsapp_notify_phone ?? appt.customer_phone),\n    service_name:   appt.service_name,\n    start_at:       appt.start_at,\n    end_at:         appt.end_at,\n    data:           fmtDate(appt.start_at),\n    hora:           fmtTime(appt.start_at),\n    send_email:     sendEmail,\n    send_whatsapp:  sendWhatsapp,\n    skip:           !sendEmail && !sendWhatsapp,\n  }\n}];"
+      },
+      "id": "prep-reminder",
+      "name": "Preparar Lembrete",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{ $json.skip }}", "value2": true }]
+        }
+      },
+      "id": "check-skip",
+      "name": "Pular este?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1340, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{ $json.send_email }}", "value2": true }]
+        }
+      },
+      "id": "check-email",
+      "name": "Enviar e-mail?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1560, 100]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/functions/v1/send-agenda-email",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({\n  event:          'reminder',\n  client_id:      $json.client_id,\n  appointment_id: $json.appointment_id,\n  customer_email: $json.customer_email,\n  customer_name:  $json.customer_name,\n  service_name:   $json.service_name,\n  start_at:       $json.start_at,\n  end_at:         $json.end_at\n}) }}",
+        "options": { "timeout": 10000 }
+      },
+      "id": "send-email",
+      "name": "Enviar E-mail (Reminder)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1780, 0]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/client_appointments",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [{ "name": "id", "value": "=eq.{{ $('Preparar Lembrete').first().json.appointment_id }}" }]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=minimal" }
+          ]
+        },
+        "method": "PATCH",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ email_reminder_sent_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "mark-email-sent",
+      "name": "Marcar E-mail Enviado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2000, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{ $('Preparar Lembrete').first().json.send_whatsapp }}", "value2": true }]
+        }
+      },
+      "id": "check-whatsapp",
+      "name": "Enviar WhatsApp?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/client_ai_settings",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "client_id", "value": "=eq.{{ $('Preparar Lembrete').first().json.client_id }}" },
+            { "name": "select",    "value": "whatsapp_connection_id,whatsapp_msg_reminder,establishment_name" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-wa-config",
+      "name": "Buscar Config WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1780, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg  = ($input.first().json[0] ?? $input.first().json) || {};\nconst appt = $('Preparar Lembrete').first().json;\n\n// Substitui variáveis de template\nconst vars = { nome: appt.customer_name, servico: appt.service_name, data: appt.data, hora: appt.hora };\nconst applyVars = (tpl) => tpl.replace(/\\{(\\w+)\\}/g, (_, k) => vars[k] ?? `{${k}}`);\n\nconst rawMsg  = cfg.whatsapp_msg_reminder;\nconst message = rawMsg?.trim()\n  ? applyVars(rawMsg)\n  : `⏰ Olá, ${appt.customer_name}! Lembrete: você tem *${appt.service_name}* em ${appt.data} às ${appt.hora}. Qualquer dúvida, entre em contato!`;\n\nreturn [{\n  json: {\n    connection_id: cfg.whatsapp_connection_id ?? null,\n    phone:         appt.customer_phone,\n    message,\n    appointment_id: appt.appointment_id,\n  }\n}];"
+      },
+      "id": "build-wa-message",
+      "name": "Montar Mensagem WhatsApp",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/functions/v1/send-message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({\n  connection_id:   $json.connection_id,\n  organization_id: null,\n  channel_type:    'whatsapp',\n  recipient_id:    $json.phone,\n  message_type:    'text',\n  content:         $json.message\n}) }}",
+        "options": {}
+      },
+      "id": "send-whatsapp",
+      "name": "Enviar WhatsApp (Reminder)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2220, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/client_appointments",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [{ "name": "id", "value": "=eq.{{ $('Montar Mensagem WhatsApp').first().json.appointment_id }}" }]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=minimal" }
+          ]
+        },
+        "method": "PATCH",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ reminder_sent_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "mark-wa-sent",
+      "name": "Marcar WhatsApp Enviado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2440, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "console.log('Ciclo de lembretes concluído. Sem agendamentos pendentes.');\nreturn [{ json: { done: true } }];"
+      },
+      "id": "done",
+      "name": "Concluído",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 400]
+    }
+  ],
+  "connections": {
+    "Schedule — A cada 30 minutos": {
+      "main": [[{ "node": "Buscar Agendamentos Pendentes", "type": "main", "index": 0 }]]
+    },
+    "Buscar Agendamentos Pendentes": {
+      "main": [[{ "node": "Tem agendamentos?", "type": "main", "index": 0 }]]
+    },
+    "Tem agendamentos?": {
+      "main": [
+        [{ "node": "Concluído",              "type": "main", "index": 0 }],
+        [{ "node": "Dividir por Agendamento","type": "main", "index": 0 }]
+      ]
+    },
+    "Dividir por Agendamento": {
+      "main": [[{ "node": "Preparar Lembrete", "type": "main", "index": 0 }]]
+    },
+    "Preparar Lembrete": {
+      "main": [[{ "node": "Pular este?", "type": "main", "index": 0 }]]
+    },
+    "Pular este?": {
+      "main": [
+        [{ "node": "Concluído",      "type": "main", "index": 0 }],
+        [{ "node": "Enviar e-mail?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Enviar e-mail?": {
+      "main": [
+        [{ "node": "Enviar WhatsApp?",         "type": "main", "index": 0 }],
+        [{ "node": "Enviar E-mail (Reminder)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Enviar E-mail (Reminder)": {
+      "main": [[{ "node": "Marcar E-mail Enviado", "type": "main", "index": 0 }]]
+    },
+    "Marcar E-mail Enviado": {
+      "main": [[{ "node": "Enviar WhatsApp?", "type": "main", "index": 0 }]]
+    },
+    "Enviar WhatsApp?": {
+      "main": [
+        [{ "node": "Concluído",            "type": "main", "index": 0 }],
+        [{ "node": "Buscar Config WhatsApp","type": "main", "index": 0 }]
+      ]
+    },
+    "Buscar Config WhatsApp": {
+      "main": [[{ "node": "Montar Mensagem WhatsApp", "type": "main", "index": 0 }]]
+    },
+    "Montar Mensagem WhatsApp": {
+      "main": [[{ "node": "Enviar WhatsApp (Reminder)", "type": "main", "index": 0 }]]
+    },
+    "Enviar WhatsApp (Reminder)": {
+      "main": [[{ "node": "Marcar WhatsApp Enviado", "type": "main", "index": 0 }]]
+    },
+    "Marcar WhatsApp Enviado": {
+      "main": [[{ "node": "Concluído", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "description": "Executa a cada 30 minutos via Schedule Trigger. Busca agendamentos que precisam de lembrete via RPC get_appointments_needing_reminder (start_at dentro da janela configurada em email_reminder_hours / whatsapp_reminder_hours e *_reminder_sent_at IS NULL).\n\nPara cada agendamento:\n  1. Verifica se e-mail está habilitado → chama send-agenda-email → marca email_reminder_sent_at\n  2. Verifica se WhatsApp está habilitado → chama send-message → marca reminder_sent_at\n\nAmbos os canais são independentes — cada um pode estar habilitado individualmente.\n\nVARIÁVEIS DE AMBIENTE necessárias no n8n:\n  SUPABASE_URL         = https://owwaulaenabbdalycusx.supabase.co\n  SUPABASE_SERVICE_KEY = eyJ...\n\nIMPORTANTE: Este workflow precisa da RPC get_appointments_needing_reminder no Supabase.\nCrie via SQL Editor:\n\nCREATE OR REPLACE FUNCTION public.get_appointments_needing_reminder()\nRETURNS TABLE (...) LANGUAGE sql SECURITY DEFINER AS $$\n  SELECT\n    a.id, a.client_id, a.customer_name, a.customer_email, a.customer_phone,\n    a.whatsapp_notify_phone, a.service_name, a.start_at, a.end_at,\n    a.email_reminder_sent_at, a.reminder_sent_at,\n    s.email_notify_enabled, s.email_notify_on_reminder, s.email_reminder_hours,\n    s.whatsapp_notify_enabled, s.whatsapp_notify_on_reminder, s.whatsapp_reminder_hours\n  FROM public.client_appointments a\n  JOIN public.client_ai_settings s ON s.client_id = a.client_id\n  WHERE a.status IN ('confirmed', 'pending')\n    AND a.start_at > now()\n    AND (\n      (s.email_notify_enabled AND s.email_notify_on_reminder\n       AND a.email_reminder_sent_at IS NULL\n       AND a.start_at <= now() + (s.email_reminder_hours || ' hours')::interval)\n      OR\n      (s.whatsapp_notify_enabled AND s.whatsapp_notify_on_reminder\n       AND a.reminder_sent_at IS NULL\n       AND a.start_at <= now() + (s.whatsapp_reminder_hours || ' hours')::interval)\n    );\n$$;"
+  }
+}
