@@ -55,6 +55,7 @@ const CrmProdutosPage       = lazy(() => import("@/pages/public-dashboard/CrmPro
 const AgendaMainPage        = lazy(() => import("@/pages/public-dashboard/AgendaPage").then(m => ({ default: m.AgendaPage })));
 const AgendaConfigPage      = lazy(() => import("@/pages/public-dashboard/AgendaConfigPage").then(m => ({ default: m.AgendaConfigPage })));
 const AgendaLinkPage        = lazy(() => import("@/pages/public-dashboard/AgendaLinkPage").then(m => ({ default: m.AgendaLinkPage })));
+const WhatsAppTemplatesPage = lazy(() => import("@/pages/public-dashboard/WhatsAppTemplatesPage").then(m => ({ default: m.WhatsAppTemplatesPage })));
 const CrmCamposPage         = lazy(() => import("@/pages/public-dashboard/CrmCamposPage").then(m => ({ default: m.CrmCamposPage })));
 // ── Módulo Mensagens ──────────────────────────────────────────────────────────
 const MensagensPage            = lazy(() => import("@/pages/public-dashboard/MensagensPage").then(m => ({ default: m.MensagensPage })));
@@ -159,8 +160,9 @@ export default function App() {
                 <Route path="configuracoes/integracoes/testes"    element={<Suspense fallback={<PageLoader />}><TrackingTestPage /></Suspense>} />
                 <Route path="configuracoes/formularios"           element={<Suspense fallback={<PageLoader />}><FormsConfigPage /></Suspense>} />
                 <Route path="configuracoes/pagamentos"            element={<Suspense fallback={<PageLoader />}><ConfigPagamentosPage /></Suspense>} />
-                <Route path="agenda/configuracoes" element={<Suspense fallback={<PageLoader />}><AgendaConfigPage /></Suspense>} />
-                <Route path="agenda/link"          element={<Suspense fallback={<PageLoader />}><AgendaLinkPage /></Suspense>} />
+                <Route path="agenda/configuracoes"   element={<Suspense fallback={<PageLoader />}><AgendaConfigPage /></Suspense>} />
+                <Route path="agenda/link"            element={<Suspense fallback={<PageLoader />}><AgendaLinkPage /></Suspense>} />
+                <Route path="agenda/templates"       element={<Suspense fallback={<PageLoader />}><WhatsAppTemplatesPage /></Suspense>} />
                 {/* ── Meta App Review ── */}
                 <Route path="meta-review"                                element={<Suspense fallback={<PageLoader />}><MetaReviewIndexPage /></Suspense>} />
                 <Route path="meta-review/facebook-login"                 element={<Suspense fallback={<PageLoader />}><FacebookLoginDemoPage /></Suspense>} />

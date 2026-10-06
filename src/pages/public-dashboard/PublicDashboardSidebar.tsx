@@ -44,6 +44,7 @@ const CRM_NAV = [
 const AGENDA_NAV = [
   { title: "Agendamentos", url: "agenda",               icon: CalendarCheck },
   { title: "Configurar",   url: "agenda/configuracoes", icon: ListChecks },
+  { title: "Templates WA", url: "agenda/templates",     icon: MessageCircle },
   { title: "Link Público", url: "agenda/link",          icon: LinkIcon },
 ];
 

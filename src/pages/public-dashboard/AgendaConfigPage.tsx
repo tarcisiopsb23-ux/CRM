@@ -12,10 +12,11 @@
 import { useState } from "react";
 import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { useNavigate } from "react-router-dom";
 import {
   Plus, Pencil, Trash2, Loader2, Clock, Calendar,
   CheckCircle2, Unlink, AlertCircle, Users, Settings2,
-  Eye, EyeOff, Package, Info, Palette, Upload, ImageIcon, MessageCircle, Mail,
+  Eye, EyeOff, Package, Info, Palette, Upload, ImageIcon, MessageCircle, Mail, ExternalLink,
 } from "lucide-react";
 import { Button }   from "@/components/ui/button";
 import { Input }    from "@/components/ui/input";
@@ -1021,9 +1022,26 @@ export function AgendaConfigPage() {
           </Card>
         </TabsContent>
         {/* ── Aba: Notificações WhatsApp (só quando chatbot ativo) ── */}
-        {chatbotEnabled && (
           <TabsContent value="notificacoes">
             <div className="space-y-4">
+
+              {/* Link para Templates WhatsApp */}
+              {notifyConfig.whatsapp_notify_enabled && (
+                <div className="flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-4 py-2.5">
+                  <MessageCircle className="h-4 w-4 text-emerald-500 shrink-0" />
+                  <p className="text-xs text-emerald-700 flex-1">
+                    Para usar templates oficiais do WhatsApp (HSM) nos lembretes,
+                    configure em <strong>Agenda → Templates WhatsApp</strong>.
+                  </p>
+                  <Button
+                    size="sm" variant="outline"
+                    className="h-7 text-xs gap-1 border-emerald-500/30 text-emerald-600 hover:bg-emerald-500/10"
+                    onClick={() => navigate(`/${slug}/agenda/templates`)}
+                  >
+                    Gerenciar Templates <ExternalLink className="h-3 w-3" />
+                  </Button>
+                </div>
+              )}
 
               {/* ── Seção: WhatsApp ── */}
               <Card className="card-surface">
@@ -1296,7 +1314,6 @@ export function AgendaConfigPage() {
               )}
             </div>
           </TabsContent>
-        )}
       </Tabs>
 
       {/* ── Dialog: configurar serviço (produto CRM) ── */}
