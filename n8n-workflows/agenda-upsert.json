@@ -1,0 +1,387 @@
+{
+  "name": "Agenda — Upsert v4 (Orquestrador Central)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agenda-upsert",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook — Receber Evento",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "agenda-upsert",
+      "notes": "Ponto de entrada único para qualquer operação de agendamento.\nChamado por:\n  - Edge Function agenda-booking (formulário público /booking/:slug)\n  - C8 Control via useAppointments (criar/editar/cancelar manual no dashboard)\n\nPayload:\n  event:          'appointment.created' | 'appointment.updated' | 'appointment.cancelled'\n  appointment_id: UUID do agendamento no Banco A\n  client_id:      UUID do cliente\n  source:         'public_form' | 'manual' | 'whatsapp' | 'google_calendar'\n\nURL: https://ia-n8n.whlwlh.easypanel.host/webhook/agenda-upsert"
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body ?? $input.first().json;\nconst token = $input.first().json.headers?.['x-webhook-token']\n           ?? $input.first().json.headers?.['X-Webhook-Token']\n           ?? '';\nconst expectedToken = $env.WEBHOOK_TOKEN ?? '';\nif (expectedToken && token !== expectedToken) throw new Error('Token inválido');\n\nconst event          = body.event ?? 'appointment.created';\nconst appointmentId  = body.appointment_id;\nconst clientId       = body.client_id;\n\nif (!appointmentId) throw new Error('appointment_id é obrigatório');\nif (!clientId)      throw new Error('client_id é obrigatório');\n\nconst validEvents = ['appointment.created','appointment.updated','appointment.cancelled'];\nif (!validEvents.includes(event)) throw new Error('Evento inválido: ' + event);\n\n// Normaliza evento para o formato esperado pelo dispatcher\nconst eventMap = {\n  'appointment.created':   'created',\n  'appointment.updated':   'confirmed',\n  'appointment.cancelled': 'cancelled',\n};\n\nconsole.log(`[agenda-upsert] ${event} | appointment=${appointmentId} | client=${clientId}`);\n\nreturn [{ json: {\n  event,\n  event_normalized: eventMap[event] ?? 'created',\n  appointment_id: appointmentId,\n  client_id:      clientId,\n  source:         body.source ?? 'manual',\n} }];"
+      },
+      "id": "validar-payload",
+      "name": "Validar e Normalizar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/client_appointments",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
+        ]},
+        "sendQuery": true,
+        "queryParameters": { "parameters": [
+          { "name": "id",        "value": "=eq.{{ $json.appointment_id }}" },
+          { "name": "client_id", "value": "=eq.{{ $json.client_id }}" },
+          { "name": "select",    "value": "id,client_id,customer_name,customer_phone,customer_email,service_name,start_at,end_at,status,google_event_id,google_calendar_id,source,notes,whatsapp_notify_phone" },
+          { "name": "limit",     "value": "1" }
+        ]},
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "buscar-agendamento",
+      "name": "Buscar Agendamento no Banco A",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const result  = $input.first().json;\nconst payload = $('Validar e Normalizar').first().json;\n\nconst appt = Array.isArray(result) ? result[0] : null;\nif (!appt) {\n  console.error(`[agenda-upsert] Agendamento ${payload.appointment_id} não encontrado para client=${payload.client_id}.`);\n  return [];\n}\n\nreturn [{ json: {\n  event:              payload.event,\n  event_normalized:   payload.event_normalized,\n  source:             payload.source,\n  appointment_id:     appt.id,\n  client_id:          appt.client_id,\n  customer_name:      appt.customer_name,\n  customer_phone:     appt.customer_phone,\n  customer_email:     appt.customer_email,\n  service_name:       appt.service_name,\n  start_at:           appt.start_at,\n  end_at:             appt.end_at,\n  status:             appt.status,\n  google_event_id:    appt.google_event_id    ?? null,\n  google_calendar_id: appt.google_calendar_id ?? null,\n  notes:              appt.notes,\n  whatsapp_notify_phone: appt.whatsapp_notify_phone ?? appt.customer_phone,\n} }];"
+      },
+      "id": "enriquecer-payload",
+      "name": "Enriquecer com Dados do Banco",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/get_google_calendar_tokens",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Content-Type",  "value": "application/json" }
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ p_client_id: $json.client_id }) }}",
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "buscar-tokens",
+      "name": "Buscar Tokens OAuth2 do Cliente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 300]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const tokens = $input.first().json;\nconst appt   = $('Enriquecer com Dados do Banco').first().json;\n\nif (!tokens?.found) {\n  console.log(`[agenda-upsert] Cliente ${appt.client_id} sem Google Calendar conectado. Agendamento salvo apenas no Banco A.`);\n  // Mesmo sem GCal, dispara notificações\n  return [{ json: { ...appt, skip_gcal: true } }];\n}\n\nconst expiry       = tokens.token_expiry ? new Date(tokens.token_expiry).getTime() : 0;\nconst needsRefresh = expiry - Date.now() < 5 * 60 * 1000;\n\nreturn [{ json: {\n  ...appt,\n  skip_gcal:     false,\n  access_token:  tokens.access_token,\n  refresh_token: tokens.refresh_token,\n  token_expiry:  tokens.token_expiry,\n  calendar_id:   tokens.calendar_id ?? 'primary',\n  needs_refresh: needsRefresh,\n} }];"
+      },
+      "id": "avaliar-tokens",
+      "name": "Avaliar Tokens",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+
+    {
+      "parameters": {
+        "conditions": { "options": { "caseSensitive": false }, "conditions": [
+          { "leftValue": "={{ $json.skip_gcal }}", "rightValue": true,
+            "operator": { "type": "boolean", "operation": "equals" } }
+        ]}
+      },
+      "id": "if-skip-gcal",
+      "name": "Pular Google Calendar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1560, 300]
+    },
+
+    {
+      "parameters": {
+        "conditions": { "options": { "caseSensitive": false }, "conditions": [
+          { "leftValue": "={{ $json.needs_refresh }}", "rightValue": true,
+            "operator": { "type": "boolean", "operation": "equals" } }
+        ]}
+      },
+      "id": "if-refresh",
+      "name": "Token expirado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1780, 180]
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://oauth2.googleapis.com/token",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "Content-Type", "value": "application/x-www-form-urlencoded" }
+        ]},
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": { "parameters": [
+          { "name": "client_id",     "value": "={{ $env.GOOGLE_CALENDAR_CLIENT_ID }}" },
+          { "name": "client_secret", "value": "={{ $env.GOOGLE_CALENDAR_CLIENT_SECRET }}" },
+          { "name": "refresh_token", "value": "={{ $json.refresh_token }}" },
+          { "name": "grant_type",    "value": "refresh_token" }
+        ]},
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "renovar-token",
+      "name": "Renovar Access Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2000, 100]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const refreshResult = $input.first().json;\nconst prev = $('Avaliar Tokens').first().json;\nconst newToken  = refreshResult.access_token ?? prev.access_token;\nconst newExpiry = refreshResult.expires_in\n  ? new Date(Date.now() + refreshResult.expires_in * 1000).toISOString()\n  : prev.token_expiry;\nreturn [{ json: { ...prev, access_token: newToken, token_expiry: newExpiry } }];"
+      },
+      "id": "merge-token",
+      "name": "Mesclar Token Renovado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 100]
+    },
+
+    {
+      "parameters": {
+        "conditions": { "options": { "caseSensitive": false }, "conditions": [
+          { "leftValue": "={{ $json.event }}", "rightValue": "appointment.cancelled",
+            "operator": { "type": "string", "operation": "equals" } }
+        ]}
+      },
+      "id": "if-cancelamento",
+      "name": "É cancelamento?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2440, 180]
+    },
+
+    {
+      "parameters": {
+        "conditions": { "options": { "caseSensitive": false }, "conditions": [
+          { "leftValue": "={{ $json.google_event_id ?? '' }}", "rightValue": "",
+            "operator": { "type": "string", "operation": "equals" } }
+        ]}
+      },
+      "id": "if-novo-evento",
+      "name": "Novo ou existente?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2660, 100]
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://www.googleapis.com/calendar/v3/calendars/' + encodeURIComponent($json.calendar_id) + '/events' }}",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "Authorization", "value": "=Bearer {{ $json.access_token }}" },
+          { "name": "Content-Type",  "value": "application/json" }
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  summary: $json.service_name + ' — ' + $json.customer_name,\n  description: ['Cliente: ' + $json.customer_name, $json.customer_phone ? 'Tel: ' + $json.customer_phone : null, $json.customer_email ? 'Email: ' + $json.customer_email : null, $json.notes ? 'Obs: ' + $json.notes : null, 'Origem: ' + ($json.source ?? 'manual'), 'ID: ' + $json.appointment_id].filter(Boolean).join('\\n'),\n  start: { dateTime: $json.start_at, timeZone: 'America/Sao_Paulo' },\n  end:   { dateTime: $json.end_at,   timeZone: 'America/Sao_Paulo' },\n  reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 30 }, { method: 'popup', minutes: 1440 }] }\n}) }}",
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "criar-evento-google",
+      "name": "Criar Evento no Google (POST)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2880, 0]
+    },
+
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ 'https://www.googleapis.com/calendar/v3/calendars/' + encodeURIComponent($json.calendar_id) + '/events/' + $json.google_event_id }}",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "Authorization", "value": "=Bearer {{ $json.access_token }}" },
+          { "name": "Content-Type",  "value": "application/json" }
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  summary: $json.service_name + ' — ' + $json.customer_name,\n  description: ['Cliente: ' + $json.customer_name, $json.customer_phone ? 'Tel: ' + $json.customer_phone : null, $json.customer_email ? 'Email: ' + $json.customer_email : null, $json.notes ? 'Obs: ' + $json.notes : null, 'Origem: ' + ($json.source ?? 'manual'), 'ID: ' + $json.appointment_id].filter(Boolean).join('\\n'),\n  start: { dateTime: $json.start_at, timeZone: 'America/Sao_Paulo' },\n  end:   { dateTime: $json.end_at,   timeZone: 'America/Sao_Paulo' },\n  reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 30 }, { method: 'popup', minutes: 1440 }] }\n}) }}",
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "atualizar-evento-google",
+      "name": "Atualizar Evento no Google (PUT)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2880, 160]
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/set_appointment_google_event",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Content-Type",  "value": "application/json" }
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  p_appointment_id:     $('Enriquecer com Dados do Banco').first().json.appointment_id,\n  p_google_event_id:    $json.id,\n  p_google_calendar_id: $('Avaliar Tokens').first().json.calendar_id\n}) }}",
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "salvar-event-id",
+      "name": "Salvar google_event_id no Banco A",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3100, 0]
+    },
+
+    {
+      "parameters": {
+        "conditions": { "options": { "caseSensitive": false }, "conditions": [
+          { "leftValue": "={{ $json.google_event_id ?? '' }}", "rightValue": "",
+            "operator": { "type": "string", "operation": "notEquals" } }
+        ]}
+      },
+      "id": "if-tem-event-id",
+      "name": "Tem google_event_id?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2660, 320]
+    },
+
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "={{ 'https://www.googleapis.com/calendar/v3/calendars/' + encodeURIComponent($json.calendar_id) + '/events/' + $json.google_event_id }}",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "Authorization", "value": "=Bearer {{ $json.access_token }}" }
+        ]},
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "cancelar-evento-google",
+      "name": "Cancelar Evento no Google (DELETE)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2880, 320]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "// Consolida o contexto do agendamento de volta ao fluxo principal\n// após o processamento do Google Calendar (ou skip)\nconst appt = $('Enriquecer com Dados do Banco').first().json;\nreturn [{ json: appt }];"
+      },
+      "id": "consolidar-contexto",
+      "name": "Consolidar Contexto",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3320, 200]
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/functions/v1/agenda-notify-dispatch",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "Content-Type",  "value": "application/json" },
+          { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  event:          $json.event_normalized,\n  appointment_id: $json.appointment_id,\n  client_id:      $json.client_id,\n  customer_name:  $json.customer_name,\n  customer_email: $json.customer_email,\n  customer_phone: $json.whatsapp_notify_phone ?? $json.customer_phone,\n  service_name:   $json.service_name,\n  start_at:       $json.start_at,\n  end_at:         $json.end_at,\n}) }}",
+        "options": {
+          "timeout": 15000,
+          "response": { "response": { "neverError": true } }
+        }
+      },
+      "id": "dispatch-notificacoes",
+      "name": "Disparar Notificações (E-mail + WhatsApp)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3540, 200],
+      "notes": "Edge Function agenda-notify-dispatch:\n  - Lê configurações do cliente (client_ai_settings)\n  - Decide quais canais usar (e-mail e/ou WhatsApp)\n  - Dispara ambos em paralelo\n  - Retorna { email: {...}, whatsapp: {...} }\n\nToda a decisão fica no backend — o n8n só entrega o evento."
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const result = $input.first().json;\nconst appt   = $('Enriquecer com Dados do Banco').first().json;\n\nconst email = result.email    ?? {};\nconst wa    = result.whatsapp ?? {};\n\nconst emailStatus = email.sent ? 'enviado' : (email.skipped ? `pulado (${email.reason})` : `erro: ${email.error}`);\nconst waStatus    = wa.sent    ? 'enviado' : (wa.skipped    ? `pulado (${wa.reason})`    : `erro: ${wa.error}`);\n\nconsole.log(`[agenda-upsert v4] ${appt.event} | appt=${appt.appointment_id}`);\nconsole.log(`  e-mail:    ${emailStatus}`);\nconsole.log(`  whatsapp:  ${waStatus}`);\n\nreturn [{ json: {\n  success:        true,\n  event:          appt.event,\n  appointment_id: appt.appointment_id,\n  notifications:  { email, whatsapp: wa },\n} }];"
+      },
+      "id": "log-fim",
+      "name": "Log Final",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3760, 200]
+    }
+  ],
+
+  "connections": {
+    "Webhook — Receber Evento":           { "main": [[{ "node": "Validar e Normalizar",            "type": "main", "index": 0 }]] },
+    "Validar e Normalizar":               { "main": [[{ "node": "Buscar Agendamento no Banco A",    "type": "main", "index": 0 }]] },
+    "Buscar Agendamento no Banco A":      { "main": [[{ "node": "Enriquecer com Dados do Banco",    "type": "main", "index": 0 }]] },
+    "Enriquecer com Dados do Banco":      { "main": [[{ "node": "Buscar Tokens OAuth2 do Cliente",  "type": "main", "index": 0 }]] },
+    "Buscar Tokens OAuth2 do Cliente":    { "main": [[{ "node": "Avaliar Tokens",                   "type": "main", "index": 0 }]] },
+    "Avaliar Tokens":                     { "main": [[{ "node": "Pular Google Calendar?",           "type": "main", "index": 0 }]] },
+    "Pular Google Calendar?": {
+      "main": [
+        [{ "node": "Consolidar Contexto", "type": "main", "index": 0 }],
+        [{ "node": "Token expirado?",     "type": "main", "index": 0 }]
+      ]
+    },
+    "Token expirado?": {
+      "main": [
+        [{ "node": "Renovar Access Token", "type": "main", "index": 0 }],
+        [{ "node": "É cancelamento?",      "type": "main", "index": 0 }]
+      ]
+    },
+    "Renovar Access Token":               { "main": [[{ "node": "Mesclar Token Renovado",    "type": "main", "index": 0 }]] },
+    "Mesclar Token Renovado":             { "main": [[{ "node": "É cancelamento?",           "type": "main", "index": 0 }]] },
+    "É cancelamento?": {
+      "main": [
+        [{ "node": "Tem google_event_id?", "type": "main", "index": 0 }],
+        [{ "node": "Novo ou existente?",   "type": "main", "index": 0 }]
+      ]
+    },
+    "Novo ou existente?": {
+      "main": [
+        [{ "node": "Criar Evento no Google (POST)",    "type": "main", "index": 0 }],
+        [{ "node": "Atualizar Evento no Google (PUT)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Criar Evento no Google (POST)":      { "main": [[{ "node": "Salvar google_event_id no Banco A", "type": "main", "index": 0 }]] },
+    "Salvar google_event_id no Banco A":  { "main": [[{ "node": "Consolidar Contexto",              "type": "main", "index": 0 }]] },
+    "Atualizar Evento no Google (PUT)":   { "main": [[{ "node": "Consolidar Contexto",              "type": "main", "index": 0 }]] },
+    "Tem google_event_id?": {
+      "main": [
+        [{ "node": "Cancelar Evento no Google (DELETE)", "type": "main", "index": 0 }],
+        [{ "node": "Consolidar Contexto",               "type": "main", "index": 0 }]
+      ]
+    },
+    "Cancelar Evento no Google (DELETE)": { "main": [[{ "node": "Consolidar Contexto",              "type": "main", "index": 0 }]] },
+    "Consolidar Contexto":                { "main": [[{ "node": "Disparar Notificações (E-mail + WhatsApp)", "type": "main", "index": 0 }]] },
+    "Disparar Notificações (E-mail + WhatsApp)": { "main": [[{ "node": "Log Final",                "type": "main", "index": 0 }]] }
+  },
+
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "templateId": "agenda-upsert-v4",
+    "description": "Orquestrador central da Agenda v4.\n\nMudanças em relação ao v3:\n  - Notificações de e-mail e WhatsApp unificadas em um único node (agenda-notify-dispatch)\n  - Toda a decisão de canal (qual canal enviar, template, habilitado ou não) fica no backend\n  - O n8n é apenas um pipe — sem lógica de canal\n  - Sem GCal: fluxo continua e dispara notificações normalmente\n  - event_normalized: mapeia appointment.created→created, .updated→confirmed, .cancelled→cancelled\n\nFluxo:\n  1. Recebe evento → valida → busca agendamento\n  2. Tenta sincronizar com Google Calendar (skip silencioso se não conectado)\n  3. Chama agenda-notify-dispatch (decide e-mail + WhatsApp em paralelo no backend)\n  4. Log final\n\nVariáveis de ambiente no n8n:\n  SUPABASE_URL, SUPABASE_SERVICE_KEY\n  GOOGLE_CALENDAR_CLIENT_ID, GOOGLE_CALENDAR_CLIENT_SECRET\n  WEBHOOK_TOKEN\n\nURL: https://ia-n8n.whlwlh.easypanel.host/webhook/agenda-upsert"
+  }
+}
