@@ -56,6 +56,7 @@ const AgendaMainPage        = lazy(() => import("@/pages/public-dashboard/Agenda
 const AgendaConfigPage      = lazy(() => import("@/pages/public-dashboard/AgendaConfigPage").then(m => ({ default: m.AgendaConfigPage })));
 const AgendaLinkPage        = lazy(() => import("@/pages/public-dashboard/AgendaLinkPage").then(m => ({ default: m.AgendaLinkPage })));
 const WhatsAppTemplatesPage = lazy(() => import("@/pages/public-dashboard/WhatsAppTemplatesPage").then(m => ({ default: m.WhatsAppTemplatesPage })));
+const BookingActionPage     = lazy(() => import("@/pages/BookingActionPage").then(m => ({ default: m.BookingActionPage })));
 const CrmCamposPage         = lazy(() => import("@/pages/public-dashboard/CrmCamposPage").then(m => ({ default: m.CrmCamposPage })));
 // ── Módulo Mensagens ──────────────────────────────────────────────────────────
 const MensagensPage            = lazy(() => import("@/pages/public-dashboard/MensagensPage").then(m => ({ default: m.MensagensPage })));
@@ -120,8 +121,9 @@ export default function App() {
               <Route path="/login" element={<PublicDashboardLoginPage />} />
 
               {/* -- Rotas publicas sem autenticacao -- */}
-              <Route path="/booking/:slug"              element={<BookingPage />} />
-              <Route path="/form/:slug/:formSlug"       element={<Suspense fallback={<PageLoader />}><LeadFormPage /></Suspense>} />
+              <Route path="/booking/:slug"                        element={<BookingPage />} />
+              <Route path="/booking/:slug/action/:token"          element={<Suspense fallback={<PageLoader />}><BookingActionPage /></Suspense>} />
+              <Route path="/form/:slug/:formSlug"                 element={<Suspense fallback={<PageLoader />}><LeadFormPage /></Suspense>} />
               <Route path="/pixel-test/:slug"           element={<Suspense fallback={<PageLoader />}><PixelTestPage /></Suspense>} />
               <Route path="/r"                          element={<RedirectPage />} />
               <Route path="/google-calendar-callback"   element={<GoogleCalendarCallbackPage />} />

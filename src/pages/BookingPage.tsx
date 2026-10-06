@@ -8,13 +8,14 @@
  *
  * Sem autenticacao. Consome a Edge Function agenda-booking.
  */import { useState, useEffect } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useTrackingPixel, trackServerSide } from "@/hooks/useTrackingPixel";
 import {
   CalendarDays, Clock, ChevronLeft, ChevronRight,
   CheckCircle2, Loader2, User, Phone, Mail, Users,
+  AlertCircle, ArrowRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input }  from "@/components/ui/input";
@@ -36,7 +37,7 @@ interface ClientInfo {
 }
 interface DisplayConfig { show_services: boolean; show_professionals: boolean; }
 
-type Phase = "service" | "professional" | "date" | "slot" | "form" | "success";
+type Phase = "phone" | "service" | "professional" | "date" | "slot" | "form" | "success" | "conflict";
 
 // --- URL da Edge Function -----------------------------------------------------
 
@@ -272,66 +273,83 @@ function MonthCalendar({ selected, onSelect, slug, serviceId, professionalId, pr
 
 export default function BookingPage() {
   const { slug } = useParams<{ slug: string }>();
+  const [searchParams] = useSearchParams();
 
-  // -- Pixel de rastreamento (injeta Meta Pixel / GTM / GA4 dinamicamente) -
-  // Usa client_id resolvido via clientInfo.client_id aps carregamento inicial
+  // -- Pixel de rastreamento -----------------------------------------------
   const [clientId, setClientId] = useState<string | undefined>(undefined);
   useTrackingPixel(clientId, slug);
 
   // -- Config da página ----------------------------------------------------
-  const [displayConfig,       setDisplayConfig]       = useState<DisplayConfig>({ show_services: true, show_professionals: false });
-  const [clientInfo,          setClientInfo]          = useState<ClientInfo | null>(null);
-  const [services,            setServices]            = useState<Service[]>([]);
-  const [professionals,       setProfessionals]       = useState<Professional[]>([]);
+  const [displayConfig,        setDisplayConfig]        = useState<DisplayConfig>({ show_services: true, show_professionals: false });
+  const [clientInfo,           setClientInfo]           = useState<ClientInfo | null>(null);
+  const [services,             setServices]             = useState<Service[]>([]);
+  const [professionals,        setProfessionals]        = useState<Professional[]>([]);
 
-  // -- Selees do wizard --------------------------------------------------
-  const [selectedService,     setSelectedService]     = useState<Service      | null>(null);
-  const [selectedProfessional,setSelectedProfessional]= useState<Professional | null>(null);
-  const [selectedDate,        setSelectedDate]        = useState<string | null>(null);
-  const [slots,               setSlots]               = useState<Slot[]>([]);
-  const [selectedSlot,        setSelectedSlot]        = useState<Slot | null>(null);
+  // -- Seleções do wizard --------------------------------------------------
+  const [selectedService,      setSelectedService]      = useState<Service      | null>(null);
+  const [selectedProfessional, setSelectedProfessional] = useState<Professional | null>(null);
+  const [selectedDate,         setSelectedDate]         = useState<string | null>(null);
+  const [slots,                setSlots]                = useState<Slot[]>([]);
+  const [selectedSlot,         setSelectedSlot]         = useState<Slot | null>(null);
 
-  // -- formulário ---------------------------------------------------------
-  const [name,      setName]      = useState("");
-  const [phone,     setPhone]     = useState("");
-  const [email,     setEmail]     = useState("");
-  const [notes,     setNotes]     = useState("");
+  // -- Formulário ----------------------------------------------------------
+  const [name,  setName]  = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [notes, setNotes] = useState("");
+
+  // -- Lookup por telefone (fase phone) ------------------------------------
+  interface ActiveAppointment {
+    id: string; service_name: string; start_at: string;
+    end_at: string; status: string; professional_name: string | null;
+  }
+  const [phoneInput,        setPhoneInput]        = useState(searchParams.get("phone") ?? "");
+  const [lookupLoading,     setLookupLoading]     = useState(false);
+  const [lookupDone,        setLookupDone]        = useState(false);
+  const [activeAppointment, setActiveAppointment] = useState<ActiveAppointment | null>(null);
+  const [withinInterval,    setWithinInterval]    = useState(false);
+  const [intervalDays,      setIntervalDays]      = useState(0);
+  const [daysRemaining,     setDaysRemaining]     = useState(0);
 
   // -- UI state ------------------------------------------------------------
-  const [phase,       setPhase]       = useState<Phase>("service");
-  const [initLoading, setInitLoading] = useState(true);
-  const [slotsLoading,setSlotsLoading]= useState(false);
-  const [submitting,  setSubmitting]  = useState(false);
-  const [error,       setError]       = useState<string | null>(null);
+  const [phase,        setPhase]        = useState<Phase>("phone");
+  const [initLoading,  setInitLoading]  = useState(true);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [submitting,   setSubmitting]   = useState(false);
+  const [error,        setError]        = useState<string | null>(null);
 
-  // -- Fase inicial calculada a partir da config --------------------------
+  // -- Helpers de fase -----------------------------------------------------
   function firstPhase(cfg: DisplayConfig, svcs: Service[], profs: Professional[]): Phase {
-    if (cfg.show_services && svcs.length > 0)           return "service";
-    if (cfg.show_professionals && profs.length > 0)     return "professional";
+    // Sempre começa na fase phone para identificação
+    return "phone";
+  }
+
+  function afterPhone(): Phase {
+    if (displayConfig.show_services && services.length > 0)           return "service";
+    if (displayConfig.show_professionals && professionals.length > 0) return "professional";
     return "date";
   }
 
-  // Fase "anterior" para botão voltar
   function prevPhase(current: Phase): Phase {
     switch (current) {
-      case "professional": return displayConfig.show_services && services.length > 0 ? "service" : "date";
+      case "service":      return "phone";
+      case "professional": return displayConfig.show_services && services.length > 0 ? "service" : "phone";
       case "date":
         if (displayConfig.show_professionals && professionals.length > 0) return "professional";
         if (displayConfig.show_services && services.length > 0)           return "service";
-        return "date";
-      case "slot":   return "date";
-      case "form":   return "slot";
-      default:       return "date";
+        return "phone";
+      case "slot":    return "date";
+      case "form":    return "slot";
+      default:        return "phone";
     }
   }
 
-  // Fase "prxima" aps servio/profissional
   function afterService(): Phase {
     if (displayConfig.show_professionals && professionals.length > 0) return "professional";
     return "date";
   }
 
-  // -- Carregamento inicial -----------------------------------------------
+  // -- Carregamento inicial ------------------------------------------------
   useEffect(() => {
     if (!slug) return;
     const today = format(new Date(), "yyyy-MM-dd");
@@ -345,21 +363,72 @@ export default function BookingPage() {
         };
         setDisplayConfig(cfg);
         setClientInfo(data.client);
-        // Aplica cor primria da marca como CSS var
         if (data.client?.primary_color) {
           document.documentElement.style.setProperty("--booking-primary", data.client.primary_color);
         }
-        // Captura client_id para injeção do pixel de rastreamento
         if (data.client?.id) setClientId(data.client.id);
-        const svcs  = (data.services       ?? []) as Service[];
-        const profs = (data.professionals  ?? []) as Professional[];
+        const svcs  = (data.services      ?? []) as Service[];
+        const profs = (data.professionals ?? []) as Professional[];
         setServices(svcs);
         setProfessionals(profs);
         setPhase(firstPhase(cfg, svcs, profs));
       })
-      .catch(() => setError("não foi possvel carregar a agenda."))
+      .catch(() => setError("Não foi possível carregar a agenda."))
       .finally(() => setInitLoading(false));
   }, [slug]);
+
+  // -- Lookup por telefone -------------------------------------------------
+  const handlePhoneLookup = async () => {
+    const digits = phoneInput.replace(/\D/g, "");
+    if (digits.length < 10) { setError("Informe um WhatsApp válido com DDD."); return; }
+    setError(null);
+    setLookupLoading(true);
+    try {
+      const res  = await fetch(EDGE_URL, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ action: "lookup", slug, phone: digits }),
+      });
+      const data = await res.json() as {
+        found: boolean;
+        customer_name: string | null;
+        customer_email: string | null;
+        active_appointment: ActiveAppointment | null;
+        within_interval: boolean;
+        interval_days: number;
+        days_since_last: number | null;
+      };
+
+      // Pré-preenche dados conhecidos
+      if (data.customer_name)  setName(data.customer_name);
+      if (data.customer_email) setEmail(data.customer_email);
+      setPhone(digits);
+      setLookupDone(true);
+
+      // Tem agendamento ativo futuro
+      if (data.active_appointment) {
+        setActiveAppointment(data.active_appointment);
+        setPhase("conflict");
+        return;
+      }
+
+      // Dentro do intervalo mínimo (mas sem agendamento ativo futuro)
+      if (data.within_interval && data.interval_days > 0) {
+        setWithinInterval(true);
+        setIntervalDays(data.interval_days);
+        setDaysRemaining(data.interval_days - (data.days_since_last ?? 0));
+        setPhase("conflict");
+        return;
+      }
+
+      // Tudo livre — segue o fluxo normal
+      setPhase(afterPhone());
+    } catch {
+      setError("Erro ao verificar disponibilidade. Tente novamente.");
+    } finally {
+      setLookupLoading(false);
+    }
+  };
 
   // -- Carrega slots ------------------------------------------------------
   useEffect(() => {
@@ -404,7 +473,17 @@ export default function BookingPage() {
         }),
       });
       const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error ?? "Erro ao agendar.");
+      if (!res.ok || !data.success) {
+        // Trata restrição de intervalo
+        if (data.error === "interval_restriction") {
+          setWithinInterval(true);
+          setIntervalDays(data.interval_days ?? 0);
+          setDaysRemaining(data.days_remaining ?? 0);
+          setPhase("conflict");
+          return;
+        }
+        throw new Error(data.error ?? "Erro ao agendar.");
+      }
       // Dispara evento de rastreamento Schedule (browser-side + server-side)
       if (slug) {
         trackServerSide(slug, "Schedule", {
@@ -428,7 +507,9 @@ export default function BookingPage() {
     setSelectedService(null); setSelectedProfessional(null);
     setSelectedDate(null);    setSelectedSlot(null);
     setName(""); setPhone(""); setEmail(""); setNotes(""); setError(null);
-    setPhase(firstPhase(displayConfig, services, professionals));
+    setPhoneInput(""); setLookupDone(false);
+    setActiveAppointment(null); setWithinInterval(false);
+    setPhase("phone");
   };
 
   // -- Loading / Erro inicial ---------------------------------------------
@@ -469,6 +550,119 @@ export default function BookingPage() {
       </header>
 
       <main className="max-w-md mx-auto px-4 py-8 space-y-6">
+
+        {/* ── Fase: Telefone (identificação) ── */}
+        {phase === "phone" && (
+          <div className="space-y-5">
+            <div>
+              <h1 className="text-lg font-bold text-foreground">Bem-vindo!</h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                Informe seu WhatsApp para verificar disponibilidade e pré-preencher seus dados.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="phone-input">WhatsApp (com DDD)</Label>
+              <Input
+                id="phone-input"
+                type="tel"
+                inputMode="numeric"
+                placeholder="(00) 00000-0000"
+                value={applyMask(phoneInput, "(00) 00000-0000")}
+                onChange={e => setPhoneInput(e.target.value.replace(/\D/g, ""))}
+                onKeyDown={e => e.key === "Enter" && handlePhoneLookup()}
+                disabled={lookupLoading}
+                className="h-12 text-base"
+                autoFocus
+              />
+            </div>
+            {error && (
+              <p className="text-sm text-destructive flex items-center gap-1.5">
+                <AlertCircle className="h-4 w-4 shrink-0" /> {error}
+              </p>
+            )}
+            <Button
+              className="w-full h-12 text-base gap-2"
+              onClick={handlePhoneLookup}
+              disabled={lookupLoading || phoneInput.replace(/\D/g, "").length < 10}
+            >
+              {lookupLoading
+                ? <><Loader2 className="h-4 w-4 animate-spin" /> Verificando...</>
+                : <>Continuar <ArrowRight className="h-4 w-4" /></>
+              }
+            </Button>
+          </div>
+        )}
+
+        {/* ── Fase: Conflito (agendamento ativo ou intervalo) ── */}
+        {phase === "conflict" && (
+          <div className="space-y-5">
+            {activeAppointment ? (
+              <>
+                <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-4">
+                  <AlertCircle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Você já tem um agendamento</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {activeAppointment.service_name} —{" "}
+                      {format(parseISO(activeAppointment.start_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Status:{" "}
+                      <span className={activeAppointment.status === "confirmed" ? "text-emerald-600 font-medium" : "text-amber-600 font-medium"}>
+                        {activeAppointment.status === "confirmed" ? "Confirmado" : "Aguardando confirmação"}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Button
+                    variant="outline"
+                    className="w-full border-destructive/40 text-destructive hover:bg-destructive/5"
+                    onClick={async () => {
+                      if (!confirm("Cancelar este agendamento?")) return;
+                      const res = await fetch(EDGE_URL, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          slug, action: "cancel_by_phone",
+                          phone: phone || phoneInput.replace(/\D/g, ""),
+                          appointment_id: activeAppointment.id,
+                        }),
+                      });
+                      const data = await res.json();
+                      if (data.success || !data.error) {
+                        setActiveAppointment(null);
+                        setPhase(afterPhone());
+                      }
+                    }}
+                  >
+                    Cancelar agendamento existente
+                  </Button>
+                  <Button className="w-full" onClick={() => { setActiveAppointment(null); setPhase(afterPhone()); }}>
+                    Fazer novo agendamento mesmo assim
+                  </Button>
+                </div>
+              </>
+            ) : withinInterval ? (
+              <>
+                <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-4">
+                  <AlertCircle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Intervalo mínimo não atingido</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Você pode agendar novamente em{" "}
+                      <strong>{daysRemaining} dia{daysRemaining !== 1 ? "s" : ""}</strong>.
+                      O intervalo mínimo deste estabelecimento é de {intervalDays} dias entre agendamentos.
+                    </p>
+                  </div>
+                </div>
+                <Button variant="outline" className="w-full" onClick={() => setPhase("phone")}>
+                  Usar outro número
+                </Button>
+              </>
+            ) : null}
+          </div>
+        )}
 
         {/* -- Sucesso -- */}
         {phase === "success" && (
