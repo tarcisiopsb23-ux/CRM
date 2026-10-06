@@ -1,5 +1,5 @@
 {
-  "name": "Agenda — Lembretes (Claim Atômico)",
+  "name": "Agenda — Lembretes (Schedule + Claim)",
   "nodes": [
     {
       "parameters": {
@@ -11,8 +11,10 @@
       "name": "Schedule — A cada 5 minutos",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1,
-      "position": [200, 300]
+      "position": [200, 300],
+      "notes": "Executa a cada 5 minutos.\nO C8 Control define scheduled_at de cada lembrete com base no horário configurado pelo cliente.\nO n8n simplesmente consulta quais lembretes já venceram (scheduled_at <= now()).\nNão há lógica de horário aqui — isso é responsabilidade do banco."
     },
+
     {
       "parameters": {
         "method": "POST",
@@ -20,110 +22,140 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Content-Type",    "value": "application/json" },
-            { "name": "X-Service-Key",   "value": "={{ $env.SUPABASE_SERVICE_KEY }}" }
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "X-Service-Key", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" }
           ]
         },
         "sendBody": true,
-        "contentType": "raw",
-        "rawContentType": "application/json",
-        "body": "={{ JSON.stringify({ action: 'claim', limit: 50, worker_id: 'n8n-' + Date.now() }) }}",
-        "options": {}
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ action: 'claim', limit: 50, worker_id: 'n8n-' + $now.toMillis() }) }}",
+        "options": { "response": { "response": { "neverError": true } } }
       },
       "id": "claim-reminders",
-      "name": "Claim Lembretes (Atômico)",
+      "name": "Claim — Buscar Lembretes Elegíveis",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
-      "position": [420, 300]
+      "typeVersion": 4.2,
+      "position": [420, 300],
+      "notes": "Claim atômico (FOR UPDATE SKIP LOCKED):\n  - Retorna apenas lembretes com scheduled_at <= now() e status = pending\n  - Marca como 'processing' atomicamente — dois workers não obtêm o mesmo lembrete\n  - Cada item já contém: channel, payload completo (customer_name, phone, email, service, data, hora), appointment_id, client_id\n  - O n8n não precisa decidir nada — só rotear e enviar"
     },
-    {
-      "parameters": {
-        "jsCode": "const response = $input.first().json;\nconst reminders = response.reminders ?? [];\n\nif (!reminders.length) {\n  return [{ json: { empty: true } }];\n}\n\n// Divide em itens individuais\nreturn reminders.map(r => ({ json: r }));"
-      },
-      "id": "split-reminders",
-      "name": "Dividir Lembretes",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [640, 300]
-    },
+
     {
       "parameters": {
         "conditions": {
-          "number": [{ "value1": "={{ $json.count }}", "operation": "larger", "value2": 0 }]
+          "number": [{ "value1": "={{ ($input.first().json.reminders ?? []).length }}", "operation": "larger", "value2": 0 }]
         }
       },
       "id": "has-reminders",
       "name": "Tem lembretes?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [860, 300]
+      "position": [640, 300]
     },
+
+    {
+      "parameters": {
+        "jsCode": "// Transforma o array de reminders em items individuais\nconst reminders = $input.first().json.reminders ?? [];\nreturn reminders.map(r => ({ json: r }));"
+      },
+      "id": "split-items",
+      "name": "Dividir por Lembrete",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [860, 200],
+      "notes": "Cada item tem:\n  id, channel, appointment_id, client_id, scheduled_at, attempts, payload\n\nO payload já contém tudo que o n8n precisa para enviar:\n  customer_name, customer_phone, customer_email,\n  service_name, appointment_date, appointment_time,\n  whatsapp_template (name + language + mapping),\n  email_subject, email_body"
+    },
+
     {
       "parameters": {
         "conditions": {
-          "string": [{ "value1": "={{ $json.channel }}", "value2": "whatsapp" }]
+          "string": [{ "value1": "={{ $json.channel }}", "value2": "whatsapp", "operation": "equal" }]
         }
       },
-      "id": "check-channel",
+      "id": "route-channel",
       "name": "Qual canal?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [1080, 300]
+      "position": [1080, 200],
+      "notes": "WhatsApp → branch superior\nE-mail   → branch inferior\nA decisão de canal já foi tomada pelo C8 Control ao gerar o lembrete.\nO n8n só roteia."
     },
+
     {
       "parameters": {
+        "method": "POST",
         "url": "={{ $env.SUPABASE_URL }}/functions/v1/send-message",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Content-Type",    "value": "application/json" },
-            { "name": "X-Service-Key",   "value": "={{ $env.SUPABASE_SERVICE_KEY }}" }
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
           ]
         },
         "sendBody": true,
-        "contentType": "raw",
-        "rawContentType": "application/json",
-        "body": "={{ JSON.stringify({\n  connection_id:   null,\n  organization_id: null,\n  channel_type:    'whatsapp',\n  recipient_id:    $json.payload.customer_phone,\n  message_type:    'text',\n  content:         $json.payload.customer_name + ', lembrete: ' + $json.payload.service_name + ' em ' + $json.payload.appointment_date + ' às ' + $json.payload.appointment_time + '.'\n}) }}",
-        "options": { "timeout": 15000, "response": { "response": { "neverError": true } } }
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  connection_id:   null,\n  organization_id: null,\n  channel_type:    'whatsapp',\n  recipient_id:    $json.payload.customer_phone,\n  message_type:    $json.payload.whatsapp_template ? 'template' : 'text',\n  content:         $json.payload.whatsapp_template\n    ? ($json.payload.whatsapp_template.name ?? '')\n    : `⏰ Olá, ${$json.payload.customer_name}! Lembrete: ${$json.payload.service_name} em ${$json.payload.appointment_date} às ${$json.payload.appointment_time}.`,\n  template_name:   $json.payload.whatsapp_template?.name ?? null,\n  template_params: $json.payload.whatsapp_template ? {\n    components: [{\n      type: 'body',\n      parameters: Object.entries($json.payload.whatsapp_template.mapping ?? {}).map(([k, field]) => ({\n        type: 'text',\n        text: $json.payload[field.split('.').pop()] ?? ''\n      }))\n    }]\n  } : null,\n  client_id:       $json.client_id\n}) }}",
+        "options": {
+          "timeout": 15000,
+          "response": { "response": { "neverError": true } }
+        }
       },
       "id": "send-whatsapp",
       "name": "Enviar WhatsApp",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
-      "position": [1300, 200]
+      "typeVersion": 4.2,
+      "position": [1300, 100],
+      "notes": "Chama send-message (Edge Function).\nO token Meta é resolvido internamente via meta-credential-provider.\nSuporte a template HSM (message_type=template) ou texto simples.\nconnection_id=null → usa a primeira conexão WhatsApp ativa do cliente."
     },
+
     {
       "parameters": {
+        "method": "POST",
         "url": "={{ $env.SUPABASE_URL }}/functions/v1/send-agenda-email",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Content-Type",    "value": "application/json" },
-            { "name": "Authorization",   "value": "Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
           ]
         },
         "sendBody": true,
-        "contentType": "raw",
-        "rawContentType": "application/json",
-        "body": "={{ JSON.stringify({\n  event:          'reminder',\n  client_id:      $json.payload.client_id,\n  appointment_id: $json.appointment_id,\n  customer_email: $json.payload.customer_email,\n  customer_name:  $json.payload.customer_name,\n  service_name:   $json.payload.service_name,\n  start_at:       $json.payload.start_at,\n  end_at:         null\n}) }}",
-        "options": { "timeout": 15000, "response": { "response": { "neverError": true } } }
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  event:          'reminder',\n  client_id:      $json.client_id,\n  appointment_id: $json.appointment_id,\n  customer_email: $json.payload.customer_email,\n  customer_name:  $json.payload.customer_name,\n  service_name:   $json.payload.service_name,\n  start_at:       $json.payload.start_at\n}) }}",
+        "options": {
+          "timeout": 15000,
+          "response": { "response": { "neverError": true } }
+        }
       },
       "id": "send-email",
       "name": "Enviar E-mail",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
-      "position": [1300, 400]
+      "typeVersion": 4.2,
+      "position": [1300, 320],
+      "notes": "Chama send-agenda-email (Edge Function).\nA EF busca as configs de e-mail do cliente (assunto, template, cor primária).\nUsa Resend com padrão on-behalf-of: From = c8control.com.br, Reply-To = e-mail do cliente."
     },
+
     {
       "parameters": {
-        "jsCode": "// Determina se o envio foi bem-sucedido\nconst item = $input.first().json;\nconst channel = $('Dividir Lembretes').item.json.channel;\nconst reminderId = $('Dividir Lembretes').item.json.id;\n\n// Para WhatsApp: se houver messages array no resultado, foi sucesso\n// Para E-mail: se houver success=true, foi sucesso\nconst waSuccess = item.messages || item.success || item.id;\nconst emailSuccess = item.success === true;\n\nconst isSuccess = channel === 'whatsapp' ? !!waSuccess : !!emailSuccess;\nconst errorMsg = !isSuccess ? JSON.stringify(item) : null;\n\nreturn [{\n  json: {\n    reminder_id: reminderId,\n    channel,\n    success: isSuccess,\n    provider_message_id: item.messages?.[0]?.id ?? item.resend_id ?? null,\n    error: errorMsg,\n  }\n}];"
+        "jsCode": "// Consolida resultado de qualquer canal em um formato unificado\nconst result    = $input.first().json;\nconst reminder  = $('Dividir por Lembrete').item.json;\nconst channel   = reminder.channel;\n\n// Detecta sucesso por canal\nconst waSuccess    = !!(result.messages?.[0]?.id || result.success);\nconst emailSuccess = result.success === true || !!result.resend_id;\nconst isSuccess    = channel === 'whatsapp' ? waSuccess : emailSuccess;\n\n// Detecta erros não-retriáveis (telefone inválido, template não aprovado, etc.)\nconst errorMsg  = result.error ?? result.message ?? null;\nconst nonRetryablePatterns = ['invalid_phone','template_not_found','template_not_approved','131030','131047','100'];\nconst retryable = errorMsg\n  ? !nonRetryablePatterns.some(p => String(errorMsg).toLowerCase().includes(p.toLowerCase()))\n  : true;\n\nconst providerId = result.messages?.[0]?.id ?? result.resend_id ?? null;\n\nconsole.log(`[reminder] ${channel} | appt=${reminder.appointment_id} | ${isSuccess ? 'SENT ' + (providerId ?? '') : 'FAILED: ' + errorMsg}`);\n\nreturn [{\n  json: {\n    reminder_id:         reminder.id,\n    appointment_id:      reminder.appointment_id,\n    channel,\n    success:             isSuccess,\n    provider_message_id: providerId,\n    error:               isSuccess ? null : (errorMsg ?? 'unknown_error'),\n    retryable:           isSuccess ? null : retryable,\n  }\n}];"
       },
       "id": "check-result",
       "name": "Verificar Resultado",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1520, 300]
+      "position": [1520, 200]
     },
+
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{ $json.success }}", "value2": true }]
+        }
+      },
+      "id": "route-result",
+      "name": "Sucesso ou Falha?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1720, 200]
+    },
+
     {
       "parameters": {
         "method": "POST",
@@ -131,53 +163,79 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Content-Type",    "value": "application/json" },
-            { "name": "X-Service-Key",   "value": "={{ $env.SUPABASE_SERVICE_KEY }}" }
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "X-Service-Key", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" }
           ]
         },
         "sendBody": true,
-        "contentType": "raw",
-        "rawContentType": "application/json",
-        "body": "={{ JSON.stringify($json.success\n  ? { action: 'sent', reminder_id: $json.reminder_id, provider_message_id: $json.provider_message_id }\n  : { action: 'failed', reminder_id: $json.reminder_id, error: $json.error ?? 'unknown_error' }\n) }}",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  action:              'sent',\n  reminder_id:         $json.reminder_id,\n  provider_message_id: $json.provider_message_id\n}) }}",
         "options": {}
       },
-      "id": "report-result",
-      "name": "Registrar Resultado",
+      "id": "mark-sent",
+      "name": "Registrar Envio (sent)",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
-      "position": [1740, 300]
+      "typeVersion": 4.2,
+      "position": [1940, 100],
+      "notes": "Registra no C8 Control:\n  - status = sent\n  - sent_at = now()\n  - provider_message_id (wamid... ou ID do Resend)"
     },
+
     {
       "parameters": {
-        "jsCode": "console.log('Ciclo concluído — nenhum lembrete pendente.');\nreturn [{ json: { done: true } }];"
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/functions/v1/appointment-reminders",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "X-Service-Key", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  action:    'failed',\n  reminder_id: $json.reminder_id,\n  error:     $json.error,\n  retryable: $json.retryable\n}) }}",
+        "options": {}
       },
-      "id": "done",
-      "name": "Concluído (Vazio)",
+      "id": "mark-failed",
+      "name": "Registrar Falha (failed)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1940, 320],
+      "notes": "Registra no C8 Control:\n  - status = failed (ou pending se retryable e tentativas < max)\n  - failed_at = now()\n  - last_error = mensagem de erro\n  - error_retryable = true/false\n  - attempts += 1\n  - Se retryable: reagenda para daqui 5 min (backoff simples)"
+    },
+
+    {
+      "parameters": {
+        "jsCode": "console.log('[agenda-reminder] Ciclo concluído — nenhum lembrete pendente.');\nreturn [{ json: { done: true, checked_at: new Date().toISOString() } }];"
+      },
+      "id": "done-empty",
+      "name": "Concluído (sem lembretes)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [860, 440]
+      "position": [640, 440]
     }
   ],
+
   "connections": {
     "Schedule — A cada 5 minutos": {
-      "main": [[{ "node": "Claim Lembretes (Atômico)", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Claim — Buscar Lembretes Elegíveis", "type": "main", "index": 0 }]]
     },
-    "Claim Lembretes (Atômico)": {
-      "main": [[{ "node": "Dividir Lembretes", "type": "main", "index": 0 }]]
-    },
-    "Dividir Lembretes": {
+    "Claim — Buscar Lembretes Elegíveis": {
       "main": [[{ "node": "Tem lembretes?", "type": "main", "index": 0 }]]
     },
     "Tem lembretes?": {
       "main": [
-        [{ "node": "Qual canal?", "type": "main", "index": 0 }],
-        [{ "node": "Concluído (Vazio)", "type": "main", "index": 0 }]
+        [{ "node": "Concluído (sem lembretes)", "type": "main", "index": 0 }],
+        [{ "node": "Dividir por Lembrete",       "type": "main", "index": 0 }]
       ]
+    },
+    "Dividir por Lembrete": {
+      "main": [[{ "node": "Qual canal?", "type": "main", "index": 0 }]]
     },
     "Qual canal?": {
       "main": [
         [{ "node": "Enviar WhatsApp", "type": "main", "index": 0 }],
-        [{ "node": "Enviar E-mail", "type": "main", "index": 0 }]
+        [{ "node": "Enviar E-mail",   "type": "main", "index": 0 }]
       ]
     },
     "Enviar WhatsApp": {
@@ -187,11 +245,18 @@
       "main": [[{ "node": "Verificar Resultado", "type": "main", "index": 0 }]]
     },
     "Verificar Resultado": {
-      "main": [[{ "node": "Registrar Resultado", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Sucesso ou Falha?", "type": "main", "index": 0 }]]
+    },
+    "Sucesso ou Falha?": {
+      "main": [
+        [{ "node": "Registrar Falha (failed)", "type": "main", "index": 0 }],
+        [{ "node": "Registrar Envio (sent)",   "type": "main", "index": 0 }]
+      ]
     }
   },
+
   "settings": { "executionOrder": "v1" },
   "meta": {
-    "description": "Worker global de lembretes de agendamento. Executa a cada 5 minutos.\n\nFluxo:\n  1. Schedule Trigger (5 min)\n  2. Claim atômico via Edge Function appointment-reminders (FOR UPDATE SKIP LOCKED)\n  3. Divide lembretes em itens individuais\n  4. Roteia por canal (WhatsApp ou E-mail)\n  5. Envia via send-message (WA) ou send-agenda-email\n  6. Registra resultado (sent/failed) via appointment-reminders\n\nToda a lógica de negócio fica no backend (C8 Control + Supabase).\n  - Agendamento de lembretes: trigger automático em client_appointments\n  - Cálculo de scheduled_at: RPC _compute_reminder_scheduled_at (timezone-aware)\n  - Claim atômico: RPC claim_appointment_reminders (SKIP LOCKED)\n  - Retry inteligente: Edge Function diferencia retryable vs non-retryable\n  - Cancelamento: trigger cancela lembretes pending ao cancelar agendamento\n\nVariáveis de ambiente no n8n:\n  SUPABASE_URL         = https://owwaulaenabbdalycusx.supabase.co\n  SUPABASE_SERVICE_KEY = eyJ...\n\nNÃO configura horário fixo nem calcula datas — o backend entrega pronto."
+    "description": "Worker de lembretes de agendamento.\n\nResponsabilidades:\n  - Schedule: executa a cada 5 minutos\n  - Claim: busca lembretes elegíveis (scheduled_at <= now, status = pending)\n  - Roteia por canal (whatsapp / email) — decisão já veio do C8 Control\n  - Envia via Edge Functions (send-message ou send-agenda-email)\n  - Registra resultado (sent/failed) no C8 Control\n\nO que o C8 Control faz (fora do n8n):\n  - Cliente configura: canal (WhatsApp e/ou e-mail), horário (ex: 16:00), timing (dia anterior)\n  - Banco gera appointment_reminders com scheduled_at correto (timezone-aware)\n  - appointment_reminders.payload já contém todos os dados necessários para o envio\n  - appointment_reminders.channel define qual branch executar\n\nO que o n8n faz:\n  - Claim atômico dos lembretes elegíveis (sem duplicidade)\n  - Roteia por canal\n  - Executa o envio via Edge Functions\n  - Registra horário de envio, canal e sucesso/falha de volta no C8 Control\n\nVariáveis de ambiente necessárias:\n  SUPABASE_URL         = https://owwaulaenabbdalycusx.supabase.co\n  SUPABASE_SERVICE_KEY = eyJ...\n\nEndpoints usados:\n  POST /functions/v1/appointment-reminders  { action: 'claim', limit: 50 }\n  POST /functions/v1/send-message           (WhatsApp)\n  POST /functions/v1/send-agenda-email      (E-mail)\n  POST /functions/v1/appointment-reminders  { action: 'sent'   | 'failed' }"
   }
 }
