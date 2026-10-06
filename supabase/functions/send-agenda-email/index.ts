@@ -1,38 +1,27 @@
 /**
  * send-agenda-email
  *
- * Envia notificações de agendamento por e-mail via Resend,
- * usando o padrão "on behalf of":
+ * Envia notificações de agendamento por e-mail via Resend.
+ * Padrão "on behalf of":
+ *   From:     Nome do Cliente <noreply@c8control.com.br>
+ *   Reply-To: email_notify_from do cliente
  *
- *   From:     Nome do Cliente <noreply@agenciac8.com.br>   ← domínio verificado da agência
- *   Reply-To: agenda@clientexyz.com.br                    ← e-mail do cliente (email_notify_from)
- *   Subject:  configurado no client_ai_settings
- *   HTML:     template com variáveis substituídas
+ * Para event="reminder": inclui botões de ação (Confirmar / Reagendar / Cancelar)
+ * com tokens únicos gerados pela RPC generate_action_tokens.
  *
- * O destinatário vê o nome do cliente como remetente e,
- * ao responder, o e-mail vai direto para o cliente.
- *
- * Payload esperado (POST):
+ * Payload (POST):
  * {
- *   event:            "created" | "confirmed" | "cancelled" | "reminder"
- *   appointment_id:   string    (UUID do agendamento)
- *   client_id:        string    (UUID do cliente/estabelecimento)
- *   customer_email:   string    (destinatário)
- *   customer_name:    string
- *   service_name:     string
- *   start_at:         string    (ISO 8601)
- *   end_at:           string    (ISO 8601)
+ *   event:          "created" | "confirmed" | "cancelled" | "reminder"
+ *   appointment_id: string
+ *   client_id:      string
+ *   customer_email: string
+ *   customer_name:  string
+ *   service_name:   string
+ *   start_at:       string (ISO 8601)
+ *   end_at?:        string (ISO 8601)
  * }
- *
- * Variáveis de ambiente necessárias:
- *   SUPABASE_URL
- *   SUPABASE_SERVICE_ROLE_KEY
- *   RESEND_API_KEY
- *   RESEND_FROM_EMAIL  (ex: "Maestr.IA <noreply@agenciac8.com.br>")
- *   RESEND_FROM_DOMAIN (ex: "agenciac8.com.br" — usado para montar From com nome do cliente)
  */
 
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const CORS = {
@@ -48,16 +37,15 @@ function json(data: unknown, status = 200) {
   });
 }
 
-// ── Substitui variáveis de template ──────────────────────────────────────────
-function applyTemplate(template: string, vars: Record<string, string>): string {
-  return template.replace(/\{(\w+)\}/g, (_, key) => vars[key] ?? `{${key}}`);
+function applyTemplate(tpl: string, vars: Record<string, string>): string {
+  return tpl.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? `{${k}}`);
 }
 
-// ── Formata data/hora em pt-BR ────────────────────────────────────────────────
 function fmtDate(iso: string): string {
   try {
     return new Date(iso).toLocaleDateString("pt-BR", {
       weekday: "long", day: "2-digit", month: "long", year: "numeric",
+      timeZone: "America/Sao_Paulo",
     });
   } catch { return iso; }
 }
@@ -70,7 +58,6 @@ function fmtTime(iso: string): string {
   } catch { return iso; }
 }
 
-// ── HTML padrão por evento ────────────────────────────────────────────────────
 const DEFAULT_SUBJECTS: Record<string, string> = {
   created:   "Agendamento confirmado — {servico}",
   confirmed: "Seu agendamento foi atualizado — {servico}",
@@ -78,63 +65,135 @@ const DEFAULT_SUBJECTS: Record<string, string> = {
   reminder:  "Lembrete: {servico} em {data}",
 };
 
-function defaultHtml(event: string, vars: Record<string, string>, clientName: string, primaryColor: string): string {
-  const color = primaryColor || "#6366f1";
+// ── Template HTML padrão ──────────────────────────────────────────────────────
+
+function buildHtml(opts: {
+  event:       string;
+  vars:        Record<string, string>;
+  clientName:  string;
+  color:       string;
+  customMsg?:  string | null;
+  // Para lembrete com ações:
+  actionLinks?: { confirm: string; cancel: string; reschedule: string } | null;
+  professional?: string | null;
+}): string {
+  const { event, vars, clientName, color, customMsg, actionLinks, professional } = opts;
   const accent = `style="color:${color};font-weight:600;"`;
 
-  const body: Record<string, string> = {
-    created:   `<p>Olá, <strong>${vars.nome}</strong>!</p>
-                <p>Seu agendamento foi confirmado com sucesso.</p>
-                <table style="width:100%;border-collapse:collapse;margin:16px 0;">
-                  <tr><td style="padding:8px 0;color:#666;width:40%">Serviço</td><td ${accent}>${vars.servico}</td></tr>
-                  <tr><td style="padding:8px 0;color:#666;">Data</td><td ${accent}>${vars.data}</td></tr>
-                  <tr><td style="padding:8px 0;color:#666;">Horário</td><td ${accent}>${vars.hora}</td></tr>
-                </table>
-                <p style="color:#666;font-size:14px;">Para cancelar ou remarcar, entre em contato conosco.</p>`,
-    confirmed: `<p>Olá, <strong>${vars.nome}</strong>!</p>
-                <p>Seu agendamento foi atualizado.</p>
-                <table style="width:100%;border-collapse:collapse;margin:16px 0;">
-                  <tr><td style="padding:8px 0;color:#666;width:40%">Serviço</td><td ${accent}>${vars.servico}</td></tr>
-                  <tr><td style="padding:8px 0;color:#666;">Data</td><td ${accent}>${vars.data}</td></tr>
-                  <tr><td style="padding:8px 0;color:#666;">Horário</td><td ${accent}>${vars.hora}</td></tr>
-                </table>`,
-    cancelled: `<p>Olá, <strong>${vars.nome}</strong>!</p>
-                <p>Informamos que seu agendamento de <strong>${vars.servico}</strong> foi cancelado.</p>
-                <p style="color:#666;font-size:14px;">Para reagendar, entre em contato conosco.</p>`,
-    reminder:  `<p>Olá, <strong>${vars.nome}</strong>!</p>
-                <p>Este é um lembrete do seu agendamento amanhã:</p>
-                <table style="width:100%;border-collapse:collapse;margin:16px 0;">
-                  <tr><td style="padding:8px 0;color:#666;width:40%">Serviço</td><td ${accent}>${vars.servico}</td></tr>
-                  <tr><td style="padding:8px 0;color:#666;">Data</td><td ${accent}>${vars.data}</td></tr>
-                  <tr><td style="padding:8px 0;color:#666;">Horário</td><td ${accent}>${vars.hora}</td></tr>
-                </table>
-                <p style="color:#666;font-size:14px;">Caso precise cancelar, entre em contato o quanto antes.</p>`,
+  // Card de detalhes do agendamento
+  const detailRows = [
+    ["Serviço",     vars.servico],
+    ["Data",        vars.data],
+    ["Horário",     vars.hora],
+    ...(professional ? [["Profissional", professional]] : []),
+  ].map(([label, value]) => `
+    <tr>
+      <td style="padding:8px 0;color:#9ca3af;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;width:40%;border-top:1px solid #f3f4f6;">${label}</td>
+      <td style="padding:8px 0;font-size:14px;border-top:1px solid #f3f4f6;" ${accent}>${value}</td>
+    </tr>`).join("");
+
+  const appointmentCard = `
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;margin:20px 0;">
+      <tr><td style="padding:20px 24px;">
+        <table width="100%" cellpadding="0" cellspacing="0">${detailRows}</table>
+      </td></tr>
+    </table>`;
+
+  // Botões de ação (apenas para lembrete)
+  const actionButtons = actionLinks ? `
+    <p style="margin:0 0 14px;font-size:13px;color:#6b7280;text-align:center;">Você vai comparecer? Selecione uma opção:</p>
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr><td style="padding:0 0 8px;">
+        <a href="${actionLinks.confirm}" style="display:block;background:#10b981;color:#ffffff;text-decoration:none;text-align:center;padding:14px;border-radius:10px;font-size:14px;font-weight:700;">
+          ✅ Confirmar presença
+        </a>
+      </td></tr>
+      <tr><td style="padding:0 0 8px;">
+        <a href="${actionLinks.reschedule}" style="display:block;background:#f59e0b;color:#ffffff;text-decoration:none;text-align:center;padding:14px;border-radius:10px;font-size:14px;font-weight:700;">
+          📅 Reagendar
+        </a>
+      </td></tr>
+      <tr><td>
+        <a href="${actionLinks.cancel}" style="display:block;background:#ffffff;color:#ef4444;text-decoration:none;text-align:center;padding:13px;border-radius:10px;font-size:14px;font-weight:600;border:1.5px solid #fca5a5;">
+          ❌ Cancelar agendamento
+        </a>
+      </td></tr>
+    </table>
+    <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px 16px;margin-top:16px;">
+      <p style="margin:0;font-size:12px;color:#92400e;line-height:1.5;">
+        ⚠️ <strong>Importante:</strong> Se não puder comparecer, cancele ou reagende com antecedência para que possamos atender outros pacientes.
+      </p>
+    </div>` : "";
+
+  // Corpo por evento
+  const bodyMap: Record<string, string> = {
+    created: `
+      <p style="margin:0 0 6px;font-size:15px;color:#6b7280;">Olá, <strong style="color:#111827;">${vars.nome}</strong>!</p>
+      <p style="margin:0 0 4px;font-size:15px;color:#374151;line-height:1.6;">Seu agendamento foi <strong>confirmado com sucesso</strong>.</p>
+      ${appointmentCard}
+      <p style="color:#6b7280;font-size:13px;">Para cancelar ou remarcar, entre em contato conosco.</p>`,
+
+    confirmed: `
+      <p style="margin:0 0 6px;font-size:15px;color:#6b7280;">Olá, <strong style="color:#111827;">${vars.nome}</strong>!</p>
+      <p style="margin:0 0 4px;font-size:15px;color:#374151;line-height:1.6;">Seu agendamento foi <strong>atualizado</strong>.</p>
+      ${appointmentCard}`,
+
+    cancelled: `
+      <p style="margin:0 0 6px;font-size:15px;color:#6b7280;">Olá, <strong style="color:#111827;">${vars.nome}</strong>!</p>
+      <p style="margin:0 0 4px;font-size:15px;color:#374151;line-height:1.6;">Informamos que seu agendamento de <strong>${vars.servico}</strong> foi <strong>cancelado</strong>.</p>
+      <p style="color:#6b7280;font-size:13px;">Para reagendar, entre em contato conosco.</p>`,
+
+    reminder: `
+      <p style="margin:0 0 6px;font-size:15px;color:#6b7280;">Olá, <strong style="color:#111827;">${vars.nome}</strong>!</p>
+      <p style="margin:0 0 4px;font-size:15px;color:#374151;line-height:1.6;">Este é um lembrete do seu agendamento marcado para <strong>amanhã</strong>. Por favor, confirme sua presença.</p>
+      ${appointmentCard}
+      ${actionButtons}`,
   };
 
-  const bodyContent = body[event] ?? `<p>Você tem um agendamento: <strong>${vars.servico}</strong> em ${vars.data} às ${vars.hora}.</p>`;
+  const bodyContent = customMsg?.trim()
+    ? `<p style="margin:0 0 6px;font-size:15px;color:#6b7280;">Olá, <strong style="color:#111827;">${vars.nome}</strong>!</p>
+       <div style="font-size:14px;color:#374151;line-height:1.6;">${applyTemplate(customMsg, vars).replace(/\n/g, "<br>")}</div>
+       ${event === "reminder" ? appointmentCard + actionButtons : ""}`
+    : (bodyMap[event] ?? `<p>Você tem um agendamento: <strong>${vars.servico}</strong> em ${vars.data} às ${vars.hora}.</p>`);
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f9fafb;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;padding:40px 16px;">
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#f4f4f5;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:32px 16px;">
     <tr><td align="center">
-      <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-        <!-- Header -->
-        <tr><td style="background:${color};padding:24px 32px;">
-          <p style="margin:0;font-size:18px;font-weight:700;color:#ffffff;">${clientName}</p>
-        </td></tr>
-        <!-- Body -->
-        <tr><td style="padding:32px;">
-          ${bodyContent}
-        </td></tr>
-        <!-- Footer -->
-        <tr><td style="padding:16px 32px;background:#f9fafb;border-top:1px solid #e5e7eb;">
-          <p style="margin:0;font-size:12px;color:#9ca3af;">
-            Este e-mail foi enviado em nome de <strong>${clientName}</strong>.
-            Para cancelar ou remarcar, responda este e-mail.
-          </p>
-        </td></tr>
+      <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+        <tr>
+          <td style="background:${color};padding:24px 32px;">
+            <table width="100%" cellpadding="0" cellspacing="0"><tr>
+              <td>
+                <p style="margin:0;font-size:12px;color:rgba(255,255,255,0.75);text-transform:uppercase;letter-spacing:1px;font-weight:600;">
+                  ${event === "reminder" ? "Lembrete" : event === "cancelled" ? "Cancelamento" : "Agendamento"}
+                </p>
+                <p style="margin:5px 0 0;font-size:20px;font-weight:700;color:#ffffff;">${clientName}</p>
+              </td>
+              <td align="right" style="vertical-align:top;">
+                <span style="font-size:28px;">${event === "reminder" ? "🗓️" : event === "cancelled" ? "❌" : "✅"}</span>
+              </td>
+            </tr></table>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:28px 32px 20px;">
+            ${bodyContent}
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:16px 32px 24px;background:#f9fafb;border-top:1px solid #e5e7eb;">
+            <p style="margin:0 0 3px;font-size:12px;color:#9ca3af;text-align:center;">
+              Este e-mail foi enviado em nome de <strong style="color:#6b7280;">${clientName}</strong>.
+            </p>
+            <p style="margin:0;font-size:11px;color:#d1d5db;text-align:center;">
+              Para entrar em contato, responda este e-mail.
+              ${event === "reminder" ? "Os links de ação expiram em 48 horas." : ""}
+            </p>
+          </td>
+        </tr>
       </table>
     </td></tr>
   </table>
@@ -142,37 +201,27 @@ function defaultHtml(event: string, vars: Record<string, string>, clientName: st
 </html>`;
 }
 
-// ─── Handler principal ────────────────────────────────────────────────────────
-serve(async (req) => {
+// ── Handler ───────────────────────────────────────────────────────────────────
+
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")   return json({ error: "Método não permitido" }, 405);
 
-  const SUPA_URL  = Deno.env.get("SUPABASE_URL")!;
-  const SVC_KEY   = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const RESEND_KEY = Deno.env.get("RESEND_API_KEY");
-  const FROM_EMAIL = Deno.env.get("RESEND_FROM_EMAIL") ?? "noreply@c8control.com.br";
-  // Domínio verificado usado no From — ex: "agenciac8.com.br"
+  const SUPA_URL    = Deno.env.get("SUPABASE_URL")!;
+  const SVC_KEY     = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const RESEND_KEY  = Deno.env.get("RESEND_API_KEY");
+  const FROM_EMAIL  = Deno.env.get("RESEND_FROM_EMAIL") ?? "noreply@c8control.com.br";
   const FROM_DOMAIN = Deno.env.get("RESEND_FROM_DOMAIN")
     ?? FROM_EMAIL.replace(/.*@/, "").replace(/>.*/, "").trim()
     ?? "c8control.com.br";
 
-  if (!RESEND_KEY) {
-    return json({ error: "RESEND_API_KEY não configurada" }, 503);
-  }
+  if (!RESEND_KEY) return json({ error: "RESEND_API_KEY não configurada" }, 503);
 
   let body: Record<string, string>;
   try { body = await req.json(); }
   catch { return json({ error: "JSON inválido" }, 400); }
 
-  const {
-    event,
-    client_id,
-    customer_email,
-    customer_name,
-    service_name,
-    start_at,
-    end_at,
-  } = body;
+  const { event, client_id, appointment_id, customer_email, customer_name, service_name, start_at, end_at } = body;
 
   if (!event || !client_id || !customer_email || !customer_name || !start_at) {
     return json({ error: "Campos obrigatórios: event, client_id, customer_email, customer_name, start_at" }, 400);
@@ -182,7 +231,7 @@ serve(async (req) => {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // ── 1. Busca configuração de e-mail do cliente ────────────────────────────
+  // ── Busca config do cliente ───────────────────────────────────────────────
   const { data: cfg } = await admin
     .from("client_ai_settings")
     .select([
@@ -197,72 +246,112 @@ serve(async (req) => {
     .eq("client_id", client_id)
     .maybeSingle();
 
-  // Verifica se o canal está habilitado para este evento
-  const enabled     = cfg?.email_notify_enabled ?? false;
-  const eventOn     = cfg?.[`email_notify_on_${event}`] ?? false;
+  const enabled  = cfg?.email_notify_enabled ?? false;
+  const eventOn  = cfg?.[`email_notify_on_${event}`] ?? false;
 
   if (!enabled || !eventOn) {
     return json({ skipped: true, reason: `email_notify_${event} desabilitado` });
   }
 
-  // ── 2. Monta variáveis de template ────────────────────────────────────────
+  // ── Variáveis de template ─────────────────────────────────────────────────
   const vars: Record<string, string> = {
-    nome:    customer_name,
-    servico: service_name ?? "Agendamento",
-    data:    fmtDate(start_at),
-    hora:    fmtTime(start_at),
+    nome:     customer_name,
+    servico:  service_name ?? "Agendamento",
+    data:     fmtDate(start_at),
+    hora:     fmtTime(start_at),
     hora_fim: end_at ? fmtTime(end_at) : "",
   };
 
-  const clientName   = cfg?.establishment_name ?? "Estabelecimento";
+  const clientName  = cfg?.establishment_name ?? "Estabelecimento";
   const primaryColor = cfg?.primary_color ?? "#6366f1";
+  const rawMsg      = cfg?.[`email_msg_${event}`] as string | null;
 
-  // ── 3. Monta assunto e corpo ──────────────────────────────────────────────
+  // ── Gera tokens de ação para lembrete ─────────────────────────────────────
+  let actionLinks: { confirm: string; cancel: string; reschedule: string } | null = null;
+
+  if (event === "reminder" && appointment_id) {
+    try {
+      const { data: tokens } = await admin
+        .rpc("generate_action_tokens", {
+          p_appointment_id: appointment_id,
+          p_expires_hours:  48,
+        });
+
+      if (tokens && Array.isArray(tokens)) {
+        const tokenMap: Record<string, string> = {};
+        for (const t of tokens as Array<{ action_type: string; token: string }>) {
+          tokenMap[t.action_type] = t.token;
+        }
+
+        // URL base do C8 Control para links de ação
+        const appUrl = Deno.env.get("C8_CONTROL_APP_URL") ?? "https://app.c8control.com.br";
+
+        // Busca o slug do cliente
+        const { data: clientRow } = await admin
+          .from("clients")
+          .select("dashboard_slug")
+          .eq("id", client_id)
+          .maybeSingle();
+
+        const slug = clientRow?.dashboard_slug ?? "";
+
+        if (tokenMap.confirm && tokenMap.cancel && tokenMap.reschedule) {
+          actionLinks = {
+            confirm:    `${appUrl}/booking/${slug}/action/${tokenMap.confirm}`,
+            cancel:     `${appUrl}/booking/${slug}/action/${tokenMap.cancel}`,
+            reschedule: `${appUrl}/booking/${slug}/action/${tokenMap.reschedule}`,
+          };
+        }
+      }
+    } catch (err) {
+      console.warn("[send-agenda-email] Falha ao gerar tokens de ação:", err);
+      // Continua sem botões de ação — não bloqueia o envio
+    }
+  }
+
+  // ── Monta assunto e HTML ──────────────────────────────────────────────────
   const rawSubject = cfg?.[`email_subject_${event}`] as string | null;
-  const rawMsg     = cfg?.[`email_msg_${event}`]     as string | null;
-
   const subject = rawSubject?.trim()
     ? applyTemplate(rawSubject, vars)
     : applyTemplate(DEFAULT_SUBJECTS[event] ?? "Notificação de agendamento", vars);
 
-  // Se o cliente tem template personalizado de corpo, usa como texto simples em HTML
-  // Caso contrário, usa o HTML padrão com layout da plataforma
-  const html = rawMsg?.trim()
-    ? `<!DOCTYPE html><html><body style="font-family:sans-serif;padding:24px;max-width:560px;">
-         <p style="font-size:18px;font-weight:700;color:${primaryColor};">${clientName}</p>
-         <div>${applyTemplate(rawMsg, vars).replace(/\n/g, "<br>")}</div>
-         <hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb;">
-         <p style="font-size:12px;color:#9ca3af;">Enviado em nome de ${clientName}. Responda este e-mail para contato direto.</p>
-       </body></html>`
-    : defaultHtml(event, vars, clientName, primaryColor);
+  // Busca profissional do agendamento para exibir no card
+  let professionalName: string | null = null;
+  if (appointment_id) {
+    const { data: appt } = await admin
+      .from("client_appointments")
+      .select("professional_name")
+      .eq("id", appointment_id)
+      .maybeSingle();
+    professionalName = appt?.professional_name ?? null;
+  }
 
-  // ── 4. Monta headers "on behalf of" ──────────────────────────────────────
-  // From:     "Nome do Cliente <noreply@agenciac8.com.br>"  — domínio verificado
-  // Reply-To: e-mail configurado pelo cliente (email_notify_from)
+  const html = buildHtml({
+    event,
+    vars,
+    clientName,
+    color:        primaryColor,
+    customMsg:    rawMsg,
+    actionLinks,
+    professional: professionalName,
+  });
+
+  // ── Envia via Resend ──────────────────────────────────────────────────────
   const clientReplyTo = (cfg?.email_notify_from as string | null)?.trim() || null;
+  const fromHeader    = `${clientName} <noreply@${FROM_DOMAIN}>`;
 
-  const fromHeader = `${clientName} <noreply@${FROM_DOMAIN}>`;
-
-  // ── 5. Envia via Resend ───────────────────────────────────────────────────
   const resendPayload: Record<string, unknown> = {
     from:    fromHeader,
     to:      [customer_email],
     subject,
     html,
   };
-
-  // Reply-To só se o cliente configurou um e-mail próprio
-  if (clientReplyTo) {
-    resendPayload.reply_to = clientReplyTo;
-  }
+  if (clientReplyTo) resendPayload.reply_to = clientReplyTo;
 
   const res = await fetch("https://api.resend.com/emails", {
     method:  "POST",
-    headers: {
-      "Content-Type":  "application/json",
-      "Authorization": `Bearer ${RESEND_KEY}`,
-    },
-    body: JSON.stringify(resendPayload),
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${RESEND_KEY}` },
+    body:    JSON.stringify(resendPayload),
   });
 
   if (!res.ok) {
@@ -272,7 +361,6 @@ serve(async (req) => {
   }
 
   const resendData = await res.json() as { id?: string };
-  console.log(`[send-agenda-email] Enviado: ${resendData.id} → ${customer_email} (event: ${event}, client: ${client_id})`);
-
-  return json({ success: true, resend_id: resendData.id });
+  console.log(`[send-agenda-email] Enviado: ${resendData.id} → ${customer_email} (${event} / client: ${client_id})`);
+  return json({ success: true, resend_id: resendData.id, has_action_buttons: !!actionLinks });
 });
