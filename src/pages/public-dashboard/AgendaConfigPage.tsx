@@ -1036,7 +1036,7 @@ export function AgendaConfigPage() {
                   <Button
                     size="sm" variant="outline"
                     className="h-7 text-xs gap-1 border-emerald-500/30 text-emerald-600 hover:bg-emerald-500/10"
-                    onClick={() => navigate(`/${slug}/agenda/templates`)}
+                    onClick={() => navigate(`/${slug}/mensagens/templates`)}
                   >
                     Gerenciar Templates <ExternalLink className="h-3 w-3" />
                   </Button>

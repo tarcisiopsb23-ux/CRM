@@ -44,13 +44,13 @@ const CRM_NAV = [
 const AGENDA_NAV = [
   { title: "Agendamentos", url: "agenda",               icon: CalendarCheck },
   { title: "Configurar",   url: "agenda/configuracoes", icon: ListChecks },
-  { title: "Templates WA", url: "agenda/templates",     icon: MessageCircle },
   { title: "Link Público", url: "agenda/link",          icon: LinkIcon },
 ];
 
 const MENSAGENS_NAV = [
-  { title: "Caixa de Entrada", url: "mensagens",           icon: Inbox },
-  { title: "Histórico",        url: "mensagens/historico", icon: MessageSquare },
+  { title: "Caixa de Entrada",      url: "mensagens",           icon: Inbox },
+  { title: "Histórico",             url: "mensagens/historico", icon: MessageSquare },
+  { title: "Templates WhatsApp",    url: "mensagens/templates", icon: MessageCircle },
 ];
 
 const CHATBOT_NAV = [

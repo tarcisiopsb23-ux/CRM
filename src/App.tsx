@@ -162,7 +162,7 @@ export default function App() {
                 <Route path="configuracoes/pagamentos"            element={<Suspense fallback={<PageLoader />}><ConfigPagamentosPage /></Suspense>} />
                 <Route path="agenda/configuracoes"   element={<Suspense fallback={<PageLoader />}><AgendaConfigPage /></Suspense>} />
                 <Route path="agenda/link"            element={<Suspense fallback={<PageLoader />}><AgendaLinkPage /></Suspense>} />
-                <Route path="agenda/templates"       element={<Suspense fallback={<PageLoader />}><WhatsAppTemplatesPage /></Suspense>} />
+                <Route path="mensagens/templates"    element={<Suspense fallback={<PageLoader />}><WhatsAppTemplatesPage /></Suspense>} />
                 {/* ── Meta App Review ── */}
                 <Route path="meta-review"                                element={<Suspense fallback={<PageLoader />}><MetaReviewIndexPage /></Suspense>} />
                 <Route path="meta-review/facebook-login"                 element={<Suspense fallback={<PageLoader />}><FacebookLoginDemoPage /></Suspense>} />
