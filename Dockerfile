@@ -8,7 +8,7 @@ RUN npm ci
 
 # Cache bust — valor muda a cada commit para forçar COPY fresco
 ARG GIT_SHA=unknown
-ARG CACHEBUST=5
+ARG CACHEBUST=6
 RUN echo "Build SHA: $GIT_SHA | Bust: $CACHEBUST"
 COPY . .
 
