@@ -34,7 +34,6 @@ import {
 import { PageHeader }       from "@/pages/public-dashboard/components/PageHeader";
 import { useClientAuth }    from "@/hooks/useClientAuth";
 import { useMetaConnections } from "@/hooks/useMetaConnections";
-import { useOrganization }  from "@/hooks/useOrganization";
 import {
   useWhatsAppTemplates,
   TEMPLATE_VARIABLE_FIELDS,
@@ -453,14 +452,15 @@ function MappingDialog({
 
 export function WhatsAppTemplatesPage() {
   const { auth }       = useClientAuth();
-  const organizationId = useOrganization();
+  const organizationId = auth?.organization_id as string | undefined;
   const navigate       = useNavigate();
   const slug           = auth?.id ? window.location.pathname.split("/")[3] : "";
   const userRole       = auth?.user?.role ?? "viewer";
   const canEdit        = ["owner","admin","manager"].includes(userRole);
 
-  // Busca conexão WhatsApp ativa
-  const { connections } = useMetaConnections(organizationId ?? undefined);
+  // Busca conexão WhatsApp ativa — passa organizationId explicitamente
+  // para evitar usar useOrganization() que depende do AuthProvider da agência
+  const { connections } = useMetaConnections(organizationId);
   const waConn = connections?.find(c =>
     (c.provider === "whatsapp" || c.provider === "meta_multi") &&
     c.status === "active" && c.waba_id
@@ -470,7 +470,7 @@ export function WhatsAppTemplatesPage() {
   const {
     templates, isLoading, sync, listFromMeta, create,
     updateMapping, remove, statusLabel, statusColor, extractVariables,
-  } = useWhatsAppTemplates(connectionId);
+  } = useWhatsAppTemplates(connectionId, organizationId);
 
   const [showCreate,      setShowCreate]      = useState(false);
   const [mappingTemplate, setMappingTemplate] = useState<WhatsAppTemplate | null>(null);

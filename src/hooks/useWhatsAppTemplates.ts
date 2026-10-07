@@ -94,8 +94,9 @@ async function callTemplateService<T>(
 
 // ── Hook principal ────────────────────────────────────────────────────────────
 
-export function useWhatsAppTemplates(connectionId?: string) {
-  const organizationId = useOrganization();
+export function useWhatsAppTemplates(connectionId?: string, externalOrganizationId?: string) {
+  const hookOrganizationId = useOrganization();
+  const organizationId     = externalOrganizationId ?? hookOrganizationId;
   const qc             = useQueryClient();
   const queryKey       = ["whatsapp_templates", organizationId, connectionId];
 

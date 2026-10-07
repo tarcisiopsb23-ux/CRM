@@ -81,8 +81,9 @@ export interface UpsertReminderSettingInput {
 
 // ── Hook: configurações de lembrete ──────────────────────────────────────────
 
-export function useReminderSettings(clientId?: string) {
-  const organizationId = useOrganization();
+export function useReminderSettings(clientId?: string, externalOrganizationId?: string) {
+  const hookOrganizationId = useOrganization();
+  const organizationId     = externalOrganizationId ?? hookOrganizationId;
   const qc             = useQueryClient();
   const queryKey       = ["reminder_settings", organizationId, clientId];
 
@@ -192,8 +193,9 @@ export function useReminderSettings(clientId?: string) {
 
 // ── Hook: fila de lembretes de um agendamento ─────────────────────────────────
 
-export function useAppointmentReminders(appointmentId?: string) {
-  const organizationId = useOrganization();
+export function useAppointmentReminders(appointmentId?: string, externalOrganizationId?: string) {
+  const hookOrganizationId = useOrganization();
+  const organizationId     = externalOrganizationId ?? hookOrganizationId;
   const qc             = useQueryClient();
   const queryKey       = ["appointment_reminders", appointmentId];
 
@@ -263,8 +265,9 @@ export function useAppointmentReminders(appointmentId?: string) {
 
 // ── Hook: contadores para o dashboard ────────────────────────────────────────
 
-export function useReminderStats(clientId?: string) {
-  const organizationId = useOrganization();
+export function useReminderStats(clientId?: string, externalOrganizationId?: string) {
+  const hookOrganizationId = useOrganization();
+  const organizationId     = externalOrganizationId ?? hookOrganizationId;
 
   return useQuery({
     queryKey: ["reminder_stats", organizationId, clientId],
