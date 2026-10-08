@@ -1,12 +1,12 @@
-/**
+﻿/**
  * WhatsAppTemplatesPage
  *
  * Gerencia templates WhatsApp Business (HSM) da WABA conectada.
  * Rota: /:slug/mensagens/templates
  *
- * ATENÇÃO: Esta página está no dashboard público do cliente (C8 Control).
- * Usa APENAS useClientAuth — nunca useAuth/useOrganization do CRM/AuthContext.
- * Todos os dados são buscados diretamente via supabase (Banco A).
+ * ATENÃ‡ÃƒO: Esta pÃ¡gina estÃ¡ no dashboard pÃºblico do cliente (C8 Control).
+ * Usa APENAS useClientAuth â€” nunca useAuth/useOrganization do CRM/AuthContext.
+ * Todos os dados sÃ£o buscados diretamente via supabase (Banco A).
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -31,7 +31,7 @@ import { PageHeader } from "@/pages/public-dashboard/components/PageHeader";
 import { useClientAuth } from "@/hooks/useClientAuth";
 import { supabase }      from "@/lib/supabase";
 
-// ── Tipos locais ──────────────────────────────────────────────────────────────
+// â”€â”€ Tipos locais â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 type TemplateStatus   = "APPROVED"|"PENDING"|"REJECTED"|"PAUSED"|"DISABLED"|"IN_APPEAL"|"DELETED";
 type TemplateCategory = "UTILITY"|"MARKETING"|"AUTHENTICATION";
@@ -75,8 +75,8 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const ANON_KEY     = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
 const STATUS_LABEL: Record<TemplateStatus, string> = {
-  APPROVED:"Aprovado", PENDING:"Em análise", REJECTED:"Rejeitado",
-  PAUSED:"Pausado", DISABLED:"Desabilitado", IN_APPEAL:"Em recurso", DELETED:"Excluído",
+  APPROVED:"Aprovado", PENDING:"Em anÃ¡lise", REJECTED:"Rejeitado",
+  PAUSED:"Pausado", DISABLED:"Desabilitado", IN_APPEAL:"Em recurso", DELETED:"ExcluÃ­do",
 };
 const STATUS_COLOR: Record<TemplateStatus, string> = {
   APPROVED:"bg-emerald-100 text-emerald-700 border-emerald-200",
@@ -92,14 +92,14 @@ const VARIABLE_FIELDS = [
   { value:"customer.name",          label:"Nome do cliente" },
   { value:"customer.phone",         label:"Telefone do cliente" },
   { value:"appointment.date",       label:"Data do agendamento" },
-  { value:"appointment.time",       label:"Horário do agendamento" },
+  { value:"appointment.time",       label:"HorÃ¡rio do agendamento" },
   { value:"appointment.weekday",    label:"Dia da semana" },
-  { value:"appointment.service",    label:"Nome do serviço" },
+  { value:"appointment.service",    label:"Nome do serviÃ§o" },
   { value:"appointment.professional",label:"Nome do profissional" },
   { value:"company.name",           label:"Nome do estabelecimento" },
 ];
 
-// ── Componente ────────────────────────────────────────────────────────────────
+// â”€â”€ Componente â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export function WhatsAppTemplatesPage() {
   const { auth }       = useClientAuth();
@@ -119,12 +119,12 @@ export function WhatsAppTemplatesPage() {
   const [mappingTpl,  setMappingTpl]  = useState<WaTemplate | null>(null);
   const [expanded,    setExpanded]    = useState<string | null>(null);
 
-  // Carrega conexão WhatsApp ativa e templates
+  // Carrega conexÃ£o WhatsApp ativa e templates
   const load = useCallback(async () => {
     if (!organizationId) return;
     setLoading(true);
     try {
-      // auth.id É o client_id neste contexto (ClientInfo.id = clients.id)
+      // auth.id Ã‰ o client_id neste contexto (ClientInfo.id = clients.id)
       const clientId = auth?.id;
 
       let conn: WaConnection | null = null;
@@ -144,7 +144,7 @@ export function WhatsAppTemplatesPage() {
       }
 
       if (!conn) {
-        // Fallback: conexão global da organização (client_id IS NULL)
+        // Fallback: conexÃ£o global da organizaÃ§Ã£o (client_id IS NULL)
         const { data: globalConns } = await supabase
           .from("meta_connections_safe")
           .select("id, waba_id, status, display_name, whatsapp_display_phone_number, provider, client_id")
@@ -183,7 +183,7 @@ export function WhatsAppTemplatesPage() {
   async function callTemplateService(action: string, extra: Record<string,unknown> = {}) {
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token;
-    if (!token) throw new Error("Não autenticado");
+    if (!token) throw new Error("NÃ£o autenticado");
 
     const res = await fetch(`${SUPABASE_URL}/functions/v1/whatsapp-template-service`, {
       method: "POST",
@@ -225,7 +225,7 @@ export function WhatsAppTemplatesPage() {
     if (!confirm(`Excluir template "${tpl.name}"?`)) return;
     try {
       await callTemplateService("delete", { template_id: tpl.id });
-      toast.success("Template excluído.");
+      toast.success("Template excluÃ­do.");
       await load();
     } catch (e: unknown) { toast.error((e as Error).message); }
   };
@@ -236,17 +236,17 @@ export function WhatsAppTemplatesPage() {
     return matchSearch && matchStatus;
   });
 
-  // ── Estado vazio: sem WhatsApp ───────────────────────────────────────────
+  // â”€â”€ Estado vazio: sem WhatsApp â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (!loading && !connection) {
     return (
       <div className="mx-auto max-w-3xl space-y-6">
-        <PageHeader title="Templates WhatsApp" description="Gerencie templates para envio de mensagens automáticas." />
+        <PageHeader title="Templates WhatsApp" description="Gerencie templates para envio de mensagens automÃ¡ticas." />
         <div className="rounded-xl border border-border bg-card p-8 text-center space-y-4">
           <MessageCircle className="h-12 w-12 text-muted-foreground/40 mx-auto" />
           <div>
             <p className="text-sm font-medium">Nenhuma conta WhatsApp Business conectada</p>
             <p className="text-xs text-muted-foreground mt-1">
-              A agência precisa configurar a conexão WhatsApp no painel administrativo.
+              A agÃªncia precisa configurar a conexÃ£o WhatsApp no painel administrativo.
             </p>
           </div>
         </div>
@@ -254,8 +254,9 @@ export function WhatsAppTemplatesPage() {
     );
   }
 
-  // ── Conexão encontrada mas sem WABA ID (templates requerem WABA) ─────────
+  // â”€â”€ ConexÃ£o encontrada mas sem WABA ID (templates requerem WABA) â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const hasWaba = !!connection?.waba_id;
+  return (
     <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader title="Templates WhatsApp" description="Templates HSM aprovados pela Meta para envio automatizado." />
 
@@ -269,26 +270,26 @@ export function WhatsAppTemplatesPage() {
               <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
               <p className="text-xs text-emerald-700">
                 <strong>{connection.display_name ?? "WhatsApp Business"}</strong> conectado
-                {connection.whatsapp_display_phone_number && ` — ${connection.whatsapp_display_phone_number}`}
+                {connection.whatsapp_display_phone_number && ` â€” ${connection.whatsapp_display_phone_number}`}
               </p>
             </div>
           )}
 
-          {/* Aviso: sem WABA ID (templates não disponíveis) */}
+          {/* Aviso: sem WABA ID (templates nÃ£o disponÃ­veis) */}
           {connection && !hasWaba && (
             <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3">
               <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
               <div>
-                <p className="text-sm font-medium text-amber-700">WABA ID não configurado</p>
+                <p className="text-sm font-medium text-amber-700">WABA ID nÃ£o configurado</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Para gerenciar templates HSM, a conexão precisa ter um WABA ID (WhatsApp Business Account).
-                  Entre em contato com a agência para configurar.
+                  Para gerenciar templates HSM, a conexÃ£o precisa ter um WABA ID (WhatsApp Business Account).
+                  Entre em contato com a agÃªncia para configurar.
                 </p>
               </div>
             </div>
           )}
 
-          {/* Barra de ações */}
+          {/* Barra de aÃ§Ãµes */}
           <div className="flex flex-wrap items-center gap-2">
             <Input placeholder="Buscar template..." value={search} onChange={e => setSearch(e.target.value)} className="h-8 w-48 text-sm" />
             <Select value={filter} onValueChange={setFilter}>
@@ -296,7 +297,7 @@ export function WhatsAppTemplatesPage() {
               <SelectContent>
                 <SelectItem value="all">Todos</SelectItem>
                 <SelectItem value="APPROVED">Aprovados</SelectItem>
-                <SelectItem value="PENDING">Em análise</SelectItem>
+                <SelectItem value="PENDING">Em anÃ¡lise</SelectItem>
                 <SelectItem value="REJECTED">Rejeitados</SelectItem>
                 <SelectItem value="PAUSED">Pausados</SelectItem>
               </SelectContent>
@@ -376,7 +377,7 @@ export function WhatsAppTemplatesPage() {
                         {vars.length > 0 && (
                           <div className="space-y-1.5">
                             <div className="flex items-center justify-between">
-                              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Variáveis</span>
+                              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">VariÃ¡veis</span>
                               {canEdit && (
                                 <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => setMappingTpl(tpl)}>
                                   Editar mapeamento
@@ -390,8 +391,8 @@ export function WhatsAppTemplatesPage() {
                                 return (
                                   <div key={v} className="flex items-center gap-1.5 text-xs">
                                     <code className="bg-muted px-1 rounded text-[10px]">{v}</code>
-                                    <span className="text-muted-foreground">→</span>
-                                    <span className={f ? "text-foreground" : "text-amber-500 italic"}>{f?.label ?? tpl.variable_mapping?.[n] ?? "Não mapeado"}</span>
+                                    <span className="text-muted-foreground">â†’</span>
+                                    <span className={f ? "text-foreground" : "text-amber-500 italic"}>{f?.label ?? tpl.variable_mapping?.[n] ?? "NÃ£o mapeado"}</span>
                                   </div>
                                 );
                               })}
@@ -435,7 +436,7 @@ export function WhatsAppTemplatesPage() {
         />
       )}
 
-      {/* Dialog: Mapeamento de variáveis */}
+      {/* Dialog: Mapeamento de variÃ¡veis */}
       {mappingTpl && connection && (
         <MappingDialog
           template={mappingTpl}
@@ -448,7 +449,7 @@ export function WhatsAppTemplatesPage() {
   );
 }
 
-// ── Dialog: Criar template ────────────────────────────────────────────────────
+// â”€â”€ Dialog: Criar template â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function CreateTemplateDialog({ open, onClose, onCreated, organizationId, connectionId, callService }: {
   open: boolean; onClose: () => void; onCreated: () => void;
@@ -464,7 +465,7 @@ function CreateTemplateDialog({ open, onClose, onCreated, organizationId, connec
   const [saving,     setSaving]     = useState(false);
 
   const handleSubmit = async () => {
-    if (!name || !bodyText) { toast.error("Nome e corpo são obrigatórios."); return; }
+    if (!name || !bodyText) { toast.error("Nome e corpo sÃ£o obrigatÃ³rios."); return; }
     const comps: TemplateComponent[] = [];
     if (headerText.trim()) comps.push({ type: "HEADER", format: "TEXT", text: headerText.trim() });
     comps.push({ type: "BODY", text: bodyText.trim() });
@@ -475,7 +476,7 @@ function CreateTemplateDialog({ open, onClose, onCreated, organizationId, connec
         name: name.toLowerCase().replace(/[^a-z0-9_]/g,""),
         category, language, components: comps,
       });
-      toast.success("Template submetido para aprovação da Meta!");
+      toast.success("Template submetido para aprovaÃ§Ã£o da Meta!");
       onCreated();
     } catch (e: unknown) { toast.error((e as Error).message); }
     finally { setSaving(false); }
@@ -489,7 +490,7 @@ function CreateTemplateDialog({ open, onClose, onCreated, organizationId, connec
           <div className="space-y-1.5">
             <Label>Nome *</Label>
             <Input value={name} onChange={e => setName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g,""))} placeholder="lembrete_agendamento" className="font-mono" />
-            <p className="text-[10px] text-muted-foreground">Apenas letras minúsculas, números e underscore.</p>
+            <p className="text-[10px] text-muted-foreground">Apenas letras minÃºsculas, nÃºmeros e underscore.</p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
@@ -508,35 +509,35 @@ function CreateTemplateDialog({ open, onClose, onCreated, organizationId, connec
               <Select value={language} onValueChange={setLanguage}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="pt_BR">Português (Brasil)</SelectItem>
+                  <SelectItem value="pt_BR">PortuguÃªs (Brasil)</SelectItem>
                   <SelectItem value="en_US">English (US)</SelectItem>
-                  <SelectItem value="es">Español</SelectItem>
+                  <SelectItem value="es">EspaÃ±ol</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label>Cabeçalho <span className="text-muted-foreground text-xs">(opcional)</span></Label>
+            <Label>CabeÃ§alho <span className="text-muted-foreground text-xs">(opcional)</span></Label>
             <Input value={headerText} onChange={e => setHeaderText(e.target.value)} placeholder="Ex: Lembrete de Agendamento" />
           </div>
           <div className="space-y-1.5">
             <Label>Corpo *</Label>
             <textarea value={bodyText} onChange={e => setBodyText(e.target.value)} rows={4}
-              placeholder={"Olá {{1}}, seu agendamento de {{2}} está marcado para {{3}} às {{4}}."}
+              placeholder={"OlÃ¡ {{1}}, seu agendamento de {{2}} estÃ¡ marcado para {{3}} Ã s {{4}}."}
               className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-1 focus:ring-primary" />
             <p className="text-[10px] text-muted-foreground flex items-start gap-1">
-              <Info className="h-3 w-3 shrink-0 mt-0.5" /> Use {"{{1}}"}, {"{{2}}"} etc. para variáveis.
+              <Info className="h-3 w-3 shrink-0 mt-0.5" /> Use {"{{1}}"}, {"{{2}}"} etc. para variÃ¡veis.
             </p>
           </div>
           <div className="space-y-1.5">
-            <Label>Rodapé <span className="text-muted-foreground text-xs">(opcional)</span></Label>
+            <Label>RodapÃ© <span className="text-muted-foreground text-xs">(opcional)</span></Label>
             <Input value={footerText} onChange={e => setFooterText(e.target.value)} placeholder="Ex: Para cancelar, responda CANCELAR." />
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
           <Button onClick={handleSubmit} disabled={saving} className="gap-1.5">
-            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Enviar para aprovação
+            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Enviar para aprovaÃ§Ã£o
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -544,7 +545,7 @@ function CreateTemplateDialog({ open, onClose, onCreated, organizationId, connec
   );
 }
 
-// ── Dialog: Mapeamento de variáveis ───────────────────────────────────────────
+// â”€â”€ Dialog: Mapeamento de variÃ¡veis â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function MappingDialog({ template, onClose, onSaved, callService }: {
   template: WaTemplate; onClose: () => void;
@@ -577,16 +578,16 @@ function MappingDialog({ template, onClose, onSaved, callService }: {
     <Dialog open onOpenChange={o => { if (!o) onClose(); }}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Mapeamento — <code className="text-sm">{template.name}</code></DialogTitle>
+          <DialogTitle>Mapeamento â€” <code className="text-sm">{template.name}</code></DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-1">
-          <p className="text-xs text-muted-foreground">Associe cada variável do template a um campo do agendamento.</p>
-          {vars.length === 0 && <p className="text-sm text-muted-foreground italic">Este template não possui variáveis.</p>}
+          <p className="text-xs text-muted-foreground">Associe cada variÃ¡vel do template a um campo do agendamento.</p>
+          {vars.length === 0 && <p className="text-sm text-muted-foreground italic">Este template nÃ£o possui variÃ¡veis.</p>}
           {vars.map(n => (
             <div key={n} className="space-y-1.5">
               <div className="flex items-center gap-2">
                 <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">{`{{${n}}}`}</code>
-                <span className="text-xs text-muted-foreground">→</span>
+                <span className="text-xs text-muted-foreground">â†’</span>
                 <Select value={mapping[n] ?? ""} onValueChange={v => setMapping(p => ({ ...p, [n]: v }))}>
                   <SelectTrigger className="h-7 text-xs flex-1"><SelectValue placeholder="Selecione..." /></SelectTrigger>
                   <SelectContent>
