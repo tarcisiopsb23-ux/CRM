@@ -124,16 +124,12 @@ export function WhatsAppTemplatesPage() {
     if (!organizationId) return;
     setLoading(true);
     try {
-      // Busca conexão WhatsApp — prioridade:
-      // 1. Conexão específica deste cliente (client_id = auth.client_id)
-      // 2. Conexão global da organização (client_id IS NULL)
-      // A agência configura isso no Maestr.IA → C8 Control → conta do cliente
-      const clientId = (auth?.user as Record<string,unknown>)?.client_id as string | undefined;
+      // auth.id É o client_id neste contexto (ClientInfo.id = clients.id)
+      const clientId = auth?.id;
 
       let conn: WaConnection | null = null;
 
       if (clientId) {
-        // Primeiro tenta conexão específica do cliente
         const { data: clientConns } = await supabase
           .from("meta_connections_safe")
           .select("id, waba_id, status, display_name, whatsapp_display_phone_number, provider, client_id")

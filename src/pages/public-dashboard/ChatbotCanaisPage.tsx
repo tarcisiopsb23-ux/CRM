@@ -49,7 +49,6 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
 export function ChatbotCanaisPage() {
   const { auth }       = useClientAuth();
   const organizationId = auth?.organization_id as string | undefined;
-  const clientId       = (auth?.user as Record<string,unknown>)?.client_id as string | undefined;
   const navigate       = useNavigate();
   const slug           = auth?.slug ?? "";
 
@@ -60,7 +59,9 @@ export function ChatbotCanaisPage() {
     if (!organizationId) return;
     setLoading(true);
     try {
-      // Busca conexões deste cliente + conexões globais da organização
+      // auth.id É o client_id do cliente neste contexto (ClientInfo.id)
+      const clientId = auth?.id;
+
       let query = supabase
         .from("meta_connections_safe")
         .select("id, provider, status, display_name, whatsapp_display_phone_number, instagram_username, waba_id, client_id, health_status, last_error, created_at")
@@ -82,7 +83,7 @@ export function ChatbotCanaisPage() {
     } finally {
       setLoading(false);
     }
-  }, [organizationId, clientId]);
+  }, [organizationId, auth?.id]);
 
   useEffect(() => { load(); }, [load]);
 
