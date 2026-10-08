@@ -64,6 +64,7 @@ interface WaTemplate {
 interface WaConnection {
   id:                           string;
   waba_id:                      string | null;
+  client_id:                    string | null;
   status:                       string;
   display_name:                 string | null;
   whatsapp_display_phone_number:string | null;
@@ -123,19 +124,47 @@ export function WhatsAppTemplatesPage() {
     if (!organizationId) return;
     setLoading(true);
     try {
-      // Busca conexão WhatsApp ativa
-      const { data: conns } = await supabase
-        .from("meta_connections_safe")
-        .select("id, waba_id, status, display_name, whatsapp_display_phone_number, provider")
-        .eq("organization_id", organizationId)
-        .in("provider", ["whatsapp","meta_multi"])
-        .eq("status", "active")
-        .not("waba_id", "is", null)
-        .order("created_at", { ascending: false })
-        .limit(1);
+      // Busca conexão WhatsApp — prioridade:
+      // 1. Conexão específica deste cliente (client_id = auth.client_id)
+      // 2. Conexão global da organização (client_id IS NULL)
+      // A agência configura isso no Maestr.IA → C8 Control → conta do cliente
+      const clientId = (auth?.user as Record<string,unknown>)?.client_id as string | undefined;
 
-      const conn = conns?.[0] ?? null;
-      setConnection(conn as WaConnection | null);
+      let conn: WaConnection | null = null;
+
+      if (clientId) {
+        // Primeiro tenta conexão específica do cliente
+        const { data: clientConns } = await supabase
+          .from("meta_connections_safe")
+          .select("id, waba_id, status, display_name, whatsapp_display_phone_number, provider, client_id")
+          .eq("organization_id", organizationId)
+          .eq("client_id", clientId)
+          .in("provider", ["whatsapp","meta_multi"])
+          .eq("status", "active")
+          .not("waba_id", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(1);
+
+        conn = (clientConns?.[0] ?? null) as WaConnection | null;
+      }
+
+      if (!conn) {
+        // Fallback: conexão global da organização (client_id IS NULL)
+        const { data: globalConns } = await supabase
+          .from("meta_connections_safe")
+          .select("id, waba_id, status, display_name, whatsapp_display_phone_number, provider, client_id")
+          .eq("organization_id", organizationId)
+          .is("client_id", null)
+          .in("provider", ["whatsapp","meta_multi"])
+          .eq("status", "active")
+          .not("waba_id", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(1);
+
+        conn = (globalConns?.[0] ?? null) as WaConnection | null;
+      }
+
+      setConnection(conn);
 
       if (!conn) { setLoading(false); return; }
 
