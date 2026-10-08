@@ -119,50 +119,25 @@ export function WhatsAppTemplatesPage() {
   const [mappingTpl,  setMappingTpl]  = useState<WaTemplate | null>(null);
   const [expanded,    setExpanded]    = useState<string | null>(null);
 
-  // Carrega conexÃ£o WhatsApp ativa e templates
+  // Carrega conexao WhatsApp ativa e templates (sem filtro por client_id)
+  // A agencia gerencia a conexao globalmente pela organization_id
   const load = useCallback(async () => {
     if (!organizationId) return;
     setLoading(true);
     try {
-      // auth.id Ã‰ o client_id neste contexto (ClientInfo.id = clients.id)
-      const clientId = auth?.id;
+      const { data: waConns } = await supabase
+        .from("meta_connections_safe")
+        .select("id, waba_id, status, display_name, whatsapp_display_phone_number, provider, client_id")
+        .eq("organization_id", organizationId)
+        .in("provider", ["whatsapp","meta_multi"])
+        .eq("status", "active")
+        .order("created_at", { ascending: false })
+        .limit(1);
 
-      let conn: WaConnection | null = null;
+      setConnection((waConns?.[0] ?? null) as WaConnection | null);
 
-      if (clientId) {
-        const { data: clientConns } = await supabase
-          .from("meta_connections_safe")
-          .select("id, waba_id, status, display_name, whatsapp_display_phone_number, provider, client_id")
-          .eq("organization_id", organizationId)
-          .eq("client_id", clientId)
-          .in("provider", ["whatsapp","meta_multi"])
-          .eq("status", "active")
-          .order("created_at", { ascending: false })
-          .limit(1);
+      if (!waConns?.[0]) { setLoading(false); return; }
 
-        conn = (clientConns?.[0] ?? null) as WaConnection | null;
-      }
-
-      if (!conn) {
-        // Fallback: conexÃ£o global da organizaÃ§Ã£o (client_id IS NULL)
-        const { data: globalConns } = await supabase
-          .from("meta_connections_safe")
-          .select("id, waba_id, status, display_name, whatsapp_display_phone_number, provider, client_id")
-          .eq("organization_id", organizationId)
-          .is("client_id", null)
-          .in("provider", ["whatsapp","meta_multi"])
-          .eq("status", "active")
-          .order("created_at", { ascending: false })
-          .limit(1);
-
-        conn = (globalConns?.[0] ?? null) as WaConnection | null;
-      }
-
-      setConnection(conn);
-
-      if (!conn) { setLoading(false); return; }
-
-      // Busca templates do banco local
       const { data: tpls } = await supabase
         .from("whatsapp_templates")
         .select("*")
@@ -175,7 +150,7 @@ export function WhatsAppTemplatesPage() {
     } finally {
       setLoading(false);
     }
-  }, [organizationId, auth?.id]);
+  }, [organizationId]);
 
   useEffect(() => { load(); }, [load]);
 

@@ -59,31 +59,23 @@ export function ChatbotCanaisPage() {
     if (!organizationId) return;
     setLoading(true);
     try {
-      // auth.id É o client_id do cliente neste contexto (ClientInfo.id)
-      const clientId = auth?.id;
-
-      let query = supabase
+      // Busca conexões WhatsApp/Meta da organização.
+      // Não filtra por client_id pois a agência gerencia a conexão
+      // globalmente — o filtro por cliente é reservado para uso futuro.
+      const { data: conns } = await supabase
         .from("meta_connections_safe")
         .select("id, provider, status, display_name, whatsapp_display_phone_number, instagram_username, waba_id, client_id, health_status, last_error, created_at")
         .eq("organization_id", organizationId)
         .not("status", "in", '("disconnected","revoked")')
         .order("created_at", { ascending: false });
 
-      if (clientId) {
-        // Conexões específicas deste cliente OU globais (client_id IS NULL)
-        query = query.or(`client_id.eq.${clientId},client_id.is.null`);
-      } else {
-        query = query.is("client_id", null);
-      }
-
-      const { data } = await query;
-      setConns((data ?? []) as MetaConn[]);
+      setConns((conns ?? []) as MetaConn[]);
     } catch (e) {
       console.error("[ChatbotCanaisPage] load:", e);
     } finally {
       setLoading(false);
     }
-  }, [organizationId, auth?.id]);
+  }, [organizationId]);
 
   useEffect(() => { load(); }, [load]);
 
