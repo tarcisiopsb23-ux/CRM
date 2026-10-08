@@ -137,7 +137,6 @@ export function WhatsAppTemplatesPage() {
           .eq("client_id", clientId)
           .in("provider", ["whatsapp","meta_multi"])
           .eq("status", "active")
-          .not("waba_id", "is", null)
           .order("created_at", { ascending: false })
           .limit(1);
 
@@ -153,7 +152,6 @@ export function WhatsAppTemplatesPage() {
           .is("client_id", null)
           .in("provider", ["whatsapp","meta_multi"])
           .eq("status", "active")
-          .not("waba_id", "is", null)
           .order("created_at", { ascending: false })
           .limit(1);
 
@@ -177,7 +175,7 @@ export function WhatsAppTemplatesPage() {
     } finally {
       setLoading(false);
     }
-  }, [organizationId]);
+  }, [organizationId, auth?.id]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -247,17 +245,17 @@ export function WhatsAppTemplatesPage() {
           <MessageCircle className="h-12 w-12 text-muted-foreground/40 mx-auto" />
           <div>
             <p className="text-sm font-medium">Nenhuma conta WhatsApp Business conectada</p>
-            <p className="text-xs text-muted-foreground mt-1">Conecte sua conta para gerenciar templates.</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              A agência precisa configurar a conexão WhatsApp no painel administrativo.
+            </p>
           </div>
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => navigate(`/${slug}/configuracoes/integracoes`)}>
-            <Link2 className="h-3.5 w-3.5" /> Conectar WhatsApp
-          </Button>
         </div>
       </div>
     );
   }
 
-  return (
+  // ── Conexão encontrada mas sem WABA ID (templates requerem WABA) ─────────
+  const hasWaba = !!connection?.waba_id;
     <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader title="Templates WhatsApp" description="Templates HSM aprovados pela Meta para envio automatizado." />
 
@@ -276,6 +274,20 @@ export function WhatsAppTemplatesPage() {
             </div>
           )}
 
+          {/* Aviso: sem WABA ID (templates não disponíveis) */}
+          {connection && !hasWaba && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3">
+              <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-amber-700">WABA ID não configurado</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Para gerenciar templates HSM, a conexão precisa ter um WABA ID (WhatsApp Business Account).
+                  Entre em contato com a agência para configurar.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Barra de ações */}
           <div className="flex flex-wrap items-center gap-2">
             <Input placeholder="Buscar template..." value={search} onChange={e => setSearch(e.target.value)} className="h-8 w-48 text-sm" />
@@ -290,16 +302,16 @@ export function WhatsAppTemplatesPage() {
               </SelectContent>
             </Select>
             <div className="ml-auto flex gap-2">
-              <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs" onClick={handleImport} disabled={syncing}>
+              <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs" onClick={handleImport} disabled={syncing || !hasWaba}>
                 {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
                 Importar da Meta
               </Button>
-              <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs" onClick={handleSync} disabled={syncing}>
+              <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs" onClick={handleSync} disabled={syncing || !hasWaba}>
                 {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
                 Sincronizar status
               </Button>
               {canEdit && (
-                <Button size="sm" className="gap-1.5 h-8 text-xs" onClick={() => setShowCreate(true)}>
+                <Button size="sm" className="gap-1.5 h-8 text-xs" onClick={() => setShowCreate(true)} disabled={!hasWaba}>
                   <Plus className="h-3.5 w-3.5" /> Criar template
                 </Button>
               )}
