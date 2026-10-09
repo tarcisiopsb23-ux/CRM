@@ -13,3 +13,40 @@ verify_jwt = false
 
 [functions.generate-recruitment-form]
 verify_jwt = true
+
+# google-calendar-oauth: endpoint público — o popup OAuth2 abre sem JWT
+# O authorize redireciona para o Google e o callback é chamado pelo próprio Google
+[functions.google-calendar-oauth]
+verify_jwt = false
+
+# agenda-n8n-receiver: chamado pelo n8n (sem JWT do usuário), valida via X-Webhook-Token
+[functions.agenda-n8n-receiver]
+verify_jwt = false
+
+# agenda-booking: formulário público de agendamento — acesso anônimo
+[functions.agenda-booking]
+verify_jwt = false
+
+# client-dashboard-auth: login do C8 Control — chamado sem JWT (pré-autenticação)
+# Valida credenciais internamente e retorna session JWT
+[functions.client-dashboard-auth]
+verify_jwt = false
+
+# lookup-clients-by-email: descobre slugs vinculados a um e-mail — chamado sem JWT
+# Não retorna dados sensíveis, apenas nome/empresa do cliente
+[functions.lookup-clients-by-email]
+verify_jwt = false
+
+# get-meta-connections: lê conexões Meta para o dashboard C8 Control.
+# Usuários C8 Control não têm perfil em profiles — o gateway rejeitaria o JWT.
+# A EF usa service_role internamente, filtrando por organization_id.
+[functions.get-meta-connections]
+verify_jwt = false
+
+# send-agenda-email: chamado pelo n8n com service_role key
+[functions.send-agenda-email]
+verify_jwt = false
+
+# appointment-reminders: chamado pelo n8n com X-Service-Key
+[functions.appointment-reminders]
+verify_jwt = false
