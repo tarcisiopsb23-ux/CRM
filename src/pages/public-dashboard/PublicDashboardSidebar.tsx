@@ -66,6 +66,8 @@ const CONTENT_OPS_NAV = [
   { title: "Briefings",     url: "conteudo/briefings",    icon: FileText },
   { title: "Entregáveis",   url: "conteudo/entregaveis",  icon: Package },
 ];
+
+const CONFIG_NAV = [
   { title: "Configurações",     url: "configuracoes",                       icon: Settings },
   { title: "Usuários",          url: "configuracoes/usuarios",              icon: Users },
   { title: "Pagamentos",        url: "configuracoes/pagamentos",            icon: CreditCard },
