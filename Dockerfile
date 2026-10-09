@@ -13,11 +13,9 @@ ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
 ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
 ENV VITE_PUBLIC_ORG_ID=$VITE_PUBLIC_ORG_ID
 
-COPY package*.json ./
-RUN npm ci --prefer-offline
-
-# Cache bust: 7
+# COPY completo primeiro — garante que mudanças no código invalidam o cache Docker
 COPY . .
+RUN npm ci --prefer-offline
 RUN npm run build
 
 # Stage 2: Production (nginx)
