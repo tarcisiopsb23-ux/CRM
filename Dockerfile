@@ -1,35 +1,35 @@
-# Stage 1: build
-FROM node:20-alpine AS builder
+# Stage 1: Build
+FROM node:20-alpine AS build
 
 WORKDIR /app
 
-COPY package*.json ./
-RUN npm ci
-
-# Cache bust — valor muda a cada commit para forçar COPY fresco
-ARG GIT_SHA=unknown
-ARG CACHEBUST=6
-RUN echo "Build SHA: $GIT_SHA | Bust: $CACHEBUST"
-COPY . .
-
-# Variáveis de build — com valores padrão para quando não forem passadas como ARG
-ARG VITE_SUPABASE_URL=https://xcymhcqbyyuozkzhpxgi.supabase.co
-ARG VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhjeW1oY3FieXl1b3premhweGdpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQzOTQ2NzcsImV4cCI6MjA4OTk3MDY3N30.j3bFHfPGmGXzfQkGo1WMlRDQYjjDnJONg115xwZSjsQ
+# Build args injetados pelo EasyPanel
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+ARG VITE_PUBLIC_ORG_ID
 ARG VITE_GOOGLE_CLIENT_ID
 ARG VITE_META_APP_ID
+ARG VITE_META_WHATSAPP_CONFIG_ID
+
+# Expõe como ENV para o Vite enxergar durante o build
 ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
 ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
+ENV VITE_PUBLIC_ORG_ID=$VITE_PUBLIC_ORG_ID
 ENV VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
 ENV VITE_META_APP_ID=$VITE_META_APP_ID
+ENV VITE_META_WHATSAPP_CONFIG_ID=$VITE_META_WHATSAPP_CONFIG_ID
 
+# COPY completo primeiro — garante que mudanças no código invalidam o cache Docker
+COPY . .
+RUN npm install --legacy-peer-deps
 RUN npm run build
 
-# Stage 2: serve
+# Stage 2: Production (nginx)
 FROM nginx:alpine
 
-COPY --from=builder /app/dist /usr/share/nginx/html
+COPY --from=build /app/dist /usr/share/nginx/html
 
-# SPA fallback: redireciona todas as rotas para index.html
+# Nginx configurado para SPA (React Router / client-side routing)
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
