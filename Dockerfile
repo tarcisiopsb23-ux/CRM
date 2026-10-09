@@ -15,7 +15,7 @@ ENV VITE_PUBLIC_ORG_ID=$VITE_PUBLIC_ORG_ID
 
 # COPY completo primeiro — garante que mudanças no código invalidam o cache Docker
 COPY . .
-RUN npm ci --prefer-offline
+RUN npm ci --prefer-offline --legacy-peer-deps
 RUN npm run build
 
 # Stage 2: Production (nginx)
