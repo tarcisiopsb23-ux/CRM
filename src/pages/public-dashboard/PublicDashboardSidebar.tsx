@@ -210,6 +210,8 @@ export function PublicDashboardSidebar() {
   const userRole      = auth?.user?.role ?? "viewer";
 
   const isSupportUser = !!(auth?.user?.email?.match(/^[a-z0-9]{10}@[a-z0-9.-]+\.[a-z]{2,}$/));
+
+  const isActive = (url: string) => {
     const full = `/${slug}${url ? `/${url}` : ""}`;
     if (url === "") return location.pathname === `/${slug}`;
     return location.pathname === full || location.pathname.startsWith(full + "/");
