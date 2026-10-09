@@ -17,23 +17,72 @@ import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
 // Fixed variables (Requirement 3.2)
+// Ordered by usage frequency. Variables that exist in the assembleContract
+// varMap but are rarely used in clause body text are omitted from chips to
+// avoid cluttering the UI — they can still be typed manually as {{var}}.
 // ---------------------------------------------------------------------------
 
-const FIXED_VARIABLES: { id: string; label: string }[] = [
-  { id: "cliente",           label: "cliente" },
-  { id: "empresa",           label: "empresa" },
-  { id: "cnpj",              label: "cnpj" },
-  { id: "cpf",               label: "cpf" },
-  { id: "valor",             label: "valor" },
-  { id: "servicos",          label: "servicos" },
-  { id: "vencimento",        label: "vencimento" },
-  { id: "primeiro_pagamento",label: "primeiro_pagamento" },
-  { id: "data",              label: "data" },
-  { id: "consultor",         label: "consultor" },
-  { id: "escopo",            label: "escopo" },
-  { id: "cronograma",        label: "cronograma" },
-  { id: "prazo_minimo",      label: "prazo_minimo" },
-];
+const FIXED_VARIABLES: { id: string; label: string; group: string }[] = [
+  // ── Contratante ──────────────────────────────────────────────────────────
+  { id: "numero_contrato",           label: "numero_contrato — Número do contrato (ex: 8000026/2026)", group: "Contrato" },
+  { id: "contract_number",           label: "contract_number — Alias de numero_contrato",  group: "Contrato" },
+  { id: "cliente",                   label: "cliente — Nome / nome fantasia",                group: "Contratante" },
+  { id: "empresa",                   label: "empresa — Razão social",                        group: "Contratante" },
+  { id: "contratante_razao_social",  label: "contratante_razao_social — Razão social / nome completo (PF/PJ)", group: "Contratante" },
+  { id: "cnpj",                      label: "cnpj — CNPJ do contratante",                    group: "Contratante" },
+  { id: "cpf",                       label: "cpf — CPF do contratante (PF)",                 group: "Contratante" },
+  { id: "contratante_cnpj",          label: "contratante_cnpj — CNPJ (alias explícito)",     group: "Contratante" },
+  { id: "contratante_endereco",      label: "contratante_endereco — Endereço formatado",     group: "Contratante" },
+  { id: "qualificacao_contratante",  label: "qualificacao_contratante — Bloco completo (PJ/PF + representantes)", group: "Contratante" },
+  { id: "representante_nome",        label: "representante_nome — Nome do 1º representante legal", group: "Contratante" },
+  { id: "representante_cpf",         label: "representante_cpf — CPF do 1º representante legal",  group: "Contratante" },
+  // ── Serviços ─────────────────────────────────────────────────────────────
+  { id: "servicos",                  label: "servicos — Lista de serviços com entregáveis (HTML)",  group: "Serviços" },
+  { id: "escopo",                    label: "escopo — Alias de servicos",                           group: "Serviços" },
+  { id: "lista_servicos",            label: "lista_servicos — Alias de servicos",                   group: "Serviços" },
+  // ── Financeiro — recorrente ───────────────────────────────────────────────
+  { id: "valor",                     label: "valor — Valor mensal (R$)",                       group: "Financeiro" },
+  { id: "valor_mensalidade",         label: "valor_mensalidade — Alias de valor",              group: "Financeiro" },
+  { id: "forma_pagamento",           label: "forma_pagamento — PIX, boleto…",                  group: "Financeiro" },
+  { id: "dia_vencimento",            label: "dia_vencimento — Dia do mês (ex: 20)",            group: "Financeiro" },
+  { id: "vencimento",                label: "vencimento — 1ª mensalidade do cronograma (por extenso)", group: "Financeiro" },
+  { id: "primeiro_vencimento",       label: "primeiro_vencimento — 1º vencimento do cronograma (qualquer tipo)", group: "Financeiro" },
+  { id: "vencimento_primeira_mensalidade", label: "vencimento_primeira_mensalidade — Data da 1ª mensalidade recorrente", group: "Financeiro" },
+  { id: "chave_pix",                 label: "chave_pix — Chave PIX da agência",                group: "Financeiro" },
+  { id: "cronograma_pagamento",      label: "cronograma_pagamento — Tabela completa de pagamentos", group: "Financeiro" },
+  { id: "texto_pagamento",           label: "texto_pagamento — Frase completa de pagamento (forma + chave PIX + datas)", group: "Financeiro" },
+  // ── Comissão variável ─────────────────────────────────────────────────────
+  { id: "comissao_habilitada",       label: "comissao_habilitada — 'Sim' ou 'Não'",                      group: "Comissão" },
+  { id: "comissao_tipo",             label: "comissao_tipo — 'Percentual sobre o valor' ou 'Valor fixo por resultado'", group: "Comissão" },
+  { id: "comissao_taxa",             label: "comissao_taxa — Valor da taxa (ex: 10% ou R$ 500,00)",      group: "Comissão" },
+  { id: "comissao_descricao",        label: "comissao_descricao — O que é um resultado (ex: lead convertido)", group: "Comissão" },
+  { id: "comissao_periodicidade",    label: "comissao_periodicidade — 'Semanal', 'Quinzenal' ou 'Mensal'", group: "Comissão" },
+  { id: "comissao_periodicidade_extenso", label: "comissao_periodicidade_extenso — 'semanalmente', 'quinzenalmente' ou 'mensalmente'", group: "Comissão" },
+  // ── Financeiro — setup ────────────────────────────────────────────────────
+  { id: "valor_setup",               label: "valor_setup — Valor total do setup (R$)",         group: "Setup" },
+  { id: "parcelas_setup",            label: "parcelas_setup — Número de parcelas",             group: "Setup" },
+  { id: "parcela_setup",             label: "parcela_setup — Valor por parcela (R$)",          group: "Setup" },
+  { id: "taxa_setup",                label: "taxa_setup — Percentual de taxas",                group: "Setup" },
+  { id: "vencimento_setup",          label: "vencimento_setup — Vencimento da 1ª parcela",    group: "Setup" },
+  { id: "forma_pagamento_setup",     label: "forma_pagamento_setup — Forma de pagamento do setup", group: "Setup" },
+  // ── Vigência e prazos ─────────────────────────────────────────────────────
+  { id: "vigencia_inicio",           label: "vigencia_inicio — Início da vigência (dd/mm/aaaa)",      group: "Vigência" },
+  { id: "vigencia_fim",              label: "vigencia_fim — Término da vigência (dd/mm/aaaa)",        group: "Vigência" },
+  { id: "prazo_minimo",              label: "prazo_minimo — Prazo mínimo em meses (número)",          group: "Vigência" },
+  { id: "prazo_minimo_extenso",      label: "prazo_minimo_extenso — Prazo mínimo por extenso",       group: "Vigência" },
+  { id: "prazo_vigencia_meses",      label: "prazo_vigencia_meses — Duração total em meses (número)",group: "Vigência" },
+  { id: "prazo_vigencia_extenso",    label: "prazo_vigencia_extenso — Duração total por extenso",    group: "Vigência" },
+  { id: "duracao_meses",             label: "duracao_meses — Alias de prazo_vigencia_meses",         group: "Vigência" },
+  { id: "carencia_meses",            label: "carencia_meses — Carência em meses (número)",           group: "Vigência" },
+  { id: "carencia_extenso",          label: "carencia_extenso — Carência por extenso",              group: "Vigência" },
+  // ── Datas ─────────────────────────────────────────────────────────────────
+  { id: "data",                      label: "data — Data atual (dd/mm/aaaa)",                        group: "Datas" },
+  { id: "data_assinatura",           label: "data_assinatura — Data da contratação por extenso",     group: "Datas" },
+  // ── Localização ───────────────────────────────────────────────────────────
+  { id: "cidade_estado",             label: "cidade_estado — Cidade/Estado do contratante",          group: "Localização" },
+  { id: "foro_cidade",               label: "foro_cidade — Cidade do foro",                         group: "Localização" },
+  // ── Assinaturas ───────────────────────────────────────────────────────────
+  { id: "bloco_assinaturas",         label: "bloco_assinaturas — Tabela CONTRATADA + CONTRATANTE",   group: "Assinaturas" },
 
 // ---------------------------------------------------------------------------
 // Types
@@ -164,16 +213,25 @@ export function ClauseEditor({
 
   // ── Dynamic variables from availableServices (Requirement 3.3) ───────────
 
-  const dynamicVariables: { id: string; label: string }[] = availableServices
+  const dynamicVariables: { id: string; label: string; group: string }[] = availableServices
     .map((service) => {
       const normalized = normalizeVariableIdentifier(service.name);
       const id = `escopo_${normalized}`;
-      // Display label matches {{escopo_nome}} without braces
-      return { id, label: id };
+      return { id, label: id, group: "Serviços" };
     })
-    .filter((v) => v.id !== "escopo_"); // skip empty normalizations
+    .filter((v) => v.id !== "escopo_");
 
   const allVariables = [...FIXED_VARIABLES, ...dynamicVariables];
+
+  // Group variables by their group label
+  const variableGroups = allVariables.reduce<Record<string, typeof allVariables>>(
+    (acc, v) => {
+      if (!acc[v.group]) acc[v.group] = [];
+      acc[v.group].push(v);
+      return acc;
+    },
+    {}
+  );
 
   // ── Render ───────────────────────────────────────────────────────────────
 
@@ -235,33 +293,40 @@ export function ClauseEditor({
       </div>
 
       {/* ── Variable panel ── */}
-      <div className="border-b border-input bg-muted/30 px-3 py-2">
-        <p className="mb-1.5 text-xs font-medium text-muted-foreground">
+      <div className="border-b border-input bg-muted/30 px-3 py-2 space-y-2">
+        <p className="text-xs font-medium text-muted-foreground">
           Variáveis — clique para inserir no cursor
         </p>
-        <div className="flex flex-wrap gap-1.5">
-          {allVariables.map((v) => (
-            <button
-              key={v.id}
-              type="button"
-              onClick={() => insertVariable(v.id)}
-              disabled={disabled}
-              title={`Inserir {{${v.label}}}`}
-              className="focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
-            >
-              <Badge
-                variant="outline"
-                className={cn(
-                  "cursor-pointer text-xs font-mono transition-colors",
-                  "hover:bg-primary hover:text-primary-foreground hover:border-primary",
-                  disabled && "cursor-not-allowed opacity-50"
-                )}
-              >
-                {`{{${v.label}}}`}
-              </Badge>
-            </button>
-          ))}
-        </div>
+        {Object.entries(variableGroups).map(([group, vars]) => (
+          <div key={group}>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">
+              {group}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {vars.map((v) => (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => insertVariable(v.id)}
+                  disabled={disabled}
+                  title={`Inserir {{${v.label}}}`}
+                  className="focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+                >
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "cursor-pointer text-xs font-mono transition-colors",
+                      "hover:bg-primary hover:text-primary-foreground hover:border-primary",
+                      disabled && "cursor-not-allowed opacity-50"
+                    )}
+                  >
+                    {`{{${v.label}}}`}
+                  </Badge>
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* ── Editor area ── */}

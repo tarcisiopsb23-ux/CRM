@@ -268,7 +268,7 @@ export function AvisosPage() {
 
       {/* Dialog criar / editar */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="border-border bg-card sm:max-w-lg">
+        <DialogContent className="border-border bg-card sm:max-w-[50vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-display">
               {editingItem ? "Editar Aviso" : "Novo Aviso"}

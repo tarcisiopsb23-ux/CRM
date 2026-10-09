@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { ServiceCatalogItem, SubService } from "@/types/contracts";
+import type { ServiceCatalogItem, ServiceDeliverable } from "@/types/contracts";
 
 const sb = () => supabase as unknown as SupabaseClient;
 
@@ -16,14 +16,30 @@ const sb = () => supabase as unknown as SupabaseClient;
 export interface CreateServiceInput {
   name: string;
   category: string;
-  sub_services?: SubService[];
+  modality?: 'Consultiva' | 'Executiva' | 'Híbrida (consultiva e executiva)' | null;
+  description_text?: string | null;
+  scope?: string | null;
+  deliverables?: ServiceDeliverable[];
 }
 
 export interface UpdateServiceInput {
   id: string;
   name?: string;
   category?: string;
-  sub_services?: SubService[];
+  modality?: 'Consultiva' | 'Executiva' | 'Híbrida (consultiva e executiva)' | null;
+  description_text?: string | null;
+  scope?: string | null;
+  deliverables?: ServiceDeliverable[];
+}
+
+/** Gera slug a partir do nome: lowercase, sem acentos, underscores */
+function generateSlug(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")  // remove diacríticos (acentos)
+    .toLowerCase()                     // converte APÓS normalização
+    .replace(/[^a-z0-9]+/g, "_")      // substitui não-alfanuméricos por _
+    .replace(/^_|_$/g, "");           // remove _ inicial/final
 }
 
 /**
@@ -75,8 +91,13 @@ export function useServiceCatalog(organizationId: string | undefined) {
         id: String(r.id),
         organization_id: String(r.organization_id),
         name: String(r.name ?? ""),
+        slug: String(r.slug ?? ""),
         category: String(r.category ?? ""),
-        sub_services: (r.sub_services as SubService[]) ?? [],
+        modality: (r.modality as 'Consultiva' | 'Executiva' | 'Híbrida (consultiva e executiva)' | null) ?? null,
+        description_text: (r.description_text as string | null) ?? null,
+        scope: (r.scope as string | null) ?? null,
+        deliverables: (r.deliverables as ServiceDeliverable[]) ?? [],
+        sub_services: [],
         display_order: Number(r.display_order ?? 0),
         created_at: String(r.created_at ?? ""),
         updated_at: String(r.updated_at ?? ""),
@@ -114,8 +135,12 @@ export function useServiceCatalog(organizationId: string | undefined) {
       const payload = {
         organization_id: organizationId,
         name: input.name,
+        slug: generateSlug(input.name),
         category: input.category,
-        sub_services: input.sub_services ?? [],
+        modality: input.modality ?? null,
+        description_text: input.description_text ?? null,
+        scope: input.scope ?? null,
+        deliverables: input.deliverables ?? [],
         display_order: maxOrder + 1,
       };
 
@@ -148,9 +173,12 @@ export function useServiceCatalog(organizationId: string | undefined) {
       const { id, ...rest } = input;
 
       const payload: Record<string, unknown> = {};
-      if (rest.name !== undefined) payload.name = rest.name;
+      if (rest.name !== undefined) { payload.name = rest.name; payload.slug = generateSlug(rest.name); }
       if (rest.category !== undefined) payload.category = rest.category;
-      if (rest.sub_services !== undefined) payload.sub_services = rest.sub_services;
+      if (rest.modality !== undefined) payload.modality = rest.modality;
+      if (rest.description_text !== undefined) payload.description_text = rest.description_text;
+      if (rest.scope !== undefined) payload.scope = rest.scope;
+      if (rest.deliverables !== undefined) payload.deliverables = rest.deliverables;
 
       const { data, error } = await sb()
         .from("service_catalog")

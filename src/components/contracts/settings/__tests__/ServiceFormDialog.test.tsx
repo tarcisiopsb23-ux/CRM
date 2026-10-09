@@ -42,36 +42,57 @@ describe('ServiceFormDialog — snapshot and interaction tests', () => {
 
   it('renders name and category fields', () => {
     wrap(<ServiceFormDialog open={true} onOpenChange={vi.fn()} organizationId="org-1" />);
-    expect(screen.getByPlaceholderText(/gestão de redes/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/assessoria de marketing/i)).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/marketing digital/i)).toBeInTheDocument();
   });
 
-  it('"Adicionar sub-serviço" button is present', () => {
+  it('"Adicionar entregável" button is present', () => {
     wrap(<ServiceFormDialog open={true} onOpenChange={vi.fn()} organizationId="org-1" />);
-    expect(screen.getByRole('button', { name: /adicionar sub-serviço/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /adicionar entregável/i })).toBeInTheDocument();
   });
 
-  it('clicking "Adicionar sub-serviço" adds a row', () => {
+  it('clicking "Adicionar entregável" adds a row with name input', () => {
     wrap(<ServiceFormDialog open={true} onOpenChange={vi.fn()} organizationId="org-1" />);
-    const addBtn = screen.getByRole('button', { name: /adicionar sub-serviço/i });
+    const addBtn = screen.getByRole('button', { name: /adicionar entregável/i });
     fireEvent.click(addBtn);
-    expect(screen.getByPlaceholderText(/nome do sub-serviço/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/nome do entregável/i)).toBeInTheDocument();
   });
 
   it('renders in edit mode with correct title and pre-filled values', () => {
     const service = {
-      id: 'svc-1', name: 'Design', category: 'Marketing',
-      organization_id: 'org-1', sub_services: [], display_order: 0,
-      created_at: '', updated_at: '',
+      id: 'svc-1',
+      name: 'Design',
+      category: 'Marketing',
+      slug: 'design',
+      organization_id: 'org-1',
+      sub_services: [],
+      deliverables: [],
+      display_order: 0,
+      created_at: '',
+      updated_at: '',
     };
-    wrap(<ServiceFormDialog open={true} onOpenChange={vi.fn()} organizationId="org-1" service={service} />);
+    wrap(
+      <ServiceFormDialog
+        open={true}
+        onOpenChange={vi.fn()}
+        organizationId="org-1"
+        service={service}
+      />
+    );
     expect(screen.getByText(/editar serviço/i)).toBeInTheDocument();
     const nameInput = screen.getByDisplayValue('Design') as HTMLInputElement;
     expect(nameInput.value).toBe('Design');
   });
 
-  it('shows "Nenhum sub-serviço adicionado." when list is empty', () => {
+  it('shows empty state message when no deliverables added', () => {
     wrap(<ServiceFormDialog open={true} onOpenChange={vi.fn()} organizationId="org-1" />);
-    expect(screen.getByText(/nenhum sub-serviço adicionado/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/nenhum entregável adicionado/i)
+    ).toBeInTheDocument();
+  });
+
+  it('shows Escopo section', () => {
+    wrap(<ServiceFormDialog open={true} onOpenChange={vi.fn()} organizationId="org-1" />);
+    expect(screen.getByText(/escopo/i)).toBeInTheDocument();
   });
 });

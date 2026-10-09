@@ -281,7 +281,7 @@ export function PromocoesPage() {
 
       {/* Create / Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="bg-card border-border text-foreground sm:max-w-md">
+        <DialogContent className="bg-card border-border text-foreground sm:max-w-[50vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-foreground">
               {editingItem ? "Editar Promoção" : "Nova Promoção"}

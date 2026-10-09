@@ -50,12 +50,16 @@ function ReadinessIndicator({ client }: { client: C8PendingClient }) {
 function ClientActivationRow({
   client,
   onActivate,
+  onReset,
   isActivating,
+  isResetting,
   canEdit,
 }: {
   client: C8PendingClient;
   onActivate: (id: string) => void;
+  onReset: (id: string) => void;
   isActivating: boolean;
+  isResetting: boolean;
   canEdit: boolean;
 }) {
   const navigate = useNavigate();
@@ -63,6 +67,7 @@ function ClientActivationRow({
   const status = STATUS_CONFIG[client.c8_activation_status] ?? STATUS_CONFIG.pendente;
   const StatusIcon = status.icon;
   const canActivate = !!client.supabase_url && !!client.anon_key && client.has_service_key && !!client.dashboard_slug;
+  const isStuck = client.c8_activation_status === "em_andamento";
 
   return (
     <div className="p-4 rounded-xl border bg-white space-y-3">
@@ -71,7 +76,7 @@ function ClientActivationRow({
           <div className="flex items-center gap-2 flex-wrap">
             <p className="font-semibold text-slate-800">{client.client_name}</p>
             <Badge className={`text-xs flex items-center gap-1 ${status.color}`}>
-              <StatusIcon className={`h-3 w-3 ${client.c8_activation_status === "em_andamento" ? "animate-spin" : ""}`} />
+              <StatusIcon className={`h-3 w-3 ${isStuck ? "animate-spin" : ""}`} />
               {status.label}
             </Badge>
             {client.c8_included && (
@@ -87,6 +92,11 @@ function ClientActivationRow({
               {client.contract_end && ` · até ${fmtDate(client.contract_end)}`}
             </p>
           )}
+          {isStuck && (
+            <p className="text-xs text-blue-500 mt-1">
+              Aguardando resposta do provisionamento. Se ficar preso, cancele e tente novamente.
+            </p>
+          )}
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
@@ -97,10 +107,27 @@ function ClientActivationRow({
           >
             <ExternalLink className="h-3.5 w-3.5" />
           </Button>
-          {canEdit && (
+          {canEdit && isStuck && (
             <Button
               size="sm"
-              disabled={isActivating || !canActivate || client.c8_activation_status === "em_andamento"}
+              variant="outline"
+              disabled={isResetting}
+              onClick={() => onReset(client.client_id)}
+              className="gap-1.5 border-blue-300 text-blue-700 hover:bg-blue-50"
+              title="Cancelar e voltar para Pendente para tentar novamente"
+            >
+              {isResetting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <XCircle className="h-3.5 w-3.5" />
+              )}
+              Cancelar
+            </Button>
+          )}
+          {canEdit && !isStuck && (
+            <Button
+              size="sm"
+              disabled={isActivating || !canActivate}
               onClick={() => onActivate(client.client_id)}
               className="gap-1.5"
               variant={client.c8_activation_status === "falhou" ? "destructive" : "default"}
@@ -113,7 +140,7 @@ function ClientActivationRow({
               ) : (
                 <Zap className="h-3.5 w-3.5" />
               )}
-              {client.c8_activation_status === "falhou" ? "Tentar novamente" : "Ativar via n8n"}
+              {client.c8_activation_status === "falhou" ? "Tentar novamente" : "Ativar"}
             </Button>
           )}
         </div>
@@ -147,20 +174,33 @@ interface C8PendingActivationTabProps {
 }
 
 export function C8PendingActivationTab({ organizationId, canEdit }: C8PendingActivationTabProps) {
-  const { data: pending = [], isLoading, refetch, activate } = useC8PendingActivation(organizationId);
+  const { data: pending = [], isLoading, refetch, activate, resetActivation } = useC8PendingActivation(organizationId);
   const [activatingId, setActivatingId] = useState<string | null>(null);
+  const [resettingId, setResettingId] = useState<string | null>(null);
 
   const handleActivate = async (clientId: string) => {
     setActivatingId(clientId);
     try {
       await activate.mutateAsync(clientId);
-      toast.success("Ativação iniciada! O n8n está provisionando o banco do cliente.", {
+      toast.success("Ativação iniciada! O banco do cliente está sendo provisionado.", {
         description: "Aguarde alguns instantes e atualize a lista.",
       });
     } catch (err: any) {
       toast.error(`Erro ao ativar: ${err.message}`);
     } finally {
       setActivatingId(null);
+    }
+  };
+
+  const handleReset = async (clientId: string) => {
+    setResettingId(clientId);
+    try {
+      await resetActivation.mutateAsync(clientId);
+      toast.info("Ativação cancelada. O cliente voltou para Pendente.");
+    } catch (err: any) {
+      toast.error(`Erro ao cancelar: ${err.message}`);
+    } finally {
+      setResettingId(null);
     }
   };
 
@@ -205,7 +245,7 @@ export function C8PendingActivationTab({ organizationId, canEdit }: C8PendingAct
             Ativação do C8 Control Pendente
           </h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Clientes com acesso habilitado por contrato aguardando provisionamento via n8n.
+            Clientes com acesso habilitado por contrato aguardando provisionamento.
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -268,7 +308,9 @@ export function C8PendingActivationTab({ organizationId, canEdit }: C8PendingAct
                 <ClientActivationRow
                   key={c.client_id} client={c} canEdit={canEdit}
                   isActivating={activatingId === c.client_id}
+                  isResetting={resettingId === c.client_id}
                   onActivate={handleActivate}
+                  onReset={handleReset}
                 />
               ))}
             </div>
@@ -285,7 +327,9 @@ export function C8PendingActivationTab({ organizationId, canEdit }: C8PendingAct
                 <ClientActivationRow
                   key={c.client_id} client={c} canEdit={canEdit}
                   isActivating={activatingId === c.client_id}
+                  isResetting={resettingId === c.client_id}
                   onActivate={handleActivate}
+                  onReset={handleReset}
                 />
               ))}
             </div>
@@ -302,7 +346,9 @@ export function C8PendingActivationTab({ organizationId, canEdit }: C8PendingAct
                 <ClientActivationRow
                   key={c.client_id} client={c} canEdit={canEdit}
                   isActivating={activatingId === c.client_id}
+                  isResetting={resettingId === c.client_id}
                   onActivate={handleActivate}
+                  onReset={handleReset}
                 />
               ))}
             </div>

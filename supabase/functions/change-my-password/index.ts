@@ -1,172 +1,136 @@
+/**
+ * change-my-password
+ *
+ * Altera a senha do dashboard_user autenticado no Banco A.
+ *
+ * Body: { current_password: string, password: string }
+ *   • Verifica a senha atual via signIn antes de alterar
+ *   • Exige senha forte (maiúscula + minúscula + número + especial)
+ *   • Atualiza via admin.updateUserById (service_role)
+ *
+ * Requer: Authorization: Bearer <access_token> da sessão ativa.
+ */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-function getCorsHeaders(req: Request) {
-  const origin = req.headers.get("Origin") || "*";
-  return {
-    "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  };
-}
+const CORS = {
+  "Access-Control-Allow-Origin":  "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
 
-function bytesToBase64(bytes: Uint8Array) {
-  let s = "";
-  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
-  return btoa(s);
-}
-
-async function hashPasswordPBKDF2(password: string, saltB64: string) {
-  const saltBytes = Uint8Array.from(atob(saltB64), (c) => c.charCodeAt(0));
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(password),
-    { name: "PBKDF2" },
-    false,
-    ["deriveBits"]
-  );
-
-  const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt: saltBytes, iterations: 150_000, hash: "SHA-256" },
-    keyMaterial,
-    256
-  );
-
-  return bytesToBase64(new Uint8Array(bits));
+function json(data: unknown, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...CORS, "Content-Type": "application/json" },
+  });
 }
 
 serve(async (req) => {
-  const corsHeaders = getCorsHeaders(req);
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  if (req.method !== "POST")   return json({ error: "Método não permitido" }, 405);
 
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+  // ── Extrai Bearer token ────────────────────────────────────────────────────
+  const authHeader = req.headers.get("Authorization") ?? "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!token || token.split(".").length !== 3) {
+    return json({ error: "Token inválido" }, 401);
   }
 
-  if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Método não permitido" }), {
-      status: 405,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
+  // ── Parse body ─────────────────────────────────────────────────────────────
+  let body: { password?: string; current_password?: string };
+  try { body = await req.json(); }
+  catch { return json({ error: "Corpo da requisição inválido" }, 400); }
 
-  const authHeader = req.headers.get("Authorization") || "";
-  const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length).trim() : "";
-  if (!bearer || bearer.split(".").length !== 3) {
-    return new Response(JSON.stringify({ error: "Token inválido" }), {
-      status: 401,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
+  const newPassword     = typeof body.password         === "string" ? body.password.trim()         : "";
+  const currentPassword = typeof body.current_password === "string" ? body.current_password.trim() : "";
 
-  let body: { password?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return new Response(JSON.stringify({ error: "Corpo da requisição inválido" }), {
-      status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
+  if (!currentPassword) return json({ error: "Senha atual é obrigatória." }, 400);
+  if (newPassword.length < 8) return json({ error: "A nova senha deve ter no mínimo 8 caracteres." }, 400);
 
-  const password = typeof body.password === "string" ? body.password : "";
-  if (password.length < 6) {
-    return new Response(JSON.stringify({ error: "Senha deve ter no mínimo 6 caracteres" }), {
-      status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
+  // ── Validação de senha forte ────────────────────────────────────────────────
+  if (!/[A-Z]/.test(newPassword))                               return json({ error: "A nova senha deve conter pelo menos uma letra maiúscula." }, 400);
+  if (!/[a-z]/.test(newPassword))                               return json({ error: "A nova senha deve conter pelo menos uma letra minúscula." }, 400);
+  if (!/[0-9]/.test(newPassword))                               return json({ error: "A nova senha deve conter pelo menos um número." }, 400);
+  if (!/[!@#$%^&*()\-_+=[\]{};':"|<>?,./`~\\]/.test(newPassword)) return json({ error: "A nova senha deve conter pelo menos um caractere especial." }, 400);
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-    const keyForAuth = anonKey || serviceKey;
+    const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const anonKey     = Deno.env.get("SUPABASE_ANON_KEY") ?? serviceKey;
 
-    const authClient = createClient(supabaseUrl, keyForAuth, {
+    // ── Obtém o user pelo token ───────────────────────────────────────────────
+    const authClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader } },
+      auth:   { persistSession: false, autoRefreshToken: false },
     });
 
-    const { data: { user } } = await authClient.auth.getUser();
-    if (!user) {
-      return new Response(JSON.stringify({ error: "Sessão expirada. Faça login novamente." }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    const { data: { user }, error: userErr } = await authClient.auth.getUser();
+    if (userErr || !user) {
+      return json({ error: "Sessão expirada. Faça login novamente." }, 401);
     }
 
+    // ── Verifica a senha atual ────────────────────────────────────────────────
+    // O email interno está em user.email (ex: "teste@teste.com::teste-agencia-c8@c8.internal"
+    // ou "cantinhodochurrascoto_cantinho-do-churrasco@c8.internal")
+    const internalEmail = user.email ?? "";
+    if (!internalEmail) {
+      return json({ error: "Não foi possível identificar o usuário." }, 400);
+    }
+
+    const verifyResp = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json", "apikey": anonKey },
+      body:    JSON.stringify({ email: internalEmail, password: currentPassword }),
+    });
+
+    if (!verifyResp.ok) {
+      // Tenta formato alternativo se o email tiver ::
+      if (internalEmail.includes("::") && verifyResp.status === 500) {
+        // Converte email::slug@c8.internal → emaillocal_slug@c8.internal
+        const withoutDomain = internalEmail.replace("@c8.internal", "");
+        const parts = withoutDomain.split("::");
+        if (parts.length === 2) {
+          const emailLocal = parts[0].split("@")[0];
+          const slug       = parts[1];
+          const altEmail   = `${emailLocal}_${slug}@c8.internal`;
+
+          const verifyResp2 = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
+            method:  "POST",
+            headers: { "Content-Type": "application/json", "apikey": anonKey },
+            body:    JSON.stringify({ email: altEmail, password: currentPassword }),
+          });
+
+          if (!verifyResp2.ok) {
+            return json({ error: "Senha atual incorreta." }, 401);
+          }
+        } else {
+          return json({ error: "Senha atual incorreta." }, 401);
+        }
+      } else {
+        return json({ error: "Senha atual incorreta." }, 401);
+      }
+    }
+
+    // ── Atualiza a senha ──────────────────────────────────────────────────────
     const adminClient = createClient(supabaseUrl, serviceKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    const { data: historyRows, error: historyErr } = await adminClient
-      .from("password_history")
-      .select("password_hash, salt")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .limit(5);
-    if (historyErr) {
-      const m = String((historyErr as { message?: string } | null)?.message ?? "");
-      if (m.includes("password_history") && m.includes("does not exist")) {
-        return new Response(JSON.stringify({ error: "Migração de senha não aplicada. Execute 00049_password_history.sql no Supabase." }), {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      throw historyErr;
-    }
-
-    for (const r of (historyRows ?? []) as Array<{ password_hash: string; salt: string }>) {
-      const nextHash = await hashPasswordPBKDF2(password, String(r.salt));
-      if (nextHash === String(r.password_hash)) {
-        return new Response(JSON.stringify({ error: "Senha já utilizada anteriormente. Defina uma senha diferente." }), {
-          status: 409,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-    }
-
-    const { error: updateError } = await adminClient.auth.admin.updateUserById(user.id, { password });
-    if (updateError) {
-      return new Response(JSON.stringify({ error: updateError.message || "Falha ao atualizar senha" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const saltBytes = new Uint8Array(16);
-    crypto.getRandomValues(saltBytes);
-    const salt = bytesToBase64(saltBytes);
-    const passwordHash = await hashPasswordPBKDF2(password, salt);
-
-    const { error: insertErr } = await adminClient
-      .from("password_history")
-      .insert({ user_id: user.id, password_hash: passwordHash, salt });
-    if (insertErr) {
-      const m = String((insertErr as { message?: string } | null)?.message ?? "");
-      if (m.includes("password_history") && m.includes("does not exist")) {
-        return new Response(JSON.stringify({ error: "Migração de senha não aplicada. Execute 00049_password_history.sql no Supabase." }), {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      throw insertErr;
-    }
-
-    const emailToClear = user.email ? String(user.email).trim().toLowerCase() : "";
-    if (emailToClear) {
-      const { error: clearErr } = await adminClient.from("login_attempts").delete().eq("email", emailToClear);
-      if (clearErr) throw clearErr;
-    }
-
-    return new Response(JSON.stringify({ success: true }), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    const { error: updateErr } = await adminClient.auth.admin.updateUserById(user.id, {
+      password: newPassword,
     });
+
+    if (updateErr) {
+      console.error("[change-pw] updateUserById error:", updateErr.message);
+      return json({ error: updateErr.message ?? "Falha ao atualizar senha." }, 400);
+    }
+
+    console.log("[change-pw] password updated for user:", user.id);
+    return json({ success: true });
+
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Erro interno";
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    console.error("[change-pw] UNCAUGHT:", err);
+    return json({ error: err instanceof Error ? err.message : "Erro interno do servidor." }, 500);
   }
 });

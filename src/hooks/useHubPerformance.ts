@@ -140,21 +140,27 @@ export function useClientIntegrations(organizationId?: string, clientId?: string
 }
 
 // Hook para buscar todas as integrações da organização (usado na IntegrationsPage)
+// Agrega: client_integrations (Meta Ads, Google Ads) + client_google_calendar_tokens (Google Agenda)
 export function useAllClientIntegrations(organizationId?: string) {
   return useQuery({
     queryKey: ["all_client_integrations", organizationId],
     queryFn: async () => {
       if (!organizationId) return [];
       const { data, error } = await supabase
-        .from("client_integrations")
-        .select("*, clients!left(id, name, company)")
-        .eq("organization_id", organizationId)
-        .order("last_sync_at", { ascending: false, nullsFirst: true });
+        .rpc("get_client_integrations_overview", { p_organization_id: organizationId });
       if (error) throw error;
-      return (data || []) as Array<ClientIntegration & { clients: { id: string; name: string; company: string | null } }>;
+      // Normaliza para o formato esperado pelo C8ControlPage (client_id como string)
+      return (data || []) as Array<{
+        client_id: string;
+        platform: string;
+        is_connected: boolean;
+        sync_status: string | null;
+        last_sync_at: string | null;
+        account_id: string | null;
+      }>;
     },
     enabled: !!organizationId,
-    refetchInterval: 30_000, // refresh every 30s to catch sync status updates
+    refetchInterval: 30_000,
   });
 }
 

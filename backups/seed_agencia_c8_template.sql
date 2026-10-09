@@ -10,7 +10,7 @@
 
 DO $$
 DECLARE
-  v_org_id UUID := 'SEU_ORGANIZATION_ID_AQUI';
+  v_org_id UUID := '5fb8e8ee-81a6-402b-ab7b-315d1cca6407';
   v_tpl_id UUID := gen_random_uuid();
 BEGIN
 

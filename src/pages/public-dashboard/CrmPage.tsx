@@ -318,7 +318,7 @@ export function CrmPage() {
 
       {/* Dialog criar/editar */}
       <Dialog open={dialogOpen} onOpenChange={open => { if (!open) { setDialogOpen(false); setEditing(null); } }}>
-        <DialogContent className="border-border bg-card sm:max-w-md">
+        <DialogContent className="border-border bg-card sm:max-w-[50vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-display">{editing ? "Editar Contato" : "Novo Contato"}</DialogTitle>
           </DialogHeader>

@@ -38,6 +38,7 @@ export function useC8PendingActivation(organizationId: string | undefined) {
 
       // Se a RPC não existe ainda (migration 047 não executada), faz fallback local
       if (error) {
+        console.warn("[useC8PendingActivation] RPC get_c8_pending_activations falhou:", error.code, error.message, error.details);
         // Busca clientes habilitados pelas 3 fontes (igual à RPC corrigida):
         // 1) contrato habilitador, 2) c8_control_enabled = true, 3) banco B configurado
 
@@ -135,12 +136,37 @@ export function useC8PendingActivation(organizationId: string | undefined) {
     staleTime: 15_000,
   });
 
-  // Dispara ativação: chama RPC → recebe payload → envia ao n8n
-  const activate = useMutation({
+  // Reseta ativação presa: reverte em_andamento ou falhou → pendente
+  const resetActivation = useMutation({
+    mutationKey: ["c8_reset_activation", organizationId],
     mutationFn: async (clientId: string) => {
       if (!organizationId) throw new Error("Organização não identificada.");
 
-      // 1. Chama RPC para marcar em_andamento e obter payload
+      const { data, error } = await supabase.rpc("reset_c8_activation", {
+        p_client_id: clientId,
+        p_org_id: organizationId,
+      });
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error ?? "Erro ao resetar ativação.");
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["c8_pending_activations", organizationId] });
+    },
+  });
+
+  // Dispara ativação:
+  //   1. RPC trigger_c8_activation — marca em_andamento e retorna payload
+  //   2. Edge Function c8-provision-tenant — cria usuário no Banco B + envia e-mail
+  //      (geração de senha, credenciais e comunicação com o cliente ficam aqui)
+  //   3. Webhook n8n — aplica schema do Banco B, aguarda resultado
+  //   4. update_c8_activation_result — marca ativo (schema ok) ou falhou
+  const activate = useMutation({
+    mutationKey: ["c8_activate", organizationId],
+    mutationFn: async (clientId: string) => {
+      if (!organizationId) throw new Error("Organização não identificada.");
+
+      // ── Passo 1: RPC marca em_andamento e retorna payload ───────────────────
       const { data, error } = await supabase.rpc("trigger_c8_activation", {
         p_client_id: clientId,
         p_org_id: organizationId,
@@ -148,7 +174,6 @@ export function useC8PendingActivation(organizationId: string | undefined) {
       if (error) throw error;
       if (!data?.success) throw new Error(data?.error ?? "Erro ao preparar ativação.");
 
-      // 2. Valida pré-requisitos
       if (!data.supabase_url || !data.anon_key) {
         throw new Error(
           "URL e Anon Key do Supabase do cliente são obrigatórias. " +
@@ -162,7 +187,55 @@ export function useC8PendingActivation(organizationId: string | undefined) {
         );
       }
 
-      // 3. Determina webhook n8n de provisionamento
+      const adminEmail: string | null =
+        data.admin_email ?? data.primary_user_email ?? data.client_email ?? null;
+      if (!adminEmail) {
+        throw new Error(
+          "E-mail do usuário principal não definido. " +
+          "Configure em C8 Control → detalhe do cliente."
+        );
+      }
+
+      // ── Passo 2: c8-provision-tenant — cria usuário + envia e-mail ──────────
+      // Responsável por: gerar senha temporária, criar/atualizar auth.users no
+      // Banco B e enviar o e-mail de boas-vindas ou nova senha via Resend.
+      // Falha aqui não interrompe o fluxo — o schema precisa ser aplicado
+      // independentemente. O admin pode reenviar credenciais depois.
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Sessão expirada. Faça login novamente.");
+
+      const provisionRes = await fetch(`${supabaseUrl}/functions/v1/c8-provision-tenant`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+          "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY as string,
+        },
+        body: JSON.stringify({
+          client_id:          clientId,
+          admin_email:        adminEmail,
+          tenant_name:        data.client_name ?? undefined,
+          plan_name:          data.plan_name ?? "Incluído",
+          max_users:          data.max_users ?? 3,
+          send_welcome_email: true,
+        }),
+      });
+
+      // Loga aviso se falhar mas não lança — schema continua sendo aplicado
+      if (!provisionRes.ok) {
+        const errBody = await provisionRes.json().catch(() => ({}));
+        console.warn(
+          "[c8-activate] c8-provision-tenant falhou:",
+          (errBody as { error?: string }).error ?? `HTTP ${provisionRes.status}`
+        );
+      }
+
+      // ── Passo 3: n8n — aplica schema do Banco B (aguardado) ─────────────────
+      // O workflow recebe o payload sem senha e é responsável apenas por:
+      //   - Aplicar bank_b_full_schema.sql no Banco B do cliente
+      //   - Retornar { success: true/false, error? }
+      // O resultado determina se a ativação é marcada como ativo ou falhou.
       const webhookUrl =
         (n8nConfig as any)?.c8ProvisionWebhookUrl ??
         import.meta.env.VITE_N8N_C8_PROVISION_WEBHOOK ??
@@ -175,19 +248,45 @@ export function useC8PendingActivation(organizationId: string | undefined) {
         );
       }
 
-      // 4. Envia ao n8n — o n8n provisiona o Banco B e chama update_c8_activation_result
-      const res = await fetch(webhookUrl, {
+      const n8nRes = await fetch(webhookUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "provision_c8_client",
-          ...data,
+          action:         "provision_c8_client",
+          client_id:      clientId,
+          client_name:    data.client_name,
+          supabase_url:   data.supabase_url,
+          anon_key:       data.anon_key,
+          service_key:    data.service_key,
+          org_id:         data.org_id,
+          contract_start: data.contract_start,
+          contract_end:   data.contract_end,
+          max_users:      data.max_users,
+          plan_name:      data.plan_name,
+          // Sem admin_email nem senha — usuário já criado pela Edge Function
         }),
       });
 
-      if (!res.ok) {
-        throw new Error(`n8n respondeu com status ${res.status}. Verifique o workflow.`);
+      if (!n8nRes.ok) {
+        throw new Error(`n8n respondeu com status ${n8nRes.status}. Verifique o workflow.`);
       }
+
+      const n8nBody = await n8nRes.json().catch(() => ({ success: true })) as {
+        success?: boolean;
+        error?: string;
+      };
+
+      if (n8nBody.success === false) {
+        throw new Error(n8nBody.error ?? "Workflow n8n reportou falha ao aplicar schema.");
+      }
+
+      // ── Passo 4: marca ativo no Banco A ─────────────────────────────────────
+      // Só chegamos aqui se o schema foi aplicado com sucesso.
+      await supabase.rpc("update_c8_activation_result", {
+        p_client_id: clientId,
+        p_success:   true,
+        p_error:     null,
+      });
 
       return data;
     },
@@ -196,7 +295,7 @@ export function useC8PendingActivation(organizationId: string | undefined) {
       qc.invalidateQueries({ queryKey: ["c8_tenants", organizationId] });
     },
     onError: async (_err, clientId) => {
-      // Reverte para 'falhou' se o envio ao n8n falhou após marcar em_andamento
+      // Reverte para 'falhou' em qualquer etapa anterior ao sucesso
       await supabase.rpc("update_c8_activation_result", {
         p_client_id: clientId,
         p_success: false,
@@ -209,6 +308,7 @@ export function useC8PendingActivation(organizationId: string | undefined) {
   return {
     ...query,
     activate,
+    resetActivation,
     pendingCount: (query.data ?? []).filter(
       c => c.c8_activation_status === "pendente" || c.c8_activation_status === "falhou"
     ).length,

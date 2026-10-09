@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+﻿import { useEffect, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { startOfMonth, endOfMonth, differenceInHours } from "date-fns";
@@ -12,6 +12,7 @@ const LOST_STAGES = ["desqualificado", "reuniao_sem_sucesso"];
 const OPEN_STAGES = [
   "leads_recebidos",
   "qualificados",
+  "contato_realizado",
   "reuniao_agendada",
   "emissao_contrato",
 ];
@@ -19,6 +20,7 @@ const OPEN_STAGES = [
 export const STAGE_LABELS: Record<string, string> = {
   leads_recebidos: "Leads Recebidos",
   qualificados: "Qualificados",
+  contato_realizado: "Contato Realizado",
   reuniao_agendada: "Reunião Agendada",
   emissao_contrato: "Negociações",
   efetivados: "Efetivados",
@@ -136,6 +138,7 @@ async function fetchAnalytics(organizationId: string, range?: DateRange): Promis
   const allStages = [
     "leads_recebidos",
     "qualificados",
+    "contato_realizado",
     "reuniao_agendada",
     "emissao_contrato",
     "efetivados",
@@ -231,6 +234,7 @@ async function fetchAnalytics(organizationId: string, range?: DateRange): Promis
   const conversionStages = [
     "leads_recebidos",
     "qualificados",
+    "contato_realizado",
     "reuniao_agendada",
     "emissao_contrato",
     "efetivados"

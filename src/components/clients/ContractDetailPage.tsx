@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ArrowLeft, Pencil, PauseCircle, RotateCw, UserCheck, Check, Loader2, FileText, Receipt } from "lucide-react";
+import { ArrowLeft, Pencil, PauseCircle, RotateCw, UserCheck, Check, Loader2, FileText, Receipt, FileSignature } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +25,265 @@ import { InvoiceViewModal } from "@/components/fiscal/InvoiceViewModal";
 import type { Invoice } from "@/types/fiscal";
 import { ComercialClientTab } from "@/components/clients/ComercialClientTab";
 import { GenerateContractButton } from "@/components/contracts/GenerateContractButton";
+import { VariableResultsPanel } from "@/components/contracts/VariableResultsPanel";
+import React from "react";
+import {
+  useContractAmendments,
+  type AmendmentType,
+} from "@/hooks/useContractAmendments";
+import { useAmendmentAssembly } from "@/hooks/useAmendmentAssembly";
+import { AmendmentReviewModal } from "@/components/contracts/AmendmentReviewModal";
+import {
+  RefreshCw, TrendingUp, Clock, MoreHorizontal,
+  ChevronDown, ChevronUp, Plus,
+} from "lucide-react";
+import { Separator } from "@/components/ui/separator";
+
+// ── Histórico de aditivos ─────────────────────────────────────────────────────
+
+const AMENDMENT_TYPE_LABEL: Record<AmendmentType, string> = {
+  renovacao: "Renovação",
+  reajuste:  "Reajuste de valor",
+  prazo:     "Extensão de prazo",
+  escopo:    "Alteração de escopo",
+  outro:     "Outro",
+};
+
+const AMENDMENT_STATUS_BADGE: Record<string, string> = {
+  rascunho:              "bg-slate-100 text-slate-600",
+  pendente_assinatura:   "bg-amber-100 text-amber-700",
+  assinado:              "bg-emerald-100 text-emerald-700",
+  cancelado:             "bg-red-100 text-red-600",
+};
+
+const AMENDMENT_STATUS_LABEL: Record<string, string> = {
+  rascunho:              "Rascunho",
+  pendente_assinatura:   "Aguardando assinatura",
+  assinado:              "Assinado",
+  cancelado:             "Cancelado",
+};
+
+const AMENDMENT_ICONS: Record<AmendmentType, React.ReactNode> = {
+  renovacao: <RefreshCw className="h-3.5 w-3.5 text-violet-500" />,
+  reajuste:  <TrendingUp className="h-3.5 w-3.5 text-blue-500" />,
+  prazo:     <Clock className="h-3.5 w-3.5 text-amber-500" />,
+  escopo:    <FileText className="h-3.5 w-3.5 text-slate-500" />,
+  outro:     <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />,
+};
+
+function fmtDate(iso: string | null | undefined) {
+  if (!iso) return "—";
+  try { return format(parseISO(iso), "dd/MM/yyyy", { locale: ptBR }); }
+  catch { return iso; }
+}
+
+function AmendmentsHistory({
+  contract,
+  organizationId,
+  onNewAmendment,
+  canEdit,
+}: {
+  contract: ContractRow;
+  organizationId: string;
+  onNewAmendment: () => void;
+  canEdit: boolean;
+}) {
+  const { data: amendments = [], isLoading } = useContractAmendments(contract.id);
+  const [expanded, setExpanded] = React.useState<string | null>(null);
+  // Aditivo selecionado para gerar documento
+  const [generatingAmendment, setGeneratingAmendment] = React.useState<ReturnType<typeof useContractAmendments>["data"][number] | null>(null);
+
+  const {
+    isReviewOpen, setIsReviewOpen,
+    assembledHtml, isAssembling, isConfirming,
+    openReview, confirmGenerate,
+  } = useAmendmentAssembly(generatingAmendment ?? null, contract as ContractRow);
+
+  if (isLoading) return (
+    <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
+      <Loader2 className="h-4 w-4 animate-spin" /> Carregando aditivos…
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold">Histórico de Aditivos</h3>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Toda alteração feita após a assinatura do contrato é registrada aqui.
+          </p>
+        </div>
+        {contract.is_signed && canEdit && (
+          <Button size="sm" variant="outline" className="gap-1.5 text-xs h-7" onClick={onNewAmendment}>
+            <Plus className="h-3 w-3" /> Novo aditivo
+          </Button>
+        )}
+      </div>
+
+      {amendments.length === 0 ? (
+        <div className="rounded-lg border border-dashed py-8 text-center">
+          <FileSignature className="h-8 w-8 mx-auto text-muted-foreground/40 mb-2" />
+          <p className="text-sm text-muted-foreground">Nenhum aditivo registrado.</p>
+          {!contract.is_signed && (
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Aditivos só podem ser criados após a assinatura do contrato.
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {amendments.map((a) => {
+            const isExp = expanded === a.id;
+            return (
+              <div key={a.id} className="rounded-lg border bg-background overflow-hidden">
+                {/* Linha principal */}
+                <div className="flex items-center gap-3 px-3 py-2.5">
+                  <div className="shrink-0">{AMENDMENT_ICONS[a.amendment_type]}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium">
+                        {a.amendment_number}º Aditivo — {AMENDMENT_TYPE_LABEL[a.amendment_type]}
+                      </span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full capitalize ${AMENDMENT_STATUS_BADGE[a.status] ?? "bg-slate-100 text-slate-600"}`}>
+                        {AMENDMENT_STATUS_LABEL[a.status] ?? a.status}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{a.reason}</p>
+                  </div>
+                  <div className="text-[11px] text-muted-foreground shrink-0 text-right">
+                    {fmtDate(a.created_at)}
+                  </div>
+                  {/* Botão gerar documento — exibido se não tem documento ou para regenerar */}
+                  {canEdit && a.status !== "cancelado" && (
+                    <Button
+                      size="sm" variant="outline"
+                      className="h-7 text-xs gap-1 shrink-0 text-violet-700 border-violet-200 hover:bg-violet-50"
+                      disabled={isAssembling && generatingAmendment?.id === a.id}
+                      onClick={async () => {
+                        setGeneratingAmendment(a);
+                        await openReview(a);
+                      }}
+                      title={a.document_content ? "Regenerar documento" : "Gerar documento"}
+                    >
+                      {isAssembling && generatingAmendment?.id === a.id
+                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                        : <FileSignature className="h-3 w-3" />
+                      }
+                      {a.document_content ? "Regenerar" : "Gerar doc."}
+                    </Button>
+                  )}
+                  <Button
+                    size="icon" variant="ghost" className="h-7 w-7 shrink-0"
+                    onClick={() => setExpanded(isExp ? null : a.id)}
+                  >
+                    {isExp ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  </Button>
+                </div>
+
+                {/* Detalhe expandido */}
+                {isExp && (
+                  <div className="border-t px-3 py-2.5 space-y-2 bg-muted/20">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px]">
+                      {a.additional_months && (
+                        <div>
+                          <p className="text-muted-foreground">Meses adicionais</p>
+                          <p className="font-medium">+{a.additional_months} meses</p>
+                        </div>
+                      )}
+                      {a.new_end_date && (
+                        <div>
+                          <p className="text-muted-foreground">Novo encerramento</p>
+                          <p className="font-medium">{fmtDate(a.new_end_date)}</p>
+                        </div>
+                      )}
+                      {a.new_duration_months && (
+                        <div>
+                          <p className="text-muted-foreground">Nova duração total</p>
+                          <p className="font-medium">{a.new_duration_months} meses</p>
+                        </div>
+                      )}
+                      {a.previous_value !== null && a.new_value !== null && (
+                        <>
+                          <div>
+                            <p className="text-muted-foreground">Valor anterior</p>
+                            <p className="font-medium line-through text-muted-foreground">
+                              {fmtCurrency(a.previous_value ?? 0)}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Novo valor</p>
+                            <p className="font-medium text-emerald-700">{fmtCurrency(a.new_value ?? 0)}</p>
+                          </div>
+                        </>
+                      )}
+                      {a.value_effective_date && (
+                        <div>
+                          <p className="text-muted-foreground">Vigência do valor</p>
+                          <p className="font-medium">{fmtDate(a.value_effective_date)}</p>
+                        </div>
+                      )}
+                      {a.signed_at && (
+                        <div>
+                          <p className="text-muted-foreground">Assinado em</p>
+                          <p className="font-medium">{fmtDate(a.signed_at)}</p>
+                        </div>
+                      )}
+                    </div>
+                    {/* Snapshot anterior */}
+                    {a.previous_snapshot && Object.keys(a.previous_snapshot).length > 0 && (
+                      <>
+                        <Separator />
+                        <details>
+                          <summary className="text-[11px] text-muted-foreground cursor-pointer hover:underline">
+                            Ver snapshot do contrato antes do aditivo
+                          </summary>
+                          <div className="mt-1.5 grid grid-cols-2 gap-1.5 text-[11px]">
+                            {(a.previous_snapshot.value !== undefined) && (
+                              <div>
+                                <span className="text-muted-foreground">Valor: </span>
+                                <span className="font-medium">{fmtCurrency(Number(a.previous_snapshot.value))}</span>
+                              </div>
+                            )}
+                            {(a.previous_snapshot.duration_months !== undefined) && (
+                              <div>
+                                <span className="text-muted-foreground">Duração: </span>
+                                <span className="font-medium">{String(a.previous_snapshot.duration_months)} meses</span>
+                              </div>
+                            )}
+                            {(a.previous_snapshot.end_date !== undefined) && (
+                              <div>
+                                <span className="text-muted-foreground">Encerramento: </span>
+                                <span className="font-medium">{fmtDate(String(a.previous_snapshot.end_date))}</span>
+                              </div>
+                            )}
+                          </div>
+                        </details>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Modal de revisão do documento do aditivo */}
+      <AmendmentReviewModal
+        isOpen={isReviewOpen}
+        onClose={() => setIsReviewOpen(false)}
+        html={assembledHtml}
+        isConfirming={isConfirming || isAssembling}
+        onConfirm={confirmGenerate}
+        title={generatingAmendment
+          ? `${generatingAmendment.amendment_number}º Aditivo — ${contract.service_contracted || contract.title}`
+          : "Revisão do Aditivo"
+        }
+      />
+    </div>
+  );
+}
 
 const fmtCurrency = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
@@ -46,6 +305,7 @@ interface Props {
   canManageContracts: boolean;
   onBack: () => void;
   onEdit: () => void;
+  onAmendment: () => void;
   onSuspend: () => void;
   onReactivate: () => void;
   onEnd: () => void;
@@ -53,7 +313,7 @@ interface Props {
 
 export function ContractDetailPage({
   contract, organizationId, clientId, canEdit, canManageContracts,
-  onBack, onEdit, onSuspend, onReactivate, onEnd,
+  onBack, onEdit, onAmendment, onSuspend, onReactivate, onEnd,
 }: Props) {
   const paymentsQuery = usePayments(organizationId);
   const setDashboardRef = useSetDashboardReference(organizationId);
@@ -183,9 +443,15 @@ export function ContractDetailPage({
             </Button>
           )}
           <GenerateContractButton contractId={contract.id} organizationId={organizationId} />
-          <Button size="sm" onClick={onEdit} disabled={!canEdit}>
-            <Pencil className="h-4 w-4 mr-1" /> Editar
-          </Button>
+          {contract.is_signed ? (
+            <Button size="sm" onClick={onAmendment} disabled={!canEdit} variant="outline" className="gap-1.5 text-violet-700 border-violet-300 hover:bg-violet-50">
+              <FileSignature className="h-4 w-4" /> Aditivo
+            </Button>
+          ) : (
+            <Button size="sm" onClick={onEdit} disabled={!canEdit}>
+              <Pencil className="h-4 w-4 mr-1" /> Editar
+            </Button>
+          )}
         </div>
       </div>
 
@@ -196,6 +462,7 @@ export function ContractDetailPage({
           {fiscalPerms.canView && (
             <TabsTrigger value="notas-fiscais">Notas Fiscais</TabsTrigger>
           )}
+          <TabsTrigger value="aditivos">Aditivos</TabsTrigger>
           <TabsTrigger value="comercial">Comercial</TabsTrigger>
         </TabsList>
 
@@ -344,6 +611,24 @@ export function ContractDetailPage({
             </CardContent>
           </Card>
 
+          {/* Painel de resultados variáveis — exibido apenas para contratos do tipo 'variavel' */}
+          {contractType === "variavel" && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Resultados Variáveis</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <VariableResultsPanel
+                  contractId={contract.id}
+                  clientId={clientId}
+                  commissionPct={meta.variable_commission_pct ?? 0}
+                  resultType={meta.variable_result_type ?? "contrato_individual"}
+                  recurringDueDate={contract.recurring_due_date ?? undefined}
+                />
+              </CardContent>
+            </Card>
+          )}
+
           {/* Dialog receber */}
           <Dialog open={!!receiveOpen} onOpenChange={(o) => { if (!o) setReceiveOpen(null); }}>
             <DialogContent className="sm:max-w-md">
@@ -453,6 +738,9 @@ export function ContractDetailPage({
             )}
           </TabsContent>
         )}
+        <TabsContent value="aditivos" className="space-y-4 mt-4">
+          <AmendmentsHistory contract={contract} organizationId={organizationId} onNewAmendment={onAmendment} canEdit={canEdit} />
+        </TabsContent>
         <TabsContent value="comercial" className="mt-4">
           <ComercialClientTab clientId={clientId} organizationId={organizationId} />
         </TabsContent>

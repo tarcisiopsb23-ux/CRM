@@ -5,6 +5,7 @@ import { useSupplierExpenses } from "@/hooks/useFinancial";
 import { useFunnelStages } from "@/hooks/useFunnelStages";
 import { useClientConversationKpis } from "@/hooks/useClientConversationKpis";
 import { ConversationKpiDashboard } from "@/components/whatsapp/ConversationKpiDashboard";
+import { ConversionsTab } from "@/components/tracking/ConversionsTab";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -17,7 +18,7 @@ import {
 } from "recharts";
 import {
   BarChart3, DollarSign, MessageCircle, MousePointerClick, Users, TrendingUp, Target,
-  Eye, ArrowRightLeft, Filter, Radio, Trophy, CalendarDays,
+  Eye, ArrowRightLeft, Filter, Radio, Trophy, CalendarDays, Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format, subDays, subMonths, startOfMonth, endOfMonth, startOfYear, endOfYear } from "date-fns";
@@ -89,7 +90,7 @@ export default function CampaignReports() {
   const range = useMemo(() => buildRange(preset, customFrom, customTo), [preset, customFrom, customTo]);
 
   // Tabs
-  const [activeTab, setActiveTab] = useState<"campanhas" | "atendimento">("campanhas");
+  const [activeTab, setActiveTab] = useState<"campanhas" | "atendimento" | "conversoes">("campanhas");
 
   // Data
   const { campaigns, totals, trend, byPlatform, topByRoas, topByRevenue, topByConversions, isLoading } = useCampaignData(range);
@@ -176,6 +177,17 @@ export default function CampaignReports() {
           )}
         >
           <MessageCircle className="h-4 w-4" /> Atendimento
+        </button>
+        <button
+          onClick={() => setActiveTab("conversoes")}
+          className={cn(
+            "flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-bold transition-all",
+            activeTab === "conversoes"
+              ? "bg-background text-violet-600 shadow-sm border border-border"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          <Activity className="h-4 w-4" /> Conversões C8
         </button>
       </div>
 
@@ -835,6 +847,14 @@ export default function CampaignReports() {
           isLoading={conversationKpis.isLoading}
           hasData={conversationKpis.hasData}
           theme="light"
+        />
+      )}
+
+      {/* Aba Conversões C8 — eventos de pixel rastreados pelo C8 Control */}
+      {activeTab === "conversoes" && (
+        <ConversionsTab
+          organizationId={organizationId}
+          range={{ from: range.from, to: range.to }}
         />
       )}
 

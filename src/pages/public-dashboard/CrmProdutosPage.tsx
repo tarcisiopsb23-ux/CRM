@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Plus, Pencil, Trash2, Loader2, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -83,6 +84,17 @@ export function CrmProdutosPage() {
   const [editing, setEditing]       = useState<CrmProduct | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<CrmProduct | null>(null);
   const [search, setSearch]         = useState("");
+
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Abre dialog automaticamente se vier de ?new=1 (ex: link da AgendaConfigPage)
+  useEffect(() => {
+    if (searchParams.get("new") === "1") {
+      setEditing(null);
+      setDialogOpen(true);
+      setSearchParams({}, { replace: true });
+    }
+  }, []);
 
   if (!dc) return <CredentialsErrorState />;
 
@@ -189,7 +201,7 @@ export function CrmProdutosPage() {
       )}
 
       <Dialog open={dialogOpen} onOpenChange={open => { if (!open) { setDialogOpen(false); setEditing(null); } }}>
-        <DialogContent className="border-border bg-card sm:max-w-md">
+        <DialogContent className="border-border bg-card sm:max-w-[50vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-display">{editing ? "Editar Produto" : "Novo Produto"}</DialogTitle>
           </DialogHeader>

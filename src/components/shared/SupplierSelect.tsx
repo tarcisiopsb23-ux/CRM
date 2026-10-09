@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useSuppliers } from "@/hooks/useSuppliers";
 import {
   Popover,
-  PopoverContent,
+  PopoverContentNoPortal,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import {
@@ -74,7 +74,7 @@ export function SupplierSelect({
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={setOpen} modal={false}>
       <PopoverTrigger asChild>
         <Button
           variant="outline"
@@ -89,7 +89,7 @@ export function SupplierSelect({
           <span className="ml-2 h-4 w-4 shrink-0 opacity-50">⌘</span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-full p-0" align="start">
+      <PopoverContentNoPortal className="w-full p-0" align="start">
         <Command shouldFilter={false}>
           <CommandInput
             placeholder="Buscar fornecedor..."
@@ -170,7 +170,7 @@ export function SupplierSelect({
             )}
           </CommandList>
         </Command>
-      </PopoverContent>
+      </PopoverContentNoPortal>
     </Popover>
   );
 }

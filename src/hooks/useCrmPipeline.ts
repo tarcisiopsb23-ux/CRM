@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDynamicClient } from "@/hooks/useDynamicClient";
 
@@ -176,10 +177,13 @@ export function useCrmPipeline(clientId: string | undefined) {
     onSuccess: () => qc.invalidateQueries({ queryKey: dealsQk }),
   });
 
+  const stagesData = useMemo(() => stagesQuery.data ?? [], [stagesQuery.data]);
+  const dealsData  = useMemo(() => dealsQuery.data  ?? [], [dealsQuery.data]);
+
   return {
-    stages: stagesQuery.data ?? [],
+    stages: stagesData,
     stagesLoading: stagesQuery.isLoading,
-    deals: dealsQuery.data ?? [],
+    deals: dealsData,
     dealsLoading: dealsQuery.isLoading,
     createStage, updateStage, removeStage, seedDefaultStages,
     createDeal, moveDeal, updateDeal, removeDeal,

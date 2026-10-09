@@ -550,7 +550,13 @@ export default function PropostaEditorPage() {
 
         {/* ── CRONOGRAMA ── */}
         <TabsContent value="cronograma" className="mt-4">
-          <PropostaCronograma value={schedule} onChange={setSchedule} />
+          <PropostaCronograma
+            value={schedule}
+            planValue={planValue}
+            totalIndividual={services.filter(s => !s.is_bonus).reduce((sum, s) => sum + s.value, 0)}
+            onPlanValueChange={setPlanValue}
+            onChange={setSchedule}
+          />
         </TabsContent>
       </Tabs>
 

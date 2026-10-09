@@ -52,7 +52,66 @@ export const subServiceSchema = z
 export type SubServiceInput = z.infer<typeof subServiceSchema>;
 
 // ---------------------------------------------------------------------------
-// 2. serviceCatalogSchema — Requirements 1.1, 1.3
+// 2. deliverableSchema — Entregável estruturado (migration 062 + redesign v2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Validates a single deliverable item stored inside service_catalog.deliverables.
+ *
+ * Rules:
+ * - id:            UUID gerado no frontend
+ * - name:          obrigatório, máx 200 caracteres
+ * - delivery_type: 'recorrente' | 'unico' | 'pontual'
+ * - output_format: 'texto' | 'numero'
+ * - text_value:    obrigatório quando output_format = 'texto', máx 500 chars
+ * - unit:          opcional quando output_format = 'numero', máx 50 chars (singular)
+ * - unit_plural:   opcional quando output_format = 'numero', máx 50 chars (plural)
+ */
+export const deliverableSchema = z
+  .object({
+    id: z.string(),
+    name: z
+      .string()
+      .min(1, 'O nome do entregável é obrigatório.')
+      .max(200, 'O nome deve ter no máximo 200 caracteres.'),
+    delivery_type: z.enum(['recorrente', 'unico', 'pontual'], {
+      required_error: 'Selecione o tipo de entrega.',
+    }),
+    output_format: z.enum(['texto', 'numero'], {
+      required_error: 'Selecione o formato do entregável.',
+    }),
+    text_value: z
+      .string()
+      .max(500, 'O texto deve ter no máximo 500 caracteres.')
+      .optional()
+      .nullable(),
+    unit: z
+      .string()
+      .max(50, 'A unidade deve ter no máximo 50 caracteres.')
+      .optional()
+      .nullable(),
+    unit_plural: z
+      .string()
+      .max(50, 'O plural deve ter no máximo 50 caracteres.')
+      .optional()
+      .nullable(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.output_format === 'texto') {
+      if (!val.text_value || val.text_value.trim() === '') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Informe o texto descritivo do entregável.',
+          path: ['text_value'],
+        });
+      }
+    }
+  });
+
+export type DeliverableInput = z.infer<typeof deliverableSchema>;
+
+// ---------------------------------------------------------------------------
+// 3. serviceCatalogSchema — Requirements 1.1, 1.3
 // ---------------------------------------------------------------------------
 
 /**
@@ -69,7 +128,23 @@ export const serviceCatalogSchema = z.object({
     .string()
     .min(1, 'A categoria é obrigatória.')
     .max(100, 'A categoria deve ter no máximo 100 caracteres.'),
-  sub_services: z.array(subServiceSchema),
+  modality: z
+    .enum(['Consultiva', 'Executiva', 'Híbrida (consultiva e executiva)'], {
+      invalid_type_error: 'Selecione uma modalidade válida.',
+    })
+    .optional()
+    .nullable(),
+  description_text: z
+    .string()
+    .max(1000, 'A descrição deve ter no máximo 1000 caracteres.')
+    .optional()
+    .nullable(),
+  scope: z
+    .string()
+    .max(1000, 'O escopo deve ter no máximo 1000 caracteres.')
+    .optional()
+    .nullable(),
+  deliverables: z.array(deliverableSchema).default([]),
 });
 
 export type ServiceCatalogInput = z.infer<typeof serviceCatalogSchema>;
@@ -96,8 +171,23 @@ export const contractClauseSchema = z
       'has_min_duration',
       'has_service',
       'has_setup_installments',
+      // Extended condition types (migration 00205+)
+      'service',
+      'has_multiple_representatives',
+      'signing_type',
+      'has_schedule',
+      'service_count',
+      'has_grace_period',
+      'is_pf',
+      'is_pj',
+      'has_procurador',
     ]),
-    condition_value: z.string().optional().nullable(),
+    condition_value: z.union([
+      z.object({ slugs: z.array(z.string()).min(1) }),
+      z.object({ type: z.enum(['joint', 'individual']) }),
+      z.object({ min: z.number().int().min(1) }),
+      z.null(),
+    ]).optional().nullable(),
     is_editable: z.boolean().default(false),
     service_id: z.string().nullable().optional(),
   })
@@ -108,6 +198,26 @@ export const contractClauseSchema = z
           code: z.ZodIssueCode.custom,
           message: 'Selecione o serviço vinculado.',
           path: ['service_id'],
+        });
+      }
+    }
+    if (val.condition_type === 'service') {
+      const slugs = (val.condition_value as { slugs?: string[] } | null)?.slugs;
+      if (!slugs || slugs.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Informe ao menos um slug de serviço.',
+          path: ['condition_value'],
+        });
+      }
+    }
+    if (val.condition_type === 'service_count') {
+      const min = (val.condition_value as { min?: number } | null)?.min;
+      if (min === undefined || min === null || min < 1) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Informe o número mínimo de serviços (≥ 1).',
+          path: ['condition_value'],
         });
       }
     }
@@ -156,12 +266,26 @@ export type SetupSectionInput = z.infer<typeof setupSectionSchema>;
 // ---------------------------------------------------------------------------
 
 /**
+ * Schema for a single selected deliverable inside a contract service entry.
+ * Mirrors the SelectedDeliverable interface.
+ */
+const selectedDeliverableSchema = z.object({
+  deliverable_id: z.string().min(1),
+  included: z.boolean(),
+  number_value: z.number().positive().optional().nullable(),
+  period: z.enum(['dia', 'semana', 'mes', 'vigencia', 'nao_indicar']).optional().nullable(),
+  deadline_type: z.enum(['dias', 'meses', 'data_limite']).optional().nullable(),
+  deadline_value: z.union([z.number().int().positive(), z.string()]).optional().nullable(),
+  execution_format: z.enum(['consultivo', 'executivo']).optional().nullable(),
+});
+
+/**
  * Base shape for the selected services array item.
  */
 const selectedServiceSchema = z.object({
   service_id: z.string().min(1),
   service_name: z.string().min(1),
-  sub_service_values: z.record(z.union([z.string(), z.number(), z.boolean()])),
+  selected_deliverables: z.array(selectedDeliverableSchema).default([]),
 });
 
 /**

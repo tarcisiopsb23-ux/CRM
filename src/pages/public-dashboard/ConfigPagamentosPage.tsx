@@ -14,7 +14,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   QrCode, FileText, CreditCard, Loader2, CheckCircle2,
-  Clock, AlertCircle, Copy, ExternalLink, Plus, Shield,
+  Clock, AlertCircle, Copy, ExternalLink, Plus, Gift,
 } from "lucide-react";
 import { format, parseISO, isPast } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -326,6 +326,11 @@ export function ConfigPagamentosPage() {
   const isOwner = ["owner", "admin"].includes(auth?.user?.role ?? "");
   const modules = auth?.modules_config;
 
+  // Acesso gratuito — dashboard incluído em outro contrato (ex: assessoria)
+  const isFreeAccess = modules?.c8_free_access === true || modules?.c8_included === true;
+  const freeAccessUntil  = modules?.free_access_until  ?? null;
+  const freeAccessReason = modules?.free_access_reason ?? null;
+
   // Métodos habilitados pelo C8 Control (flags do ai_settings no Banco B)
   const { data: settings } = useQuery({
     queryKey: ["payment_settings_flags"],
@@ -341,22 +346,9 @@ export function ConfigPagamentosPage() {
     staleTime: 60_000,
   });
 
-  // Se Asaas não habilitado no módulo C8 Control, não exibe nada
-  if (modules?.asaas_enabled === false) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 gap-3">
-        <Shield className="h-10 w-10 text-muted-foreground/40" />
-        <p className="text-muted-foreground text-sm text-center">
-          O módulo de pagamentos não está habilitado no seu plano.<br />
-          Entre em contato com a agência para ativar.
-        </p>
-      </div>
-    );
-  }
-
-  const pixEnabled    = settings?.pix_enabled    ?? true;
-  const boletoEnabled = settings?.boleto_enabled  ?? true;
-  const cardEnabled   = settings?.credit_card_enabled ?? false;
+  const pixEnabled    = settings?.pix_enabled         ?? true;
+  const boletoEnabled = settings?.boleto_enabled       ?? true;
+  const cardEnabled   = settings?.credit_card_enabled  ?? false;
 
   // Cobranças
   const { data: charges = [], isLoading } = useQuery({
@@ -374,18 +366,18 @@ export function ConfigPagamentosPage() {
     staleTime: 30_000,
   });
 
-  const paid   = charges.filter(c => PAID_STATUSES.includes(c.status));
-  const open   = charges.filter(c => OPEN_STATUSES.includes(c.status));
+  const paid    = charges.filter(c => PAID_STATUSES.includes(c.status));
+  const open    = charges.filter(c => OPEN_STATUSES.includes(c.status));
   const overdue = open.filter(c => isPast(parseISO(c.due_date)));
 
-  const totalPaid   = paid.reduce((s, c)  => s + c.value, 0);
-  const totalOpen   = open.reduce((s, c)  => s + c.value, 0);
+  const totalPaid    = paid.reduce((s, c)    => s + c.value, 0);
+  const totalOpen    = open.reduce((s, c)    => s + c.value, 0);
   const totalOverdue = overdue.reduce((s, c) => s + c.value, 0);
 
   const paymentMethods: { type: BillingType; label: string; icon: React.ReactNode; enabled: boolean }[] = [
-    { type: "PIX" as BillingType,         label: "Gerar PIX",    icon: <QrCode className="h-5 w-5 text-emerald-400" />,  enabled: pixEnabled },
-    { type: "BOLETO" as BillingType,      label: "Gerar Boleto", icon: <FileText className="h-5 w-5 text-yellow-400" />, enabled: boletoEnabled },
-    { type: "CREDIT_CARD" as BillingType, label: "Cartão",       icon: <CreditCard className="h-5 w-5 text-blue-400" />, enabled: cardEnabled },
+    { type: "PIX"         as BillingType, label: "Gerar PIX",    icon: <QrCode      className="h-5 w-5 text-emerald-400" />, enabled: pixEnabled },
+    { type: "BOLETO"      as BillingType, label: "Gerar Boleto", icon: <FileText    className="h-5 w-5 text-yellow-400"  />, enabled: boletoEnabled },
+    { type: "CREDIT_CARD" as BillingType, label: "Cartão",       icon: <CreditCard  className="h-5 w-5 text-blue-400"   />, enabled: cardEnabled },
   ].filter(m => m.enabled);
 
   return (
@@ -394,6 +386,26 @@ export function ConfigPagamentosPage() {
         title="Pagamentos"
         description="Acompanhe seus pagamentos e gere novas cobranças."
       />
+
+      {/* ── Banner: acesso gratuito ── */}
+      {isFreeAccess && (
+        <div className="flex items-start gap-3 rounded-xl border border-violet-500/30 bg-violet-500/10 px-4 py-4">
+          <Gift className="h-5 w-5 text-violet-400 shrink-0 mt-0.5" />
+          <div className="space-y-0.5">
+            <p className="text-sm font-semibold text-violet-300">
+              Acesso gratuito ao C8 Control
+            </p>
+            <p className="text-xs text-violet-400/80">
+              {freeAccessReason
+                ? freeAccessReason
+                : "Este dashboard está incluído no seu contrato, sem cobrança separada."}
+              {freeAccessUntil && (
+                <> Válido até <strong>{new Date(freeAccessUntil).toLocaleDateString("pt-BR")}</strong>.</>
+              )}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* ── Resumo financeiro ── */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

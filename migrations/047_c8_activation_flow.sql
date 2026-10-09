@@ -187,19 +187,21 @@ BEGIN
 
   -- Retorna payload para o webhook n8n
   RETURN jsonb_build_object(
-    'success',        true,
-    'client_id',      v_client.id,
-    'client_name',    v_client.name,
-    'client_email',   v_client.email,
-    'dashboard_slug', v_client.dashboard_slug,
-    'supabase_url',   v_client.client_supabase_url,
-    'anon_key',       v_client.client_supabase_anon_key,
-    'service_key',    v_client.client_supabase_service_key,
-    'contract_start', v_contract.start_date,
-    'contract_end',   v_contract.end_date,
-    'max_users',      COALESCE(v_plan.max_users, 3),
-    'plan_name',      'Incluído',
-    'org_id',         p_org_id
+    'success',              true,
+    'client_id',            v_client.id,
+    'client_name',          v_client.name,
+    'client_email',         v_client.email,
+    'admin_email',          COALESCE(v_plan.primary_user_email, v_client.email),
+    'primary_user_email',   COALESCE(v_plan.primary_user_email, v_client.email),
+    'dashboard_slug',       v_client.dashboard_slug,
+    'supabase_url',         v_client.client_supabase_url,
+    'anon_key',             v_client.client_supabase_anon_key,
+    'service_key',          v_client.client_supabase_service_key,
+    'contract_start',       v_contract.start_date,
+    'contract_end',         v_contract.end_date,
+    'max_users',            COALESCE(v_plan.max_users, 3),
+    'plan_name',            'Incluído',
+    'org_id',               p_org_id
   );
 END;
 $$;
@@ -243,6 +245,7 @@ REVOKE ALL ON FUNCTION public.update_c8_activation_result(UUID, BOOLEAN, TEXT) F
 REVOKE ALL ON FUNCTION public.update_c8_activation_result(UUID, BOOLEAN, TEXT) FROM anon;
 REVOKE ALL ON FUNCTION public.update_c8_activation_result(UUID, BOOLEAN, TEXT) FROM authenticated;
 GRANT  EXECUTE ON FUNCTION public.update_c8_activation_result(UUID, BOOLEAN, TEXT) TO service_role;
+GRANT  EXECUTE ON FUNCTION public.update_c8_activation_result(UUID, BOOLEAN, TEXT) TO authenticated;
 
 -- ── 5. RPC: lista clientes com Banco B configurado (para atualização em massa via n8n) ──
 -- Usada pelo workflow c8-update-all-schemas para buscar todos os clientes elegíveis.
@@ -277,11 +280,12 @@ REVOKE ALL ON FUNCTION public.get_client_supabase_credentials_bulk() FROM anon;
 REVOKE ALL ON FUNCTION public.get_client_supabase_credentials_bulk() FROM authenticated;
 GRANT  EXECUTE ON FUNCTION public.get_client_supabase_credentials_bulk() TO service_role;
 
--- ── Corrige get_c8_pending_activations: incluir TODOS os clientes habilitados ──
--- Problema original: o INNER JOIN com contracts excluía clientes habilitados
--- via flag manual (c8_control_enabled = true) ou via Banco B configurado,
--- mas sem contrato com as palavras-chave habilitadoras.
--- Solução: UNION das 3 fontes de habilitação (contrato, flag, banco B).
+-- ── Corrige get_c8_pending_activations: deduplicada por client_id ────────────
+-- Problema original: UNION de 3 fontes + DISTINCT ON no SELECT final não
+-- eliminava duplicatas quando um cliente tinha múltiplos contratos habilitadores
+-- ou satisfazia mais de uma fonte simultaneamente.
+-- Solução: CTE em dois estágios (raw + eligible) com DISTINCT ON (client_id)
+-- dentro da CTE, priorizando contrato (priority=1) > flag (2) > banco B (3).
 
 CREATE OR REPLACE FUNCTION public.get_c8_pending_activations(p_org_id UUID)
 RETURNS TABLE (
@@ -308,18 +312,19 @@ SET search_path = public
 AS $$
 BEGIN
   RETURN QUERY
-  WITH eligible_clients AS (
-    -- Fonte 1: tem contrato habilitador ativo
-    SELECT DISTINCT
-      c.id AS client_id,
-      ct.id AS contract_id,
+  WITH raw AS (
+    -- Fonte 1: contrato habilitador ativo (priority=1)
+    SELECT
+      c.id                  AS client_id,
+      ct.id                 AS contract_id,
       ct.service_contracted,
       ct.start_date,
-      ct.end_date
+      ct.end_date,
+      1                     AS priority
     FROM public.clients c
     JOIN public.contracts ct
-      ON ct.client_id = c.id
-      AND ct.organization_id = p_org_id
+      ON  ct.client_id        = c.id
+      AND ct.organization_id  = p_org_id
       AND ct.status NOT IN ('cancelado', 'encerrado', 'rascunho')
       AND (
         ct.service_contracted ILIKE '%assessoria%'
@@ -332,53 +337,56 @@ BEGIN
     WHERE c.organization_id = p_org_id
       AND COALESCE(c.is_active, true) = true
 
-    UNION
+    UNION ALL
 
-    -- Fonte 2: flag manual c8_control_enabled = true
-    SELECT DISTINCT
-      c.id AS client_id,
-      NULL::UUID AS contract_id,
-      NULL::TEXT AS service_contracted,
-      NULL::DATE AS start_date,
-      NULL::DATE AS end_date
+    -- Fonte 2: flag manual c8_control_enabled (priority=2)
+    SELECT
+      c.id, NULL::UUID, NULL::TEXT, NULL::DATE, NULL::DATE, 2
     FROM public.clients c
-    WHERE c.organization_id = p_org_id
+    WHERE c.organization_id   = p_org_id
       AND c.c8_control_enabled = true
       AND COALESCE(c.is_active, true) = true
 
-    UNION
+    UNION ALL
 
-    -- Fonte 3: Banco B configurado (client_supabase_url preenchida)
-    SELECT DISTINCT
-      c.id AS client_id,
-      NULL::UUID AS contract_id,
-      NULL::TEXT AS service_contracted,
-      NULL::DATE AS start_date,
-      NULL::DATE AS end_date
+    -- Fonte 3: banco B configurado (priority=3)
+    SELECT
+      c.id, NULL::UUID, NULL::TEXT, NULL::DATE, NULL::DATE, 3
     FROM public.clients c
-    WHERE c.organization_id = p_org_id
+    WHERE c.organization_id     = p_org_id
       AND c.client_supabase_url IS NOT NULL
       AND COALESCE(c.is_active, true) = true
+  ),
+  -- 1 linha por client_id: menor priority wins, contrato mais recente desempata
+  eligible AS (
+    SELECT DISTINCT ON (client_id)
+      client_id,
+      contract_id,
+      service_contracted,
+      start_date,
+      end_date
+    FROM raw
+    ORDER BY client_id, priority ASC, start_date DESC NULLS LAST
   )
   SELECT
-    c.id                                AS client_id,
-    c.name                              AS client_name,
-    c.email                             AS client_email,
-    c.dashboard_slug,
-    c.client_supabase_url               AS supabase_url,
-    c.client_supabase_anon_key          AS anon_key,
-    c.client_supabase_service_key_set   AS has_service_key,
-    ec.contract_id,
-    ec.service_contracted               AS contract_service,
-    ec.start_date                       AS contract_start,
-    ec.end_date                         AS contract_end,
-    COALESCE(p.c8_activation_status, 'pendente') AS c8_activation_status,
-    p.c8_activation_error,
-    COALESCE(p.c8_included, false)      AS c8_included,
-    COALESCE(p.plan_value, 0)           AS plan_value,
-    COALESCE(p.max_users, 1)            AS max_users
-  FROM eligible_clients ec
-  JOIN public.clients c ON c.id = ec.client_id
+    c.id,
+    c.name::TEXT,
+    c.email::TEXT,
+    c.dashboard_slug::TEXT,
+    c.client_supabase_url::TEXT,
+    c.client_supabase_anon_key::TEXT,
+    c.client_supabase_service_key_set,
+    e.contract_id,
+    e.service_contracted::TEXT,
+    e.start_date,
+    e.end_date,
+    COALESCE(p.c8_activation_status, 'pendente')::TEXT,
+    p.c8_activation_error::TEXT,
+    COALESCE(p.c8_included, false),
+    COALESCE(p.plan_value, 0),
+    COALESCE(p.max_users, 1)
+  FROM eligible e
+  JOIN  public.clients            c ON c.id          = e.client_id
   LEFT JOIN public.crm_client_plans p ON p.client_id = c.id
   WHERE COALESCE(p.c8_activation_status, 'pendente') != 'ativo'
   ORDER BY c.name;
@@ -386,3 +394,4 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.get_c8_pending_activations(UUID) TO authenticated;
+

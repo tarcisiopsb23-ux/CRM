@@ -18,6 +18,7 @@ import {
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { ProposalToContractButton } from "@/components/contracts/ProposalToContractButton";
 import { useProposals } from "@/hooks/useProposals";
 import type { Proposal, ProposalStatus, ProposalAcceptance } from "@/types/proposals";
 
@@ -110,11 +111,13 @@ interface FileEntry {
 interface Props {
   clientId: string;
   organizationId: string;
+  /** Nome/razão social do cliente — usado para pré-preencher o ContractGenerator */
+  clientName?: string;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function ComercialClientTab({ clientId, organizationId }: Props) {
+export function ComercialClientTab({ clientId, organizationId, clientName = "" }: Props) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -473,22 +476,34 @@ export function ComercialClientTab({ clientId, organizationId }: Props) {
                         {fmtDate(p.created_at)}
                       </TableCell>
                       <TableCell>
-                        <ProposalActions
-                          proposal={p}
-                          copiedId={copiedId}
-                          onEdit={() => navigate(`/comercial/propostas/${p.id}`)}
-                          onView={() =>
-                            window.open(`${baseUrl}/proposta/${p.public_slug}`, "_blank")
-                          }
-                          onCopy={() => handleCopy(p.public_slug, p.id)}
-                          onDuplicate={() => duplicateMutation.mutate(p)}
-                          onArchive={() => setArchiveTarget(p)}
-                          onDelete={() => setDeleteTarget(p)}
-                          isDuplicating={
-                            duplicateMutation.isPending &&
-                            duplicateMutation.variables?.id === p.id
-                          }
-                        />
+                        <div className="flex items-center justify-end gap-0.5">
+                          <ProposalActions
+                            proposal={p}
+                            copiedId={copiedId}
+                            onEdit={() => navigate(`/comercial/propostas/${p.id}`)}
+                            onView={() =>
+                              window.open(`${baseUrl}/proposta/${p.public_slug}`, "_blank")
+                            }
+                            onCopy={() => handleCopy(p.public_slug, p.id)}
+                            onDuplicate={() => duplicateMutation.mutate(p)}
+                            onArchive={() => setArchiveTarget(p)}
+                            onDelete={() => setDeleteTarget(p)}
+                            isDuplicating={
+                              duplicateMutation.isPending &&
+                              duplicateMutation.variables?.id === p.id
+                            }
+                          />
+                          {/* Botão "Gerar Contrato" — aparece somente para propostas aprovadas */}
+                          {p.status === "aprovada" && (
+                            <ProposalToContractButton
+                              proposalId={p.id}
+                              clientId={clientId}
+                              clientName={clientName}
+                              size="sm"
+                              variant="outline"
+                            />
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -760,10 +775,11 @@ interface ProposalActionsProps {
   onArchive: () => void;
   onDelete: () => void;
   isDuplicating: boolean;
+  onGenerateContract?: () => void;
 }
 
 function ProposalActions({
-  proposal, copiedId, onEdit, onView, onCopy, onDuplicate, onArchive, onDelete, isDuplicating,
+  proposal, copiedId, onEdit, onView, onCopy, onDuplicate, onArchive, onDelete, isDuplicating, onGenerateContract,
 }: ProposalActionsProps) {
   const { status } = proposal;
 
@@ -793,13 +809,18 @@ function ProposalActions({
         </>
       )}
 
-      {/* aprovada: visualizar + duplicar */}
+      {/* aprovada: visualizar + duplicar + gerar contrato */}
       {status === "aprovada" && (
         <>
           <ActionBtn title="Visualizar proposta" onClick={onView}><ExternalLink className="h-3.5 w-3.5" /></ActionBtn>
           <ActionBtn title="Duplicar" onClick={onDuplicate} loading={isDuplicating}>
             {isDuplicating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Copy className="h-3.5 w-3.5" />}
           </ActionBtn>
+          {onGenerateContract && (
+            <ActionBtn title="Gerar contrato" onClick={onGenerateContract}>
+              <FileText className="h-3.5 w-3.5 text-violet-600" />
+            </ActionBtn>
+          )}
         </>
       )}
 

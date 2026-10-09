@@ -8,7 +8,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
@@ -29,26 +30,32 @@ interface AiEvent {
   id: string;
   title: string;
   description: string | null;
+  rules: string | null;
   date: string;
   time: string | null;
   location: string | null;
+  status: "active" | "inactive";
   created_at: string;
 }
 
 interface FormState {
   title: string;
   description: string;
+  rules: string;
   date: string;
   time: string;
   location: string;
+  status: boolean; // true = active
 }
 
 const defaultForm: FormState = {
   title: "",
   description: "",
+  rules: "",
   date: "",
   time: "",
   location: "",
+  status: true,
 };
 
 // ─── Import helpers ────────────────────────────────────────────────────────────
@@ -267,9 +274,11 @@ export function EventosPage() {
     setForm({
       title:       item.title,
       description: item.description ?? "",
+      rules:       item.rules ?? "",
       date:        item.date,
       time:        item.time ?? "",
       location:    item.location ?? "",
+      status:      item.status === "active",
     });
     setDialogOpen(true);
   }
@@ -281,9 +290,11 @@ export function EventosPage() {
     const payload = {
       title:       form.title.trim(),
       description: form.description.trim() || null,
+      rules:       form.rules.trim() || null,
       date:        form.date,
       time:        form.time.trim() || null,
       location:    form.location.trim() || null,
+      status:      form.status ? ("active" as const) : ("inactive" as const),
     };
 
     if (editingItem) {
@@ -390,6 +401,11 @@ export function EventosPage() {
                         {item.description && (
                           <p className="mt-1 text-sm text-muted-foreground">{item.description}</p>
                         )}
+                        {item.rules && (
+                          <p className="mt-1 text-xs text-muted-foreground/70 italic border-l-2 border-border pl-2">
+                            {item.rules}
+                          </p>
+                        )}
                         <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                           {item.time && (
                             <span className="inline-flex items-center gap-1.5">
@@ -405,6 +421,14 @@ export function EventosPage() {
                               <MapPin className="h-3 w-3" />{item.location}
                             </span>
                           )}
+                          <span className={cn(
+                            "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium border",
+                            item.status === "active"
+                              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                              : "border-border bg-muted/40 text-muted-foreground"
+                          )}>
+                            {item.status === "active" ? "Ativo" : "Inativo"}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -427,7 +451,7 @@ export function EventosPage() {
 
       {/* ── Dialog criar / editar ─────────────────────────────────────────────── */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="border-border bg-card sm:max-w-md">
+        <DialogContent className="border-border bg-card sm:max-w-[50vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-display">
               {editingItem ? "Editar Evento" : "Novo Evento Especial"}
@@ -444,17 +468,33 @@ export function EventosPage() {
               <Input
                 value={form.title}
                 onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-                placeholder="Ex: Noite do Vinho"
+                placeholder="Ex: Black Friday"
               />
             </div>
             <div className="grid gap-2">
               <Label>Descrição</Label>
-              <textarea
+              <p className="text-xs text-muted-foreground -mt-1">
+                Informações sobre o evento para consulta da automação.
+              </p>
+              <Textarea
                 value={form.description}
                 onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-                placeholder="Descreva o evento..."
+                placeholder="Descreva o evento, contexto e relevância para campanhas..."
                 rows={3}
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                className="resize-none bg-background border-border text-foreground placeholder:text-muted-foreground"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Instruções para o Agente Virtual</Label>
+              <p className="text-xs text-muted-foreground -mt-1">
+                Defina o que o agente pode ou não mencionar sobre este evento.
+              </p>
+              <Textarea
+                value={form.rules}
+                onChange={e => setForm(f => ({ ...f, rules: e.target.value }))}
+                placeholder={"Ex: Mencionar que a data é próxima e criar senso de urgência.\nNão informar valores de desconto sem confirmar com o responsável."}
+                rows={3}
+                className="resize-none bg-background border-border text-foreground placeholder:text-muted-foreground"
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -468,7 +508,7 @@ export function EventosPage() {
                 />
               </div>
               <div className="grid gap-2">
-                <Label>Horário</Label>
+                <Label>Horário <span className="text-xs text-muted-foreground">(opcional)</span></Label>
                 <Input
                   type="time"
                   value={form.time}
@@ -478,11 +518,23 @@ export function EventosPage() {
               </div>
             </div>
             <div className="grid gap-2">
-              <Label>Localização</Label>
+              <Label>Localização <span className="text-xs text-muted-foreground">(opcional)</span></Label>
               <Input
                 value={form.location}
                 onChange={e => setForm(f => ({ ...f, location: e.target.value }))}
-                placeholder="Ex: Salão Principal"
+                placeholder="Ex: Online, Nacional, São Paulo"
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+              <div className="space-y-0.5">
+                <Label className="text-sm">Status ativo</Label>
+                <p className="text-xs text-muted-foreground">
+                  Evento visível para o agente IA
+                </p>
+              </div>
+              <Switch
+                checked={form.status}
+                onCheckedChange={checked => setForm(f => ({ ...f, status: checked }))}
               />
             </div>
           </div>

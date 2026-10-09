@@ -1,0 +1,205 @@
+{
+  "name": "Maestr.ia — Gerar Cobrança Cartão de Crédito",
+  "_readme": {
+    "description": "Recebe do CRM a solicitação de gerar um link de pagamento por cartão de crédito via Asaas. Retorna a URL de checkout para o cliente finalizar o pagamento.",
+    "webhook_config": "Configurar como 'Webhook URL: Gerar Link de Pagamento Cartão' em Configurações → n8n → Cobranças",
+    "env_vars": ["ASAAS_API_KEY", "SUPABASE_URL", "SUPABASE_SERVICE_KEY"],
+    "payload_esperado": {
+      "payment_id": "UUID do pagamento no Maestr.ia",
+      "client_name": "Nome do cliente",
+      "client_cpf_cnpj": "CPF ou CNPJ do cliente",
+      "client_email": "E-mail do cliente",
+      "value": 1500.00,
+      "due_date": "2026-08-10",
+      "description": "Mensalidade — Agosto 2026",
+      "installments": 1,
+      "organization_id": "UUID da organização"
+    },
+    "retorno": {
+      "success": true,
+      "payment_link": "https://asaas.com/charge/...",
+      "asaas_id": "pay_123456",
+      "due_date": "2026-08-10"
+    },
+    "nota": "O Asaas gera um link de checkout. O cliente acessa o link e insere os dados do cartão diretamente no ambiente seguro do Asaas. O CRM nunca recebe os dados do cartão."
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gerar-cartao",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-cartao",
+      "name": "Webhook — Gerar Cartão",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "gerar-cartao"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.item.json.body || $input.item.json;\nconst required = ['payment_id', 'client_cpf_cnpj', 'value', 'due_date'];\nfor (const field of required) {\n  if (!body[field]) throw new Error(`Campo obrigatório ausente: ${field}`);\n}\nconst cpfCnpj = body.client_cpf_cnpj.replace(/\\D/g, '');\nreturn [{ json: {\n  payment_id: body.payment_id,\n  organization_id: body.organization_id,\n  client_name: body.client_name || 'Cliente',\n  client_email: body.client_email || '',\n  cpf_cnpj: cpfCnpj,\n  value: Number(body.value),\n  due_date: body.due_date,\n  description: body.description || 'Cobrança Cartão',\n  installments: Number(body.installments || 1),\n} }];"
+      },
+      "id": "validate-input",
+      "name": "Validar e Preparar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.asaas.com/v3/customers?cpfCnpj={{ $json.cpf_cnpj }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "access_token", "value": "={{ $env.ASAAS_API_KEY }}" }
+          ]
+        }
+      },
+      "id": "find-customer",
+      "name": "Buscar Cliente no Asaas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const asaasResponse = $input.item.json;\nconst input = $('Validar e Preparar').item.json;\nconst existingCustomer = asaasResponse.data?.[0];\nif (existingCustomer) {\n  return [{ json: { ...input, asaas_customer_id: existingCustomer.id, create_customer: false } }];\n} else {\n  return [{ json: { ...input, asaas_customer_id: null, create_customer: true } }];\n}"
+      },
+      "id": "check-customer",
+      "name": "Verificar Cliente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{ $json.create_customer }}", "value2": true }]
+        }
+      },
+      "id": "if-create",
+      "name": "Precisa Criar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.asaas.com/v3/customers",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "access_token", "value": "={{ $env.ASAAS_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $json.client_name, cpfCnpj: $json.cpf_cnpj, email: $json.client_email }) }}"
+      },
+      "id": "create-customer",
+      "name": "Criar Cliente no Asaas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1340, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('Verificar Cliente').item.json;\nconst createdCustomer = $input.item.json;\nconst customerId = createdCustomer?.id || input.asaas_customer_id;\n\n// Para cartão, usar CREDIT_CARD\n// O Asaas gera um link de checkout seguro\nreturn [{ json: {\n  payment_id: input.payment_id,\n  organization_id: input.organization_id,\n  customer: customerId,\n  billingType: 'CREDIT_CARD',\n  value: input.value,\n  dueDate: input.due_date,\n  description: input.description,\n  externalReference: input.payment_id,\n  installmentCount: input.installments > 1 ? input.installments : undefined,\n  installmentValue: input.installments > 1 ? (input.value / input.installments) : undefined,\n} }];"
+      },
+      "id": "prepare-cartao",
+      "name": "Preparar Cobrança Cartão",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.asaas.com/v3/payments",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "access_token", "value": "={{ $env.ASAAS_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ customer: $json.customer, billingType: $json.billingType, value: $json.value, dueDate: $json.dueDate, description: $json.description, externalReference: $json.externalReference, ...$json.installmentCount ? { installmentCount: $json.installmentCount, installmentValue: $json.installmentValue } : {} }) }}"
+      },
+      "id": "create-cartao",
+      "name": "Criar Cobrança Cartão no Asaas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1780, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const charge = $input.item.json;\nconst prep = $('Preparar Cobrança Cartão').item.json;\n\n// invoiceUrl é o link de checkout do Asaas para o cliente pagar com cartão\nreturn [{ json: {\n  payment_id: prep.payment_id,\n  organization_id: prep.organization_id,\n  asaas_id: charge.id,\n  payment_link: charge.invoiceUrl,\n  due_date: charge.dueDate,\n  value: charge.value,\n} }];"
+      },
+      "id": "prepare-save",
+      "name": "Preparar Dados para Salvar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/payments?id=eq.{{ $json.payment_id }}",
+        "method": "PATCH",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ metadata: { asaas_id: $json.asaas_id, payment_link: $json.payment_link } }) }}"
+      },
+      "id": "save-cartao",
+      "name": "Salvar Link no Maestr.ia",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2220, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, asaas_id: $('Preparar Dados para Salvar').item.json.asaas_id, payment_link: $('Preparar Dados para Salvar').item.json.payment_link, due_date: $('Preparar Dados para Salvar').item.json.due_date, value: $('Preparar Dados para Salvar').item.json.value }) }}"
+      },
+      "id": "respond",
+      "name": "Resposta",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2440, 300]
+    }
+  ],
+  "connections": {
+    "Webhook — Gerar Cartão": { "main": [[{ "node": "Validar e Preparar", "type": "main", "index": 0 }]] },
+    "Validar e Preparar": { "main": [[{ "node": "Buscar Cliente no Asaas", "type": "main", "index": 0 }]] },
+    "Buscar Cliente no Asaas": { "main": [[{ "node": "Verificar Cliente", "type": "main", "index": 0 }]] },
+    "Verificar Cliente": { "main": [[{ "node": "Precisa Criar?", "type": "main", "index": 0 }]] },
+    "Precisa Criar?": {
+      "main": [
+        [{ "node": "Criar Cliente no Asaas", "type": "main", "index": 0 }],
+        [{ "node": "Preparar Cobrança Cartão", "type": "main", "index": 0 }]
+      ]
+    },
+    "Criar Cliente no Asaas": { "main": [[{ "node": "Preparar Cobrança Cartão", "type": "main", "index": 0 }]] },
+    "Preparar Cobrança Cartão": { "main": [[{ "node": "Criar Cobrança Cartão no Asaas", "type": "main", "index": 0 }]] },
+    "Criar Cobrança Cartão no Asaas": { "main": [[{ "node": "Preparar Dados para Salvar", "type": "main", "index": 0 }]] },
+    "Preparar Dados para Salvar": { "main": [[{ "node": "Salvar Link no Maestr.ia", "type": "main", "index": 0 }]] },
+    "Salvar Link no Maestr.ia": { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" }
+}

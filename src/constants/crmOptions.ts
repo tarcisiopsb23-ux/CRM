@@ -3,6 +3,7 @@ export const ORIGEM_OPTIONS = [
   "Prospecção",
   "Tráfego Pago",
   "Tráfego Orgânico",
+  "Via C8 Form",
   "Outra",
 ] as const;
 
@@ -14,6 +15,7 @@ export const NICHO_OPTIONS = [
   "Oficina",
   "Varejo",
   "E-commerce",
+  "Estética",
   "Advocacia",
   "Infoproduto",
   "SaaS",

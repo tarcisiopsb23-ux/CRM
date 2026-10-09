@@ -216,7 +216,7 @@ describe('ClauseFormDialog — interaction tests (Req 2.2)', () => {
       renderDialog({
         clause: clauseWithService,
         availableServices: [
-          { id: 'svc-1', name: 'SEO', category: 'Marketing', sub_services: [], display_order: 0, organization_id: 'org-1', created_at: '', updated_at: '' },
+          { id: 'svc-1', name: 'SEO', category: 'Marketing', deliverables: [], sub_services: [], display_order: 0, organization_id: 'org-1', created_at: '', updated_at: '' },
         ],
       });
 
@@ -246,7 +246,7 @@ describe('ClauseFormDialog — interaction tests (Req 2.2)', () => {
       renderDialog({
         clause: clauseWithService,
         availableServices: [
-          { id: 'svc-1', name: 'SEO', category: 'Marketing', sub_services: [], display_order: 0, organization_id: 'org-1', created_at: '', updated_at: '' },
+          { id: 'svc-1', name: 'SEO', category: 'Marketing', deliverables: [], sub_services: [], display_order: 0, organization_id: 'org-1', created_at: '', updated_at: '' },
         ],
       });
 

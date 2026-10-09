@@ -25,7 +25,7 @@ const SERVICE_TYPE_OPTIONS = [
   "Consultoria",
   "Gestão de Mídias",
   "Desenvolvimento de Site",
-  "Agente IA",
+  "Ecossistema de Atendimento",
   "Outros",
 ];
 

@@ -1,0 +1,116 @@
+{
+  "name": "Maestr.ia — Retorno Boleto (Confirmar Pagamento)",
+  "_readme": {
+    "description": "Recebe webhook do Asaas quando um boleto é pago, vence ou é cancelado. Atualiza o status no Maestr.ia automaticamente.",
+    "webhook_config": "Registrar esta URL no painel do Asaas e também configurar em Configurações → n8n → Cobranças como 'Boleto — Webhook de retorno'.",
+    "eventos_asaas": ["PAYMENT_RECEIVED", "PAYMENT_CONFIRMED", "PAYMENT_OVERDUE", "PAYMENT_DELETED", "PAYMENT_REFUNDED"],
+    "env_vars": ["SUPABASE_URL", "SUPABASE_SERVICE_KEY"]
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "retorno-boleto",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-retorno-boleto",
+      "name": "Webhook — Retorno Boleto",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "retorno-boleto"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.item.json.body || $input.item.json;\nconst event = body.event;\nconst payment = body.payment;\n\nif (!event || !payment) return [{ json: { skip: true, reason: 'Evento ou pagamento ausente' } }];\n\nif (payment.billingType && payment.billingType !== 'BOLETO') {\n  return [{ json: { skip: true, reason: `Billing type não é BOLETO: ${payment.billingType}` } }];\n}\n\nconst statusMap = {\n  PAYMENT_RECEIVED:  'pago',\n  PAYMENT_CONFIRMED: 'pago',\n  PAYMENT_OVERDUE:   'atrasado',\n  PAYMENT_DELETED:   'cancelado',\n  PAYMENT_REFUNDED:  'reembolsado',\n};\n\nconst newStatus = statusMap[event];\nif (!newStatus) return [{ json: { skip: true, reason: `Evento não tratado: ${event}` } }];\n\nconst paymentId = payment.externalReference;\nif (!paymentId) return [{ json: { skip: true, reason: 'externalReference ausente' } }];\n\nreturn [{ json: {\n  payment_id: paymentId,\n  asaas_id: payment.id,\n  event,\n  new_status: newStatus,\n  paid_at: payment.paymentDate ? new Date(payment.paymentDate).toISOString() : null,\n  value: payment.value,\n  net_value: payment.netValue,\n  bank_slip_url: payment.bankSlipUrl || null,\n} }];"
+      },
+      "id": "parse-boleto",
+      "name": "Parsear Evento Boleto",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{ $json.skip }}", "value2": true }]
+        }
+      },
+      "id": "skip-check",
+      "name": "Ignorar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.item.json;\nconst update = { status: data.new_status };\nif (data.paid_at) update.paid_at = data.paid_at;\nupdate.metadata = {\n  asaas_id: data.asaas_id,\n  bank_slip_url: data.bank_slip_url,\n  net_value: data.net_value,\n  last_asaas_event: data.event,\n  updated_from_asaas_at: new Date().toISOString(),\n};\nreturn [{ json: { payment_id: data.payment_id, update } }];"
+      },
+      "id": "prepare-update",
+      "name": "Preparar Atualização",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/payments?id=eq.{{ $json.payment_id }}",
+        "method": "PATCH",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify($json.update) }}"
+      },
+      "id": "update-payment",
+      "name": "Atualizar Pagamento no Maestr.ia",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1120, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ received: true, event: $('Parsear Evento Boleto').item.json.event, payment_id: $('Parsear Evento Boleto').item.json.payment_id }) }}"
+      },
+      "id": "respond-ok",
+      "name": "Resposta OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1340, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ received: true, skipped: true, reason: $json.reason }) }}"
+      },
+      "id": "respond-skip",
+      "name": "Resposta Skip",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 200]
+    }
+  ],
+  "connections": {
+    "Webhook — Retorno Boleto":         { "main": [[{ "node": "Parsear Evento Boleto",              "type": "main", "index": 0 }]] },
+    "Parsear Evento Boleto":            { "main": [[{ "node": "Ignorar?",                            "type": "main", "index": 0 }]] },
+    "Ignorar?": {
+      "main": [
+        [{ "node": "Resposta Skip",                          "type": "main", "index": 0 }],
+        [{ "node": "Preparar Atualização",                   "type": "main", "index": 0 }]
+      ]
+    },
+    "Preparar Atualização":             { "main": [[{ "node": "Atualizar Pagamento no Maestr.ia",   "type": "main", "index": 0 }]] },
+    "Atualizar Pagamento no Maestr.ia": { "main": [[{ "node": "Resposta OK",                        "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" }
+}

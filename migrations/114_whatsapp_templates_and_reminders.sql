@@ -185,8 +185,11 @@ CREATE TRIGGER trg_ars_updated_at
 
 -- ── 4. Fila persistente de lembretes ─────────────────────────────────────────
 
-CREATE TYPE IF NOT EXISTS public.reminder_status_enum AS ENUM
-  ('pending', 'processing', 'sent', 'failed', 'cancelled');
+DO $$ BEGIN
+  CREATE TYPE public.reminder_status_enum AS ENUM
+    ('pending', 'processing', 'sent', 'failed', 'cancelled');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS public.appointment_reminders (
   id                    UUID        PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { useProposals } from "@/hooks/useProposals";
 import { useAuth } from "@/contexts/AuthContext";
 import type { ProposalStatus, ProposalFilters } from "@/types/proposals";
+import { ProposalToContractButton } from "@/components/contracts/ProposalToContractButton";
 
 const fmtCurrency = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
@@ -260,19 +261,30 @@ export default function PropostasPage() {
                     </span>
                   </TableCell>
                   <TableCell className="text-center">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      title="Copiar link"
-                      onClick={(e) => handleCopyLink(e, p.public_slug, p.id)}
-                    >
-                      {copiedId === p.id ? (
-                        <Check className="h-3.5 w-3.5 text-emerald-600" />
-                      ) : (
-                        <Copy className="h-3.5 w-3.5" />
+                    <div className="flex items-center justify-center gap-1" onClick={e => e.stopPropagation()}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        title="Copiar link"
+                        onClick={(e) => handleCopyLink(e, p.public_slug, p.id)}
+                      >
+                        {copiedId === p.id ? (
+                          <Check className="h-3.5 w-3.5 text-emerald-600" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                      {p.status === "aprovada" && p.client_id && (
+                        <ProposalToContractButton
+                          proposalId={p.id}
+                          clientId={p.client_id}
+                          clientName={p.title}
+                          size="sm"
+                          variant="outline"
+                        />
                       )}
-                    </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

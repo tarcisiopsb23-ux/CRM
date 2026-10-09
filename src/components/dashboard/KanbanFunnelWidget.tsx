@@ -29,7 +29,8 @@ export function KanbanFunnelWidget({ data, loading }: KanbanFunnelWidgetProps) {
           width: `${100 - (idx * 5)}%`,
           percentage: idx < data.length - 1 ? 
             (data[idx].count > 0 ? ((data[idx+1].count / data[idx].count) * 100).toFixed(1) + "%" : "0%") : undefined,
-          rateLabel: "Conv."
+          rateLabel: idx < data.length - 1 ? "Conv." : undefined,
+          isLast: idx === data.length - 1,
         }))}
       />
       <p className="text-xs text-gray-500 mt-4 text-center">

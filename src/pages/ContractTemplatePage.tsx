@@ -15,7 +15,66 @@ import { assembleContract } from "@/lib/contracts/assembleContract";
 import type { ContractTemplate } from "@/types/proposals";
 import type { ContractTemplateV2 } from "@/types/contracts";
 
-const VARIABLES = ["{{cliente}}", "{{empresa}}", "{{cnpj}}", "{{cpf}}", "{{valor}}", "{{plano}}", "{{servicos}}", "{{bonificacoes}}", "{{vencimento}}", "{{primeiro_pagamento}}", "{{data}}", "{{consultor}}", "{{escopo}}", "{{cronograma}}"];
+// Variáveis disponíveis para uso nos templates de contrato e aditivo.
+// Mapeadas 1:1 com o varMap de assembleContract.ts.
+const VARIABLES = [
+  // ── Contratante ──────────────────────────────────────────────────────────
+  "{{cliente}}",                   // Nome fantasia / nome do cliente
+  "{{empresa}}",                   // Razão social da empresa
+  "{{contratante_razao_social}}",  // Razão social ou nome completo (PF/PJ)
+  "{{cnpj}}",                      // CNPJ do contratante
+  "{{cpf}}",                       // CPF do contratante (PF)
+  "{{contratante_cnpj}}",          // CNPJ (alias explícito)
+  "{{contratante_endereco}}",      // Endereço formatado
+  "{{qualificacao_contratante}}", // Bloco completo de qualificação (PJ/PF + representantes)
+  "{{representante_nome}}",        // Nome do 1º representante legal
+  "{{representante_cpf}}",         // CPF do 1º representante legal
+  // ── Serviços ──────────────────────────────────────────────────────────────
+  "{{servicos}}",                  // Lista de serviços com entregáveis (HTML)
+  "{{escopo}}",                    // Alias de servicos
+  "{{lista_servicos}}",            // Alias de servicos
+  // ── Financeiro — recorrente ───────────────────────────────────────────────
+  "{{valor}}",                     // Valor mensal formatado (R$)
+  "{{valor_mensalidade}}",         // Alias de valor
+  "{{forma_pagamento}}",           // Forma de pagamento recorrente (PIX, boleto…)
+  "{{dia_vencimento}}",            // Dia do mês do vencimento (ex: 20)
+  "{{vencimento}}",                // Data do primeiro vencimento (dd/mm/aaaa)
+  "{{chave_pix}}",                 // Chave PIX da agência
+  "{{cronograma_pagamento}}",      // Tabela completa do cronograma de pagamento
+  "{{texto_pagamento}}",           // Frase completa: via PIX (chave X), vencimento dia Y, primeira em Z
+  // Comissão
+  "{{comissao_tipo}}",             // Percentual sobre o valor | Valor fixo por resultado
+  "{{comissao_taxa}}",             // 10% ou R$ 500,00
+  "{{comissao_descricao}}",        // O que é um resultado
+  "{{comissao_periodicidade}}",    // Semanal | Quinzenal | Mensal
+  "{{comissao_periodicidade_extenso}}", // semanalmente | quinzenalmente | mensalmente
+  // ── Financeiro — setup ────────────────────────────────────────────────────
+  "{{valor_setup}}",               // Valor total do setup (R$)
+  "{{parcelas_setup}}",            // Número de parcelas do setup
+  "{{parcela_setup}}",             // Valor de cada parcela do setup (R$)
+  "{{taxa_setup}}",                // Percentual de taxas do setup
+  "{{vencimento_setup}}",          // Vencimento da 1ª parcela do setup
+  "{{forma_pagamento_setup}}",     // Forma de pagamento do setup
+  // ── Vigência e prazos ─────────────────────────────────────────────────────
+  "{{vigencia_inicio}}",           // Data de início da vigência (dd/mm/aaaa)
+  "{{vigencia_fim}}",              // Data de término da vigência (dd/mm/aaaa)
+  "{{prazo_minimo}}",              // Prazo mínimo em meses (número)
+  "{{prazo_minimo_extenso}}",      // Prazo mínimo por extenso (ex: doze (12) meses)
+  "{{prazo_vigencia_meses}}",      // Duração total em meses (número)
+  "{{prazo_vigencia_extenso}}",    // Duração total por extenso
+  "{{duracao_meses}}",             // Alias de prazo_vigencia_meses
+  // ── Carência ─────────────────────────────────────────────────────────────
+  "{{carencia_meses}}",            // Carência em meses (número)
+  "{{carencia_extenso}}",          // Carência por extenso
+  // ── Datas ─────────────────────────────────────────────────────────────────
+  "{{data}}",                      // Data atual (dd/mm/aaaa)
+  "{{data_assinatura}}",           // Data da contratação por extenso
+  // ── Localização e foro ────────────────────────────────────────────────────
+  "{{cidade_estado}}",             // Cidade/Estado do contratante
+  "{{foro_cidade}}",               // Cidade do foro
+  // ── Assinaturas ──────────────────────────────────────────────────────────
+  "{{bloco_assinaturas}}",         // Tabela de assinaturas CONTRATADA + CONTRATANTE
+];
 
 // ---------------------------------------------------------------------------
 // Mock data para pré-visualização
@@ -25,8 +84,25 @@ const MOCK_CONTRACT = {
   id: "preview",
   title: "Contrato Exemplo",
   value: 2500,
-  min_duration_months: 6,
-  metadata: { services: [] as import("@/types/contracts").SelectedService[], setup_installments: 0 },
+  min_duration_months: 12,
+  prazo_minimo_meses: 12,
+  vigencia_inicio: new Date().toISOString().slice(0, 10),
+  vigencia_fim: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+  total_monthly: 2500,
+  grace_months: 3,
+  signing_type: "individual" as const,
+  has_payment_schedule: false,
+  cidade_estado: "Teófilo Otoni/MG",
+  signed_at: new Date().toISOString(),
+  metadata: {
+    services: [] as import("@/types/contracts").SelectedService[],
+    setup_installments: 2,
+    setup_value: 2000,
+    setup_parcel_value: 1000,
+    setup_fees: 0,
+    setup_first_due_date: new Date().toISOString().slice(0, 10),
+    setup_payment_method: "pix",
+  },
 };
 
 const MOCK_CLAUSES = [
@@ -69,7 +145,7 @@ const MOCK_CLAUSES = [
             { type: "text", marks: [{ type: "bold" }], text: "2.1" },
             {
               type: "text",
-              text: " A vigência do presente contrato será de 6 meses, podendo ser prorrogado por prazo igual ou superior.",
+              text: " A vigência do presente contrato será de {{prazo_minimo_extenso}}, com início em {{vigencia_inicio}}.",
             },
           ],
         },
@@ -89,7 +165,29 @@ const MOCK_CLAUSES = [
 const MOCK_CLIENT = {
   name: "Maria Oliveira",
   company_name: "Empresa Exemplo Ltda",
+  document: "00000000000100",               // CNPJ — 14 dígitos → PJ
   cnpj: "00.000.000/0001-00",
+  address: "Rua Exemplo, 123, Centro, Teófilo Otoni/MG",
+  cidade: "Teófilo Otoni",
+  estado: "MG",
+  estado_civil: null,                        // PJ não tem estado civil
+  nacionalidade: null,
+  representatives: [
+    {
+      id: "rep-preview-1",
+      nome: "João da Silva",
+      cpf: "000.000.000-00",
+      cargo: "Sócio-Administrador",
+      qualificacao: "socio_administrador" as const,
+      tipo_representacao: "legal" as const,
+      procuracao_tipo: null,
+      procuracao_data: null,
+      procuracao_indeterminada: false,
+      representa_ids: null,
+      is_signing_responsible: true,
+      is_legal_representative: true,
+    },
+  ],
 };
 
 // ---------------------------------------------------------------------------

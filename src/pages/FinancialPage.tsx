@@ -31,6 +31,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -2338,7 +2339,7 @@ export default function FinancialPage() {
       </Tabs>
 
       <Dialog open={modalReceber} onOpenChange={setModalReceber}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-[575px]">
           <DialogHeader>
             <DialogTitle>Nova conta a receber</DialogTitle>
             <DialogDescription>
@@ -2384,11 +2385,13 @@ export default function FinancialPage() {
             </div>
             <div>
               <Label>Descrição *</Label>
-              <Input
+              <Textarea
                 value={formReceber.description}
                 onChange={(e) => setFormReceber({ ...formReceber, description: e.target.value })}
                 placeholder="Ex: Mensalidade jan/2025"
                 required
+                rows={2}
+                className="resize-none"
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -2479,7 +2482,7 @@ export default function FinancialPage() {
 
       {/* Modal Conta a pagar */}
       <Dialog open={modalPagar} onOpenChange={setModalPagar}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-[575px]">
           <DialogHeader>
             <DialogTitle>Nova conta a pagar</DialogTitle>
             <DialogDescription>

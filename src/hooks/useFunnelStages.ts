@@ -1,10 +1,11 @@
-import { useMemo } from "react";
+﻿import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 
 export const CRM_STAGES = [
   { key: "leads_recebidos",  label: "Leads Recebidos" },
   { key: "qualificados",     label: "Qualificados" },
+  { key: "contato_realizado", label: "Contato Realizado" },
   { key: "reuniao_agendada", label: "Reunião Agendada" },
   { key: "emissao_contrato", label: "Negociações" },
   { key: "efetivados",       label: "Efetivados" },

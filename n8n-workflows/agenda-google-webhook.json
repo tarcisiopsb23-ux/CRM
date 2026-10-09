@@ -1,0 +1,288 @@
+{
+  "name": "Agenda — Google Calendar Webhook (Push)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agenda-google-webhook",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook — Google Push Notification",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "agenda-google-webhook",
+      "notes": "Recebe notificações push do Google Calendar.\nURL de produção: https://ia-n8n.whlwlh.easypanel.host/webhook/agenda-google-webhook"
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const headers = $input.first().json.headers ?? {};\n\nconst channelId     = headers['x-goog-channel-id']     ?? headers['X-Goog-Channel-Id']     ?? '';\nconst resourceState = headers['x-goog-resource-state'] ?? headers['X-Goog-Resource-State'] ?? '';\nconst resourceId    = headers['x-goog-resource-id']    ?? headers['X-Goog-Resource-Id']    ?? '';\nconst messageNumber = headers['x-goog-message-number'] ?? '0';\n\nconsole.log(`[google-webhook] channel=${channelId} state=${resourceState} msg=#${messageNumber}`);\n\nif (resourceState === 'sync') {\n  console.log('[google-webhook] Handshake sync recebido. Encerrando.');\n  return [];\n}\n\nif (resourceState !== 'exists' && resourceState !== 'not_exists') {\n  console.log(`[google-webhook] Estado desconhecido: ${resourceState}. Ignorando.`);\n  return [];\n}\n\nif (!channelId) throw new Error('X-Goog-Channel-ID ausente.');\n\nreturn [{ json: { channelId, resourceState, resourceId, messageNumber } }];"
+      },
+      "id": "validar-push",
+      "name": "Validar Push do Google",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/client_google_calendar_tokens",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
+        ]},
+        "sendQuery": true,
+        "queryParameters": { "parameters": [
+          { "name": "watch_channel_id", "value": "=eq.{{ $json.channelId }}" },
+          { "name": "connected",        "value": "=eq.true" },
+          { "name": "select",           "value": "client_id,access_token,refresh_token,token_expiry,calendar_id,watch_expiry" },
+          { "name": "limit",            "value": "1" }
+        ]},
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "buscar-cliente",
+      "name": "Identificar Cliente pelo Channel ID",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const result   = $input.first().json;\nconst pushData = $('Validar Push do Google').first().json;\n\nconst row = Array.isArray(result) ? result[0] : null;\n\nif (!row?.client_id) {\n  console.log(`[google-webhook] Channel ID ${pushData.channelId} não encontrado. Ignorando.`);\n  return [];\n}\n\nif (row.watch_expiry && new Date(row.watch_expiry).getTime() < Date.now()) {\n  console.warn(`[google-webhook] Watch channel expirado para cliente ${row.client_id}. Renovação necessária.`);\n}\n\n// Verifica se o token precisa ser renovado antes de chamar a Google API\nconst expiry = row.token_expiry ? new Date(row.token_expiry).getTime() : 0;\nconst needsRefresh = expiry - Date.now() < 5 * 60 * 1000;\n\nconsole.log(`[google-webhook] Evento para cliente: ${row.client_id} | needsRefresh: ${needsRefresh}`);\n\nreturn [{ json: {\n  client_id:     row.client_id,\n  access_token:  row.access_token,\n  refresh_token: row.refresh_token,\n  token_expiry:  row.token_expiry,\n  calendar_id:   row.calendar_id ?? 'primary',\n  needs_refresh: needsRefresh,\n  ...pushData,\n} }];"
+      },
+      "id": "avaliar-cliente",
+      "name": "Avaliar Cliente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+
+    {
+      "parameters": {
+        "conditions": { "options": { "caseSensitive": false }, "conditions": [
+          { "leftValue": "={{ $json.needs_refresh }}", "rightValue": true,
+            "operator": { "type": "boolean", "operation": "equals" } }
+        ]}
+      },
+      "id": "if-token-refresh",
+      "name": "Token expirado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 300],
+      "notes": "Verifica se o access_token precisa ser renovado antes de chamar a Google Calendar API.\nFix para o bug onde eventos não eram processados quando o token tinha expirado."
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://oauth2.googleapis.com/token",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "Content-Type", "value": "application/x-www-form-urlencoded" }
+        ]},
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": { "parameters": [
+          { "name": "client_id",     "value": "={{ $env.GOOGLE_CALENDAR_CLIENT_ID }}" },
+          { "name": "client_secret", "value": "={{ $env.GOOGLE_CALENDAR_CLIENT_SECRET }}" },
+          { "name": "refresh_token", "value": "={{ $json.refresh_token }}" },
+          { "name": "grant_type",    "value": "refresh_token" }
+        ]},
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "renovar-token",
+      "name": "Renovar Access Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 180]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const refreshResult = $input.first().json;\nconst prev = $('Avaliar Cliente').first().json;\nconst newToken  = refreshResult.access_token ?? prev.access_token;\nconst newExpiry = refreshResult.expires_in\n  ? new Date(Date.now() + refreshResult.expires_in * 1000).toISOString()\n  : prev.token_expiry;\n\n// Persiste o token renovado no Banco A\nreturn [{ json: { ...prev, access_token: newToken, token_expiry: newExpiry, token_was_refreshed: true } }];"
+      },
+      "id": "merge-token-renovado",
+      "name": "Mesclar Token Renovado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 180]
+    },
+
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/client_google_calendar_tokens?client_id=eq.{{ $json.client_id }}",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Content-Type",  "value": "application/json" },
+          { "name": "Prefer",        "value": "return=minimal" }
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ access_token: $json.access_token, token_expiry: $json.token_expiry }) }}",
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "salvar-token-renovado",
+      "name": "Salvar Token Renovado no Banco A",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 180],
+      "notes": "Persiste o token renovado para que próximas execuções usem o token fresco."
+    },
+
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'https://www.googleapis.com/calendar/v3/calendars/' + encodeURIComponent($json.calendar_id) + '/events' }}",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "Authorization", "value": "=Bearer {{ $json.access_token }}" }
+        ]},
+        "sendQuery": true,
+        "queryParameters": { "parameters": [
+          { "name": "timeMin",       "value": "={{ new Date().toISOString() }}" },
+          { "name": "timeMax",       "value": "={{ new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() }}" },
+          { "name": "updatedMin",    "value": "={{ new Date(Date.now() - 5 * 60 * 1000).toISOString() }}" },
+          { "name": "singleEvents",  "value": "true" },
+          { "name": "orderBy",       "value": "updated" },
+          { "name": "maxResults",    "value": "10" }
+        ]},
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "buscar-eventos-google",
+      "name": "Buscar Eventos Alterados",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2000, 300]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const googleResult = $input.first().json;\nconst ctx = $('Avaliar Cliente').first().json;\n\nconst items = googleResult.items ?? [];\n\nif (items.length === 0) {\n  console.log(`[google-webhook] Nenhum evento alterado recentemente para cliente ${ctx.client_id}.`);\n  return [];\n}\n\nreturn items.map((evt) => ({\n  json: {\n    client_id:       ctx.client_id,\n    google_event_id: evt.id,\n    google_status:   evt.status,\n    summary:         evt.summary ?? '',\n    start_at:        evt.start?.dateTime ?? evt.start?.date,\n    end_at:          evt.end?.dateTime   ?? evt.end?.date,\n    updated:         evt.updated,\n    description:     evt.description ?? '',\n  }\n}));"
+      },
+      "id": "processar-eventos",
+      "name": "Processar Eventos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 300]
+    },
+
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/client_appointments",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
+        ]},
+        "sendQuery": true,
+        "queryParameters": { "parameters": [
+          { "name": "client_id",       "value": "=eq.{{ $json.client_id }}" },
+          { "name": "google_event_id", "value": "=eq.{{ $json.google_event_id }}" },
+          { "name": "select",          "value": "id,status,start_at,end_at,google_event_id" },
+          { "name": "limit",           "value": "1" }
+        ]},
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "buscar-agendamento",
+      "name": "Buscar Agendamento por google_event_id",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2440, 300]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const supabaseResult = $input.first().json;\nconst evt            = $('Processar Eventos').first().json;\n\nconst appointment = Array.isArray(supabaseResult) ? supabaseResult[0] : null;\n\nif (!appointment) {\n  console.log(`[google-webhook] Evento ${evt.google_event_id} não encontrado no C8 Control. Ignorando.`);\n  return [];\n}\n\nlet newStatus = null;\nif (evt.google_status === 'cancelled' && appointment.status !== 'cancelled') {\n  newStatus = 'cancelled';\n}\n\nconst startChanged = evt.start_at && evt.start_at !== appointment.start_at;\nconst endChanged   = evt.end_at   && evt.end_at   !== appointment.end_at;\nconst hasChanges   = newStatus !== null || startChanged || endChanged;\n\nif (!hasChanges) {\n  console.log(`[google-webhook] Evento ${evt.google_event_id} sem alterações relevantes. Ignorando.`);\n  return [];\n}\n\nreturn [{ json: {\n  appointment_id: appointment.id,\n  new_status:     newStatus,\n  new_start_at:   startChanged ? evt.start_at : null,\n  new_end_at:     endChanged   ? evt.end_at   : null,\n  google_event_id: evt.google_event_id,\n  client_id:      evt.client_id,\n} }];"
+      },
+      "id": "avaliar-mudancas",
+      "name": "Avaliar Mudanças",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2660, 300]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const change = $input.first().json;\nconst patch = {};\n\nif (change.new_status)   patch.status   = change.new_status;\nif (change.new_start_at) patch.start_at = change.new_start_at;\nif (change.new_end_at)   patch.end_at   = change.new_end_at;\n\nif (change.new_start_at && change.new_end_at) {\n  const diffMs = new Date(change.new_end_at).getTime() - new Date(change.new_start_at).getTime();\n  patch.duration_min = Math.round(diffMs / 60000);\n}\n\nreturn [{ json: { ...change, patch } }];"
+      },
+      "id": "montar-patch",
+      "name": "Montar Patch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2880, 300]
+    },
+
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/client_appointments?id=eq.{{ $json.appointment_id }}&client_id=eq.{{ $json.client_id }}",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Content-Type",  "value": "application/json" },
+          { "name": "Prefer",        "value": "return=minimal" }
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.patch) }}",
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "atualizar-agendamento",
+      "name": "Atualizar Agendamento no Banco A",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3100, 300]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const change = $('Montar Patch').first().json;\nconsole.log(`[google-webhook] Agendamento ${change.appointment_id} atualizado. Patch:`, JSON.stringify(change.patch));\nreturn [{ json: { success: true, appointment_id: change.appointment_id, patch: change.patch } }];"
+      },
+      "id": "log-resultado",
+      "name": "Log Resultado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3320, 300]
+    }
+  ],
+
+  "connections": {
+    "Webhook — Google Push Notification":     { "main": [[{ "node": "Validar Push do Google",              "type": "main", "index": 0 }]] },
+    "Validar Push do Google":                 { "main": [[{ "node": "Identificar Cliente pelo Channel ID",  "type": "main", "index": 0 }]] },
+    "Identificar Cliente pelo Channel ID":    { "main": [[{ "node": "Avaliar Cliente",                     "type": "main", "index": 0 }]] },
+    "Avaliar Cliente":                        { "main": [[{ "node": "Token expirado?",                     "type": "main", "index": 0 }]] },
+    "Token expirado?": {
+      "main": [
+        [{ "node": "Renovar Access Token",   "type": "main", "index": 0 }],
+        [{ "node": "Buscar Eventos Alterados","type": "main", "index": 0 }]
+      ]
+    },
+    "Renovar Access Token":                   { "main": [[{ "node": "Mesclar Token Renovado",              "type": "main", "index": 0 }]] },
+    "Mesclar Token Renovado":                 { "main": [[{ "node": "Salvar Token Renovado no Banco A",    "type": "main", "index": 0 }]] },
+    "Salvar Token Renovado no Banco A":       { "main": [[{ "node": "Buscar Eventos Alterados",            "type": "main", "index": 0 }]] },
+    "Buscar Eventos Alterados":               { "main": [[{ "node": "Processar Eventos",                   "type": "main", "index": 0 }]] },
+    "Processar Eventos":                      { "main": [[{ "node": "Buscar Agendamento por google_event_id","type": "main", "index": 0 }]] },
+    "Buscar Agendamento por google_event_id": { "main": [[{ "node": "Avaliar Mudanças",                    "type": "main", "index": 0 }]] },
+    "Avaliar Mudanças":                       { "main": [[{ "node": "Montar Patch",                        "type": "main", "index": 0 }]] },
+    "Montar Patch":                           { "main": [[{ "node": "Atualizar Agendamento no Banco A",    "type": "main", "index": 0 }]] },
+    "Atualizar Agendamento no Banco A":       { "main": [[{ "node": "Log Resultado",                       "type": "main", "index": 0 }]] }
+  },
+
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "templateId": "agenda-google-webhook-v2",
+    "description": "v2: Adicionado refresh automático do access_token antes de chamar a Google Calendar API. Corrige bug onde push notifications paravam de funcionar após expiração do token. O token renovado é persistido no Banco A."
+  }
+}

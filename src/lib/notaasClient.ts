@@ -51,6 +51,7 @@ export async function emitirNFSe(
         aliquotaIss: payload.valores.aliquotaIss,
       },
       competencia: payload.competencia,
+      ...(payload.observacao ? { observacao: payload.observacao } : {}),
     },
   };
 

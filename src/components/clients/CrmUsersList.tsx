@@ -28,7 +28,7 @@ export function CrmUsersList({ clientId, organizationId, maxUsers }: CrmUsersLis
   const [inviteName, setInviteName] = useState("");
   const [isInviting, setIsInviting] = useState(false);
 
-  const [removeTarget, setRemoveTarget] = useState<{ email: string; userId?: string; name: string | null } | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<{ email?: string; userId?: string; name: string | null } | null>(null);
   const [isRemoving, setIsRemoving] = useState(false);
 
   const limitReached = activeCount >= maxUsers;
@@ -38,8 +38,12 @@ export function CrmUsersList({ clientId, organizationId, maxUsers }: CrmUsersLis
     setIsInviting(true);
     try {
       const result = await inviteUser.mutateAsync({ email: inviteEmail.trim(), name: inviteName.trim() || undefined });
-      if (result?.temp_password) {
-        toast.success(`Usuário criado! Senha temporária: ${result.temp_password}`, { duration: 10000 });
+      if (result?.email_sent) {
+        toast.success(`Convite enviado para ${inviteEmail.trim()}! O usuário receberá a senha por e-mail.`);
+      } else if (result?.temp_password) {
+        // E-mail não enviado (Resend não configurado) — exibe a senha no toast
+        toast.success(`Usuário criado! Senha temporária: ${result.temp_password}`, { duration: 15000,
+          description: result?.warning ?? "Configure RESEND_API_KEY para envio automático por e-mail." });
       } else {
         toast.success("Usuário convidado com sucesso!");
       }
@@ -60,8 +64,8 @@ export function CrmUsersList({ clientId, organizationId, maxUsers }: CrmUsersLis
       await removeUser.mutateAsync({ email: removeTarget.email, c8UserId: removeTarget.userId });
       toast.success("Usuário removido.");
       setRemoveTarget(null);
-    } catch {
-      toast.error("Erro ao remover usuário.");
+    } catch (err: any) {
+      toast.error(err?.message ?? "Erro ao remover usuário.");
     } finally {
       setIsRemoving(false);
     }
@@ -112,21 +116,23 @@ export function CrmUsersList({ clientId, organizationId, maxUsers }: CrmUsersLis
                 {users.map(user => (
                   <TableRow key={user.id}>
                     <TableCell className="font-medium">{user.name ?? "—"}</TableCell>
-                    <TableCell>{user.email}</TableCell>
+                    <TableCell>{user.email || "—"}</TableCell>
                     <TableCell>
                       {user.last_access_at
                         ? format(parseISO(user.last_access_at), "dd/MM/yyyy HH:mm", { locale: ptBR })
                         : "—"}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="text-red-600 border-red-200 hover:bg-red-50"
-                        onClick={() => setRemoveTarget({ email: user.email, userId: user.user_id, name: user.name })}
-                      >
-                        Remover
-                      </Button>
+                      {user.email && !user.is_support && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-red-600 border-red-200 hover:bg-red-50"
+                          onClick={() => setRemoveTarget({ email: user.email, userId: user.user_id, name: user.name })}
+                        >
+                          Remover
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

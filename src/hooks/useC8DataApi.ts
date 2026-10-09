@@ -1,64 +1,31 @@
 /**
- * Hook para chamar a crm-data-api do C8 Control diretamente do frontend.
- * As credenciais (URL + API key) são lidas da tabela organization_integrations
- * via RLS — sem passar por edge function, eliminando o problema de ES256.
+ * Hook para chamar o c8-data-proxy do Maestr.ia.
+ * A Edge Function c8-data-proxy consulta diretamente o Banco B de cada cliente
+ * usando as credenciais individuais salvas em clients.client_supabase_service_key.
+ *
+ * Não usa mais crm-data-api externa, CRM_DATA_API_URL, CRM_API_KEY.
  */
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 
-interface C8ControlConfig {
-  crmDataApiUrl?: string;
-  crmApiKey?: string;
-  c8AnonKey?: string;  // anon key do Supabase do C8 Control (para o gateway)
-}
-
-/** Busca as credenciais da integração C8 Control do banco */
-async function getC8Credentials(organizationId: string): Promise<C8ControlConfig | null> {
-  const { data } = await supabase
-    .from("organization_integrations")
-    .select("config")
-    .eq("organization_id", organizationId)
-    .eq("integration_type", "c8control")
-    .maybeSingle();
-  return (data?.config as C8ControlConfig) ?? null;
-}
-
-/** Chama a crm-data-api do C8 Control com as credenciais do banco */
+/** Chama o c8-data-proxy via supabase.functions.invoke */
 export async function callC8DataApi(
-  organizationId: string,
+  _organizationId: string,  // mantido para compatibilidade de assinatura
   action: string,
   tenantId?: string
 ): Promise<unknown> {
-  const creds = await getC8Credentials(organizationId);
-  if (!creds?.crmDataApiUrl || !creds?.crmApiKey) {
-    throw new Error("Credenciais da crm-data-api não configuradas. Configure em Configurações → C8 Control.");
-  }
-
-  const url = new URL(creds.crmDataApiUrl);
-  url.searchParams.set("action", action);
-  if (tenantId) url.searchParams.set("tenant_id", tenantId);
-
-  const res = await fetch(url.toString(), {
-    method: "GET",
-    headers: {
-      "x-crm-api-key": creds.crmApiKey,
-      "Content-Type": "application/json",
-      // O gateway do Supabase exige Authorization ou apikey.
-      // Usamos o anon key do C8 Control se disponível, senão o próprio crmApiKey como Bearer.
-      ...(creds.c8AnonKey
-        ? { "apikey": creds.c8AnonKey, "Authorization": `Bearer ${creds.c8AnonKey}` }
-        : { "Authorization": `Bearer ${creds.crmApiKey}` }
-      ),
-    },
+  const { data, error } = await supabase.functions.invoke("c8-data-proxy", {
+    body: { action, tenant_id: tenantId ?? null },
   });
 
-  const data = await res.json();
-  if (!res.ok) throw new Error(data?.error ?? `Erro ${res.status} na crm-data-api`);
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+
   console.log(`[C8DataApi] action=${action} tenant_id=${tenantId ?? "—"} response:`, data);
   return data;
 }
 
-/** Hook para buscar usuários de um tenant do C8 Control */
+/** Hook para buscar usuários de um tenant do C8 Control (Banco B) */
 export function useC8TenantUsers(organizationId: string | undefined, tenantId: string | undefined) {
   return useQuery({
     queryKey: ["c8_tenant_users", organizationId, tenantId],

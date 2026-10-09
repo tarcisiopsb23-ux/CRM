@@ -1,18 +1,12 @@
 /**
- * ClientAuthContext — Fase 1 (T-1.2)
+ * ClientAuthContext — Banco A unificado
  *
- * Substituição da autenticação por senha única por sessão JWT
- * do Supabase Auth do Banco B (multi-usuário com roles).
+ * Todos os clientes operam no Banco A. Não existe mais Banco B.
+ * A sessão JWT é sempre do Banco A.
  *
- * O que está armazenado no contexto:
- * - Dados estáticos do cliente (vindos do Banco A via RPC get_client_by_slug)
- * - Dados do usuário autenticado (vindos do Banco B via crm_users)
- * - Sessão JWT (access_token, nunca a senha)
- *
- * O que NÃO é armazenado:
- * - Senhas
- * - anon_key do Banco B (fica em variável de ambiente)
- * - Tokens OAuth de Meta/Google
+ * O que NÃO é armazenado nunca:
+ *   • Senhas
+ *   • anon_key do Banco A
  */
 
 import { createContext, ReactNode, useState, useCallback } from "react";
@@ -34,13 +28,22 @@ export interface ModulesConfig {
   whatsapp_enabled?: boolean;
   demographics_enabled?: boolean;
   ia_enabled?: boolean;
+  /** Módulo Agenda — agendamentos online + Google Calendar */
+  agenda_enabled?: boolean;
+  /** Dashboard de resultados */
+  dashboard_enabled?: boolean;
   max_contacts?: number;
   max_users?: number;
-  asaas_enabled?: boolean;
   pixel_config?: {
     meta_pixel_id?: string;
     google_tag_id?: string;
   };
+  /** Acesso gratuito liberado (vinculado a outro contrato, ex: assessoria) */
+  c8_free_access?: boolean;
+  /** Acesso incluído em contrato pai — sem cobrança separada */
+  c8_included?: boolean;
+  free_access_until?: string | null;
+  free_access_reason?: string | null;
 }
 
 /** Dados do cliente vindos do Banco A (imutáveis durante a sessão) */
@@ -51,8 +54,6 @@ export interface ClientInfo {
   company: string | null;
   favicon_url: string | null;
   show_ia_content: boolean;
-  client_supabase_url: string | null;
-  client_supabase_anon_key: string | null;
   metadata: {
     dashboard_performance: boolean;
     dashboard_atendimento: boolean;
@@ -67,9 +68,8 @@ export interface ClientInfo {
 /** Estado completo de autenticação */
 export interface ClientAuth extends ClientInfo {
   authenticated: true;
-  // Usuário autenticado no Banco B
   user: DynamicUser;
-  // Sessão JWT do Banco B (access_token para uso no useDynamicClient)
+  /** Sessão JWT do Banco A */
   session: Session;
 }
 
@@ -94,9 +94,7 @@ function loadFromStorage(slug: string): ClientAuth | null {
     const raw = sessionStorage.getItem(STORAGE_KEY(slug));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as ClientAuth;
-    // Valida que tem os campos mínimos
     if (!parsed?.id || !parsed?.authenticated || !parsed?.session?.access_token) return null;
-    // Verifica expiração do token JWT
     const exp = parsed.session.expires_at;
     if (exp && Date.now() / 1000 > exp) {
       sessionStorage.removeItem(STORAGE_KEY(slug));
@@ -109,11 +107,8 @@ function loadFromStorage(slug: string): ClientAuth | null {
 }
 
 function saveToStorage(slug: string, auth: ClientAuth): void {
-  // Remove anon_key antes de salvar — ela virá de env vars
-  const safe: ClientAuth = {
-    ...auth,
-    client_supabase_anon_key: null, // nunca persistir
-  };
+  // Nunca persistir anon_key
+  const safe: ClientAuth = { ...auth };
   sessionStorage.setItem(STORAGE_KEY(slug), JSON.stringify(safe));
 }
 

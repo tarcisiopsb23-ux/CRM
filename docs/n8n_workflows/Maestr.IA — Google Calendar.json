@@ -8,313 +8,71 @@
         "responseMode": "responseNode",
         "options": {}
       },
-      "id": "5ca17cfb-4510-44d7-821a-242d61b31d6c",
+      "id": "webhook-in",
       "name": "Webhook — Agenda Maestr.ia",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [
-        -1904,
-        -336
-      ],
+      "position": [-2256, 0],
       "webhookId": "agenda-sync"
     },
     {
       "parameters": {
-        "jsCode": "const body = $input.item.json.body || $input.item.json;\nconst action = body.action;\nconst event  = body.event;\nconst gcalScope = body.gcal_scope || null; // 'this_only' | 'this_and_following' | 'all' | null\n\nif (!event || !action) return [{ json: { skip: true } }];\n\nconst startMs = event.start_at ? new Date(event.start_at).getTime() : null;\nconst endMs   = event.end_at   ? new Date(event.end_at).getTime()   : null;\n\nconst eventColor = event.metadata?.color || event.color || '#3b82f6';\n\nconst gcalColorMap = {\n  '#3b82f6': '9', '#22c55e': '2', '#a855f7': '3', '#f59e0b': '5',\n  '#10b981': '2', '#06b6d4': '7', '#6366f1': '9', '#8b5cf6': '3',\n  '#f43f5e': '11', '#6b7280': '8',\n};\nconst gcalColorId = gcalColorMap[eventColor] || '9';\n\nconst rawAllDay = event.all_day ?? event.allDay ?? event.metadata?.all_day ?? false;\nconst allDay = rawAllDay === true || rawAllDay === 'yes' || rawAllDay === 1;\n\nconst toSaoPauloLocal = (utcStr) => {\n  if (!utcStr) return null;\n  const d = new Date(utcStr);\n  if (isNaN(d.getTime())) return null;\n  const local = new Date(d.getTime() - 3 * 60 * 60 * 1000);\n  return local.toISOString().slice(0, 19) + '-03:00';\n};\n\nconst addOneDay = (dateStr) => {\n  if (!dateStr) return null;\n  const d = new Date(dateStr + 'T00:00:00Z');\n  d.setUTCDate(d.getUTCDate() + 1);\n  return d.toISOString().slice(0, 10);\n};\n\nconst startLocal = toSaoPauloLocal(event.start_at);\nconst endLocal   = toSaoPauloLocal(event.end_at);\nconst startDateOnly = startLocal ? startLocal.slice(0, 10) : null;\nconst endDateOnly   = endLocal   ? addOneDay(endLocal.slice(0, 10)) : null;\n\n// ── Recorrência ───────────────────────────────────────────────────────────────\nconst recurrence = event.metadata?.recurrence || null;\nconst rruleRaw   = event.metadata?.rrule || null;\nconst isRecurrenceChild = event.metadata?.is_recurrence_child === true;\n\nconst toRRuleArray = (r) => {\n  if (!r) return null;\n  if (Array.isArray(r)) return r;\n  return [r];\n};\n\nconst buildRRuleFromRecurrence = (rec, baseStart) => {\n  if (!rec) return null;\n  const BYDAY = ['SU','MO','TU','WE','TH','FR','SA'];\n\n  const applyEnd = (base) => {\n    if (rec.endType === 'count' && rec.endCount > 0) return `${base};COUNT=${rec.endCount}`;\n    if (rec.endType === 'date' && rec.endDate) return `${base};UNTIL=${rec.endDate.replace(/-/g,'')}T235959Z`;\n    return base;\n  };\n\n  if (typeof rec === 'string') {\n    if (rec === 'daily')    return ['RRULE:FREQ=DAILY'];\n    if (rec === 'weekdays') return ['RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR'];\n    if (rec.startsWith('weekly_')) return [`RRULE:FREQ=WEEKLY;BYDAY=${BYDAY[new Date(baseStart).getDay()]}`];\n    if (rec === 'monthly_weekday') {\n      const d = new Date(baseStart);\n      const wn = Math.floor((d.getDate() - 1) / 7) + 1;\n      return [`RRULE:FREQ=MONTHLY;BYDAY=${wn}${BYDAY[d.getDay()]}`];\n    }\n    if (rec.startsWith('yearly_')) return ['RRULE:FREQ=YEARLY'];\n    return null;\n  }\n\n  if (rec.type === 'custom') {\n    const freqMap = { daily:'DAILY', weekly:'WEEKLY', monthly:'MONTHLY', yearly:'YEARLY' };\n    const freq = freqMap[rec.unit] || 'WEEKLY';\n    let base = `RRULE:FREQ=${freq};INTERVAL=${rec.interval || 1}`;\n    if ((rec.unit === 'weekly' || rec.unit === 'week') && rec.weekDays?.length > 0) {\n      base += `;BYDAY=${rec.weekDays.map(d => BYDAY[d]).join(',')}`;\n    }\n    return [applyEnd(base)];\n  }\n\n  return null;\n};\n\n// Para this_only e this_and_following, não envia RRULE (o Google trata a ocorrência individualmente)\nconst finalRRule = (gcalScope === 'this_only' || gcalScope === 'this_and_following')\n  ? null\n  : toRRuleArray(rruleRaw) || buildRRuleFromRecurrence(recurrence, event.start_at);\n\nlet recurrenceSummary = null;\nif (recurrence) {\n  if (typeof recurrence === 'string') {\n    const labels = { daily: 'Todos os dias', weekdays: 'Dias úteis (seg–sex)', monthly_weekday: 'Mensal (mesmo dia da semana)' };\n    if (recurrence.startsWith('weekly_')) recurrenceSummary = 'Semanal';\n    else if (recurrence.startsWith('yearly_')) recurrenceSummary = 'Anual';\n    else recurrenceSummary = labels[recurrence] || recurrence;\n  } else {\n    const unitLabels = { daily: 'dia(s)', weekly: 'semana(s)', monthly: 'mês(es)', yearly: 'ano(s)' };\n    const endLabel = recurrence.endType === 'count'\n      ? ` por ${recurrence.endCount} ocorrência(s)`\n      : recurrence.endType === 'date' ? ` até ${recurrence.endDate}` : '';\n    recurrenceSummary = `A cada ${recurrence.interval} ${unitLabels[recurrence.unit] || recurrence.unit}${endLabel}`;\n  }\n}\n\n// ── Participantes ─────────────────────────────────────────────────────────────\nconst attendees = event.metadata?.attendees || [];\nconst attendeesGcal = attendees.map(email => typeof email === 'string' ? { email } : email);\n\n// ── gcal_event_id: para this_only usa formato instanceId (baseId_dataUTC) ────\n// O Google Calendar identifica ocorrências individuais pelo padrão: baseEventId_YYYYMMDDTHHMMSSZ\nconst baseGcalId = event.gcal_event_id || event.google_event_id || '';\nlet instanceGcalId = baseGcalId;\nif (gcalScope === 'this_only' && baseGcalId && event.start_at) {\n  const instanceDate = new Date(event.start_at)\n    .toISOString()\n    .replace(/[-:]/g, '')\n    .replace('.000Z', 'Z');\n  instanceGcalId = `${baseGcalId}_${instanceDate}`;\n}\n\nreturn [{ json: {\n  action,\n  gcal_scope: gcalScope,\n  event_id: event.id,\n  title: event.title || '',\n  description: event.description || '',\n  start_at: event.start_at || null,\n  end_at: event.end_at || null,\n  start_at_local: startLocal,\n  end_at_local: endLocal,\n  start_date_only: startDateOnly,\n  end_date_only: endDateOnly,\n  start_ms: startMs,\n  end_ms: endMs,\n  location: event.location || '',\n  meeting_url: event.meeting_url || '',\n  all_day: allDay,\n  gcal_event_id: instanceGcalId,\n  gcal_base_event_id: baseGcalId,\n  color: eventColor,\n  gcal_color_id: gcalColorId,\n  has_recurrence: !!recurrence,\n  is_recurrence_child: isRecurrenceChild,\n  rrule_array: finalRRule,\n  recurrence_summary: recurrenceSummary,\n  recurrence_raw: recurrence,\n  attendees: attendees,\n  attendees_gcal: attendeesGcal,\n  has_attendees: attendees.length > 0\n}}];\n"
+        "jsCode": "const body = $input.item.json.body || $input.item.json;\nconst action = body.action;\nconst event  = body.event;\nconst gcalScope = body.gcal_scope || null;\n\nif (!event || !action) return [{ json: { skip: true } }];\n\nconst startMs = event.start_at ? new Date(event.start_at).getTime() : null;\nconst endMs   = event.end_at   ? new Date(event.end_at).getTime()   : null;\n\nconst eventColor = event.metadata?.color || event.color || '#3b82f6';\nconst gcalColorMap = {\n  '#3b82f6': '9', '#22c55e': '2', '#a855f7': '3', '#f59e0b': '5',\n  '#10b981': '2', '#06b6d4': '7', '#6366f1': '9', '#8b5cf6': '3',\n  '#f43f5e': '11', '#6b7280': '8'\n};\nconst gcalColorId = gcalColorMap[eventColor] || '9';\n\nconst rawAllDay = event.all_day ?? event.allDay ?? event.metadata?.all_day ?? false;\nconst allDay = rawAllDay === true || rawAllDay === 'yes' || rawAllDay === 1;\n\nconst toSaoPauloLocal = (utcStr) => {\n  if (!utcStr) return null;\n  const d = new Date(utcStr);\n  if (isNaN(d.getTime())) return null;\n  const local = new Date(d.getTime() - 3 * 60 * 60 * 1000);\n  return local.toISOString().slice(0, 19) + '-03:00';\n};\n\nconst addOneDay = (dateStr) => {\n  if (!dateStr) return null;\n  const d = new Date(dateStr + 'T00:00:00Z');\n  d.setUTCDate(d.getUTCDate() + 1);\n  return d.toISOString().slice(0, 10);\n};\n\nconst startLocal = toSaoPauloLocal(event.start_at);\nconst endLocal   = toSaoPauloLocal(event.end_at);\nconst startDateOnly = startLocal ? startLocal.slice(0, 10) : null;\nconst endDateOnly   = endLocal   ? addOneDay(endLocal.slice(0, 10)) : null;\n\nconst recurrence = event.metadata?.recurrence || null;\nconst rruleRaw   = event.metadata?.rrule || null;\nconst isRecurrenceChild = event.metadata?.is_recurrence_child === true;\n\nconst toRRuleArray = (r) => {\n  if (!r) return null;\n  if (Array.isArray(r)) return r;\n  return [r];\n};\n\nconst buildRRuleFromRecurrence = (rec, baseStart) => {\n  if (!rec) return null;\n  const BYDAY = ['SU','MO','TU','WE','TH','FR','SA'];\n  const applyEnd = (base) => {\n    if (rec.endType === 'count' && rec.endCount > 0) return `${base};COUNT=${rec.endCount}`;\n    if (rec.endType === 'date' && rec.endDate) return `${base};UNTIL=${rec.endDate.replace(/-/g,'')}T235959Z`;\n    return base;\n  };\n  if (typeof rec === 'string') {\n    if (rec === 'daily')    return ['RRULE:FREQ=DAILY'];\n    if (rec === 'weekdays') return ['RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR'];\n    if (rec.startsWith('weekly_')) return [`RRULE:FREQ=WEEKLY;BYDAY=${BYDAY[new Date(baseStart).getDay()]}`];\n    if (rec === 'monthly_weekday') {\n      const d = new Date(baseStart);\n      const wn = Math.floor((d.getDate() - 1) / 7) + 1;\n      return [`RRULE:FREQ=MONTHLY;BYDAY=${wn}${BYDAY[d.getDay()]}`];\n    }\n    if (rec.startsWith('yearly_')) return ['RRULE:FREQ=YEARLY'];\n    return null;\n  }\n  if (rec.type === 'custom') {\n    const freqMap = { daily:'DAILY', weekly:'WEEKLY', monthly:'MONTHLY', yearly:'YEARLY' };\n    const freq = freqMap[rec.unit] || 'WEEKLY';\n    let base = `RRULE:FREQ=${freq};INTERVAL=${rec.interval || 1}`;\n    if ((rec.unit === 'weekly' || rec.unit === 'week') && rec.weekDays?.length > 0) {\n      base += `;BYDAY=${rec.weekDays.map(d => BYDAY[d]).join(',')}`;\n    }\n    return [applyEnd(base)];\n  }\n  return null;\n};\n\n// Para this_only e this_and_following nao envia RRULE\nconst finalRRule = (gcalScope === 'this_only' || gcalScope === 'this_and_following')\n  ? null\n  : toRRuleArray(rruleRaw) || buildRRuleFromRecurrence(recurrence, event.start_at);\n\nlet recurrenceSummary = null;\nif (recurrence) {\n  if (typeof recurrence === 'string') {\n    const labels = { daily: 'Todos os dias', weekdays: 'Dias uteis (seg-sex)', monthly_weekday: 'Mensal (mesmo dia da semana)' };\n    if (recurrence.startsWith('weekly_')) recurrenceSummary = 'Semanal';\n    else if (recurrence.startsWith('yearly_')) recurrenceSummary = 'Anual';\n    else recurrenceSummary = labels[recurrence] || recurrence;\n  } else {\n    const unitLabels = { daily: 'dia(s)', weekly: 'semana(s)', monthly: 'mes(es)', yearly: 'ano(s)' };\n    const endLabel = recurrence.endType === 'count'\n      ? ` por ${recurrence.endCount} ocorrencia(s)`\n      : recurrence.endType === 'date' ? ` ate ${recurrence.endDate}` : '';\n    recurrenceSummary = `A cada ${recurrence.interval} ${unitLabels[recurrence.unit] || recurrence.unit}${endLabel}`;\n  }\n}\n\nconst attendees = event.metadata?.attendees || [];\nconst attendeesGcal = attendees.map(email => typeof email === 'string' ? { email } : email);\n\n// gcal_event_id: para this_only usa instanceId (baseId_dataUTC)\nconst baseGcalId = event.gcal_event_id || event.google_event_id || '';\nlet instanceGcalId = baseGcalId;\nif (gcalScope === 'this_only' && baseGcalId && event.start_at) {\n  const instanceDate = new Date(event.start_at)\n    .toISOString()\n    .replace(/[-:]/g, '')\n    .replace('.000Z', 'Z');\n  instanceGcalId = `${baseGcalId}_${instanceDate}`;\n}\n\nreturn [{ json: {\n  action,\n  gcal_scope: gcalScope,\n  event_id: event.id,\n  title: event.title || '',\n  description: event.description || '',\n  start_at: event.start_at || null,\n  end_at: event.end_at || null,\n  start_at_local: startLocal,\n  end_at_local: endLocal,\n  start_date_only: startDateOnly,\n  end_date_only: endDateOnly,\n  start_ms: startMs,\n  end_ms: endMs,\n  location: event.location || '',\n  meeting_url: event.meeting_url || '',\n  all_day: allDay,\n  gcal_event_id: instanceGcalId,\n  gcal_base_event_id: baseGcalId,\n  color: eventColor,\n  gcal_color_id: gcalColorId,\n  has_recurrence: !!recurrence,\n  is_recurrence_child: isRecurrenceChild,\n  rrule_array: finalRRule,\n  recurrence_summary: recurrenceSummary,\n  recurrence_raw: recurrence,\n  attendees: attendees,\n  attendees_gcal: attendeesGcal,\n  has_attendees: attendees.length > 0\n}}];"
       },
-      "id": "164010dc-2cc3-4836-be67-d86ce7554182",
+      "id": "parse-evento",
       "name": "Parsear Evento",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        -1632,
-        -336
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "const prev = $('Parsear Evento').item.json;\nconst response = $input.item.json;\n\nconst gcalEventId = response.id || null;\n\nreturn [{ json: {\n  event_id: prev.event_id,\n  gcal_event_id: gcalEventId\n}}];\n"
-      },
-      "id": "10500f62-b720-4559-9140-ff4bdba2cbb6",
-      "name": "Consolidar IDs",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -256,
-        -656
-      ]
-    },
-    {
-      "parameters": {
-        "operation": "update",
-        "tableId": "events",
-        "filters": {
-          "conditions": [
-            {
-              "keyName": "id",
-              "condition": "eq",
-              "keyValue": "={{ $json.event_id }}"
-            }
-          ]
-        },
-        "fieldsUi": {
-          "fieldValues": [
-            {
-              "fieldId": "gcal_event_id",
-              "fieldValue": "={{ $json.gcal_event_id }}"
-            }
-          ]
-        }
-      },
-      "id": "2733b155-9337-45a7-b442-dda59271cc4f",
-      "name": "Salvar gcal_event_id",
-      "type": "n8n-nodes-base.supabase",
-      "typeVersion": 1,
-      "position": [
-        -16,
-        -656
-      ],
-      "credentials": {
-        "supabaseApi": {
-          "id": "yDtu96eQqnPXpyAM",
-          "name": "Supabase account"
-        }
-      }
+      "position": [-2000, 0]
     },
     {
       "parameters": {
         "conditions": {
-          "string": [
-            {
-              "value1": "={{ $json.gcal_event_id }}",
-              "operation": "isNotEmpty"
-            }
-          ]
+          "boolean": [{ "value1": "={{ $json.skip }}", "value2": true }]
         }
       },
-      "id": "6644caad-7ae0-4d60-aac7-884617a91bdc",
-      "name": "Tem GCal ID?",
+      "id": "skip-check",
+      "name": "Skip?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [
-        -544,
-        32
-      ]
-    },
-    {
-      "parameters": {
-        "operation": "delete",
-        "calendar": {
-          "__rl": true,
-          "value": "agenciac8br@gmail.com",
-          "mode": "list",
-          "cachedResultName": "agenciac8br@gmail.com"
-        },
-        "eventId": "={{ $json.gcal_event_id }}",
-        "options": {}
-      },
-      "id": "0a251087-3dbd-4411-b243-0114281eb7a2",
-      "name": "GCal — Excluir Evento",
-      "type": "n8n-nodes-base.googleCalendar",
-      "typeVersion": 1.3,
-      "position": [
-        -176,
-        -144
-      ],
-      "credentials": {
-        "googleCalendarOAuth2Api": {
-          "id": "OfBO2Gs03PqPAkQJ",
-          "name": "Google Calendar - Agência"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "respondWith": "json",
-        "responseBody": "={{ JSON.stringify({ success: true }) }}",
-        "options": {}
-      },
-      "id": "f23dd3b4-d22b-49be-a245-b4513d954c1a",
-      "name": "Resposta",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1,
-      "position": [
-        624,
-        -320
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "boolean": [
-            {
-              "value1": "={{ $json.skip }}",
-              "value2": true
-            }
-          ]
-        }
-      },
-      "id": "ae210db0-fcce-45ad-8b55-1a86973e3dd7",
-      "name": "Skip?1",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 1,
-      "position": [
-        -1392,
-        -336
-      ]
+      "position": [-1760, 0]
     },
     {
       "parameters": {
         "rules": {
           "values": [
             {
-              "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "leftValue": "",
-                  "typeValidation": "strict",
-                  "version": 1
-                },
-                "conditions": [
-                  {
-                    "leftValue": "={{ $json.action }}",
-                    "rightValue": "create",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    },
-                    "id": "162dfbfb-4cc7-4897-a1ac-9fa82527cace"
-                  }
-                ],
-                "combinator": "and"
-              },
-              "renameOutput": true,
-              "outputKey": "create"
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "create", "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" },
+              "renameOutput": true, "outputKey": "create"
             },
             {
-              "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "leftValue": "",
-                  "typeValidation": "strict",
-                  "version": 1
-                },
-                "conditions": [
-                  {
-                    "leftValue": "={{ $json.action }}",
-                    "rightValue": "update",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    },
-                    "id": "3d139401-c6cc-4bab-9f8b-bdcb4bb285e3"
-                  }
-                ],
-                "combinator": "and"
-              },
-              "renameOutput": true,
-              "outputKey": "update"
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "update", "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" },
+              "renameOutput": true, "outputKey": "update"
             },
             {
-              "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "leftValue": "",
-                  "typeValidation": "strict",
-                  "version": 1
-                },
-                "conditions": [
-                  {
-                    "leftValue": "={{ $json.action }}",
-                    "rightValue": "delete",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    },
-                    "id": "6c1e2c35-8b9a-41b5-bb92-d278d4f6282e"
-                  }
-                ],
-                "combinator": "and"
-              },
-              "renameOutput": true,
-              "outputKey": "delete"
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "delete", "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" },
+              "renameOutput": true, "outputKey": "delete"
             }
           ]
         },
         "options": {}
       },
-      "id": "b08dc459-6033-40e9-9546-a0a502e317f4",
-      "name": "Roteador de Ação1",
+      "id": "router",
+      "name": "Roteador de Ação",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3,
-      "position": [
-        -1040,
-        -336
-      ]
+      "position": [-1520, 0]
     },
+
     {
       "parameters": {
-        "respondWith": "json",
-        "responseBody": "={{ JSON.stringify({ success: false, reason: 'skip' }) }}",
-        "options": {}
+        "jsCode": "const item = $input.item.json;\nconst allDay = item.all_day === true || item.all_day === 'yes' || item.all_day === 1;\nconst gcalScope = item.gcal_scope || null;\n\nconst description = (item.description || '')\n  + (item.meeting_url ? '\\n\\n🔗 Reunião: ' + item.meeting_url : '')\n  + (item.recurrence_summary ? '\\n🔁 ' + item.recurrence_summary : '');\n\nconst recurrenceField = (gcalScope === 'this_only' || gcalScope === 'this_and_following')\n  ? [] : (item.rrule_array || []);\n\nconst body = allDay\n  ? {\n      summary: item.title, description,\n      location: item.location || '',\n      colorId: item.gcal_color_id,\n      guestsCanSeeOtherGuests: true,\n      start: { date: item.start_date_only },\n      end: { date: item.end_date_only },\n      attendees: item.attendees_gcal,\n      recurrence: recurrenceField\n    }\n  : {\n      summary: item.title, description,\n      location: item.location || '',\n      colorId: item.gcal_color_id,\n      guestsCanSeeOtherGuests: true,\n      start: { dateTime: item.start_at, timeZone: 'America/Sao_Paulo' },\n      end: { dateTime: item.end_at, timeZone: 'America/Sao_Paulo' },\n      attendees: item.attendees_gcal,\n      recurrence: recurrenceField\n    };\n\nreturn [{ json: {\n  event_id: item.event_id,\n  gcal_event_id: item.gcal_event_id,\n  gcal_base_event_id: item.gcal_base_event_id,\n  gcal_scope: gcalScope,\n  body_string: JSON.stringify(body)\n}}];"
       },
-      "id": "4bd53d66-c21c-44fb-96c7-b407b5adabc9",
-      "name": "Resposta — Skip1",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1,
-      "position": [
-        -1152,
-        -576
-      ]
-    },
-    {
-      "parameters": {
-        "method": "PUT",
-        "url": "=https://www.googleapis.com/calendar/v3/calendars/agenciac8br@gmail.com/events/{{ $json.gcal_event_id }}",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "googleCalendarOAuth2Api",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "contentType": "raw",
-        "rawContentType": "application/json",
-        "body": "={{ $json.body_string }}",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.3,
-      "position": [
-        -16,
-        -320
-      ],
-      "id": "fe461a63-c84c-4c58-898f-40dd7cdc294e",
-      "name": "HTTP Request",
-      "credentials": {
-        "googleCalendarOAuth2Api": {
-          "id": "OfBO2Gs03PqPAkQJ",
-          "name": "Google Calendar - Agência"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "jsCode": "const item = $input.item.json;\n\nconst allDay = item.all_day === true || item.all_day === 'yes' || item.all_day === 1;\n\nconst description = (item.description || '')\n  + (item.meeting_url ? '\\n\\n🔗 Reunião: ' + item.meeting_url : '')\n  + (item.recurrence_summary ? '\\n🔁 ' + item.recurrence_summary : '');\n\nconst body = allDay\n  ? {\n      summary: item.title,\n      description,\n      location: item.location || '',\n      colorId: item.gcal_color_id,\n      start: { date: item.start_date_only },\n      end: { date: item.end_date_only },\n      attendees: item.attendees_gcal,\n      recurrence: item.rrule_array || []\n    }\n  : {\n      summary: item.title,\n      description,\n      location: item.location || '',\n      colorId: item.gcal_color_id,\n      start: { dateTime: item.start_at, timeZone: 'America/Sao_Paulo' },\n      end: { dateTime: item.end_at, timeZone: 'America/Sao_Paulo' },\n      attendees: item.attendees_gcal,\n      recurrence: item.rrule_array || []\n    };\n\nreturn [{ json: { \n  gcal_event_id: item.gcal_event_id,\n  all_day_detected: allDay,\n  start_date_only: item.start_date_only,\n  end_date_only: item.end_date_only,\n  start_at: item.start_at,\n  body_string: JSON.stringify(body),\n  body_parsed: body\n}}];\n"
-      },
+      "id": "prep-create",
+      "name": "Preparar Criar",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        -704,
-        -320
-      ],
-      "id": "6da92c3e-ce8c-4e37-9c5f-7da280b1abbe",
-      "name": "Code in JavaScript"
+      "position": [-1280, -400]
     },
     {
       "parameters": {
@@ -323,317 +81,316 @@
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "googleCalendarOAuth2Api",
         "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            {
-              "name": "sendUpdates",
-              "value": "all"
-            }
-          ]
-        },
+        "queryParameters": { "parameters": [{ "name": "sendUpdates", "value": "all" }] },
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "application/json",
         "body": "={{ $json.body_string }}",
         "options": {}
       },
+      "id": "http-create",
+      "name": "HTTP — Criar Evento",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
-      "position": [
-        -480,
-        -656
-      ],
-      "id": "30589e0e-57af-4601-aeda-6dab4bc1f6e7",
-      "name": "Criar Google Calendar",
+      "position": [-1040, -400],
       "credentials": {
-        "googleCalendarOAuth2Api": {
-          "id": "OfBO2Gs03PqPAkQJ",
-          "name": "Google Calendar - Agência"
-        }
+        "googleCalendarOAuth2Api": { "id": "OfBO2Gs03PqPAkQJ", "name": "Google Calendar - Agência" }
       }
     },
     {
       "parameters": {
-        "jsCode": "const item = $input.item.json;\n\nconst allDay = item.all_day === true || item.all_day === 'yes' || item.all_day === 1;\n\nconst description = (item.description || '')\n  + (item.meeting_url ? '\\n\\n🔗 Reunião: ' + item.meeting_url : '')\n  + (item.recurrence_summary ? '\\n🔁 ' + item.recurrence_summary : '');\n\nconst body = allDay\n  ? {\n      summary: item.title,\n      description,\n      location: item.location || '',\n      colorId: item.gcal_color_id,\n      guestsCanSeeOtherGuests: true,\n      start: { date: item.start_date_only },\n      end: { date: item.end_date_only },\n      attendees: item.attendees_gcal,\n      recurrence: item.rrule_array || []\n    }\n  : {\n      summary: item.title,\n      description,\n      location: item.location || '',\n      colorId: item.gcal_color_id,\n      guestsCanSeeOtherGuests: true,\n      start: { dateTime: item.start_at, timeZone: 'America/Sao_Paulo' },\n      end: { dateTime: item.end_at, timeZone: 'America/Sao_Paulo' },\n      attendees: item.attendees_gcal,\n      recurrence: item.rrule_array || []\n    };\n\nreturn [{ json: {\n  event_id: item.event_id,\n  gcal_event_id: item.gcal_event_id,\n  body_string: JSON.stringify(body)\n}}];\n"
+        "jsCode": "const prev = $('Parsear Evento').item.json;\nconst response = $input.item.json;\nconst gcalEventId = response.id || null;\nreturn [{ json: { event_id: prev.event_id, gcal_event_id: gcalEventId } }];"
       },
+      "id": "consolidar-ids",
+      "name": "Consolidar IDs",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        -704,
-        -656
-      ],
-      "id": "9bd6b47d-d304-466b-bfd3-21b94feb07b8",
-      "name": "Normalizar Dados"
+      "position": [-800, -400]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "events",
+        "filters": { "conditions": [{ "keyName": "id", "condition": "eq", "keyValue": "={{ $json.event_id }}" }] },
+        "fieldsUi": { "fieldValues": [{ "fieldId": "gcal_event_id", "fieldValue": "={{ $json.gcal_event_id }}" }] }
+      },
+      "id": "supabase-save-id",
+      "name": "Salvar gcal_event_id",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [-560, -400],
+      "credentials": {
+        "supabaseApi": { "id": "yDtu96eQqnPXpyAM", "name": "Supabase account" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Busca todos os filhos do grupo (recurrence_group_id = event_id do pai)\n// e retorna um item por filho para o nó Supabase atualizar\nconst item = $input.item.json;\nconst parentEventId = item.event_id;\nconst gcalEventId = item.gcal_event_id;\n\nif (!parentEventId || !gcalEventId) return [];\n\nconst supabaseUrl = 'https://SEU_PROJETO.supabase.co';\nconst supabaseKey = 'SUA_SERVICE_ROLE_KEY';\n\nconst res = await fetch(\n  `${supabaseUrl}/rest/v1/events?recurrence_group_id=eq.${parentEventId}&select=id`,\n  {\n    headers: {\n      'apikey': supabaseKey,\n      'Authorization': `Bearer ${supabaseKey}`\n    }\n  }\n);\n\nconst children = await res.json();\n\nif (!Array.isArray(children) || children.length === 0) return [];\n\nreturn children.map(child => ({\n  json: {\n    child_id: child.id,\n    gcal_event_id: gcalEventId\n  }\n}));"
+      },
+      "id": "prep-filhos-gcal",
+      "name": "Preparar Filhos gcal_event_id",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-320, -400]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "events",
+        "filters": { "conditions": [{ "keyName": "id", "condition": "eq", "keyValue": "={{ $json.child_id }}" }] },
+        "fieldsUi": { "fieldValues": [{ "fieldId": "gcal_event_id", "fieldValue": "={{ $json.gcal_event_id }}" }] }
+      },
+      "id": "supabase-save-filhos",
+      "name": "Salvar gcal_event_id Filhos",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [-80, -400],
+      "credentials": {
+        "supabaseApi": { "id": "yDtu96eQqnPXpyAM", "name": "Supabase account" }
+      }
+    },    {
+      "parameters": {
+        "jsCode": "const item = $input.item.json;\nconst allDay = item.all_day === true || item.all_day === 'yes' || item.all_day === 1;\nconst gcalScope = item.gcal_scope || null;\n\nconst description = (item.description || '')\n  + (item.meeting_url ? '\\n\\n🔗 Reunião: ' + item.meeting_url : '')\n  + (item.recurrence_summary ? '\\n🔁 ' + item.recurrence_summary : '');\n\nconst recurrenceField = (gcalScope === 'this_only' || gcalScope === 'this_and_following')\n  ? [] : (item.rrule_array || []);\n\nconst body = allDay\n  ? {\n      summary: item.title, description,\n      location: item.location || '',\n      colorId: item.gcal_color_id,\n      guestsCanSeeOtherGuests: true,\n      start: { date: item.start_date_only },\n      end: { date: item.end_date_only },\n      attendees: item.attendees_gcal,\n      recurrence: recurrenceField\n    }\n  : {\n      summary: item.title, description,\n      location: item.location || '',\n      colorId: item.gcal_color_id,\n      guestsCanSeeOtherGuests: true,\n      start: { dateTime: item.start_at, timeZone: 'America/Sao_Paulo' },\n      end: { dateTime: item.end_at, timeZone: 'America/Sao_Paulo' },\n      attendees: item.attendees_gcal,\n      recurrence: recurrenceField\n    };\n\nreturn [{ json: {\n  event_id: item.event_id,\n  gcal_event_id: item.gcal_event_id,\n  gcal_base_event_id: item.gcal_base_event_id,\n  gcal_scope: gcalScope,\n  start_at: item.start_at,\n  body_string: JSON.stringify(body)\n}}];"
+      },
+      "id": "prep-update",
+      "name": "Preparar Atualizar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1280, -160]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://www.googleapis.com/calendar/v3/calendars/agenciac8br@gmail.com/events/{{ $json.gcal_event_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": { "parameters": [{ "name": "sendUpdates", "value": "all" }] },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.body_string }}",
+        "options": {}
+      },
+      "id": "http-update",
+      "name": "HTTP — Atualizar Evento",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [-1040, -160],
+      "credentials": {
+        "googleCalendarOAuth2Api": { "id": "OfBO2Gs03PqPAkQJ", "name": "Google Calendar - Agência" }
+      }
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "string": [{ "value1": "={{ $json.gcal_event_id }}", "operation": "isNotEmpty" }]
+        }
+      },
+      "id": "check-gcal-id",
+      "name": "Tem GCal ID?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [-1280, 160]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.gcal_scope }}", "rightValue": "this_only", "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" },
+              "renameOutput": true, "outputKey": "this_only"
+            },
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.gcal_scope }}", "rightValue": "this_and_following", "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" },
+              "renameOutput": true, "outputKey": "this_and_following"
+            },
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.gcal_scope }}", "rightValue": "all", "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" },
+              "renameOutput": true, "outputKey": "all"
+            }
+          ]
+        },
+        "options": { "fallbackOutput": "extra" }
+      },
+      "id": "router-delete-scope",
+      "name": "Escopo Exclusão",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [-1040, 160]
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "=https://www.googleapis.com/calendar/v3/calendars/agenciac8br@gmail.com/events/{{ $json.gcal_event_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": { "parameters": [{ "name": "sendUpdates", "value": "all" }] },
+        "options": {}
+      },
+      "id": "http-delete-this",
+      "name": "HTTP — Excluir Este",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [-800, 0],
+      "credentials": {
+        "googleCalendarOAuth2Api": { "id": "OfBO2Gs03PqPAkQJ", "name": "Google Calendar - Agência" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// this_and_following: trunca a serie original com UNTIL = 1 segundo antes do evento selecionado\n// Preserva a RRULE original da série, apenas adiciona UNTIL\nconst item = $input.item.json;\nconst baseId = item.gcal_base_event_id || item.gcal_event_id;\nconst startAt = item.start_at;\n\n// Calcula UNTIL = 1 segundo antes do start_at do evento selecionado\nconst untilDate = new Date(new Date(startAt).getTime() - 1000);\nconst until = untilDate.toISOString().replace(/[-:]/g, '').replace('.000Z', 'Z');\n\n// Reconstrói a RRULE original a partir da recorrência salva no metadata\nconst recurrenceRaw = item.recurrence_raw;\nlet originalRRule = null;\n\nif (item.rrule_array && item.rrule_array.length > 0) {\n  // Usa a RRULE original se disponível, adicionando UNTIL\n  const base = item.rrule_array[0].replace(/;UNTIL=[^;]*/g, '').replace(/;COUNT=[^;]*/g, '');\n  originalRRule = `${base};UNTIL=${until}`;\n} else if (recurrenceRaw) {\n  // Reconstrói a partir do recurrence_raw\n  const BYDAY = ['SU','MO','TU','WE','TH','FR','SA'];\n  const freqMap = { daily:'DAILY', weekly:'WEEKLY', monthly:'MONTHLY', yearly:'YEARLY' };\n  if (typeof recurrenceRaw === 'string') {\n    if (recurrenceRaw === 'daily') originalRRule = `RRULE:FREQ=DAILY;UNTIL=${until}`;\n    else if (recurrenceRaw === 'weekdays') originalRRule = `RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;UNTIL=${until}`;\n    else if (recurrenceRaw.startsWith('weekly_')) originalRRule = `RRULE:FREQ=WEEKLY;UNTIL=${until}`;\n    else if (recurrenceRaw === 'monthly_weekday') originalRRule = `RRULE:FREQ=MONTHLY;UNTIL=${until}`;\n    else if (recurrenceRaw.startsWith('yearly_')) originalRRule = `RRULE:FREQ=YEARLY;UNTIL=${until}`;\n  } else if (recurrenceRaw.type === 'custom') {\n    const freq = freqMap[recurrenceRaw.unit] || 'WEEKLY';\n    let base = `RRULE:FREQ=${freq};INTERVAL=${recurrenceRaw.interval || 1}`;\n    if ((recurrenceRaw.unit === 'weekly') && recurrenceRaw.weekDays?.length > 0) {\n      base += `;BYDAY=${recurrenceRaw.weekDays.map(d => BYDAY[d]).join(',')}`;\n    }\n    originalRRule = `${base};UNTIL=${until}`;\n  }\n}\n\nif (!originalRRule) originalRRule = `RRULE:FREQ=DAILY;UNTIL=${until}`;\n\nreturn [{ json: {\n  gcal_base_event_id: baseId,\n  gcal_event_id: item.gcal_event_id,\n  until_str: until,\n  rrule_truncated: originalRRule\n}}];"
+      },
+      "id": "prep-delete-following",
+      "name": "Preparar Excluir Seguintes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-800, 160]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://www.googleapis.com/calendar/v3/calendars/agenciac8br@gmail.com/events/{{ $json.gcal_base_event_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": { "parameters": [{ "name": "sendUpdates", "value": "all" }] },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ recurrence: [$json.rrule_truncated] }) }}",
+        "options": {}
+      },
+      "id": "http-truncate-series",
+      "name": "HTTP — Truncar Série",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [-560, 160],
+      "credentials": {
+        "googleCalendarOAuth2Api": { "id": "OfBO2Gs03PqPAkQJ", "name": "Google Calendar - Agência" }
+      }
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "=https://www.googleapis.com/calendar/v3/calendars/agenciac8br@gmail.com/events/{{ $json.gcal_base_event_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": { "parameters": [{ "name": "sendUpdates", "value": "all" }] },
+        "options": {}
+      },
+      "id": "http-delete-all",
+      "name": "HTTP — Excluir Todos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [-800, 320],
+      "credentials": {
+        "googleCalendarOAuth2Api": { "id": "OfBO2Gs03PqPAkQJ", "name": "Google Calendar - Agência" }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true }) }}",
+        "options": {}
+      },
+      "id": "respond-ok",
+      "name": "Resposta",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [-240, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, reason: 'skip' }) }}",
+        "options": {}
+      },
+      "id": "respond-skip",
+      "name": "Resposta — Skip",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [-1520, -240]
     }
   ],
-  "pinData": {
-    "Webhook — Agenda Maestr.ia": [
-      {
-        "json": {
-          "headers": {
-            "host": "ia-n8n.whlwlh.easypanel.host",
-            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0",
-            "content-length": "1126",
-            "accept": "*/*",
-            "accept-encoding": "gzip, deflate, br, zstd",
-            "accept-language": "pt-BR,pt;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6,pt-PT;q=0.5",
-            "content-type": "application/json",
-            "dnt": "1",
-            "origin": "http://localhost:8080",
-            "priority": "u=1, i",
-            "referer": "http://localhost:8080/",
-            "sec-ch-ua": "\"Microsoft Edge\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": "\"Windows\"",
-            "sec-fetch-dest": "empty",
-            "sec-fetch-mode": "cors",
-            "sec-fetch-site": "cross-site",
-            "x-forwarded-for": "132.255.153.173",
-            "x-forwarded-host": "ia-n8n.whlwlh.easypanel.host",
-            "x-forwarded-port": "443",
-            "x-forwarded-proto": "https",
-            "x-forwarded-server": "8d767468e9cc",
-            "x-real-ip": "132.255.153.173"
-          },
-          "params": {},
-          "query": {},
-          "body": {
-            "action": "update",
-            "event": {
-              "id": "0e6b6417-8b54-434b-a86e-2a45ab817a12",
-              "organization_id": "5fb8e8ee-81a6-402b-ab7b-315d1cca6407",
-              "profile_id": null,
-              "client_id": null,
-              "lead_id": null,
-              "project_id": null,
-              "title": "teste alter",
-              "description": "hfdhgc",
-              "event_type": "lembrete",
-              "start_at": "2026-04-24T17:00:00+00:00",
-              "end_at": "2026-04-24T18:00:00+00:00",
-              "all_day": false,
-              "location": "teste",
-              "meeting_url": "https://meet.google.com/wmf-ddkr-fsi",
-              "reminders": [],
-              "metadata": {
-                "color": "#f59e0b",
-                "rrule": [
-                  "RRULE:FREQ=WEEKLY;INTERVAL=1;BYDAY=MO,TU,WE,TH,FR;COUNT=5"
-                ],
-                "all_day": false,
-                "attendees": [
-                  "tarcisiopsb23@gmail.com",
-                  "agenciac8br@gmail.com"
-                ],
-                "recurrence": {
-                  "type": "custom",
-                  "unit": "weekly",
-                  "endDate": "",
-                  "endType": "count",
-                  "endCount": 5,
-                  "interval": 1,
-                  "weekDays": [
-                    1,
-                    2,
-                    3,
-                    4,
-                    5
-                  ]
-                },
-                "visibility": "agency"
-              },
-              "created_at": "2026-04-23T15:44:14.418915+00:00",
-              "updated_at": "2026-04-23T19:28:50.543117+00:00",
-              "created_by": null,
-              "team_id": null,
-              "assigned_to": null,
-              "clickup_task_id": null,
-              "gcal_event_id": "kpcdi9i35hhgmp57av4ibmq63s",
-              "is_freelancer": false,
-              "external_source": null,
-              "supplier_id": null,
-              "recurrence_group_id": null,
-              "type": "lembrete"
-            },
-            "gcal_scope": "this_only"
-          },
-          "webhookUrl": "https://ia-n8n.whlwlh.easypanel.host/webhook/agenda-sync",
-          "executionMode": "production"
-        },
-        "pairedItem": {
-          "item": 0
-        }
-      }
-    ]
-  },
+  "pinData": {},
   "connections": {
     "Webhook — Agenda Maestr.ia": {
-      "main": [
-        [
-          {
-            "node": "Parsear Evento",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{ "node": "Parsear Evento", "type": "main", "index": 0 }]]
     },
     "Parsear Evento": {
+      "main": [[{ "node": "Skip?", "type": "main", "index": 0 }]]
+    },
+    "Skip?": {
       "main": [
-        [
-          {
-            "node": "Skip?1",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Resposta — Skip", "type": "main", "index": 0 }],
+        [{ "node": "Roteador de Ação", "type": "main", "index": 0 }]
       ]
+    },
+    "Roteador de Ação": {
+      "main": [
+        [{ "node": "Preparar Criar",      "type": "main", "index": 0 }],
+        [{ "node": "Preparar Atualizar",  "type": "main", "index": 0 }],
+        [{ "node": "Tem GCal ID?",        "type": "main", "index": 0 }]
+      ]
+    },
+    "Preparar Criar": {
+      "main": [[{ "node": "HTTP — Criar Evento", "type": "main", "index": 0 }]]
+    },
+    "HTTP — Criar Evento": {
+      "main": [[{ "node": "Consolidar IDs", "type": "main", "index": 0 }]]
     },
     "Consolidar IDs": {
-      "main": [
-        [
-          {
-            "node": "Salvar gcal_event_id",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{ "node": "Salvar gcal_event_id", "type": "main", "index": 0 }]]
     },
     "Salvar gcal_event_id": {
-      "main": [
-        [
-          {
-            "node": "Resposta",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{ "node": "Preparar Filhos gcal_event_id", "type": "main", "index": 0 }]]
+    },
+    "Preparar Filhos gcal_event_id": {
+      "main": [[{ "node": "Salvar gcal_event_id Filhos", "type": "main", "index": 0 }]]
+    },
+    "Salvar gcal_event_id Filhos": {
+      "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]]
+    },
+    "Preparar Atualizar": {
+      "main": [[{ "node": "HTTP — Atualizar Evento", "type": "main", "index": 0 }]]
+    },
+    "HTTP — Atualizar Evento": {
+      "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]]
     },
     "Tem GCal ID?": {
       "main": [
-        [
-          {
-            "node": "GCal — Excluir Evento",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Resposta",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Escopo Exclusão", "type": "main", "index": 0 }],
+        [{ "node": "Resposta",        "type": "main", "index": 0 }]
       ]
     },
-    "GCal — Excluir Evento": {
+    "Escopo Exclusão": {
       "main": [
-        [
-          {
-            "node": "Resposta",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "HTTP — Excluir Este",      "type": "main", "index": 0 }],
+        [{ "node": "Preparar Excluir Seguintes","type": "main", "index": 0 }],
+        [{ "node": "HTTP — Excluir Todos",      "type": "main", "index": 0 }],
+        [{ "node": "HTTP — Excluir Este",       "type": "main", "index": 0 }]
       ]
     },
-    "Skip?1": {
-      "main": [
-        [
-          {
-            "node": "Resposta — Skip1",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Roteador de Ação1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+    "HTTP — Excluir Este": {
+      "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]]
     },
-    "Roteador de Ação1": {
-      "main": [
-        [
-          {
-            "node": "Normalizar Dados",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Code in JavaScript",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Tem GCal ID?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+    "Preparar Excluir Seguintes": {
+      "main": [[{ "node": "HTTP — Truncar Série", "type": "main", "index": 0 }]]
     },
-    "HTTP Request": {
-      "main": [
-        [
-          {
-            "node": "Resposta",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+    "HTTP — Truncar Série": {
+      "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]]
     },
-    "Code in JavaScript": {
-      "main": [
-        [
-          {
-            "node": "HTTP Request",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Criar Google Calendar": {
-      "main": [
-        [
-          {
-            "node": "Consolidar IDs",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Normalizar Dados": {
-      "main": [
-        [
-          {
-            "node": "Criar Google Calendar",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+    "HTTP — Excluir Todos": {
+      "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]]
     }
   },
   "active": true,
-  "settings": {
-    "executionOrder": "v1",
-    "availableInMCP": false
-  },
-  "versionId": "84f3609d-0add-41f5-926b-06249b1f61ee",
+  "settings": { "executionOrder": "v1", "availableInMCP": false },
+  "versionId": "7a1b2c3d-4e5f-6789-abcd-ef0123456789",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "2578bc35b6bdc499db10723a4b7f8f3a18d5bc2bb18bff2484fc584b5c1bf2ee"

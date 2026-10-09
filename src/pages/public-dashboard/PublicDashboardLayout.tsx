@@ -33,6 +33,9 @@ const ROUTE_ROLE_MAP: Record<string, Role> = {
   "/crm/clientes":               "member",
   "/crm/pipeline":               "member",
   "/crm/produtos":               "member",
+  "/agenda":                     "member",
+  "/agenda/configuracoes":       "manager",
+  "/agenda/link":                "member",
 };
 
 const ROLE_ORDER: Role[] = ["viewer", "member", "manager", "admin", "owner"];
@@ -42,8 +45,8 @@ function hasRole(userRole: Role, requiredRole: Role): boolean {
 }
 
 // ─── Rotas que exigem show_ia_content ─────────────────────────────────────────
-
-const IA_ROUTES = ["/agenda", "/promocoes", "/sugestoes", "/avisos", "/eventos"];
+// Agenda é um módulo separado (agenda_enabled) — não depende de show_ia_content
+const IA_ROUTES = ["/promocoes", "/sugestoes", "/avisos", "/eventos"];
 
 // ─── Inner Layout ─────────────────────────────────────────────────────────────
 
@@ -66,6 +69,13 @@ function PublicDashboardLayoutInner({ slug }: { slug: string }) {
     supabase.rpc("get_client_by_slug", { p_slug: slug }).then(({ data }) => {
       if (data && data.length > 0) {
         const fresh = data[0];
+
+        // Verifica se o acesso expirou (contrato encerrado ou cliente bloqueado)
+        if (fresh.subscription_status === "cancelado" || fresh.subscription_status === "bloqueado") {
+          logout();
+          return;
+        }
+
         setAuth({
           ...auth,
           show_ia_content: fresh.show_ia_content ?? false,
@@ -98,9 +108,11 @@ function PublicDashboardLayoutInner({ slug }: { slug: string }) {
     });
   }, [slug]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-logout por inatividade (30 min)
+  // Auto-logout por inatividade — 5 min para suporte, 30 min para usuários normais
+  const isSupportUser = !!(auth?.user?.email?.match(/^[a-z0-9]{10}@[a-z0-9.-]+\.[a-z]{2,}$/));
+
   useEffect(() => {
-    const TIMEOUT = 30 * 60 * 1000;
+    const TIMEOUT = isSupportUser ? 5 * 60 * 1000 : 30 * 60 * 1000;
     let timer: ReturnType<typeof setTimeout>;
     const reset = () => {
       clearTimeout(timer);
@@ -113,16 +125,23 @@ function PublicDashboardLayoutInner({ slug }: { slug: string }) {
       clearTimeout(timer);
       events.forEach((e) => window.removeEventListener(e, reset));
     };
-  }, [logout]);
+  }, [logout, isSupportUser]);
 
   // Guards de rota — todos os hooks já foram chamados, safe para retornar aqui
+  const userRole    = (auth?.user?.role ?? "viewer") as Role;
+  const routeSuffix = location.pathname.replace(`/public/dashboard/${slug}`, "") || "/";
+
   const isIaRoute = IA_ROUTES.some((r) => location.pathname.endsWith(r));
   if (isIaRoute && !auth?.show_ia_content) {
     return <Navigate to={`/public/dashboard/${slug}`} replace />;
   }
 
-  const userRole = (auth?.user?.role ?? "viewer") as Role;
-  const routeSuffix = location.pathname.replace(`/public/dashboard/${slug}`, "") || "/";
+  // Guard do módulo Agenda — redireciona se não habilitado
+  const isAgendaRoute = routeSuffix === "/agenda" || routeSuffix.startsWith("/agenda/");
+  if (isAgendaRoute && !auth?.modules_config?.agenda_enabled) {
+    return <Navigate to={`/public/dashboard/${slug}`} replace />;
+  }
+
   const requiredRole = Object.entries(ROUTE_ROLE_MAP).find(([route]) =>
     routeSuffix === route || routeSuffix.startsWith(route + "/")
   )?.[1] as Role | undefined;
@@ -174,9 +193,42 @@ export function PublicDashboardLayout() {
     return <Navigate to={`/public/dashboard/${slug}/login`} replace />;
   }
 
+  // Se o usuário ainda precisa definir senha permanente, bloqueia o dashboard
+  const hasForcedChange = (() => {
+    try {
+      const raw = sessionStorage.getItem(`client_auth_v2_${slug}`);
+      const parsed = raw ? JSON.parse(raw) : null;
+      return parsed?.force_password_change === true;
+    } catch { return false; }
+  })();
+
+  if (hasForcedChange) {
+    return <Navigate to={`/public/dashboard/${slug}/set-password`} replace />;
+  }
+
   return (
     <ClientAuthProvider slug={slug!}>
-      <PublicDashboardLayoutInner slug={slug!} />
+      <AuthGuardInner slug={slug!} />
     </ClientAuthProvider>
   );
+}
+
+/**
+ * Guard reativo — lê o estado do contexto diretamente.
+ * Quando logout() chama setAuthState(null), este componente
+ * re-renderiza imediatamente e redireciona para o login,
+ * sem depender do useMemo externo (que não é reativo).
+ */
+function AuthGuardInner({ slug }: { slug: string }) {
+  const { auth } = useClientAuth();
+
+  if (!auth) {
+    return <Navigate to={`/public/dashboard/${slug}/login`} replace />;
+  }
+
+  if ((auth as any).force_password_change === true) {
+    return <Navigate to={`/public/dashboard/${slug}/set-password`} replace />;
+  }
+
+  return <PublicDashboardLayoutInner slug={slug} />;
 }

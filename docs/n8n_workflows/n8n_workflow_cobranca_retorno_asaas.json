@@ -1,0 +1,166 @@
+{
+  "name": "Maestr.ia — Retorno Asaas (Atualizar Status Cobrança)",
+  "_readme": {
+    "description": "Recebe webhooks do Asaas quando o status de uma cobrança muda (pago, vencido, cancelado) e atualiza automaticamente o status do pagamento correspondente no Maestr.ia.",
+    "webhook_config": "Configurar esta URL no painel do Asaas: Configurações → Integrações → Webhooks → Nova URL. Eventos: PAYMENT_RECEIVED, PAYMENT_CONFIRMED, PAYMENT_OVERDUE, PAYMENT_DELETED, PAYMENT_REFUNDED",
+    "env_vars": ["SUPABASE_URL", "SUPABASE_SERVICE_KEY"],
+    "asaas_setup": [
+      "1. Acesse o Asaas → Configurações → Integrações → Webhooks",
+      "2. Adicione a URL do webhook 'retorno-asaas' do n8n",
+      "3. Marque os eventos: PAYMENT_RECEIVED, PAYMENT_CONFIRMED, PAYMENT_OVERDUE, PAYMENT_DELETED, PAYMENT_REFUNDED",
+      "4. O campo externalReference nos pagamentos do Asaas deve ser o payment_id do Maestr.ia"
+    ],
+    "status_mapping": {
+      "PAYMENT_RECEIVED": "pago",
+      "PAYMENT_CONFIRMED": "pago",
+      "PAYMENT_OVERDUE": "atrasado",
+      "PAYMENT_DELETED": "cancelado",
+      "PAYMENT_REFUNDED": "reembolsado"
+    }
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "retorno-asaas",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-retorno",
+      "name": "Webhook — Retorno Asaas",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "retorno-asaas",
+      "_comment": "Registrar esta URL no painel do Asaas em Configurações → Integrações → Webhooks"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mapeia eventos do Asaas para status do Maestr.ia\nconst body = $input.item.json.body || $input.item.json;\nconst event = body.event;\nconst payment = body.payment;\n\nif (!event || !payment) {\n  return [{ json: { skip: true, reason: 'Evento ou pagamento ausente' } }];\n}\n\nconst statusMap = {\n  PAYMENT_RECEIVED:  'pago',\n  PAYMENT_CONFIRMED: 'pago',\n  PAYMENT_OVERDUE:   'atrasado',\n  PAYMENT_DELETED:   'cancelado',\n  PAYMENT_REFUNDED:  'reembolsado',\n  PAYMENT_RESTORED:  'pendente',\n};\n\nconst newStatus = statusMap[event];\nif (!newStatus) {\n  return [{ json: { skip: true, reason: `Evento não tratado: ${event}` } }];\n}\n\n// externalReference deve ser o payment_id do Maestr.ia\nconst paymentId = payment.externalReference;\nif (!paymentId) {\n  return [{ json: { skip: true, reason: 'externalReference ausente — não é cobrança do Maestr.ia' } }];\n}\n\nreturn [{ json: {\n  payment_id: paymentId,\n  asaas_id: payment.id,\n  event,\n  new_status: newStatus,\n  paid_at: payment.paymentDate ? new Date(payment.paymentDate).toISOString() : null,\n  value: payment.value,\n  net_value: payment.netValue,\n  invoice_url: payment.invoiceUrl,\n  bank_slip_url: payment.bankSlipUrl,\n} }];"
+      },
+      "id": "parse-event",
+      "name": "Parsear Evento Asaas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{ $json.skip }}", "value2": true }]
+        }
+      },
+      "id": "skip-check",
+      "name": "Ignorar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Monta payload de atualização para o Maestr.ia\nconst data = $input.item.json;\n\nconst update = {\n  status: data.new_status,\n};\n\n// Só atualiza paid_at se foi recebido\nif (data.paid_at) {\n  update.paid_at = data.paid_at;\n}\n\n// Atualiza metadata com dados do Asaas\nupdate.metadata = {\n  asaas_id: data.asaas_id,\n  invoice_url: data.invoice_url,\n  bank_slip_url: data.bank_slip_url,\n  net_value: data.net_value,\n  last_asaas_event: data.event,\n  updated_from_asaas_at: new Date().toISOString(),\n};\n\nreturn [{ json: { payment_id: data.payment_id, update, event: data.event } }];"
+      },
+      "id": "prepare-update",
+      "name": "Preparar Atualização",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/payments?id=eq.{{ $json.payment_id }}",
+        "method": "PATCH",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify($json.update) }}"
+      },
+      "id": "update-payment",
+      "name": "Atualizar Pagamento no Maestr.ia",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1120, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [{ "value1": "={{ $('Preparar Atualização').item.json.event }}", "value2": "PAYMENT_RECEIVED", "operation": "equals" }]
+        }
+      },
+      "id": "if-paid",
+      "name": "Foi Pago?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1340, 400]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/contracts_v2?id=eq.{{ $json[0].contract_id }}&select=id,client_id,title",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
+          ]
+        }
+      },
+      "id": "get-contract",
+      "name": "Buscar Contrato",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1560, 300],
+      "_comment": "Opcional: busca dados do contrato para enviar notificação ao cliente"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ received: true, event: $('Parsear Evento Asaas').item.json.event, payment_id: $('Parsear Evento Asaas').item.json.payment_id }) }}"
+      },
+      "id": "respond-ok",
+      "name": "Resposta OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1780, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ received: true, skipped: true, reason: $json.reason }) }}"
+      },
+      "id": "respond-skip",
+      "name": "Resposta Skip",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 200]
+    }
+  ],
+  "connections": {
+    "Webhook — Retorno Asaas": { "main": [[{ "node": "Parsear Evento Asaas", "type": "main", "index": 0 }]] },
+    "Parsear Evento Asaas": { "main": [[{ "node": "Ignorar?", "type": "main", "index": 0 }]] },
+    "Ignorar?": {
+      "main": [
+        [{ "node": "Resposta Skip", "type": "main", "index": 0 }],
+        [{ "node": "Preparar Atualização", "type": "main", "index": 0 }]
+      ]
+    },
+    "Preparar Atualização": { "main": [[{ "node": "Atualizar Pagamento no Maestr.ia", "type": "main", "index": 0 }]] },
+    "Atualizar Pagamento no Maestr.ia": { "main": [[{ "node": "Foi Pago?", "type": "main", "index": 0 }]] },
+    "Foi Pago?": {
+      "main": [
+        [{ "node": "Buscar Contrato", "type": "main", "index": 0 }],
+        [{ "node": "Resposta OK", "type": "main", "index": 0 }]
+      ]
+    },
+    "Buscar Contrato": { "main": [[{ "node": "Resposta OK", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" }
+}

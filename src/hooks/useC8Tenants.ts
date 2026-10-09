@@ -27,12 +27,29 @@ export interface C8Tenant {
   client_supabase_email_set: boolean;
   client_supabase_password_set: boolean;
   dashboard_slug: string | null;
-  // Acesso gratuito
+  // Acesso gratuito / incluído
   c8_free_access: boolean;
   free_access_until: string | null;
   free_access_reason: string | null;
+  c8_included: boolean;
   // Schema
   c8_schema_updated_at: string | null;
+  // Módulos do dashboard do cliente
+  modules_config: {
+    crm_enabled?: boolean;
+    agenda_enabled?: boolean;
+    messaging_enabled?: boolean;
+    automation_enabled?: boolean;
+    demographics_enabled?: boolean;
+    dashboard_geral_enabled?: boolean;
+    dashboard_performance_enabled?: boolean;
+    dashboard_atendimento_enabled?: boolean;
+    max_contacts?: number;
+    max_users?: number;
+    // Legado
+    whatsapp_enabled?: boolean;
+    ia_enabled?: boolean;
+  } | null;
 }
 
 export function useC8Tenants(organizationId: string | undefined) {
@@ -60,7 +77,9 @@ export function useC8Tenants(organizationId: string | undefined) {
           c8_free_access,
           free_access_until,
           free_access_reason,
+          c8_included,
           c8_schema_updated_at,
+          modules_config,
           clients!inner (
             id,
             name,
@@ -158,12 +177,15 @@ export function useC8Tenants(organizationId: string | undefined) {
           client_supabase_email_set: client?.client_supabase_email_set ?? false,
           client_supabase_password_set: client?.client_supabase_password_set ?? false,
           dashboard_slug: client?.dashboard_slug ?? null,
-          // Acesso gratuito
+          // Acesso gratuito / incluído
           c8_free_access: planAny.c8_free_access ?? false,
           free_access_until: planAny.free_access_until ?? null,
           free_access_reason: planAny.free_access_reason ?? null,
+          c8_included: planAny.c8_included ?? false,
           // Schema
           c8_schema_updated_at: planAny.c8_schema_updated_at ?? null,
+          // Módulos do dashboard do cliente
+          modules_config: (planAny.modules_config as C8Tenant["modules_config"]) ?? null,
         };
       });
     },

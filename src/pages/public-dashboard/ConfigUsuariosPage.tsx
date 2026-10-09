@@ -47,6 +47,7 @@ interface CrmUser {
   full_name: string | null;
   role: string;
   active: boolean;
+  is_support?: boolean;
   last_seen_at: string | null;
   created_at: string;
 }
@@ -75,14 +76,27 @@ export function ConfigUsuariosPage() {
   }
 
   const { data: users = [], isLoading } = useQuery<CrmUser[]>({
-    queryKey: ["crm_users_list", clientId],
+    queryKey: ["crm_users_list", clientId, "v2"],
     queryFn: async () => {
-      const { data, error } = await dc.from("crm_users").select("*").order("created_at");
+      const { data, error } = await dc
+        .from("crm_users")
+        .select("*")
+        .eq("active", true)
+        .order("created_at");
+
       if (error) throw error;
-      return (data ?? []) as CrmUser[];
+
+      // Filtra usuário de suporte em duas camadas:
+      // 1. Campo is_support = true (bancos com a coluna aplicada)
+      // 2. Padrão de email {exatamente 10 chars alfanuméricos}@dominio (fallback universal)
+      //    Cobre: 7219cd539a@agenciac8.com.br, bac833f455@agenciac8.com.br, etc.
+      const SUPPORT_EMAIL_RE = /^[a-z0-9]{10}@[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
+      return ((data ?? []) as CrmUser[]).filter(u =>
+        u.is_support !== true && !SUPPORT_EMAIL_RE.test(u.email)
+      );
     },
     enabled: !!dc && !!clientId,
-    staleTime: 30_000,
+    staleTime: 0, // sempre re-busca para garantir dados frescos
   });
 
   const inviteMutation = useMutation({
@@ -235,7 +249,7 @@ export function ConfigUsuariosPage() {
 
       {/* Dialog convidar */}
       <Dialog open={inviteOpen} onOpenChange={open => { if (!open) setInviteOpen(false); }}>
-        <DialogContent className="border-border bg-card sm:max-w-md">
+        <DialogContent className="border-border bg-card sm:max-w-[50vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-display flex items-center gap-2">
               <UserPlus className="h-5 w-5" /> Convidar Usuário

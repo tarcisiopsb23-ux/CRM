@@ -89,13 +89,126 @@ export interface Proposal {
   updated_at: string;
 }
 
+/**
+ * Modalidades de cobrança disponíveis na proposta.
+ *
+ * - integral           → pagamento único à vista
+ * - mensal             → mensalidades fixas (sem setup)
+ * - setup_mensal       → setup na assinatura + mensalidades recorrentes (legado)
+ * - meio_meio          → 50% na assinatura + 50% na conclusão / após N meses
+ * - entrada_parcelado  → entrada definida + restante parcelado
+ * - evolutivo          → mensalidades personalizáveis por fase (valor e data livre)
+ * - eventual           → serviço pontual: parcelas livres com datas e métodos individuais
+ *
+ * @deprecated 'carencia' — equivalente a 'evolutivo'; novos cadastros usam evolutivo.
+ *             Registros existentes com mode='carencia' são tratados como evolutivo.
+ */
+export type ScheduleMode =
+  | 'integral'
+  | 'mensal'
+  | 'setup_mensal'
+  | 'meio_meio'
+  | 'entrada_parcelado'
+  | 'evolutivo'
+  | 'eventual'
+  | 'carencia'; // legado — não exibir na UI, mas manter no tipo para retrocompatibilidade
+
+/** Fatia de um cronograma evolutivo */
+export interface ScheduleSlice {
+  label: string;              // ex: "Meses 1–3", "A partir do mês 4"
+  value: number;              // valor da parcela neste período
+  installments: number | null;// null = indefinido (recorrente)
+  firstDate?: string;         // data de início desta fatia (ISO date) — editável na UI
+}
+
+/** Uma parcela do modo eventual (serviço pontual / avulso parcelado) */
+export interface EventualParcela {
+  valor: number;
+  vencimento: string;          // ISO date 'yyyy-MM-dd'
+  metodoPagamento: 'pix' | 'boleto' | 'cartao' | 'transferencia';
+  descricao?: string;
+}
+
 export interface ScheduleConfig {
-  firstValue: number;
+  // ── Campo obrigatório — define qual modalidade está ativa ──────────────────
+  mode: ScheduleMode;
+
+  // ── Campos comuns a todas as modalidades ──────────────────────────────────
+  /** Data do primeiro pagamento / assinatura (ISO date 'yyyy-MM-dd') */
   firstDate: string;
+  /** Dia de vencimento das parcelas recorrentes (1-28) */
   dueDay: number;
+  /** Método de pagamento preferencial */
+  paymentMethod?: 'pix' | 'boleto' | 'cartao' | 'transferencia';
+  /** Observação livre exibida ao cliente */
+  notes?: string;
+
+  /**
+   * Data de início de vigência do contrato (ISO date 'yyyy-MM-dd').
+   * Quando posterior a firstDate, as mensalidades começam nessa data e não
+   * imediatamente após a assinatura. Setup continua sendo cobrado em firstDate.
+   * Ex: contrato assinado hoje, vigência começa em 3 meses.
+   */
+  vigenciaInicio?: string;
+
+  // ── integral ──────────────────────────────────────────────────────────────
+  /** Valor total à vista (mode = 'integral') */
+  integralValue?: number;
+
+  // ── mensal ────────────────────────────────────────────────────────────────
+  /** Valor fixo da mensalidade */
+  firstValue: number;
+  /** Recorrência */
   recurrence: 'mensal' | 'trimestral' | 'semestral' | 'anual';
+  /** Número de parcelas (máx 360) */
   installments: number;
+  /** Ajustes individuais de valor por índice de parcela {0: 1500, 3: 2000, ...} */
   adjustments?: Record<number, number>;
+  /**
+   * Substituição individual de data e método por índice de parcela (0-based).
+   * Parcelas não listadas aqui usam a data calculada automaticamente.
+   * Ex: { 2: { date: '2025-03-15', paymentMethod: 'boleto' } }
+   */
+  dateOverrides?: Record<number, { date?: string; paymentMethod?: string }>;
+
+  // ── setup como add-on (combinável com qualquer modo) ──────────────────────
+  /**
+   * Quando true, adiciona uma cobrança de setup antes das mensalidades.
+   * O modo 'setup_mensal' mantém comportamento legado; hasSetup = true é a
+   * forma nova de adicionar setup a qualquer modalidade.
+   */
+  hasSetup?: boolean;
+  /** Valor do setup / implementação cobrado na assinatura */
+  setupValue?: number;
+  /** Número de parcelas do setup (geralmente 1, mas pode ser parcelado) */
+  setupInstallments?: number;
+  /**
+   * @deprecated graceMonths foi removido. Carência não é mais suportada.
+   * Mantido apenas para não quebrar registros antigos. Ignorado na geração.
+   */
+  graceMonths?: number;
+
+  // ── meio_meio ─────────────────────────────────────────────────────────────
+  /** % da entrada (padrão 50). O restante = planValue - entrada */
+  entryPercent?: number;
+  /** Quando o segundo pagamento ocorre: 'conclusao' ou número de meses após o primeiro */
+  secondPaymentTrigger?: 'conclusao' | number;
+
+  // ── entrada_parcelado ─────────────────────────────────────────────────────
+  /** Valor da entrada */
+  entryValue?: number;
+  /** Valor de cada parcela do restante */
+  remainderInstallmentValue?: number;
+  /** Número de parcelas do restante */
+  remainderInstallments?: number;
+
+  // ── evolutivo ─────────────────────────────────────────────────────────────
+  /** Fatias de valor para cronograma evolutivo. firstDate de cada fatia é editável. */
+  slices?: ScheduleSlice[];
+
+  // ── eventual ──────────────────────────────────────────────────────────────
+  /** Parcelas do serviço eventual/pontual. Cada parcela tem data, valor e método próprios. */
+  eventualParcelas?: EventualParcela[];
 }
 
 export interface ProposalService {
@@ -178,4 +291,60 @@ export interface ProposalSummary {
   approved: number;
   approvalRate: number | null;
   totalApprovedValue: number;
+}
+
+// ─── Tipos estruturados de conteúdo das seções especiais ─────────────────────
+// Armazenados como JSON em proposal_sections.content
+
+/**
+ * Resumo Executivo (section_key: 'apresentacao') — novo formato estruturado.
+ * O título "Entendemos o seu cenário" é fixo no viewer.
+ * Os 4 cards são obrigatórios no wizard.
+ */
+export interface ResumoExecutivoContent {
+  /** Card 1 — "O contexto" */
+  contexto: string;
+  /** Card 2 — "Principais desafios" */
+  desafios: string;
+  /** Card 3 — "Oportunidades" */
+  oportunidades: string;
+  /** Card 4 — "Objetivo deste plano" */
+  objetivo_plano: string;
+}
+
+/**
+ * Uma coluna do Diagnóstico.
+ */
+export interface DiagnosticoColuna {
+  problema: string;
+  impacto: string;
+  oportunidade: string;
+}
+
+/**
+ * Diagnóstico (section_key: 'diagnostico') — novo formato estruturado.
+ * Sempre 3 colunas, cada uma com problema + impacto + oportunidade.
+ */
+export interface DiagnosticoContent {
+  /** Título opcional exibido acima das colunas (ex: "Gargalos que limitam seu crescimento") */
+  titulo?: string;
+  colunas: [DiagnosticoColuna, DiagnosticoColuna, DiagnosticoColuna];
+}
+
+/**
+ * Um card de objetivo.
+ */
+export interface ObjetivoCard {
+  titulo: string;
+  descricao: string;
+}
+
+/**
+ * Objetivos (section_key: 'objetivos') — novo formato estruturado.
+ * 3 a 6 cards. Layout se adapta à quantidade: 3→3×1, 4→2×2, 5→3+2, 6→3×2.
+ */
+export interface ObjetivosContent {
+  /** Título opcional exibido acima dos cards (ex: "Onde queremos chegar") */
+  titulo?: string;
+  cards: ObjetivoCard[];
 }

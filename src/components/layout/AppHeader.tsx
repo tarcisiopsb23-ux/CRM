@@ -1,8 +1,9 @@
 import { useMemo } from "react";
-import { Bell, LogOut, Search, UsersRound, Lock, Sun, Moon, Monitor, Type, Palette } from "lucide-react";
+import { LogOut, Search, UsersRound, Lock, Sun, Moon, Monitor, Type, Palette } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -60,9 +61,7 @@ export function AppHeader() {
         />
       </div>
       <div className="flex items-center gap-2">
-        <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
-          <Bell className="h-5 w-5" />
-        </Button>
+        <NotificationBell />
         {!chat.isOpen && (
           <ChatIcon unreadCount={chat.totalUnread} onClick={chat.openPanel} />
         )}

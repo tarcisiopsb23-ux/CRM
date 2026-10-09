@@ -1,15 +1,8 @@
 /**
- * PublicDashboardLoginPage — Fase 1 (T-1.1)
+ * PublicDashboardLoginPage — Banco A unificado
  *
- * Migração hard: autenticação por email + senha via Supabase Auth do Banco B.
- * A senha única antiga foi removida. Todos os usuários precisam ser
- * recadastrados pelo C8 Control antes de acessar.
- *
- * Fluxo:
- * 1. Busca dados do cliente no Banco A via RPC get_client_by_slug
- * 2. Autentica o usuário no Banco B (Supabase do cliente) via signInWithPassword
- * 3. Carrega role do usuário em crm_users no Banco B
- * 4. Salva sessão JWT no ClientAuthContext (sessionStorage, não localStorage)
+ * Autenticação via Edge Function client-dashboard-auth.
+ * Todos os clientes operam no Banco A.
  */
 
 import { useState, useEffect } from "react";
@@ -23,7 +16,6 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Activity, Lock, Mail, Loader2, ArrowLeft, AlertCircle } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { createClientSupabase } from "@/lib/createClientSupabase";
 import { toast } from "sonner";
 import type { ClientAuth } from "@/contexts/ClientAuthContext";
 import type { DynamicUser } from "@/hooks/useDynamicAuth";
@@ -56,26 +48,6 @@ function incrementRateLimit(slug: string): void {
 
 function resetRateLimit(slug: string): void {
   sessionStorage.removeItem(`rl_login_${slug}`);
-}
-
-// ─── Tipo da RPC ──────────────────────────────────────────────────────────────
-
-interface ClientRow {
-  id: string;
-  name: string;
-  company: string | null;
-  dashboard_slug: string;
-  organization_id: string;
-  favicon_url: string | null;
-  dashboard_performance: boolean;
-  dashboard_atendimento: boolean;
-  show_ia_content: boolean;
-  client_supabase_url: string | null;
-  client_supabase_anon_key: string | null;
-  conversion_metrics?: { lead_fields?: string[]; sale_fields?: string[] } | null;
-  dashboard_kpis?: string[] | null;
-  geral_dashboard_cards?: string[] | null;
-  modules_config?: Record<string, unknown> | null;
 }
 
 // ─── Componente ───────────────────────────────────────────────────────────────
@@ -135,198 +107,82 @@ export function PublicDashboardLoginPage() {
     incrementRateLimit(slug);
 
     try {
-      // ── Tenta autenticar via Edge Function (rate limiting server-side) ──────
-      // A edge function client-dashboard-auth valida slug, aplica rate limit por IP
-      // e retorna a session JWT sem expor a anon_key do Banco B.
+      // ── Autenticação via Edge Function ──────────────────────────────────────
       const edgeFnUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/client-dashboard-auth`;
       const anonKey   = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
 
-      let session: import("@supabase/supabase-js").Session | null = null;
-      let userId: string | null = null;
-      let clientRow: ClientRow | null = null;
-
-      try {
-        const resp = await fetch(edgeFnUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "apikey":        anonKey,
-            "Authorization": `Bearer ${anonKey}`,
-          },
-          body: JSON.stringify({ slug: slug.trim(), email: email.trim().toLowerCase(), password }),
-        });
-
-        const data = await resp.json();
-
-        if (resp.status === 429) {
-          setError(data.error ?? "Muitas tentativas. Aguarde antes de tentar novamente.");
-          return;
-        }
-
-        if (resp.ok && data.session) {
-          session = data.session as import("@supabase/supabase-js").Session;
-          userId  = data.user?.id ?? null;
-        }
-        // Se a edge function falhou por outro motivo, cai no fluxo direto abaixo
-      } catch {
-        // Edge function indisponível — usa fluxo direto
-      }
-
-      // ── Fluxo direto (fallback ou quando edge function não usada) ─────────
-      // 1. Busca dados do cliente no Banco A
-      const { data: clients, error: fetchError } = await supabase
-        .rpc("get_client_by_slug", { p_slug: slug.trim() });
-
-      if (fetchError || !clients?.length) {
-        setError("Dashboard não encontrado. Verifique o endereço de acesso.");
-        return;
-      }
-
-      clientRow = clients[0] as ClientRow;
-
-      if (!clientRow.client_supabase_url || !clientRow.client_supabase_anon_key) {
-        setError("Este dashboard ainda não foi configurado. Contate o administrador.");
-        return;
-      }
-
-      // 2. Se não autenticou via edge function, autentica diretamente no Banco B
-      if (!session || !userId) {
-        const bankB = createClientSupabase(
-          clientRow.client_supabase_url,
-          clientRow.client_supabase_anon_key
-        );
-
-        const { data: authData, error: authError } = await bankB.auth.signInWithPassword({
-          email: email.trim().toLowerCase(),
-          password,
-        });
-
-        if (authError || !authData.session) {
-          setError("E-mail ou senha inválidos.");
-          return;
-        }
-
-        session = authData.session;
-        userId  = authData.user.id;
-      }
-
-      // 3. Carrega dados do usuário — primeiro tenta crm_users via sessão autenticada,
-      //    depois faz fallback para user_metadata do JWT (sempre disponível)
-      const bankBForUser = createClientSupabase(
-        clientRow.client_supabase_url,
-        clientRow.client_supabase_anon_key
-      );
-      await bankBForUser.auth.setSession({
-        access_token:  session.access_token,
-        refresh_token: session.refresh_token,
+      const resp = await fetch(edgeFnUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey":        anonKey,
+          "Authorization": `Bearer ${anonKey}`,
+        },
+        body: JSON.stringify({ slug: slug.trim(), email: email.trim().toLowerCase(), password }),
       });
 
-      // Tenta ler crm_users com a sessão do usuário (RLS permite authenticated)
-      const { data: userData } = await bankBForUser
-        .from("crm_users")
-        .select("id, email, full_name, role, client_id, avatar_url")
-        .eq("id", userId)
-        .eq("active", true)
-        .maybeSingle();
+      const data = await resp.json();
 
-      // Se crm_users retornou "member" mas o registro local diz is_primary,
-      // o usuário é o principal e deve ter role "owner"
-      let effectiveRole = userData?.role ?? null;
-      if (effectiveRole === "member") {
-        const { data: localRecord } = await supabase
-          .from("crm_client_users")
-          .select("is_primary")
-          .eq("client_id", clientRow.id)
-          .ilike("email", email.trim().toLowerCase())
-          .maybeSingle();
-        if (localRecord?.is_primary) {
-          effectiveRole = "owner";
-          // Corrige o role no Banco B para refletir o correto nas próximas sessões
-          bankBForUser
-            .from("crm_users")
-            .update({ role: "owner" })
-            .eq("id", userId)
-            .then(() => {/* fire-and-forget */});
-        }
-      }
-
-      // Se crm_users não retornou (trigger ainda não rodou, RLS bloqueou, etc.),
-      // monta o perfil a partir dos metadados do JWT — sempre presentes
-      const { data: { user: authUser } } = await bankBForUser.auth.getUser();
-
-      if (!userData && !authUser) {
-        const bankBCleanup = createClientSupabase(
-          clientRow.client_supabase_url,
-          clientRow.client_supabase_anon_key
-        );
-        await bankBCleanup.auth.signOut();
-        setError("Usuário não encontrado ou sem acesso. Contate o administrador.");
+      if (resp.status === 429) {
+        setError(data.error ?? "Muitas tentativas. Aguarde antes de tentar novamente.");
         return;
       }
 
-      const meta = authUser?.user_metadata ?? {};
-      const resolvedUser = {
-        id:        userId!,
-        email:     userData?.email      ?? authUser?.email ?? email.trim().toLowerCase(),
-        full_name: userData?.full_name  ?? (meta.full_name as string | null) ?? (meta.name as string | null) ?? null,
-        // Hierarquia: role corrigido > role do crm_users > role do metadata > "owner" (fallback para usuário sem role)
-        role:      effectiveRole ?? (meta.role as string | null) ?? "owner",
-        client_id: userData?.client_id  ?? (meta.client_id as string | null) ?? clientRow.id,
-        avatar_url: userData?.avatar_url ?? null,
-      };
+      if (!resp.ok || !data.session) {
+        setError(data.error ?? "E-mail ou senha inválidos.");
+        return;
+      }
+
+      const session       = data.session as import("@supabase/supabase-js").Session;
+      const bankAClientInfo = data.client_info;
+      const bankAUser     = data.user;
+
+      if (!bankAClientInfo || !bankAUser) {
+        setError("Erro ao obter dados do dashboard. Tente novamente.");
+        return;
+      }
 
       resetRateLimit(slug);
 
-      // 4. Monta o auth completo e salva na sessão (sem senha, sem anon_key)
       const dynamicUser: DynamicUser = {
-        id:        resolvedUser.id,
-        email:     resolvedUser.email,
-        full_name: resolvedUser.full_name,
-        role:      resolvedUser.role,
-        client_id: resolvedUser.client_id,
-        avatar_url: resolvedUser.avatar_url,
+        id:        bankAUser.id,
+        email:     bankAUser.email,
+        full_name: bankAUser.full_name ?? null,
+        role:      bankAUser.role ?? "member",
+        client_id: bankAClientInfo.id,
+        avatar_url: null,
       };
 
       const auth: ClientAuth = {
-        id: clientRow.id,
-        organization_id: clientRow.organization_id,
-        name: clientRow.name,
-        company: clientRow.company ?? null,
-        favicon_url: clientRow.favicon_url ?? null,
-        authenticated: true,
-        show_ia_content: clientRow.show_ia_content ?? false,
-        // anon_key NÃO é persistida — só usada na sessão em memória
-        client_supabase_url: clientRow.client_supabase_url,
-        client_supabase_anon_key: null,
-        modules_config: (clientRow.modules_config as import("@/contexts/ClientAuthContext").ModulesConfig) ?? undefined,
+        id:              bankAClientInfo.id,
+        organization_id: bankAClientInfo.organization_id,
+        name:            bankAClientInfo.client_name ?? "",
+        company:         bankAClientInfo.client_company ?? null,
+        favicon_url:     null,
+        authenticated:   true,
+        show_ia_content: bankAClientInfo.show_ia_content ?? false,
+        modules_config:  (bankAClientInfo.modules_config as import("@/contexts/ClientAuthContext").ModulesConfig) ?? undefined,
         metadata: {
-          dashboard_performance: clientRow.dashboard_performance ?? true,
-          dashboard_atendimento: clientRow.dashboard_atendimento ?? false,
-          ...(clientRow.conversion_metrics && Object.keys(clientRow.conversion_metrics).length > 0
-            ? { conversion_metrics: clientRow.conversion_metrics }
-            : {}),
-          ...(Array.isArray(clientRow.dashboard_kpis) && clientRow.dashboard_kpis.length > 0
-            ? { dashboard_kpis: clientRow.dashboard_kpis }
-            : {}),
-          ...(Array.isArray(clientRow.geral_dashboard_cards) && clientRow.geral_dashboard_cards.length > 0
-            ? { geral_dashboard_cards: clientRow.geral_dashboard_cards }
-            : {}),
+          dashboard_performance: bankAClientInfo.metadata?.dashboard_performance ?? true,
+          dashboard_atendimento: bankAClientInfo.metadata?.dashboard_atendimento ?? false,
+          conversion_metrics:   bankAClientInfo.metadata?.conversion_metrics,
+          dashboard_kpis:       bankAClientInfo.metadata?.dashboard_kpis,
+          geral_dashboard_cards: bankAClientInfo.metadata?.geral_dashboard_cards,
         },
-        user: dynamicUser,
+        user:    dynamicUser,
         session: session,
       };
 
-      // Salva no sessionStorage (sem anon_key)
-      const safeAuth = { ...auth, client_supabase_anon_key: null };
-      sessionStorage.setItem(`client_auth_v2_${slug}`, JSON.stringify(safeAuth));
-      // Limpa formato antigo de senha única
+      sessionStorage.setItem(`client_auth_v2_${slug}`, JSON.stringify(auth));
       localStorage.removeItem(`client_auth_${slug}`);
 
-      // Guarda a anon_key em sessionStorage com AMBAS as chaves:
-      // - client_anon_${slug}     → compatibilidade (usada pelo layout ao carregar)
-      // - client_anon_${clientRow.id} → chave que useDynamicClient procura por auth.id
-      sessionStorage.setItem(`client_anon_${slug}`, clientRow.client_supabase_anon_key!);
-      sessionStorage.setItem(`client_anon_${clientRow.id}`, clientRow.client_supabase_anon_key!);
+      // Verifica force_password_change (definido pela edge function nos user_metadata)
+      if (data.force_password_change) {
+        const withFlag = { ...auth, force_password_change: true };
+        sessionStorage.setItem(`client_auth_v2_${slug}`, JSON.stringify(withFlag));
+        navigate(`/public/dashboard/${slug}/set-password`, { replace: true });
+        return;
+      }
 
       navigate(`/public/dashboard/${slug}`, { replace: true });
     } catch (err) {
@@ -339,33 +195,17 @@ export function PublicDashboardLoginPage() {
   const handleRecovery = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-
     if (!slug?.trim()) { setError("URL inválida."); return; }
     if (!email.trim()) { setError("Informe o e-mail."); return; }
-
     setLoading(true);
     try {
-      const { data: clients } = await supabase
-        .rpc("get_client_by_slug", { p_slug: slug.trim() });
-
-      const client = (clients?.[0] as ClientRow | undefined);
-      if (!client?.client_supabase_url || !client?.client_supabase_anon_key) {
-        // Não revela se cliente existe
-        setView("recovery_sent");
-        return;
-      }
-
-      const bankB = createClientSupabase(
-        client.client_supabase_url,
-        client.client_supabase_anon_key
-      );
-
-      const redirectTo = `${window.location.origin}/public/dashboard/${slug}/login`;
-      await bankB.auth.resetPasswordForEmail(email.trim().toLowerCase(), { redirectTo });
-
+      // Dispara resetPasswordForEmail via Banco A diretamente
+      await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+        redirectTo: `${window.location.origin}/public/dashboard/${slug}/set-password`,
+      });
+      // Sempre mostra sucesso — não revela existência do e-mail
       setView("recovery_sent");
     } catch {
-      // Sempre mostra sucesso para não revelar existência do e-mail
       setView("recovery_sent");
     } finally {
       setLoading(false);
@@ -382,7 +222,7 @@ export function PublicDashboardLoginPage() {
             <Activity className="h-10 w-10 text-white" />
           </div>
           <h1 className="text-3xl font-black text-white uppercase tracking-tighter">
-            Dashboard de Performance
+            C8 Control
           </h1>
           <p className="text-slate-400 font-medium italic text-sm">Powered by Agência C8</p>
         </div>
@@ -393,7 +233,7 @@ export function PublicDashboardLoginPage() {
           {view === "login" && (
             <>
               <CardHeader>
-                <CardTitle className="text-white">Entrar no Dashboard</CardTitle>
+                <CardTitle className="text-white">Entrar no C8 Control</CardTitle>
                 <CardDescription className="text-slate-400 text-xs">
                   Use o e-mail e senha configurados pelo administrador.
                 </CardDescription>
@@ -443,7 +283,7 @@ export function PublicDashboardLoginPage() {
                   >
                     {loading
                       ? <><Loader2 className="h-5 w-5 animate-spin mr-2" />Entrando...</>
-                      : "Entrar no Dashboard"
+                      : "Entrar no C8 Control"
                     }
                   </Button>
                 </form>

@@ -92,6 +92,12 @@ export function LeadCard({ lead, onDetalhes, isDragging = false }: LeadCardProps
           <p className="text-sm text-gray-600 truncate">
             <span className="font-medium">Responsável:</span> {responsavel}
           </p>
+          {lead.contact_origin === "c8_form" && (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-500/15 text-violet-600 border border-violet-400/20">
+              <span className="h-1.5 w-1.5 rounded-full bg-violet-500 inline-block" />
+              Via C8 Form
+            </span>
+          )}
           {lead.phone && (
             <p className="text-sm text-gray-600 truncate" title={lead.phone}>
               <span className="font-medium">Telefone:</span> {formatPhoneBR(lead.phone)}

@@ -101,39 +101,21 @@ serve(async (req) => {
 
       if (!plan) return respond({ error: "Plano não encontrado para este cliente" }, 404);
 
-      const { count } = await adminClient
-        .from("crm_client_users")
-        .select("id", { count: "exact", head: true })
-        .eq("client_id", client_id)
-        .eq("is_support", false);
-
-      if ((count ?? 0) >= plan.max_users) {
-        return respond({ error: "user_limit_reached", limit: plan.max_users }, 400);
-      }
-
-      // Verificar duplicata local
-      const { data: existing } = await adminClient
-        .from("crm_client_users")
-        .select("id, active")
-        .eq("client_id", client_id)
-        .ilike("email", email)
-        .maybeSingle();
-
-      if (existing?.active) {
-        return respond({ error: "Usuário já cadastrado para este cliente" }, 400);
-      }
-
       // ── Buscar credenciais do Banco B deste cliente ───────────────────────────
       // Cada cliente tem seu próprio projeto Supabase isolado (Banco B).
       // A service_key é armazenada criptografada no Banco A e nunca vai ao frontend.
       const { data: clientRow } = await adminClient
         .from("clients")
-        .select("name, client_supabase_url, client_supabase_service_key")
+        .select("name, company, dashboard_slug, client_supabase_url, client_supabase_service_key")
         .eq("id", client_id)
         .single();
 
       const bankBUrl        = (clientRow as Record<string, unknown> | null)?.client_supabase_url as string | null;
       const bankBServiceKey = (clientRow as Record<string, unknown> | null)?.client_supabase_service_key as string | null;
+      const dashboardSlug   = (clientRow as Record<string, unknown> | null)?.dashboard_slug as string | null;
+      const clientName      = (clientRow as Record<string, unknown> | null)?.company as string
+                           ?? (clientRow as Record<string, unknown> | null)?.name as string
+                           ?? client_id;
 
       if (!bankBUrl || !bankBServiceKey) {
         return respond({
@@ -142,28 +124,78 @@ serve(async (req) => {
         }, 400);
       }
 
-      // ── Criar usuário diretamente no Banco B do cliente ───────────────────────
-      // O trigger sync_auth_user_to_crm no Banco B popula crm_users automaticamente.
+      // ── Criar cliente do Banco B ──────────────────────────────────────────────
       const bankBAdmin = createClient(bankBUrl, bankBServiceKey, {
         auth: { autoRefreshToken: false, persistSession: false },
       });
 
-      // Determina o role: primeiro usuário não-suporte do cliente é "owner",
-      // demais são "member"
-      const isPrimary = (count ?? 0) === 0;
+      // ── Contar usuários ativos no Banco B excluindo suporte ──────────────────
+      let activeCount = 0;
+      const { count: countWithFilter, error: countError } = await bankBAdmin
+        .from("crm_users")
+        .select("id", { count: "exact", head: true })
+        .eq("active", true)
+        .neq("is_support", true);
+
+      if (countError) {
+        // Coluna is_support não existe (banco legado) — conta sem o filtro
+        const { count: countFallback, error: countFallbackError } = await bankBAdmin
+          .from("crm_users")
+          .select("id", { count: "exact", head: true })
+          .eq("active", true);
+        if (countFallbackError) {
+          console.error("[crm-manage-user] Erro ao contar usuários no Banco B:", countFallbackError);
+          return respond({ error: "Erro ao verificar limite de usuários" }, 500);
+        }
+        activeCount = countFallback ?? 0;
+      } else {
+        activeCount = countWithFilter ?? 0;
+      }
+
+      if (activeCount >= plan.max_users) {
+        return respond({ error: "user_limit_reached", limit: plan.max_users }, 400);
+      }
+
+      const normalizedEmail = email.trim().toLowerCase();
+
+      // Verificar duplicata no Banco B (fonte de verdade)
+      const { data: existingBankB } = await bankBAdmin
+        .from("crm_users")
+        .select("id, active, email")
+        .eq("email", normalizedEmail)
+        .maybeSingle();
+
+      if (existingBankB?.active) {
+        return respond({ error: "Usuário já cadastrado para este cliente" }, 400);
+      }
+
+      // Verificar duplicata local (Banco A) para reativação
+      const { data: existing } = await adminClient
+        .from("crm_client_users")
+        .select("id, active")
+        .eq("client_id", client_id)
+        .ilike("email", normalizedEmail)
+        .maybeSingle();
+
+      // ── Criar usuário diretamente no Banco B do cliente ───────────────────────
+      // O trigger sync_auth_user_to_crm no Banco B popula crm_users automaticamente.
+
+      // Determina o role: primeiro usuário ativo no Banco B é "owner", demais "member"
+      const isPrimary = activeCount === 0;
       const userRole  = isPrimary ? "owner" : "member";
 
-      const tempPassword    = generateTempPassword();
-      const normalizedEmail = email.trim().toLowerCase();
+      const tempPassword = generateTempPassword();
 
       const { data: newUser, error: createError } = await bankBAdmin.auth.admin.createUser({
         email:         normalizedEmail,
         password:      tempPassword,
-        email_confirm: true, // acesso imediato — sem aguardar confirmação de e-mail
+        email_confirm: true,
         user_metadata: {
           full_name: name ?? normalizedEmail.split("@")[0],
           client_id,
           role: userRole,
+          force_password_change:    true,
+          temp_password_expires_at: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
         },
       });
 
@@ -199,39 +231,114 @@ serve(async (req) => {
         }
       }
 
-      return respond({ success: true, temp_password: tempPassword });
+      // ── Enviar e-mail com senha temporária via Resend ─────────────────────────
+      const resendKey  = Deno.env.get("RESEND_API_KEY");
+      const fromEmail  = Deno.env.get("RESEND_FROM_EMAIL") ?? "suporte@agenciac8.com.br";
+      const c8Base     = (Deno.env.get("C8_CONTROL_URL") ?? Deno.env.get("APP_URL") ?? "https://app.c8control.com.br").replace(/\/$/, "");
+      const loginUrl   = dashboardSlug ? `${c8Base}/${dashboardSlug}` : c8Base;
+      const userName   = name ?? normalizedEmail.split("@")[0];
+
+      let emailSent = false;
+      let emailWarning: string | undefined;
+
+      if (resendKey) {
+        // Tenta buscar template customizado do banco; fallback para HTML inline
+        const { getEmailTemplate } = await import("../_shared/emailTemplate.ts");
+        const tpl = await getEmailTemplate(adminClient, organization_id, "user_invite", {
+          client_name:   clientName,
+          user_name:     userName,
+          user_email:    normalizedEmail,
+          temp_password: tempPassword,
+          dashboard_url: loginUrl,
+        });
+
+        const emailHtml = tpl?.html ?? `
+          <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px">
+            <h2 style="color:#7c3aed">Seu acesso ao ${clientName} está pronto!</h2>
+            <p>Olá, <strong>${userName}</strong>!</p>
+            <p>Você foi convidado para acessar o dashboard de <strong>${clientName}</strong>.</p>
+            <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:20px;margin:20px 0">
+              <p style="margin:6px 0"><strong>URL:</strong> <a href="${loginUrl}" style="color:#7c3aed">${loginUrl}</a></p>
+              <p style="margin:6px 0"><strong>E-mail:</strong> ${normalizedEmail}</p>
+              <p style="margin:12px 0 6px 0"><strong>Senha temporária:</strong></p>
+              <div style="background:#ede9fe;border:1px solid #c4b5fd;border-radius:6px;padding:12px;text-align:center">
+                <span style="font-family:monospace;font-size:22px;font-weight:bold;color:#5b21b6;letter-spacing:2px">${tempPassword}</span>
+              </div>
+            </div>
+            <p style="color:#dc2626;font-size:13px;font-weight:500">⚠️ Por segurança, altere sua senha no primeiro acesso.</p>
+            <div style="margin:24px 0;text-align:center">
+              <a href="${loginUrl}" style="background:#7c3aed;color:white;padding:14px 32px;text-decoration:none;border-radius:8px;font-weight:bold;font-size:15px;display:inline-block">Acessar o Dashboard</a>
+            </div>
+          </div>`;
+
+        const emailSubject = tpl?.subject ?? `Seu acesso ao ${clientName} foi criado`;
+
+        const emailRes = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${resendKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            from:    fromEmail,
+            to:      [normalizedEmail],
+            subject: emailSubject,
+            html:    emailHtml,
+          }),
+        });
+
+        if (emailRes.ok) {
+          emailSent = true;
+        } else {
+          const errBody = await emailRes.text();
+          console.warn("[crm-manage-user] Resend error:", errBody);
+          emailWarning = `Usuário criado mas e-mail não enviado (Resend: ${errBody})`;
+        }
+      } else {
+        emailWarning = "RESEND_API_KEY não configurado — e-mail não enviado.";
+      }
+
+      return respond({
+        success:       true,
+        temp_password: tempPassword,
+        email_sent:    emailSent,
+        ...(emailWarning ? { warning: emailWarning } : {}),
+      });
     }
 
     // ─── action: remove ───────────────────────────────────────────────────────
     if (action === "remove") {
       const { client_id, email, c8_user_id } = body as {
-        action: string; client_id: string; email: string; c8_user_id?: string;
+        action: string; client_id: string; email?: string; c8_user_id?: string;
       };
 
-      if (!client_id || !email) return respond({ error: "client_id e email são obrigatórios" }, 400);
+      if (!client_id) return respond({ error: "client_id é obrigatório" }, 400);
+      if (!email && !c8_user_id) return respond({ error: "email ou c8_user_id é obrigatório" }, 400);
 
-      // 1. Desativar localmente no Banco A
+      // 1. Desativar localmente no Banco A (busca por email ou user_id)
       const { data: userRecord } = await adminClient
         .from("crm_client_users")
         .select("id, user_id")
         .eq("client_id", client_id)
-        .ilike("email", email)
+        .ilike("email", email ?? "")
         .maybeSingle();
 
-      if (userRecord) {
+      // Fallback: busca por user_id se email não retornou
+      const { data: userRecordById } = !userRecord && c8_user_id ? await adminClient
+        .from("crm_client_users")
+        .select("id, user_id")
+        .eq("client_id", client_id)
+        .eq("user_id", c8_user_id)
+        .maybeSingle() : { data: null };
+
+      const record = userRecord ?? userRecordById;
+
+      if (record) {
         await adminClient
           .from("crm_client_users")
           .update({ active: false })
-          .eq("id", userRecord.id)
+          .eq("id", record.id)
           .eq("client_id", client_id);
-
-        if (userRecord.user_id) {
-          await adminClient
-            .from("crm_sessions")
-            .update({ revoked: true })
-            .eq("user_id", userRecord.user_id)
-            .eq("client_id", client_id);
-        }
       }
 
       // 2. Desativar no Banco B (bloqueia o login sem deletar dados)
@@ -239,7 +346,7 @@ serve(async (req) => {
         .from("clients")
         .select("client_supabase_url, client_supabase_service_key")
         .eq("id", client_id)
-        .single();
+        .maybeSingle();
 
       const bankBUrl        = (clientRow as Record<string, unknown> | null)?.client_supabase_url as string | null;
       const bankBServiceKey = (clientRow as Record<string, unknown> | null)?.client_supabase_service_key as string | null;
@@ -249,9 +356,9 @@ serve(async (req) => {
           auth: { autoRefreshToken: false, persistSession: false },
         });
 
-        // Resolve user_id no Banco B se não foi passado
-        let targetUserId = c8_user_id ?? userRecord?.user_id ?? null;
-        if (!targetUserId) {
+        // Resolve user_id no Banco B: usa c8_user_id passado, depois tenta pelo user_id local, depois busca por email
+        let targetUserId = c8_user_id ?? record?.user_id ?? null;
+        if (!targetUserId && email) {
           const { data: usersPage } = await bankBAdmin.auth.admin.listUsers({ perPage: 1000 });
           const found = usersPage?.users?.find(
             (u: { email?: string }) => u.email?.toLowerCase() === email.toLowerCase()
@@ -260,10 +367,22 @@ serve(async (req) => {
         }
 
         if (targetUserId) {
-          // Bane o usuário — impede novos logins sem deletar dados do CRM
-          await bankBAdmin.auth.admin.updateUser(targetUserId, { ban_duration: "876600h" }); // ~100 anos
-          // Também desativa em crm_users do Banco B
-          await bankBAdmin.from("crm_users").update({ active: false }).eq("id", targetUserId);
+          // 1. Deleta de auth.users do Banco B — remove o acesso/login
+          const { error: deleteAuthErr } = await bankBAdmin.auth.admin.deleteUser(targetUserId);
+          if (deleteAuthErr) {
+            console.warn("[crm-manage-user] deleteUser auth.users error:", deleteAuthErr.message);
+          }
+
+          // 2. Deleta de crm_users do Banco B — remove o perfil do dashboard
+          // (o trigger de delete do auth.users não apaga crm_users automaticamente)
+          // Dados das demais tabelas (crm_deals, crm_contacts, ai_reminders, etc.) são preservados.
+          const { error: deleteCrmErr } = await bankBAdmin
+            .from("crm_users")
+            .delete()
+            .eq("id", targetUserId);
+          if (deleteCrmErr) {
+            console.warn("[crm-manage-user] delete crm_users error:", deleteCrmErr.message);
+          }
         }
       }
 
@@ -274,6 +393,6 @@ serve(async (req) => {
 
   } catch (err) {
     console.error("[crm-manage-user] Erro interno:", err);
-    return respond({ error: "Erro interno" }, 500);
+    return respond({ error: `Erro interno: ${String(err)}` }, 500);
   }
 });

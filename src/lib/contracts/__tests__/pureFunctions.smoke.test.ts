@@ -75,30 +75,38 @@ describe('buildScopeString', () => {
     expect(buildScopeString([])).toBe('');
   });
 
-  it('formats a service with sub_service_values', () => {
+  it('formats a service with no deliverables — shows only service name', () => {
+    const result = buildScopeString([
+      { service_id: '1', service_name: 'Consultoria', selected_deliverables: [] },
+    ]);
+    expect(result).toContain('Consultoria');
+  });
+
+  it('formats a service with included deliverables', () => {
     const result = buildScopeString([
       {
         service_id: '1',
         service_name: 'Design',
-        sub_service_values: { posts: 10, formato: 'Feed' },
+        selected_deliverables: [
+          { deliverable_id: 'd1', included: true, number_value: 10 },
+          { deliverable_id: 'd2', included: false, number_value: 4 },
+        ],
       },
     ]);
-    expect(result).toBe('• Design: posts: 10, formato: Feed');
+    // Only included deliverables appear; deliverable_id used as name fallback
+    expect(result).toContain('Design');
+    expect(result).toContain('d1');
+    expect(result).not.toContain('d2');
   });
 
-  it('formats a service with no sub_service_values', () => {
+  it('joins multiple services separated by double newline content', () => {
     const result = buildScopeString([
-      { service_id: '1', service_name: 'Consultoria', sub_service_values: {} },
+      { service_id: '1', service_name: 'A', selected_deliverables: [] },
+      { service_id: '2', service_name: 'B', selected_deliverables: [] },
     ]);
-    expect(result).toBe('• Consultoria');
-  });
-
-  it('joins multiple services with newline', () => {
-    const result = buildScopeString([
-      { service_id: '1', service_name: 'A', sub_service_values: {} },
-      { service_id: '2', service_name: 'B', sub_service_values: {} },
-    ]);
-    expect(result).toBe('• A\n• B');
+    // Both service names appear in the HTML output
+    expect(result).toContain('A');
+    expect(result).toContain('B');
   });
 });
 

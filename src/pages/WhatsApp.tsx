@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 
 import { useOmnichannelChat, OmnichannelConversation, ChatMessage, TimelineItem, TimelineEvent, ChannelType, MessageType } from "@/hooks/useOmnichannelChat";
+import { useLeadIntelligence } from "@/hooks/useLeadIntelligence";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -148,8 +149,15 @@ export default function WhatsApp() {
 
   const [activeTab, setActiveTab] = useState<"inbox" | "supervision" | "ia">("inbox");
   const [msgInput, setMsgInput] = useState("");
-  const [msgType, setMsgType] = useState<MessageType>("regular");
+  // Sempre envia como "regular" — tipos whisper/note removidos para evitar envio acidental ao cliente
+  const msgType: MessageType = "regular";
   const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
+  // Notas internas por conversa (armazenadas localmente na sessão)
+  const [internalNotes, setInternalNotes] = useState<Record<string, { id: string; text: string; createdAt: string }[]>>({});
+  const [noteInput, setNoteInput] = useState("");
+
+  // Indicadores automáticos do Lead Intelligence — passa o timeline atual para calcular engajamento
+  const intelligence = useLeadIntelligence(activeConversation?.phone, activeTimeline);
   
   // Right details panel overlay drawer toggle (Sheet)
   const [isIntelligenceOpen, setIsIntelligenceOpen] = useState(false);
@@ -500,10 +508,39 @@ export default function WhatsApp() {
                   </div>
                 </div>
 
+                {/* Aviso + toggle de mensagens internas */}
+
+                {/* Alerta de notas internas quando houver notas para esta conversa */}
+                {activeConversation && (internalNotes[activeConversation.id] ?? []).length > 0 && (
+                  <div
+                    className="flex items-center justify-between px-4 py-2 bg-yellow-50 dark:bg-yellow-900/20 border-b border-yellow-300/60 dark:border-yellow-700/40 cursor-pointer hover:bg-yellow-100 dark:hover:bg-yellow-900/30 transition-colors"
+                    onClick={() => setIsIntelligenceOpen(true)}
+                  >
+                    <div className="flex items-center gap-2 text-[11px] text-yellow-700 dark:text-yellow-400">
+                      <FileText className="h-3.5 w-3.5 shrink-0" />
+                      <span>
+                        <strong>{(internalNotes[activeConversation.id] ?? []).length}</strong>{" "}
+                        {(internalNotes[activeConversation.id] ?? []).length === 1
+                          ? "nota interna salva"
+                          : "notas internas salvas"}{" "}
+                        para este lead
+                      </span>
+                    </div>
+                    <span className="text-[11px] font-semibold text-yellow-700 dark:text-yellow-400 underline underline-offset-2">
+                      Ver notas →
+                    </span>
+                  </div>
+                )}
+
                 {/* Timeline de Mensagens */}
                 <ScrollArea className="flex-1 p-6 bg-muted/10" ref={scrollRef}>
                   <div className="space-y-4">
-                    {activeTimeline.map((item, idx) => {
+                    {activeTimeline.filter(item => {
+                      if (item.type === "event") return true;
+                      const msg = item as ChatMessage;
+                      // Oculta whisper e nota — não aparecem mais na thread
+                      return msg.message_type === "regular";
+                    }).map((item, idx) => {
                       if (item.type === "event") {
                         const ev = item as TimelineEvent;
                         return (
@@ -645,30 +682,9 @@ export default function WhatsApp() {
 
                 {/* Input Editor */}
                 <div className="p-4 border-t border-border bg-card/10 flex flex-col gap-2 shrink-0">
-                  <div className="flex items-center gap-1.5">
-                    {[
-                      { type: "regular", label: "Cliente", icon: MessageCircle, color: "text-emerald-500", activeBg: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" },
-                      { type: "whisper", label: "Whisper", icon: EyeOff, color: "text-amber-500", activeBg: "bg-amber-500/10 text-amber-700 dark:text-amber-300" },
-                      { type: "note", label: "Nota Interna", icon: FileText, color: "text-yellow-600", activeBg: "bg-yellow-500/10 text-yellow-750 dark:text-yellow-300" }
-                    ].map(tab => {
-                      const Icon = tab.icon;
-                      const isSelected = msgType === tab.type;
-                      return (
-                        <button
-                          key={tab.type}
-                          onClick={() => setMsgType(tab.type as MessageType)}
-                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs font-semibold transition-all ${isSelected ? tab.activeBg : "bg-card border-border text-muted-foreground hover:text-foreground"}`}
-                        >
-                          <Icon className={`h-3.5 w-3.5 ${tab.color}`} />
-                          <span>{tab.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
                   <div className="flex gap-2.5">
                     <Textarea
-                      placeholder={msgType === "whisper" ? "Mensagem para o atendente..." : msgType === "note" ? "Notas privadas sobre o lead..." : "Digite uma mensagem..."}
+                      placeholder="Digite uma mensagem para o cliente..."
                       value={msgInput}
                       onChange={e => setMsgInput(e.target.value)}
                       className="flex-1 bg-background border-input text-sm text-foreground placeholder:text-muted-foreground min-h-[44px] h-11 py-2 focus-visible:ring-slate-300 focus-visible:ring-offset-0 resize-none"
@@ -829,10 +845,38 @@ export default function WhatsApp() {
                   </div>
                 </div>
 
+                {/* Aviso + toggle de mensagens internas (aba IA) */}
+
+                {/* Alerta de notas internas (aba IA) */}
+                {activeConversation && (internalNotes[activeConversation.id] ?? []).length > 0 && (
+                  <div
+                    className="flex items-center justify-between px-4 py-2 bg-yellow-50 dark:bg-yellow-900/20 border-b border-yellow-300/60 dark:border-yellow-700/40 cursor-pointer hover:bg-yellow-100 dark:hover:bg-yellow-900/30 transition-colors"
+                    onClick={() => setIsIntelligenceOpen(true)}
+                  >
+                    <div className="flex items-center gap-2 text-[11px] text-yellow-700 dark:text-yellow-400">
+                      <FileText className="h-3.5 w-3.5 shrink-0" />
+                      <span>
+                        <strong>{(internalNotes[activeConversation.id] ?? []).length}</strong>{" "}
+                        {(internalNotes[activeConversation.id] ?? []).length === 1
+                          ? "nota interna salva"
+                          : "notas internas salvas"}{" "}
+                        para este lead
+                      </span>
+                    </div>
+                    <span className="text-[11px] font-semibold text-yellow-700 dark:text-yellow-400 underline underline-offset-2">
+                      Ver notas →
+                    </span>
+                  </div>
+                )}
+
                 {/* Timeline de Mensagens */}
                 <ScrollArea className="flex-1 p-6 bg-muted/10" ref={scrollRef}>
                   <div className="space-y-4">
-                    {activeTimeline.map((item, idx) => {
+                    {activeTimeline.filter(item => {
+                      if (item.type === "event") return true;
+                      const msg = item as ChatMessage;
+                      return msg.message_type === "regular";
+                    }).map((item, idx) => {
                       if (item.type === "event") {
                         const ev = item as TimelineEvent;
                         return (
@@ -904,32 +948,11 @@ export default function WhatsApp() {
                   </div>
                 </ScrollArea>
 
-                {/* Input Editor */}
+                {/* Input Editor — apenas mensagens ao cliente, sem tipos internos */}
                 <div className="p-4 border-t border-border bg-card/10 flex flex-col gap-2 shrink-0">
-                  <div className="flex items-center gap-1.5">
-                    {[
-                      { type: "regular", label: "Cliente", icon: MessageCircle, color: "text-emerald-500", activeBg: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" },
-                      { type: "whisper", label: "Whisper", icon: EyeOff, color: "text-amber-500", activeBg: "bg-amber-500/10 text-amber-700 dark:text-amber-300" },
-                      { type: "note", label: "Nota Interna", icon: FileText, color: "text-yellow-600", activeBg: "bg-yellow-500/10 text-yellow-750 dark:text-yellow-300" }
-                    ].map(tab => {
-                      const Icon = tab.icon;
-                      const isSelected = msgType === tab.type;
-                      return (
-                        <button
-                          key={tab.type}
-                          onClick={() => setMsgType(tab.type as MessageType)}
-                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs font-semibold transition-all ${isSelected ? tab.activeBg : "bg-card border-border text-muted-foreground hover:text-foreground"}`}
-                        >
-                          <Icon className={`h-3.5 w-3.5 ${tab.color}`} />
-                          <span>{tab.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
                   <div className="flex gap-2.5">
                     <Textarea
-                      placeholder={msgType === "whisper" ? "Mensagem para o atendente..." : msgType === "note" ? "Notas privadas sobre o lead..." : "Digite uma mensagem como IA..."}
+                      placeholder="Digite uma mensagem como IA..."
                       value={msgInput}
                       onChange={e => setMsgInput(e.target.value)}
                       className="flex-1 bg-background border-input text-sm text-foreground placeholder:text-muted-foreground min-h-[44px] h-11 py-2 focus-visible:ring-slate-300 focus-visible:ring-offset-0 resize-none"
@@ -1207,38 +1230,155 @@ export default function WhatsApp() {
                 </div>
               </div>
 
-              {/* Score and metrics */}
+              {/* Score and metrics — detalhado por dimensão */}
               <div className="space-y-3 p-4 bg-muted/20 border border-border rounded-xl">
                 <p className="text-xs uppercase font-bold text-muted-foreground tracking-wider">Indicadores & Valores:</p>
-                
-                <div className="space-y-2 text-xs text-muted-foreground">
-                  <div className="flex justify-between items-center">
-                    <span>Lead Score:</span>
-                    <span className="font-bold text-emerald-600 dark:text-emerald-400">{activeConversation.lead_score}/100</span>
-                  </div>
-                  <Slider
-                    value={[activeConversation.lead_score]}
-                    max={100}
-                    step={1}
-                    onValueChange={v => updateLeadScore(v[0])}
-                    className="py-1"
-                  />
-                </div>
 
-                <div className="space-y-2 text-xs text-muted-foreground pt-2 border-t border-border/60">
-                  <div className="flex justify-between">
-                    <span>Origem do Lead:</span>
-                    <span className="text-foreground font-semibold">{activeConversation.origin}</span>
+                {intelligence.isLoading ? (
+                  <p className="text-xs text-muted-foreground animate-pulse">Calculando indicadores…</p>
+                ) : (
+                  <div className="space-y-3 text-xs text-muted-foreground">
+
+                    {/* ── Score total ── */}
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between items-center">
+                        <span className="font-semibold text-foreground">Lead Score Total</span>
+                        <span className={`text-base font-black ${
+                          intelligence.leadScore >= 70 ? "text-emerald-600 dark:text-emerald-400" :
+                          intelligence.leadScore >= 40 ? "text-amber-600 dark:text-amber-400" :
+                          "text-muted-foreground"
+                        }`}>
+                          {intelligence.leadScore}<span className="text-[10px] font-normal">/100</span>
+                        </span>
+                      </div>
+                      <div className="w-full bg-muted rounded-full h-2">
+                        <div
+                          className={`h-2 rounded-full transition-all duration-500 ${
+                            intelligence.leadScore >= 70 ? "bg-emerald-500" :
+                            intelligence.leadScore >= 40 ? "bg-amber-500" : "bg-slate-400"
+                          }`}
+                          style={{ width: `${intelligence.leadScore}%` }}
+                        />
+                      </div>
+                      {/* Decaimento temporal */}
+                      {intelligence.scoreBreakdown.decayLabel && (
+                        <p className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                          ⚠ {intelligence.scoreBreakdown.decayLabel}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* ── Dimensões do score ── */}
+                    <div className="space-y-2 pt-2 border-t border-border/60">
+                      {[
+                        {
+                          label: "Perfil",
+                          color: "bg-blue-500",
+                          dim: intelligence.scoreBreakdown.perfil,
+                        },
+                        {
+                          label: "Engajamento",
+                          color: "bg-violet-500",
+                          dim: intelligence.scoreBreakdown.engajamento,
+                        },
+                        {
+                          label: "Estágio",
+                          color: "bg-emerald-500",
+                          dim: intelligence.scoreBreakdown.estagio,
+                        },
+                      ].map(({ label, color, dim }) => (
+                        <div key={label} className="space-y-0.5">
+                          <div className="flex justify-between items-center">
+                            <span className="text-[11px]">{label}</span>
+                            <span className="text-[11px] font-semibold text-foreground">
+                              {dim.score}/{dim.max}
+                            </span>
+                          </div>
+                          <div className="w-full bg-muted rounded-full h-1">
+                            <div
+                              className={`h-1 rounded-full transition-all ${color}`}
+                              style={{ width: `${(dim.score / dim.max) * 100}%` }}
+                            />
+                          </div>
+                          {dim.reasons.length > 0 && (
+                            <div className="space-y-0.5 pl-1">
+                              {dim.reasons.map((r, i) => (
+                                <p key={i} className="text-[10px] text-muted-foreground">
+                                  • {r}
+                                </p>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* ── Outros indicadores ── */}
+                    <div className="pt-2 space-y-2 border-t border-border/60">
+                      <div className="flex justify-between">
+                        <span>Origem:</span>
+                        <span className="text-foreground font-semibold truncate max-w-[140px] text-right">
+                          {intelligence.origin !== "—" ? intelligence.origin : (activeConversation?.origin ?? "—")}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Estágio do Funil:</span>
+                        <span className="text-foreground font-semibold">{intelligence.pipelineLabel}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Prob. Fechamento:</span>
+                        <span className={`font-semibold ${
+                          intelligence.closeProbability >= 75 ? "text-emerald-600 dark:text-emerald-400" :
+                          intelligence.closeProbability >= 40 ? "text-amber-600 dark:text-amber-400" :
+                          "text-muted-foreground"
+                        }`}>
+                          {intelligence.closeProbability}%
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>LTV Estimado:</span>
+                        <span className={`font-bold ${
+                          intelligence.estimatedLtv > 0
+                            ? "text-emerald-600 dark:text-emerald-400"
+                            : "text-muted-foreground"
+                        }`}>
+                          {intelligence.estimatedLtv > 0
+                            ? `R$ ${intelligence.estimatedLtv.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
+                            : "—"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* ── Badges de situação ── */}
+                    <div className="flex flex-wrap gap-1.5 pt-2 border-t border-border/60">
+                      {intelligence.hasContract && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                          ✓ Contrato
+                        </span>
+                      )}
+                      {intelligence.hasApprovedProposal && !intelligence.hasContract && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                          ✓ Proposta Aprovada
+                        </span>
+                      )}
+                      {intelligence.hasProposal && !intelligence.hasApprovedProposal && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                          ⏳ Proposta Enviada
+                        </span>
+                      )}
+                      {!intelligence.hasProposal && !intelligence.isLoading && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-muted text-muted-foreground">
+                          Sem proposta
+                        </span>
+                      )}
+                      {!intelligence.client && !intelligence.isLoading && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-muted text-muted-foreground">
+                          Lead não encontrado no CRM
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span>Probabilidade Fechamento:</span>
-                    <span className="text-foreground font-semibold">{activeConversation.close_probability}%</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Valor Estimado (LTV):</span>
-                    <span className="text-emerald-600 dark:text-emerald-400 font-bold">R$ {activeConversation.potential_value.toLocaleString("pt-BR")}</span>
-                  </div>
-                </div>
+                )}
               </div>
 
               {/* Action buttons */}
@@ -1292,69 +1432,111 @@ export default function WhatsApp() {
                 </div>
               </div>
 
-              {/* Objection Contorno & RAG */}
-              <div className="space-y-4 pt-4 border-t border-border">
+              {/* Notas Internas — visíveis apenas para a equipe, nunca enviadas ao cliente */}
+              <div className="space-y-3 pt-4 border-t border-border">
                 <p className="text-xs uppercase font-bold text-muted-foreground tracking-wider flex items-center gap-1.5">
-                  <Sparkles className="h-4 w-4 text-amber-500" />
-                  Copiloto de IA & Base RAG
+                  <FileText className="h-4 w-4 text-yellow-500" />
+                  Notas Internas
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  Visíveis apenas para a equipe. Nunca enviadas ao cliente.
                 </p>
 
-                {/* Objection Suggestion */}
-                <div className="p-3.5 bg-amber-500/5 border border-amber-550/20 rounded-xl space-y-1.5 text-xs text-foreground/90">
-                  <p className="font-bold text-amber-600 dark:text-amber-400">
-                    Objeção Comercial: {activeConversation.sentiment === "negativo" ? "Preço / Custo" : "Urgência / Tempo"}
-                  </p>
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    {activeConversation.sentiment === "negativo" 
-                      ? "Foque no ROI estimado. Apresente o case da Empresa A. Se necessário, ofereça a isenção da taxa de setup de R$ 1.500 contratando o plano anual."
-                      : "Explique que nosso setup técnico de webhooks e automações leva apenas 5 dias úteis, acelerando os primeiros resultados."}
-                  </p>
+                {/* Input de nova nota */}
+                <div className="flex gap-2">
+                  <Textarea
+                    placeholder="Adicionar nota interna sobre este lead..."
+                    value={noteInput}
+                    onChange={e => setNoteInput(e.target.value)}
+                    className="flex-1 bg-background border-input text-xs text-foreground placeholder:text-muted-foreground min-h-[60px] py-2 resize-none"
+                    onKeyDown={e => {
+                      if (e.key === "Enter" && e.ctrlKey) {
+                        e.preventDefault();
+                        if (!noteInput.trim() || !activeConversation) return;
+                        const convId = activeConversation.id;
+                        setInternalNotes(prev => ({
+                          ...prev,
+                          [convId]: [
+                            ...(prev[convId] ?? []),
+                            {
+                              id: Date.now().toString(),
+                              text: noteInput.trim(),
+                              createdAt: new Date().toISOString(),
+                            },
+                          ],
+                        }));
+                        setNoteInput("");
+                        toast.success("Nota interna salva.");
+                      }
+                    }}
+                  />
                 </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full h-8 text-xs font-semibold border-yellow-400/40 text-yellow-700 dark:text-yellow-400 hover:bg-yellow-500/10"
+                  onClick={() => {
+                    if (!noteInput.trim() || !activeConversation) return;
+                    const convId = activeConversation.id;
+                    setInternalNotes(prev => ({
+                      ...prev,
+                      [convId]: [
+                        ...(prev[convId] ?? []),
+                        {
+                          id: Date.now().toString(),
+                          text: noteInput.trim(),
+                          createdAt: new Date().toISOString(),
+                        },
+                      ],
+                    }));
+                    setNoteInput("");
+                    toast.success("Nota interna salva.");
+                  }}
+                >
+                  + Salvar nota (Ctrl+Enter)
+                </Button>
 
-                {/* RAG tab and search */}
-                <div className="space-y-2.5">
-                  <p className="text-xs text-muted-foreground font-semibold">Consultar Base de Conhecimento RAG:</p>
-                  <div className="grid grid-cols-4 bg-muted p-0.5 rounded border border-border">
-                    {(["faq", "precos", "cases", "politicas"] as const).map(tab => (
-                      <button
-                        key={tab}
-                        onClick={() => setActiveRagTab(tab)}
-                        className={`text-xs py-1 rounded transition-all capitalize ${activeRagTab === tab ? "bg-background text-foreground shadow-sm font-semibold" : "text-muted-foreground hover:text-foreground"}`}
-                      >
-                        {tab}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="border border-border bg-background/50 rounded-xl p-3 space-y-4 max-h-48 overflow-y-auto">
-                    {KNOWLEDGE_BASE[activeRagTab].map((item, idx) => (
-                      <div key={idx} className="space-y-1 text-xs border-b border-border/40 pb-2.5 last:border-none last:pb-0">
-                        <p className="font-bold text-foreground">{item.title}</p>
-                        <p className="text-xs text-muted-foreground leading-relaxed">{item.content}</p>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            setMsgInput(prev => (prev ? prev + "\n" : "") + item.content);
-                            setIsIntelligenceOpen(false);
-                            toast.info("Conteúdo copiado para a caixa de mensagem!");
-                          }}
-                          className="h-7 text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 p-0 hover:bg-transparent"
+                {/* Lista de notas */}
+                {activeConversation && (internalNotes[activeConversation.id] ?? []).length > 0 && (
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {(internalNotes[activeConversation.id] ?? [])
+                      .slice()
+                      .reverse()
+                      .map(note => (
+                        <div
+                          key={note.id}
+                          className="p-2.5 bg-yellow-500/5 border border-yellow-400/20 rounded-lg space-y-1"
                         >
-                          + Inserir no editor
-                        </Button>
-                      </div>
-                    ))}
+                          <p className="text-xs text-foreground/90 leading-relaxed whitespace-pre-wrap">{note.text}</p>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] text-muted-foreground">
+                              {new Date(note.createdAt).toLocaleString("pt-BR", {
+                                day: "2-digit", month: "2-digit", year: "2-digit",
+                                hour: "2-digit", minute: "2-digit",
+                              })}
+                            </span>
+                            <button
+                              onClick={() => {
+                                const convId = activeConversation.id;
+                                setInternalNotes(prev => ({
+                                  ...prev,
+                                  [convId]: (prev[convId] ?? []).filter(n => n.id !== note.id),
+                                }));
+                              }}
+                              className="text-[10px] text-red-400 hover:text-red-600 font-semibold"
+                            >
+                              Remover
+                            </button>
+                          </div>
+                        </div>
+                      ))}
                   </div>
-                </div>
-
-                {/* IA automatic summary */}
-                <div className="space-y-1.5 p-3.5 bg-indigo-500/5 border border-indigo-500/10 rounded-xl">
-                  <p className="text-xs font-bold text-indigo-650 dark:text-indigo-400">Resumo Gerado Automaticamente pela IA:</p>
-                  <p className="text-xs text-foreground/80 leading-relaxed">
-                    Lead {activeConversation.company ? `da ${activeConversation.company}` : ""} qualificado com score {activeConversation.lead_score}. Negociando plano {activeConversation.pipeline}. Conversando sobre setup grátis.
+                )}
+                {activeConversation && (internalNotes[activeConversation.id] ?? []).length === 0 && (
+                  <p className="text-[11px] text-muted-foreground text-center py-2 italic">
+                    Nenhuma nota interna para esta conversa.
                   </p>
-                </div>
+                )}
               </div>
 
             </div>

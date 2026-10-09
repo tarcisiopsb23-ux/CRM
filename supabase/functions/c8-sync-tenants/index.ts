@@ -2,12 +2,18 @@
  * Edge Function: c8-sync-tenants
  * Projeto: Maestr.ia
  *
- * Sincroniza todos os tenants ativos do Maestr.ia com o C8 Control
- * chamando provision-tenant para cada um. Idempotente — o C8 Control
- * deve fazer upsert ao receber um tenant_id já existente.
+ * Garante que o usuário principal de cada cliente existe no Banco B daquele
+ * cliente. Idempotente — se o usuário já existe, atualiza os metadados mas
+ * não altera a senha. Se não existe, cria com senha temporária e registra
+ * em crm_client_plans.
+ *
+ * Não usa mais CRM_URL, CRM_API_KEY, C8_ANON_KEY.
  *
  * Body (opcional):
- *   client_id — sincroniza apenas um tenant específico
+ *   client_id — sincroniza apenas um cliente específico
+ *
+ * Secrets necessários:
+ *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY — Banco A (injetados automaticamente)
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -19,14 +25,24 @@ const corsHeaders = {
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    status, headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
-Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { status: 200, headers: corsHeaders });
+function generateTempPassword(): string {
+  const chars = "abcdefghjkmnpqrstuvwxyz23456789";
+  const groups = 3; const groupLen = 4;
+  let pwd = "";
+  const bytes = new Uint8Array(groups * groupLen);
+  crypto.getRandomValues(bytes);
+  for (let g = 0; g < groups; g++) {
+    if (g > 0) pwd += "-";
+    for (let i = 0; i < groupLen; i++) pwd += chars[bytes[g * groupLen + i] % chars.length];
   }
+  return pwd;
+}
+
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") return new Response(null, { status: 200, headers: corsHeaders });
 
   try {
     const authHeader = req.headers.get("Authorization");
@@ -38,16 +54,12 @@ Deno.serve(async (req: Request) => {
       { auth: { persistSession: false } }
     );
 
-    // Decodifica o JWT sem re-validar assinatura (evita erro ES256)
     const jwt = authHeader.replace("Bearer ", "").trim();
     let callerId: string | null = null;
     try {
-      const payloadB64 = jwt.split(".")[1];
-      const payloadJson = atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/"));
-      callerId = JSON.parse(payloadJson).sub ?? null;
-    } catch {
-      return json({ error: "Token inválido" }, 401);
-    }
+      const payload = JSON.parse(atob(jwt.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+      callerId = payload.sub ?? null;
+    } catch { return json({ error: "Token inválido" }, 401); }
     if (!callerId) return json({ error: "Token sem sub" }, 401);
 
     const { data: profile } = await maestriaAdmin
@@ -55,126 +67,105 @@ Deno.serve(async (req: Request) => {
     if (!["owner", "admin"].includes(profile?.role ?? ""))
       return json({ error: "Apenas owner/admin" }, 403);
 
-    const orgId = profile.organization_id;
+    const orgId = profile.organization_id as string;
 
-    // Buscar planos ativos
     let filterClientId: string | null = null;
-    try {
-      const body = await req.json();
-      filterClientId = body?.client_id ?? null;
-    } catch { /* sem body */ }
+    try { filterClientId = (await req.json())?.client_id ?? null; } catch { /* sem body */ }
 
-    // Buscar planos ativos
+    // ── Busca planos ativos com dados do cliente ───────────────────────────────
     let plansQuery = maestriaAdmin
       .from("crm_client_plans")
       .select(`
-        client_id, organization_id, plan_name, plan_value, max_users,
-        due_day, billing_cycle, primary_user_email, contract_start, contract_end,
+        client_id, plan_name, plan_value, max_users, due_day, billing_cycle,
+        primary_user_email, contract_start, contract_end, provisioning_status,
         clients!inner(
-          name, company, document, email, phone,
-          address_street, address_city, address_state, address_zip
+          name, company, email,
+          client_supabase_url, client_supabase_service_key, dashboard_slug
         )
       `)
       .eq("organization_id", orgId)
       .neq("subscription_status", "cancelado");
 
-    if (filterClientId) {
-      plansQuery = plansQuery.eq("client_id", filterClientId);
-    }
+    if (filterClientId) plansQuery = plansQuery.eq("client_id", filterClientId);
 
     const { data: plans, error: plansErr } = await plansQuery;
     if (plansErr) return json({ error: plansErr.message }, 500);
-    if (!plans || plans.length === 0) return json({ success: true, synced: 0, results: [] });
+    if (!plans?.length) return json({ success: true, synced: 0, results: [] });
 
-    // Buscar senhas de suporte em batch
-    const clientIds = plans.map((p: any) => p.client_id);
-    const { data: supportRecords } = await maestriaAdmin
-      .from("c8_support_passwords")
-      .select("client_id, support_email, password")
-      .in("client_id", clientIds);
-
-    const supportMap: Record<string, { support_email: string; password: string }> = {};
-    for (const s of supportRecords ?? []) {
-      supportMap[s.client_id] = { support_email: s.support_email, password: s.password };
-    }
-
-    const results: Array<{ client_id: string; client_name: string; success: boolean; error?: string }> = [];
+    const results: Array<{
+      client_id: string; client_name: string; success: boolean;
+      action?: string; error?: string;
+    }> = [];
 
     for (const plan of plans) {
-      const clientData = (plan as any).clients as {
-        name: string; company: string | null; document: string | null;
-        email: string | null; phone: string | null;
-        address_street: string | null; address_city: string | null;
-        address_state: string | null; address_zip: string | null;
+      const cd = plan.clients as unknown as {
+        name: string; company: string | null; email: string | null;
+        client_supabase_url: string | null; client_supabase_service_key: string | null;
+        dashboard_slug: string | null;
       } | null;
-      const clientName = clientData?.company || clientData?.name || plan.client_id;
-      const support = supportMap[plan.client_id];
 
-      if (!plan.primary_user_email) {
-        results.push({ client_id: plan.client_id, client_name: clientName, success: false, error: "Sem e-mail principal" });
+      const clientName = cd?.company || cd?.name || plan.client_id;
+
+      if (!cd?.client_supabase_url || !cd?.client_supabase_service_key) {
+        results.push({ client_id: plan.client_id, client_name: clientName, success: false,
+          error: "Banco B não configurado (sem client_supabase_url ou service_key)" });
+        continue;
+      }
+
+      const adminEmail = plan.primary_user_email ?? cd.email;
+      if (!adminEmail) {
+        results.push({ client_id: plan.client_id, client_name: clientName, success: false,
+          error: "Sem e-mail principal definido" });
         continue;
       }
 
       try {
-        const crmUrl = Deno.env.get("CRM_URL");
-        const crmApiKey = Deno.env.get("CRM_API_KEY");
-        const c8AnonKey = Deno.env.get("C8_ANON_KEY") ?? "";
+        const bankBAdmin = createClient(cd.client_supabase_url, cd.client_supabase_service_key,
+          { auth: { persistSession: false } });
 
-        if (!crmUrl || !crmApiKey) {
-          throw new Error("CRM_URL ou CRM_API_KEY não configurados nos Secrets desta função");
+        // Verifica se usuário já existe
+        const { data: usersPage } = await bankBAdmin.auth.admin.listUsers({ perPage: 1000 });
+        const existing = usersPage?.users?.find(
+          (u: { email?: string }) => u.email?.toLowerCase() === adminEmail.toLowerCase()
+        );
+
+        let action: string;
+
+        if (existing) {
+          // Só atualiza metadados — preserva senha atual
+          await bankBAdmin.auth.admin.updateUserById(existing.id, {
+            user_metadata: {
+              ...existing.user_metadata,
+              full_name: cd.company ?? cd.name ?? adminEmail.split("@")[0],
+              client_id: plan.client_id,
+              role: existing.user_metadata?.role ?? "owner",
+            },
+          });
+          action = "updated_metadata";
+        } else {
+          // Cria usuário com senha temporária
+          const tempPwd = generateTempPassword();
+          const { error: createErr } = await bankBAdmin.auth.admin.createUser({
+            email:         adminEmail.toLowerCase(),
+            password:      tempPwd,
+            email_confirm: true,
+            user_metadata: {
+              full_name:  cd.company ?? cd.name ?? adminEmail.split("@")[0],
+              client_id:  plan.client_id,
+              role:       "owner",
+            },
+          });
+          if (createErr) throw new Error(createErr.message);
+          action = "created";
         }
 
-        const provisionRes = await fetch(`${crmUrl}/functions/v1/provision-tenant`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-crm-api-key": crmApiKey,
-            "apikey": c8AnonKey,
-            "Authorization": `Bearer ${c8AnonKey}`,
-          },
-          body: JSON.stringify({
-            tenant_id:           plan.client_id,
-            tenant_name:         clientName,
-            admin_email:         plan.primary_user_email,
-            client_id:           plan.client_id,
-            // Campos mapeados para a tabela clients do C8 Control
-            company:             clientData?.company ?? null,
-            cnpj:                clientData?.document ?? null,
-            phone:               clientData?.phone ?? null,
-            email:               plan.primary_user_email,
-            primary_contact:     clientData?.name ?? clientName,
-            address:             [clientData?.address_street, clientData?.address_city, clientData?.address_state, clientData?.address_zip].filter(Boolean).join(", ") || null,
-            contract_start_date: plan.contract_start ?? null,
-            client_status:       "ativo",
-            // Dados do plano
-            plan_name:           plan.plan_name,
-            plan_value:          plan.plan_value,
-            max_users:           plan.max_users,
-            due_day:             plan.due_day,
-            billing_cycle:       plan.billing_cycle ?? "mensal",
-            contract_end:        plan.contract_end,
-            // Suporte
-            support_email:       support?.support_email ?? null,
-            support_password:    support?.password ?? null,
-            is_support:          false,
-            send_welcome_email:  false,
-          }),
-        });
-
-        const provisionData = await provisionRes.json();
-
-        if (!provisionRes.ok && provisionRes.status !== 409) {
-          // 409 = já existe, tudo bem
-          throw new Error(provisionData?.error ?? `Erro ${provisionRes.status}`);
-        }
-
-        // Atualizar status de provisionamento
+        // Atualiza status no Banco A
         await maestriaAdmin
           .from("crm_client_plans")
           .update({ provisioned_at: new Date().toISOString(), provisioning_status: "confirmed" })
           .eq("client_id", plan.client_id);
 
-        results.push({ client_id: plan.client_id, client_name: clientName, success: true });
+        results.push({ client_id: plan.client_id, client_name: clientName, success: true, action });
       } catch (e) {
         results.push({ client_id: plan.client_id, client_name: clientName, success: false, error: String(e) });
       }
@@ -182,7 +173,6 @@ Deno.serve(async (req: Request) => {
 
     const synced = results.filter(r => r.success).length;
     const failed = results.filter(r => !r.success).length;
-
     return json({ success: true, synced, failed, results });
 
   } catch (err) {

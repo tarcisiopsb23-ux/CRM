@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+﻿import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { subDays, format, startOfDay } from "date-fns";
 
@@ -101,6 +101,7 @@ export function useLeadFunnel(organizationId: string | undefined) {
       const STAGES: { id: string; label: string }[] = [
         { id: "leads_recebidos",   label: "Recebidos" },
         { id: "qualificados",      label: "Qualificados" },
+        { id: "contato_realizado", label: "Contato" },
         { id: "reuniao_agendada",  label: "Reunião" },
         { id: "emissao_contrato",  label: "Contrato" },
         { id: "efetivados",        label: "Fechados" },

@@ -1,11 +1,12 @@
 // src/components/contracts/settings/ServiceFormDialog.tsx
 // Dialog for creating or editing a Service Catalog item.
-// Requirements: 1.1, 1.3, 1.4, 1.5
+// Redesign v2: entregáveis com output_format (texto/numero), unit e text_value.
+// Sub-serviços removidos — toda configuração vive nos entregáveis.
 
 import { useEffect } from "react";
 import { useForm, useFieldArray, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2, Plus, X } from "lucide-react";
+import { Loader2, Plus, X, Package, FileText, Target, ListChecks, Hash, AlignLeft } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -34,6 +35,8 @@ import {
   FormControl,
   FormMessage,
 } from "@/components/ui/form";
+import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
 
 import { serviceCatalogSchema, type ServiceCatalogInput } from "@/lib/contracts/schemas";
 import { useServiceCatalog } from "@/hooks/useServiceCatalog";
@@ -52,15 +55,71 @@ export interface ServiceFormDialogProps {
 }
 
 // ---------------------------------------------------------------------------
-// Sub-service type options
+// Constants
 // ---------------------------------------------------------------------------
 
-const SUB_SERVICE_TYPES = [
-  { value: "text", label: "Texto" },
-  { value: "number", label: "Número" },
-  { value: "boolean", label: "Sim/Não" },
-  { value: "select", label: "Seleção" },
+const MODALITY_OPTIONS = [
+  { value: "Consultiva",                       label: "Consultiva" },
+  { value: "Executiva",                        label: "Executiva" },
+  { value: "Híbrida (consultiva e executiva)", label: "Híbrida (consultiva e executiva)" },
 ] as const;
+
+const DELIVERY_TYPE_OPTIONS = [
+  {
+    value: "recorrente",
+    label: "Recorrente",
+    description: "Repete periodicamente durante o contrato",
+  },
+  {
+    value: "unico",
+    label: "Único",
+    description: "Entregável único, acontece uma vez no contrato",
+  },
+  {
+    value: "pontual",
+    label: "Pontual",
+    description: "Entregue conforme solicitação ou prazo acordado",
+  },
+] as const;
+
+const OUTPUT_FORMAT_OPTIONS = [
+  {
+    value: "texto",
+    label: "Texto",
+    description: "Texto fixo definido aqui, exibido no contrato",
+  },
+  {
+    value: "numero",
+    label: "Quantidade",
+    description: "Valor numérico preenchido ao cadastrar o contrato",
+  },
+] as const;
+
+// ---------------------------------------------------------------------------
+// Section header helper
+// ---------------------------------------------------------------------------
+
+function SectionHeader({
+  icon,
+  title,
+  description,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description?: string;
+}) {
+  return (
+    <div className="flex items-start gap-2 pb-1">
+      <div className="mt-0.5 text-muted-foreground">{icon}</div>
+      <div>
+        <p className="text-sm font-semibold leading-none">{title}</p>
+        {description && (
+          <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -80,16 +139,22 @@ export function ServiceFormDialog({
     defaultValues: {
       name: "",
       category: "",
-      sub_services: [],
+      modality: null,
+      description_text: null,
+      scope: "",
+      deliverables: [],
     },
   });
 
-  const { fields, append, remove } = useFieldArray({
-    control: form.control,
-    name: "sub_services",
-  });
+  const {
+    fields: deliverableFields,
+    append: appendDeliverable,
+    remove: removeDeliverable,
+  } = useFieldArray({ control: form.control, name: "deliverables" });
 
-  // Reset form when the dialog opens or the service changes
+  // Reset form when the dialog opens or the service changes.
+  // Também reseta ao fechar (open=false) para garantir que o useFieldArray
+  // não carregue entregáveis de uma edição anterior ao abrir para criar novo.
   useEffect(() => {
     if (open) {
       form.reset(
@@ -97,46 +162,98 @@ export function ServiceFormDialog({
           ? {
               name: service.name,
               category: service.category,
-              sub_services: service.sub_services ?? [],
+              modality: service.modality ?? null,
+              description_text: service.description_text ?? null,
+              scope: service.scope ?? "",
+              deliverables: (service.deliverables ?? []).map((d) => ({
+                id: d.id,
+                name: d.name,
+                delivery_type: d.delivery_type,
+                output_format: d.output_format ?? "numero",
+                text_value: d.text_value ?? null,
+                unit: d.unit ?? null,
+                unit_plural: d.unit_plural ?? null,
+              })),
             }
-          : { name: "", category: "", sub_services: [] }
+          : {
+              name: "",
+              category: "",
+              modality: null,
+              description_text: null,
+              scope: "",
+              deliverables: [],
+            },
+        { keepDefaultValues: false }
+      );
+    } else {
+      // Limpa ao fechar para não vazar estado no próximo open
+      form.reset(
+        {
+          name: "",
+          category: "",
+          modality: null,
+          description_text: null,
+          scope: "",
+          deliverables: [],
+        },
+        { keepDefaultValues: false }
       );
     }
   }, [open, service, form]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
-  const handleAddSubService = () => {
-    append({
+  const handleAddDeliverable = () => {
+    appendDeliverable({
       id: crypto.randomUUID(),
       name: "",
-      type: "text",
-      options: undefined,
+      delivery_type: "recorrente",
+      output_format: "numero",
+      text_value: null,
+      unit: null,
+      unit_plural: null,
     });
   };
 
   const onSubmit = async (values: ServiceCatalogInput) => {
+    const sanitized = {
+      ...values,
+      modality: values.modality?.trim() ? values.modality : null,
+      description_text: values.description_text?.trim() || null,
+      scope: values.scope?.trim() || null,
+      deliverables: (values.deliverables ?? []).map((d) => ({
+        ...d,
+        text_value: d.output_format === "texto" ? (d.text_value?.trim() || null) : null,
+        unit: d.output_format === "numero" ? (d.unit?.trim() || null) : null,
+        unit_plural: d.output_format === "numero" ? (d.unit_plural?.trim() || null) : null,
+      })),
+    };
+
     try {
       if (isEditing && service) {
         await updateService.mutateAsync({
           id: service.id,
-          name: values.name,
-          category: values.category,
-          sub_services: values.sub_services as import("@/types/contracts").SubService[],
+          name: sanitized.name,
+          category: sanitized.category,
+          modality: sanitized.modality,
+          description_text: sanitized.description_text,
+          scope: sanitized.scope,
+          deliverables: sanitized.deliverables as import("@/types/contracts").ServiceDeliverable[],
         });
         toast.success("Serviço atualizado com sucesso.");
       } else {
         await createService.mutateAsync({
-          name: values.name,
-          category: values.category,
-          sub_services: values.sub_services as import("@/types/contracts").SubService[],
+          name: sanitized.name,
+          category: sanitized.category,
+          modality: sanitized.modality,
+          description_text: sanitized.description_text,
+          scope: sanitized.scope,
+          deliverables: sanitized.deliverables as import("@/types/contracts").ServiceDeliverable[],
         });
         toast.success("Serviço criado com sucesso.");
       }
       onOpenChange(false);
     } catch (err: unknown) {
-      // Duplicate name errors are already shown via toast in the hook.
-      // For other errors, surface them inline on the name field.
       const message =
         err instanceof Error ? err.message : "Erro ao salvar serviço.";
       const isDuplicate =
@@ -169,87 +286,182 @@ export function ServiceFormDialog({
         </DialogHeader>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
 
-            {/* ── Nome ── */}
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Nome <span className="text-destructive">*</span></FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      placeholder="Ex: Gestão de Redes Sociais"
-                      maxLength={150}
+            {/* ══════════════════════════════════════════════════════════════
+                SEÇÃO 1 — IDENTIFICAÇÃO
+            ══════════════════════════════════════════════════════════════ */}
+            <div className="space-y-4">
+              <SectionHeader
+                icon={<Package className="h-4 w-4" />}
+                title="Identificação"
+                description="Nome, categoria e modalidade do serviço."
+              />
+
+              {/* Nome */}
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Nome <span className="text-destructive">*</span></FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        placeholder="Ex: Assessoria de Marketing Digital e Vendas"
+                        maxLength={150}
+                        disabled={isBusy}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* Categoria */}
+              <FormField
+                control={form.control}
+                name="category"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Categoria <span className="text-destructive">*</span></FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        placeholder="Ex: Marketing Digital"
+                        maxLength={100}
+                        disabled={isBusy}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* Modalidade */}
+              <FormField
+                control={form.control}
+                name="modality"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Modalidade</FormLabel>
+                    <Select
+                      value={field.value ?? ""}
+                      onValueChange={(val) => field.onChange(val || null)}
                       disabled={isBusy}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione a modalidade..." />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {MODALITY_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
 
-            {/* ── Categoria ── */}
-            <FormField
-              control={form.control}
-              name="category"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Categoria <span className="text-destructive">*</span></FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      placeholder="Ex: Marketing Digital"
-                      maxLength={100}
-                      disabled={isBusy}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <Separator />
 
-            {/* ── Sub-serviços ── */}
+            {/* ══════════════════════════════════════════════════════════════
+                SEÇÃO 2 — ESCOPO
+            ══════════════════════════════════════════════════════════════ */}
+            <div className="space-y-4">
+              <SectionHeader
+                icon={<Target className="h-4 w-4" />}
+                title="Escopo"
+                description="Contextualize o escopo de atuação para uso em propostas e contratos."
+              />
+
+              <FormField
+                control={form.control}
+                name="scope"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Escopo</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        {...field}
+                        value={field.value ?? ""}
+                        placeholder="Planejamento estratégico, gestão de campanhas, acompanhamento de indicadores e otimizações contínuas."
+                        maxLength={1000}
+                        rows={3}
+                        disabled={isBusy}
+                        className="resize-none"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <Separator />
+
+            {/* ══════════════════════════════════════════════════════════════
+                SEÇÃO 3 — ENTREGÁVEIS
+            ══════════════════════════════════════════════════════════════ */}
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium">Sub-serviços</Label>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleAddSubService}
-                  disabled={isBusy}
-                >
-                  <Plus className="h-4 w-4 mr-1" />
-                  Adicionar sub-serviço
-                </Button>
+              <div className="flex items-start justify-between gap-2">
+                <SectionHeader
+                  icon={<ListChecks className="h-4 w-4" />}
+                  title="Entregáveis"
+                  description="Defina o que será entregue e como a informação aparece no contrato."
+                />
+                {/* Botão no topo somente quando a lista está vazia */}
+                {deliverableFields.length === 0 && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleAddDeliverable}
+                    disabled={isBusy}
+                    className="shrink-0"
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    Adicionar entregável
+                  </Button>
+                )}
               </div>
 
-              {fields.length === 0 && (
+              {deliverableFields.length === 0 && (
                 <p className="text-sm text-muted-foreground py-2">
-                  Nenhum sub-serviço adicionado.
+                  Nenhum entregável adicionado. Clique em "Adicionar entregável" para começar.
                 </p>
               )}
 
               <div className="space-y-3">
-                {fields.map((fieldItem, index) => (
-                  <SubServiceRow
+                {deliverableFields.map((fieldItem, index) => (
+                  <DeliverableRow
                     key={fieldItem.id}
                     index={index}
                     form={form}
-                    onRemove={() => remove(index)}
+                    onRemove={() => removeDeliverable(index)}
                     disabled={isBusy}
                   />
                 ))}
               </div>
 
-              {/* Field-level error for the sub_services array */}
-              {form.formState.errors.sub_services?.root?.message && (
-                <p className="text-sm font-medium text-destructive">
-                  {form.formState.errors.sub_services.root.message}
-                </p>
+              {/* Botão no final, largura total, somente quando há ao menos um entregável */}
+              {deliverableFields.length > 0 && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleAddDeliverable}
+                  disabled={isBusy}
+                  className="w-full"
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Adicionar entregável
+                </Button>
               )}
             </div>
 
@@ -281,10 +493,10 @@ export function ServiceFormDialog({
 }
 
 // ---------------------------------------------------------------------------
-// SubServiceRow — extracted for clarity
+// DeliverableRow
 // ---------------------------------------------------------------------------
 
-interface SubServiceRowProps {
+interface DeliverableRowProps {
   index: number;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   form: ReturnType<typeof useForm<ServiceCatalogInput>>;
@@ -292,46 +504,37 @@ interface SubServiceRowProps {
   disabled?: boolean;
 }
 
-function SubServiceRow({ index, form, onRemove, disabled }: SubServiceRowProps) {
-  const { control, watch, setValue, formState: { errors } } = form;
+function DeliverableRow({ index, form, onRemove, disabled }: DeliverableRowProps) {
+  const { control, watch, formState: { errors } } = form;
 
-  const currentType = watch(`sub_services.${index}.type`);
-  const subServiceErrors = errors.sub_services?.[index];
+  const deliveryType  = watch(`deliverables.${index}.delivery_type`);
+  const outputFormat  = watch(`deliverables.${index}.output_format`);
+  const deliverableErrors = errors.deliverables?.[index];
 
-  // When the type changes away from "select", clear the options
-  const handleTypeChange = (value: string) => {
-    setValue(
-      `sub_services.${index}.type`,
-      value as "number" | "text" | "boolean" | "select",
-      { shouldValidate: true }
-    );
-    if (value !== "select") {
-      setValue(`sub_services.${index}.options`, undefined, { shouldValidate: true });
-    } else {
-      setValue(`sub_services.${index}.options`, [], { shouldValidate: true });
-    }
-  };
+  // "numero" + "recorrente" → solicita período no contrato (info para o usuário)
+  const isRecurrenteNumero = deliveryType === "recorrente" && outputFormat === "numero";
 
   return (
     <div className="border border-border rounded-lg p-3 space-y-3 bg-muted/20">
-      {/* Row: name + type + remove */}
+
+      {/* ── Linha 1: nome + tipo de entrega + remover ── */}
       <div className="flex items-start gap-2">
-        {/* Name */}
-        <div className="flex-1 space-y-1">
+        {/* Nome */}
+        <div className="flex-1 min-w-0 space-y-1">
           <Controller
             control={control}
-            name={`sub_services.${index}.name`}
+            name={`deliverables.${index}.name`}
             render={({ field }) => (
               <div className="space-y-1">
                 <Input
                   {...field}
-                  placeholder="Nome do sub-serviço"
+                  placeholder="Nome do entregável"
                   disabled={disabled}
-                  aria-label={`Nome do sub-serviço ${index + 1}`}
+                  aria-label={`Nome do entregável ${index + 1}`}
                 />
-                {subServiceErrors?.name?.message && (
+                {deliverableErrors?.name?.message && (
                   <p className="text-xs font-medium text-destructive">
-                    {subServiceErrors.name.message}
+                    {deliverableErrors.name.message}
                   </p>
                 )}
               </div>
@@ -339,24 +542,24 @@ function SubServiceRow({ index, form, onRemove, disabled }: SubServiceRowProps) 
           />
         </div>
 
-        {/* Type selector */}
-        <div className="w-36 space-y-1">
+        {/* Tipo de entrega */}
+        <div className="w-36 shrink-0">
           <Controller
             control={control}
-            name={`sub_services.${index}.type`}
+            name={`deliverables.${index}.delivery_type`}
             render={({ field }) => (
               <Select
                 value={field.value}
-                onValueChange={handleTypeChange}
+                onValueChange={field.onChange}
                 disabled={disabled}
               >
-                <SelectTrigger aria-label={`Tipo do sub-serviço ${index + 1}`}>
+                <SelectTrigger aria-label={`Tipo do entregável ${index + 1}`}>
                   <SelectValue placeholder="Tipo" />
                 </SelectTrigger>
                 <SelectContent>
-                  {SUB_SERVICE_TYPES.map((t) => (
-                    <SelectItem key={t.value} value={t.value}>
-                      {t.label}
+                  {DELIVERY_TYPE_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -365,62 +568,175 @@ function SubServiceRow({ index, form, onRemove, disabled }: SubServiceRowProps) 
           />
         </div>
 
-        {/* Remove button */}
+        {/* Remover */}
         <Button
           type="button"
           variant="ghost"
           size="icon"
           onClick={onRemove}
           disabled={disabled}
-          aria-label={`Remover sub-serviço ${index + 1}`}
-          className="mt-0 shrink-0 text-muted-foreground hover:text-destructive"
+          aria-label={`Remover entregável ${index + 1}`}
+          className="shrink-0 text-muted-foreground hover:text-destructive"
         >
           <X className="h-4 w-4" />
         </Button>
       </div>
 
-      {/* Options textarea — visible only when type === "select" */}
-      {currentType === "select" && (
-        <Controller
-          control={control}
-          name={`sub_services.${index}.options`}
-          render={({ field }) => {
-            const rawValue = Array.isArray(field.value) ? field.value.join(", ") : "";
+      {/* ── Linha 2: formato de saída ── */}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">Formato do entregável</Label>
+          <Controller
+            control={control}
+            name={`deliverables.${index}.output_format`}
+            render={({ field }) => (
+              <Select
+                value={field.value}
+                onValueChange={(val) => {
+                  field.onChange(val);
+                  // Limpa campos do formato anterior ao trocar
+                  if (val === "texto") {
+                    form.setValue(`deliverables.${index}.unit`, null);
+                    form.setValue(`deliverables.${index}.unit_plural`, null);
+                  } else {
+                    form.setValue(`deliverables.${index}.text_value`, null);
+                  }
+                }}
+                disabled={disabled}
+              >
+                <SelectTrigger aria-label={`Formato do entregável ${index + 1}`}>
+                  <SelectValue placeholder="Formato" />
+                </SelectTrigger>
+                <SelectContent>
+                  {OUTPUT_FORMAT_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      <div className="flex items-center gap-2">
+                        {opt.value === "texto"
+                          ? <AlignLeft className="h-3.5 w-3.5 text-muted-foreground" />
+                          : <Hash className="h-3.5 w-3.5 text-muted-foreground" />
+                        }
+                        <span>{opt.label}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          />
+        </div>
 
-            const handleOptionsChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-              const text = e.target.value;
-              // Parse comma-separated options, trimming whitespace, removing empty strings
-              const parsed = text
-                .split(",")
-                .map((s) => s.trim())
-                .filter(Boolean);
-              field.onChange(parsed);
-            };
+        {/* Singular (quando numero) */}
+        {outputFormat === "numero" && (
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">
+              Singular <span className="text-muted-foreground/60">(opcional)</span>
+            </Label>
+            <Controller
+              control={control}
+              name={`deliverables.${index}.unit`}
+              render={({ field }) => (
+                <div className="space-y-1">
+                  <Input
+                    {...field}
+                    value={field.value ?? ""}
+                    placeholder="Ex: hora, post, revisão"
+                    disabled={disabled}
+                    maxLength={50}
+                    aria-label={`Unidade singular do entregável ${index + 1}`}
+                    className="h-9 text-sm"
+                  />
+                  {deliverableErrors?.unit?.message && (
+                    <p className="text-xs font-medium text-destructive">
+                      {deliverableErrors.unit.message}
+                    </p>
+                  )}
+                </div>
+              )}
+            />
+          </div>
+        )}
 
-            return (
+        {/* Plural (quando numero) */}
+        {outputFormat === "numero" && (
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">
+              Plural <span className="text-muted-foreground/60">(opcional)</span>
+            </Label>
+            <Controller
+              control={control}
+              name={`deliverables.${index}.unit_plural`}
+              render={({ field }) => (
+                <div className="space-y-1">
+                  <Input
+                    {...field}
+                    value={field.value ?? ""}
+                    placeholder="Ex: horas, posts, revisões"
+                    disabled={disabled}
+                    maxLength={50}
+                    aria-label={`Unidade plural do entregável ${index + 1}`}
+                    className="h-9 text-sm"
+                  />
+                </div>
+              )}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Campo condicional: texto fixo (quando texto) */}
+      {outputFormat === "texto" && (
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">
+            Texto descritivo <span className="text-destructive">*</span>
+          </Label>
+          <Controller
+            control={control}
+            name={`deliverables.${index}.text_value`}
+            render={({ field }) => (
               <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">
-                  Opções (separadas por vírgula, mín. 1, máx. 50)
-                </Label>
                 <Textarea
-                  value={rawValue}
-                  onChange={handleOptionsChange}
+                  {...field}
+                  value={field.value ?? ""}
+                  placeholder="Ex: Licença ativa durante toda a vigência do contrato."
                   disabled={disabled}
-                  placeholder="Ex: Básico, Intermediário, Avançado"
+                  maxLength={500}
                   rows={2}
-                  aria-label={`Opções do sub-serviço ${index + 1}`}
-                  className="text-sm"
+                  className="resize-none text-sm"
+                  aria-label={`Texto do entregável ${index + 1}`}
                 />
-                {subServiceErrors?.options?.message && (
+                {deliverableErrors?.text_value?.message && (
                   <p className="text-xs font-medium text-destructive">
-                    {subServiceErrors.options.message}
+                    {deliverableErrors.text_value.message}
                   </p>
                 )}
               </div>
-            );
-          }}
-        />
+            )}
+          />
+        </div>
       )}
+
+      {/* Aviso informativo: recorrente + numero solicita período no contrato */}
+      {isRecurrenteNumero && (
+        <div className="flex items-start gap-1.5 rounded-md bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 px-2.5 py-2">
+          <span className="text-[11px] text-blue-700 dark:text-blue-300 leading-relaxed">
+            Por ser <strong>recorrente</strong> com formato <strong>quantidade</strong>, o usuário poderá
+            definir o período (por dia, semana, mês, vigência ou sem período) ao cadastrar o contrato.
+          </span>
+        </div>
+      )}
+
+      {/* Badge de resumo */}
+      <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+        <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 capitalize">
+          {DELIVERY_TYPE_OPTIONS.find(o => o.value === deliveryType)?.label ?? deliveryType}
+        </Badge>
+        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-5">
+          {outputFormat === "texto" ? "Texto fixo" : "Quantidade"}
+        </Badge>
+        <span className="text-[10px] text-muted-foreground">
+          · Prazo configurável no contrato
+        </span>
+      </div>
     </div>
   );
 }

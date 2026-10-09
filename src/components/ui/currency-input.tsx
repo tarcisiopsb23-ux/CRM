@@ -1,68 +1,105 @@
-import { forwardRef, useEffect, useRef, useState } from "react";
+/**
+ * CurrencyInput
+ * Input de valor monetário com máscara BRL (R$ 1.234,56).
+ * - Exibe o valor formatado com separador de milhar e 2 casas decimais
+ * - Armazena internamente como string numérica (sem formatação)
+ * - `value` e `onChange` trabalham com número puro (ex: 3000.5)
+ */
+import { useRef, useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-interface CurrencyInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "onChange" | "value"> {
-  /** Valor numérico (ex: 1234.56) ou string numérica */
-  value: string | number | null | undefined;
-  /** Retorna o valor como string numérica com ponto decimal (ex: "1234.56") */
-  onChange: (value: string) => void;
+interface CurrencyInputProps
+  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type"> {
+  value: string | number;
+  onValueChange?: (raw: string) => void; // string numérica, ex: "3000.50"
+  onChange?: (raw: string) => void;       // alias de onValueChange
+  placeholder?: string;
   className?: string;
 }
 
-/**
- * Input monetário no padrão brasileiro.
- * - Digita centavos da direita para a esquerda (ex: 1 → R$ 0,01 → R$ 0,10 → R$ 1,00)
- * - Exibe R$ 1.234,56 durante a digitação
- * - onChange retorna "1234.56" (ponto decimal, sem símbolo)
- */
-export const CurrencyInput = forwardRef<HTMLInputElement, CurrencyInputProps>(
-  ({ value, onChange, className, placeholder = "R$ 0,00", ...props }, ref) => {
-    const toDisplay = (v: string | number | null | undefined): string => {
-      if (v === null || v === undefined || v === "" || v === "0" || v === 0) return "";
-      const num = typeof v === "number" ? v : parseFloat(String(v).replace(",", "."));
-      if (isNaN(num) || num === 0) return "";
-      return num.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-    };
+const fmt = new Intl.NumberFormat("pt-BR", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
 
-    const [display, setDisplay] = useState(toDisplay(value));
-    const prevValue = useRef(value);
+/** Converte string BRL formatada → número puro */
+function parseFormatted(s: string): string {
+  // Remove tudo exceto dígitos e vírgula
+  const cleaned = s.replace(/[^\d,]/g, "");
+  // Troca vírgula por ponto
+  return cleaned.replace(",", ".");
+}
 
-    useEffect(() => {
-      if (prevValue.current !== value) {
-        prevValue.current = value;
-        setDisplay(toDisplay(value));
+export function CurrencyInput({
+  value,
+  onValueChange,
+  onChange,
+  placeholder = "0,00",
+  className,
+  ...props
+}: CurrencyInputProps) {
+  // Suporta tanto onValueChange quanto onChange como alias
+  const emit = (v: string) => {
+    onValueChange?.(v);
+    onChange?.(v);
+  };
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [display, setDisplay] = useState("");
+
+  // Sincroniza display quando value muda externamente
+  useEffect(() => {
+    const num = Number(value);
+    if (!isNaN(num) && value !== "" && value !== null && value !== undefined) {
+      setDisplay(fmt.format(num));
+    } else {
+      setDisplay("");
+    }
+  }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    // Mantém apenas dígitos e vírgula
+    const digitsOnly = raw.replace(/[^\d,]/g, "");
+    setDisplay(digitsOnly);
+  };
+
+  const handleBlur = () => {
+    const raw = parseFormatted(display);
+    const num = parseFloat(raw);
+    if (!isNaN(num) && raw !== "") {
+      setDisplay(fmt.format(num));
+      emit(String(num));
+    } else {
+      setDisplay("");
+      emit("");
+    }
+  };
+
+  const handleFocus = () => {
+    // Ao focar, mostra apenas os dígitos para facilitar edição
+    if (display) {
+      const raw = parseFormatted(display);
+      const num = parseFloat(raw);
+      if (!isNaN(num) && num > 0) {
+        // Mostra com vírgula mas sem pontos de milhar
+        setDisplay(num.toFixed(2).replace(".", ","));
       }
-    }, [value]);
+    }
+  };
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const raw = e.target.value;
-      // Extrai apenas dígitos
-      const digits = raw.replace(/\D/g, "").slice(0, 13);
-      if (!digits || digits === "0") {
-        setDisplay("");
-        onChange("");
-        return;
-      }
-      const num = parseInt(digits, 10) / 100;
-      const formatted = num.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-      setDisplay(formatted);
-      onChange(num.toFixed(2));
-    };
-
-    return (
-      <Input
-        ref={ref}
-        type="text"
-        inputMode="numeric"
-        value={display}
-        onChange={handleChange}
-        placeholder={placeholder}
-        className={cn(className)}
-        {...props}
-      />
-    );
-  }
-);
-
-CurrencyInput.displayName = "CurrencyInput";
+  return (
+    <Input
+      {...props}
+      ref={inputRef}
+      type="text"
+      inputMode="decimal"
+      value={display}
+      placeholder={placeholder}
+      onChange={handleChange}
+      onBlur={handleBlur}
+      onFocus={handleFocus}
+      className={cn("text-right tabular-nums", className)}
+    />
+  );
+}

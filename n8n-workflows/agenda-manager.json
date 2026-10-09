@@ -1,0 +1,478 @@
+{
+  "name": "Agenda — Manager (Edição + Renovação de Watch Channel)",
+  "nodes": [
+
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agenda-manager",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook — Receber Ação",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "agenda-manager",
+      "notes": "Ponto de entrada para ações de gerenciamento da agenda.\n\nComplementa o agenda-upsert (que cria e cancela).\nEste workflow gerencia: edições de horário/dados, atualização de status\ne renovação de watch channels.\n\nPayload:\n  action:         'update_event' | 'update_status' | 'renew_watch'\n  appointment_id: UUID  (obrigatório para update_event e update_status)\n  client_id:      UUID  (obrigatório para todos)\n  fields:         objeto com campos a atualizar (para update_event)\n  status:         novo status (para update_status)\n\nURL: https://ia-n8n.whlwlh.easypanel.host/webhook/agenda-manager"
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body ?? $input.first().json;\nconst token = $input.first().json.headers?.['x-webhook-token']\n           ?? $input.first().json.headers?.['X-Webhook-Token']\n           ?? '';\nconst expectedToken = $env.WEBHOOK_TOKEN ?? '';\nif (expectedToken && token !== expectedToken) throw new Error('Token inválido');\n\nconst action = body.action;\nconst validActions = ['update_event', 'update_status', 'renew_watch'];\nif (!action || !validActions.includes(action)) {\n  throw new Error('action inválido. Use: ' + validActions.join(', '));\n}\n\nif (action !== 'renew_watch' && !body.appointment_id) {\n  throw new Error('appointment_id obrigatório para ' + action);\n}\nif (!body.client_id) throw new Error('client_id obrigatório');\n\nconsole.log(`[agenda-manager] action=${action} | client=${body.client_id} | appointment=${body.appointment_id ?? 'N/A'}`);\n\nreturn [{ json: {\n  action:         action,\n  client_id:      body.client_id,\n  appointment_id: body.appointment_id ?? null,\n  fields:         body.fields         ?? {},\n  status:         body.status         ?? null,\n} }];"
+      },
+      "id": "validar-payload",
+      "name": "Validar Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": { "options": { "caseSensitive": false }, "conditions": [
+                { "leftValue": "={{ $json.action }}", "rightValue": "update_event",
+                  "operator": { "type": "string", "operation": "equals" } }
+              ]},
+              "renameOutput": true,
+              "outputKey": "update_event"
+            },
+            {
+              "conditions": { "options": { "caseSensitive": false }, "conditions": [
+                { "leftValue": "={{ $json.action }}", "rightValue": "update_status",
+                  "operator": { "type": "string", "operation": "equals" } }
+              ]},
+              "renameOutput": true,
+              "outputKey": "update_status"
+            },
+            {
+              "conditions": { "options": { "caseSensitive": false }, "conditions": [
+                { "leftValue": "={{ $json.action }}", "rightValue": "renew_watch",
+                  "operator": { "type": "string", "operation": "equals" } }
+              ]},
+              "renameOutput": true,
+              "outputKey": "renew_watch"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "roteador-acao",
+      "name": "Rotear por Ação",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [680, 300]
+    },
+
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/client_appointments",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
+        ]},
+        "sendQuery": true,
+        "queryParameters": { "parameters": [
+          { "name": "id",        "value": "=eq.{{ $json.appointment_id }}" },
+          { "name": "client_id", "value": "=eq.{{ $json.client_id }}" },
+          { "name": "select",    "value": "id,client_id,service_name,customer_name,customer_phone,customer_email,start_at,end_at,status,google_event_id,google_calendar_id,notes,source" },
+          { "name": "limit",     "value": "1" }
+        ]},
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "buscar-agendamento-update",
+      "name": "Buscar Agendamento (update_event)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 140]
+    },
+
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/client_appointments",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
+        ]},
+        "sendQuery": true,
+        "queryParameters": { "parameters": [
+          { "name": "id",        "value": "=eq.{{ $json.appointment_id }}" },
+          { "name": "client_id", "value": "=eq.{{ $json.client_id }}" },
+          { "name": "select",    "value": "id,client_id,status,google_event_id,google_calendar_id" },
+          { "name": "limit",     "value": "1" }
+        ]},
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "buscar-agendamento-status",
+      "name": "Buscar Agendamento (update_status)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300]
+    },
+
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/client_google_calendar_tokens",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
+        ]},
+        "sendQuery": true,
+        "queryParameters": { "parameters": [
+          { "name": "client_id", "value": "=eq.{{ $json.client_id }}" },
+          { "name": "connected", "value": "=eq.true" },
+          { "name": "select",    "value": "client_id,access_token,refresh_token,token_expiry,calendar_id,watch_channel_id,watch_expiry,watch_resource_id" },
+          { "name": "limit",     "value": "1" }
+        ]},
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "buscar-tokens-renew",
+      "name": "Buscar Tokens (renew_watch)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 460]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const apptResult = $input.first().json;\nconst payload    = $('Validar Payload').first().json;\n\nconst appt = Array.isArray(apptResult) ? apptResult[0] : null;\nif (!appt) throw new Error(`Agendamento ${payload.appointment_id} não encontrado.`);\n\nconst fields = payload.fields ?? {};\n\n// Mescla campos atualizados com dados existentes (fonte de verdade = Banco A)\nconst merged = {\n  service_name:   fields.service_name   ?? appt.service_name,\n  customer_name:  fields.customer_name  ?? appt.customer_name,\n  customer_phone: fields.customer_phone ?? appt.customer_phone,\n  customer_email: fields.customer_email ?? appt.customer_email,\n  start_at:       fields.start_at       ?? appt.start_at,\n  end_at:         fields.end_at         ?? appt.end_at,\n  notes:          fields.notes          ?? appt.notes,\n};\n\nreturn [{ json: {\n  appointment_id:     appt.id,\n  client_id:          appt.client_id,\n  google_event_id:    appt.google_event_id    ?? null,\n  google_calendar_id: appt.google_calendar_id ?? null,\n  source:             appt.source,\n  ...merged,\n} }];"
+      },
+      "id": "preparar-update-event",
+      "name": "Preparar Dados para Edição",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 140]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const apptResult = $input.first().json;\nconst payload    = $('Validar Payload').first().json;\n\nconst appt = Array.isArray(apptResult) ? apptResult[0] : null;\nif (!appt) throw new Error(`Agendamento ${payload.appointment_id} não encontrado.`);\n\nconst newStatus = payload.status;\nconst validStatus = ['pending','confirmed','cancelled','completed','no_show'];\nif (!validStatus.includes(newStatus)) {\n  throw new Error(`Status inválido: ${newStatus}. Use: ${validStatus.join(', ')}`);\n}\n\nif (appt.status === newStatus) {\n  console.log(`[agenda-manager] Agendamento já está com status ${newStatus}. Ignorando.`);\n  return [];\n}\n\nreturn [{ json: {\n  appointment_id:     appt.id,\n  client_id:          appt.client_id,\n  google_event_id:    appt.google_event_id    ?? null,\n  google_calendar_id: appt.google_calendar_id ?? null,\n  old_status:         appt.status,\n  new_status:         newStatus,\n} }];"
+      },
+      "id": "preparar-update-status",
+      "name": "Preparar Atualização de Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/client_appointments?id=eq.{{ $json.appointment_id }}&client_id=eq.{{ $json.client_id }}",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Content-Type",  "value": "application/json" },
+          { "name": "Prefer",        "value": "return=minimal" }
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  service_name:   $json.service_name,\n  customer_name:  $json.customer_name,\n  customer_phone: $json.customer_phone,\n  customer_email: $json.customer_email,\n  start_at:       $json.start_at,\n  end_at:         $json.end_at,\n  notes:          $json.notes,\n  duration_min:   Math.round((new Date($json.end_at).getTime() - new Date($json.start_at).getTime()) / 60000)\n}) }}",
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "salvar-update-banco",
+      "name": "Salvar Edição no Banco A",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 140]
+    },
+
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/client_appointments?id=eq.{{ $json.appointment_id }}&client_id=eq.{{ $json.client_id }}",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Content-Type",  "value": "application/json" },
+          { "name": "Prefer",        "value": "return=minimal" }
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ status: $json.new_status }) }}",
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "salvar-status-banco",
+      "name": "Salvar Status no Banco A",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 300]
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/get_google_calendar_tokens",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Content-Type",  "value": "application/json" }
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ p_client_id: $json.client_id }) }}",
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "buscar-tokens-update",
+      "name": "Buscar Tokens (update_event)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 140]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const tokens = $input.first().json;\nconst appt   = $('Preparar Dados para Edição').first().json;\n\nif (!tokens?.found || !appt.google_event_id) {\n  console.log(`[agenda-manager] Cliente ${appt.client_id} sem Google Calendar ou evento sem ID. Edição salva apenas no Banco A.`);\n  return [];\n}\n\nconst expiry       = tokens.token_expiry ? new Date(tokens.token_expiry).getTime() : 0;\nconst needsRefresh = expiry - Date.now() < 5 * 60 * 1000;\n\nreturn [{ json: {\n  ...appt,\n  access_token:  tokens.access_token,\n  refresh_token: tokens.refresh_token,\n  token_expiry:  tokens.token_expiry,\n  calendar_id:   tokens.calendar_id ?? appt.google_calendar_id ?? 'primary',\n  needs_refresh: needsRefresh,\n} }];"
+      },
+      "id": "avaliar-tokens-update",
+      "name": "Avaliar Tokens (update_event)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 140]
+    },
+
+    {
+      "parameters": {
+        "conditions": { "options": { "caseSensitive": false }, "conditions": [
+          { "leftValue": "={{ $json.needs_refresh }}", "rightValue": true,
+            "operator": { "type": "boolean", "operation": "equals" } }
+        ]}
+      },
+      "id": "if-refresh-update",
+      "name": "Token expirado? (update)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2000, 140]
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://oauth2.googleapis.com/token",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "Content-Type", "value": "application/x-www-form-urlencoded" }
+        ]},
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": { "parameters": [
+          { "name": "client_id",     "value": "={{ $env.GOOGLE_CALENDAR_CLIENT_ID }}" },
+          { "name": "client_secret", "value": "={{ $env.GOOGLE_CALENDAR_CLIENT_SECRET }}" },
+          { "name": "refresh_token", "value": "={{ $json.refresh_token }}" },
+          { "name": "grant_type",    "value": "refresh_token" }
+        ]},
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "renovar-token-update",
+      "name": "Renovar Token (update)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2220, 60]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const refreshResult = $input.first().json;\nconst prev = $('Avaliar Tokens (update_event)').first().json;\nconst newToken  = refreshResult.access_token ?? prev.access_token;\nconst newExpiry = refreshResult.expires_in\n  ? new Date(Date.now() + refreshResult.expires_in * 1000).toISOString()\n  : prev.token_expiry;\nreturn [{ json: { ...prev, access_token: newToken, token_expiry: newExpiry } }];"
+      },
+      "id": "merge-token-update",
+      "name": "Mesclar Token Renovado (update)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2440, 60]
+    },
+
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ 'https://www.googleapis.com/calendar/v3/calendars/' + encodeURIComponent($json.calendar_id) + '/events/' + $json.google_event_id }}",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "Authorization", "value": "=Bearer {{ $json.access_token }}" },
+          { "name": "Content-Type",  "value": "application/json" }
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  summary: $json.service_name + ' — ' + $json.customer_name,\n  description: [\n    'Cliente: '  + $json.customer_name,\n    $json.customer_phone ? 'Tel: '   + $json.customer_phone : null,\n    $json.customer_email ? 'Email: ' + $json.customer_email : null,\n    $json.notes ? 'Obs: ' + $json.notes : null,\n    'Origem: '   + ($json.source ?? 'manual'),\n    'ID: '       + $json.appointment_id\n  ].filter(Boolean).join('\\n'),\n  start: { dateTime: $json.start_at, timeZone: 'America/Sao_Paulo' },\n  end:   { dateTime: $json.end_at,   timeZone: 'America/Sao_Paulo' },\n  reminders: { useDefault: false, overrides: [\n    { method: 'popup', minutes: 30 },\n    { method: 'popup', minutes: 1440 }\n  ]}\n}) }}",
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "atualizar-evento-google",
+      "name": "Atualizar Evento no Google",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2660, 140],
+      "notes": "PUT substitui o evento completo no Google Calendar.\nUsado para edições de dados/horário — preserva o google_event_id existente."
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const tokenData = $('Buscar Tokens (renew_watch)').first().json;\nconst payload   = $('Validar Payload').first().json;\n\nconst row = Array.isArray(tokenData) ? tokenData[0] : null;\nif (!row?.client_id) {\n  console.log(`[agenda-manager] Cliente ${payload.client_id} sem Google Calendar conectado. Nada a renovar.`);\n  return [];\n}\n\nif (!row.watch_expiry) {\n  return [{ json: { ...row, needs_renewal: true, reason: 'sem watch_expiry registrado' } }];\n}\n\nconst expiryTs    = new Date(row.watch_expiry).getTime();\nconst hoursLeft   = (expiryTs - Date.now()) / (1000 * 60 * 60);\nconst needRenewal = hoursLeft < 24;\n\nconsole.log(`[agenda-manager] Watch channel expira em ${hoursLeft.toFixed(1)}h. Renovar: ${needRenewal}`);\n\nif (!needRenewal) {\n  console.log('[agenda-manager] Watch channel ainda válido. Nada a fazer.');\n  return [];\n}\n\nreturn [{ json: {\n  ...row,\n  needs_renewal: true,\n  reason: `expira em ${hoursLeft.toFixed(1)}h`,\n} }];"
+      },
+      "id": "avaliar-watch",
+      "name": "Avaliar Watch Channel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 460],
+      "notes": "Verifica se o watch channel expira em menos de 24h.\nRetorna [] se não precisar renovar — encerra silenciosamente."
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://oauth2.googleapis.com/token",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "Content-Type", "value": "application/x-www-form-urlencoded" }
+        ]},
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": { "parameters": [
+          { "name": "client_id",     "value": "={{ $env.GOOGLE_CALENDAR_CLIENT_ID }}" },
+          { "name": "client_secret", "value": "={{ $env.GOOGLE_CALENDAR_CLIENT_SECRET }}" },
+          { "name": "refresh_token", "value": "={{ $json.refresh_token }}" },
+          { "name": "grant_type",    "value": "refresh_token" }
+        ]},
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "renovar-token-watch",
+      "name": "Renovar Token (watch)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 460]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const refreshResult = $input.first().json;\nconst prev = $('Avaliar Watch Channel').first().json;\nconst accessToken = refreshResult.access_token ?? prev.access_token;\nreturn [{ json: { ...prev, access_token: accessToken } }];"
+      },
+      "id": "merge-token-watch",
+      "name": "Mesclar Token (watch)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 460]
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://www.googleapis.com/calendar/v3/calendars/' + encodeURIComponent($json.calendar_id ?? 'primary') + '/events/watch' }}",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "Authorization", "value": "=Bearer {{ $json.access_token }}" },
+          { "name": "Content-Type",  "value": "application/json" }
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  id:         $execution.id + '_' + Date.now(),\n  type:       'web_hook',\n  address:    $env.N8N_GOOGLE_CALENDAR_WEBHOOK_URL,\n  expiration: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).getTime()\n}) }}",
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "registrar-watch",
+      "name": "Registrar Novo Watch Channel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 460],
+      "notes": "Registra novo watch channel no Google Calendar.\nA URL de callback é o endpoint do workflow agenda-google-webhook.\nExpira em 7 dias — este workflow deve ser chamado diariamente para renovar."
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const watchResult = $input.first().json;\nconst prev = $('Avaliar Watch Channel').first().json;\n\nif (!watchResult?.id) {\n  console.error('[agenda-manager] Falha ao registrar watch channel:', JSON.stringify(watchResult));\n  return [];\n}\n\nconst newExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();\n\nconsole.log(`[agenda-manager] Novo watch channel: ${watchResult.id} | expira: ${newExpiry}`);\n\nreturn [{ json: {\n  client_id:        prev.client_id,\n  new_channel_id:   watchResult.id,\n  new_resource_id:  watchResult.resourceId ?? '',\n  new_expiry:       newExpiry,\n} }];"
+      },
+      "id": "processar-watch",
+      "name": "Processar Resultado do Watch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 460]
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/save_google_watch_channel",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Content-Type",  "value": "application/json" }
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  p_client_id:   $json.client_id,\n  p_channel_id:  $json.new_channel_id,\n  p_resource_id: $json.new_resource_id,\n  p_expiry:      $json.new_expiry\n}) }}",
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "salvar-watch-banco",
+      "name": "Salvar Watch no Banco A",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2220, 460],
+      "notes": "Persiste novo watch_channel_id e watch_expiry no Banco A.\nO workflow agenda-google-webhook identifica o cliente pelo channel_id."
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const action = $('Validar Payload').first().json.action;\nconsole.log(`[agenda-manager] Concluído — action: ${action}`);\nreturn [{ json: { success: true, action } }];"
+      },
+      "id": "log-fim",
+      "name": "Log Final",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2880, 300]
+    }
+
+  ],
+
+  "connections": {
+    "Webhook — Receber Ação":               { "main": [[{ "node": "Validar Payload",                    "type": "main", "index": 0 }]] },
+    "Validar Payload":                      { "main": [[{ "node": "Rotear por Ação",                    "type": "main", "index": 0 }]] },
+    "Rotear por Ação": {
+      "main": [
+        [{ "node": "Buscar Agendamento (update_event)",  "type": "main", "index": 0 }],
+        [{ "node": "Buscar Agendamento (update_status)", "type": "main", "index": 0 }],
+        [{ "node": "Buscar Tokens (renew_watch)",        "type": "main", "index": 0 }]
+      ]
+    },
+    "Buscar Agendamento (update_event)":    { "main": [[{ "node": "Preparar Dados para Edição",          "type": "main", "index": 0 }]] },
+    "Buscar Agendamento (update_status)":   { "main": [[{ "node": "Preparar Atualização de Status",       "type": "main", "index": 0 }]] },
+    "Buscar Tokens (renew_watch)":          { "main": [[{ "node": "Avaliar Watch Channel",                "type": "main", "index": 0 }]] },
+    "Preparar Dados para Edição":           { "main": [[{ "node": "Salvar Edição no Banco A",             "type": "main", "index": 0 }]] },
+    "Preparar Atualização de Status":       { "main": [[{ "node": "Salvar Status no Banco A",             "type": "main", "index": 0 }]] },
+    "Salvar Edição no Banco A":             { "main": [[{ "node": "Buscar Tokens (update_event)",         "type": "main", "index": 0 }]] },
+    "Salvar Status no Banco A":             { "main": [[{ "node": "Log Final",                            "type": "main", "index": 0 }]] },
+    "Buscar Tokens (update_event)":         { "main": [[{ "node": "Avaliar Tokens (update_event)",        "type": "main", "index": 0 }]] },
+    "Avaliar Tokens (update_event)":        { "main": [[{ "node": "Token expirado? (update)",             "type": "main", "index": 0 }]] },
+    "Token expirado? (update)": {
+      "main": [
+        [{ "node": "Renovar Token (update)", "type": "main", "index": 0 }],
+        [{ "node": "Atualizar Evento no Google", "type": "main", "index": 0 }]
+      ]
+    },
+    "Renovar Token (update)":               { "main": [[{ "node": "Mesclar Token Renovado (update)",      "type": "main", "index": 0 }]] },
+    "Mesclar Token Renovado (update)":      { "main": [[{ "node": "Atualizar Evento no Google",           "type": "main", "index": 0 }]] },
+    "Atualizar Evento no Google":           { "main": [[{ "node": "Log Final",                            "type": "main", "index": 0 }]] },
+    "Avaliar Watch Channel":                { "main": [[{ "node": "Renovar Token (watch)",                "type": "main", "index": 0 }]] },
+    "Renovar Token (watch)":                { "main": [[{ "node": "Mesclar Token (watch)",                "type": "main", "index": 0 }]] },
+    "Mesclar Token (watch)":                { "main": [[{ "node": "Registrar Novo Watch Channel",         "type": "main", "index": 0 }]] },
+    "Registrar Novo Watch Channel":         { "main": [[{ "node": "Processar Resultado do Watch",         "type": "main", "index": 0 }]] },
+    "Processar Resultado do Watch":         { "main": [[{ "node": "Salvar Watch no Banco A",              "type": "main", "index": 0 }]] },
+    "Salvar Watch no Banco A":              { "main": [[{ "node": "Log Final",                            "type": "main", "index": 0 }]] }
+  },
+
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "templateId": "agenda-manager-v1",
+    "description": "Gerencia edições de agendamentos e renovação automática de watch channels do Google Calendar. Complementa agenda-upsert (criação/cancelamento) com edição completa de dados/horário e gestão do canal de notificações push."
+  },
+  "notes": "## Agenda — Manager v1\n\n### Responsabilidade:\nComplementa o agenda-upsert. Gerencia o que o upsert NÃO cobre:\n  1. Edição de dados/horário de agendamentos existentes → PUT no Google Calendar\n  2. Atualização de status sem cancelamento → PATCH no Banco A\n  3. Renovação de watch channel (expira a cada 7 dias) → registra novo canal\n\n### Actions suportadas:\n\n  **update_event** — Edita dados/horário de um agendamento\n    Payload: { action, client_id, appointment_id, fields: { service_name?, customer_name?, start_at?, end_at?, notes? } }\n    Fluxo: Busca dados → Mescla com fields → PATCH Banco A → Busca tokens → Renova token se necessário → PUT Google Calendar\n\n  **update_status** — Atualiza status do agendamento (pending→confirmed, confirmed→completed, etc.)\n    Payload: { action, client_id, appointment_id, status: 'pending'|'confirmed'|'cancelled'|'completed'|'no_show' }\n    Fluxo: Busca agendamento → Valida status → PATCH Banco A\n    Nota: Cancelamento definitivo deve usar agenda-upsert (appointment.cancelled) para também remover do Google Calendar\n\n  **renew_watch** — Renova watch channel do Google Calendar\n    Payload: { action, client_id }\n    Fluxo: Busca tokens → Avalia expiração (< 24h) → Renova access_token → Registra novo watch → Salva no Banco A\n    Trigger: Chamar diariamente via Schedule Trigger do n8n para cada cliente ativo\n\n### Variáveis de ambiente:\n  SUPABASE_URL                    — URL do Supabase da agência (Banco A)\n  SUPABASE_SERVICE_KEY            — Service Role Key do Banco A\n  GOOGLE_CALENDAR_CLIENT_ID       — OAuth Client ID do Google Cloud Console\n  GOOGLE_CALENDAR_CLIENT_SECRET   — OAuth Client Secret\n  WEBHOOK_TOKEN                   — Token de autenticação dos webhooks\n  N8N_GOOGLE_CALENDAR_WEBHOOK_URL — URL do workflow agenda-google-webhook\n\n### URL: https://ia-n8n.whlwlh.easypanel.host/webhook/agenda-manager\n\n### Como usar para renovação automática de watch channels:\nCrie um Schedule Trigger (diário, às 03:00 BRT) que liste todos os clientes\ncom Google Calendar conectado e chame este webhook com action='renew_watch'\npara cada um — ou adicione um nó Schedule diretamente neste workflow\nque faça a varredura dos clientes automaticamente."
+}

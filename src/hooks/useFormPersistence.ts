@@ -21,7 +21,19 @@ function useFormPersistence<T>(
     try {
       const raw = localStorage.getItem(key);
       if (raw !== null) {
-        return JSON.parse(raw) as T;
+        const stored = JSON.parse(raw) as T;
+        // Merge com initialValue para garantir que campos adicionados depois
+        // do armazenamento não fiquem ausentes (ex: novas colunas no form).
+        // Usa stored como base e só preenche com initial os campos ausentes,
+        // para não sobrescrever valores salvos com undefined do initial.
+        if (initialValue !== null && typeof initialValue === 'object' && !Array.isArray(initialValue)) {
+          const merged = { ...(initialValue as object) } as Record<string, unknown>;
+          for (const [k, v] of Object.entries(stored as Record<string, unknown>)) {
+            if (v !== undefined) merged[k] = v;
+          }
+          return merged as T;
+        }
+        return stored;
       }
     } catch {
       // localStorage indisponível ou JSON inválido — degradação graciosa

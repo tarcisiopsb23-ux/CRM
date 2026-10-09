@@ -1,6 +1,7 @@
 export type EtapaKanban =
   | 'leads_recebidos'
   | 'qualificados'
+  | 'contato_realizado'
   | 'reuniao_agendada'
   | 'emissao_contrato'
   | 'efetivados'
@@ -17,12 +18,23 @@ export type LeadProductService =
   | 'agente_ia'
   | 'outros';
 
+/** Valores válidos para o array product_services */
+export const PRODUCT_SERVICE_OPTIONS: { value: LeadProductService; label: string }[] = [
+  { value: 'assessoria', label: 'Assessoria' },
+  { value: 'consultoria', label: 'Consultoria' },
+  { value: 'gmn', label: 'GMN' },
+  { value: 'site', label: 'Site' },
+  { value: 'agente_ia', label: 'Ecossistema de Atendimento' },
+  { value: 'outros', label: 'Outros' },
+];
+
 export type LeadContactOrigin =
   | 'indicacao'
   | 'prospeccao'
   | 'campanha_google'
   | 'campanha_meta'
   | 'organico'
+  | 'c8_form'
   | 'outras';
 
 export type LeadGmnStatus =
@@ -32,7 +44,7 @@ export type LeadGmnStatus =
   | 'incompleto'
   | 'completo';
 
-export type LeadAdsLevel = 'sem_anuncios' | 'poucos_anuncios' | 'muitos_anuncios';
+export type LeadAdsLevel = 'sem_anuncios' | 'poucos_anuncios' | 'muitos_anuncios' | 'conta_nao_encontrada';
 
 export type LeadSocialMediaStatus =
   | 'sem_frequencia'
@@ -73,6 +85,7 @@ export interface Lista {
 
 export interface ListaWithResponsavel extends Lista {
   responsavel?: { full_name: string } | null;
+  leads_count?: number;
 }
 
 export interface LeadListaHistory {
@@ -99,6 +112,7 @@ export interface Lead {
   email: string | null;
   phone: string | null;
   company: string | null;
+  cidade: string | null;
   value: number;
   notes: string | null;
   nicho: string | null;
@@ -138,6 +152,7 @@ export interface LeadWithResponsavel extends Lead {
 export const ETAPAS_KANBAN: { id: EtapaKanban; label: string }[] = [
   { id: 'leads_recebidos', label: 'Leads Recebidos' },
   { id: 'qualificados', label: 'Qualificados' },
+  { id: 'contato_realizado', label: 'Contato Realizado' },
   { id: 'reuniao_agendada', label: 'Reunião Agendada' },
   { id: 'emissao_contrato', label: 'Negociações' },
   { id: 'efetivados', label: 'Efetivados' },

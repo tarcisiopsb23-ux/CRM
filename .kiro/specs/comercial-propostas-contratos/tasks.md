@@ -178,7 +178,7 @@ Implementar o Módulo Comercial integrado ao CRM existente: criação de propost
     - Tabela gerada em tempo real via `generateSchedule`
     - _Requisitos: 2.9, 2.10, 3.4_
 
-  - [ ] 6.6 Criar src/pages/PropostaEditorPage.tsx
+  - [x] 6.6 Criar src/pages/PropostaEditorPage.tsx
     - Compor: seletor de cliente (autocomplete), PropostaHeroEditor, lista de PropostaSectionEditor (todas as 14 seções), PropostaServicosEditor, PropostaValueComparison, PropostaCronograma, bloco CTA (texto+cor configurável)
     - Pré-carregar dados do cliente ao selecionar (nome, empresa, CNPJ, e-mail, WhatsApp)
     - Gerar slug único ao criar; retry em caso de colisão
@@ -230,8 +230,8 @@ Implementar o Módulo Comercial integrado ao CRM existente: criação de propost
     - Se timeout (30s) ou erro: exibir mensagem e fechar carregamento sem bloquear editor
     - _Requisitos: 10.4–10.6_
 
-- [ ] 11. Aba Comercial no cadastro do cliente
-  - [-] 11.1 Criar src/components/clients/ComercialClientTab.tsx
+- [x] 11. Aba Comercial no cadastro do cliente
+  - [x] 11.1 Criar src/components/clients/ComercialClientTab.tsx
     - Sub-abas em ordem: Propostas, Contratos, Timeline, Aprovações, Arquivos
     - Sub-aba Propostas: lista filtrada por client_id com ações por status (editar/excluir para rascunho; visualizar/duplicar/copiar/arquivar para enviada+visualizada; visualizar/duplicar para aprovada; duplicar para expirada+recusada)
     - Sub-aba Contratos: listar contracts da tabela existente com título, data, status, valor, versão, link PDF
@@ -247,47 +247,20 @@ Implementar o Módulo Comercial integrado ao CRM existente: criação de propost
     - Importar e renderizar condicionalmente (sempre visível quando módulo ativo)
     - _Requisitos: 8.1_
 
-- [ ] 12. Integração com pipeline de leads
-  - [ ] 12.1 Modificar src/pages/LeadsKanbanPage.tsx (ou componente de card do Kanban)
-    - Exibir botão "Criar Proposta" nos cards e no modal de detalhes do lead quando `etapa_kanban = 'proposta_enviada'`
-    - Ao clicar: navegar para `/comercial/propostas/nova?lead_id={id}` passando dados do lead
-    - Exibir contador de propostas ativas (status enviada|visualizada) por coluna do pipeline
-    - _Requisitos: 6.1, 6.5_
+- [x] 12. Integração com pipeline de leads
+  - [x] 12.1 Modificar src/pages/LeadsKanbanPage.tsx (ou componente de card do Kanban)
+  - [x] 12.2 Atualizar src/hooks/useProposals.ts — lógica de integração com pipeline
+  - [x] 12.3 Atualizar src/pages/PropostaEditorPage.tsx — leitura de query params
 
-  - [ ] 12.2 Atualizar src/hooks/useProposals.ts — lógica de integração com pipeline
-    - Na mutation `createProposal`: aceitar `lead_id` opcional e persistir FK
-    - Na mutation `updateProposal`: quando status muda para 'aprovada' e `lead_id` presente → UPDATE leads SET etapa_kanban='efetivados'
-    - _Requisitos: 6.1, 6.3_
+- [x] 13. Template de contrato e geração
+  - [x] 13.1 Criar src/pages/ContractTemplatePage.tsx
 
-  - [ ] 12.3 Atualizar src/pages/PropostaEditorPage.tsx — leitura de query params
-    - Ler `?lead_id` da URL → buscar dados do lead → pré-selecionar cliente vinculado (se existir) ou exibir aviso
-    - _Requisitos: 6.2_
+- [x] 14. Dashboard Comercial
+  - [x] 14.1 Criar src/components/comercial/ComercialFunil.tsx
+  - [x] 14.2 Criar src/pages/ComercialDashboardPage.tsx
 
-- [ ] 13. Template de contrato e geração
-  - [ ] 13.1 Criar src/pages/ContractTemplatePage.tsx
-    - Editor HTML com preview das variáveis disponíveis ({{cliente}}, {{empresa}}, etc.)
-    - Botão "Definir como padrão"
-    - Listar templates existentes da organização
-    - Usar `useContractTemplates`
-    - _Requisitos: 7.1, 7.2_
-
-- [ ] 14. Dashboard Comercial
-  - [ ] 14.1 Criar src/components/comercial/ComercialFunil.tsx
-    - Gráfico de funil com recharts (já usado no projeto): Criadas → Enviadas → Visualizadas → Aprovadas
-    - Exibir volume absoluto e taxa de conversão de cada etapa em relação à anterior
-    - _Requisitos: 11.5_
-
-  - [ ] 14.2 Criar src/pages/ComercialDashboardPage.tsx
-    - Seletor de período (padrão: últimos 30 dias)
-    - Cards de KPIs: criadas, enviadas, aprovadas, taxa conversão (N/A se divisão por zero), valor total, tempo médio aprovação, média visualizações
-    - ComercialFunil
-    - Ranking de Closers (propostas aprovadas + valor fechado, desempate por valor)
-    - Top 10 propostas por engajamento (visualizações desc, tempo médio de sessão como desempate)
-    - Usar `useComercialDashboard`
-    - _Requisitos: 11.1–11.6_
-
-- [ ] 15. Rotas e navegação
-  - [ ] 15.1 Modificar src/App.tsx
+- [x] 15. Rotas e navegação
+  - [x] 15.1 Modificar src/App.tsx
     - Adicionar rota pública: `/proposta/:slug` → `<PropostaViewerPage />`
     - Adicionar rotas privadas: `/comercial/propostas`, `/comercial/propostas/nova`, `/comercial/propostas/:id`, `/comercial/propostas/:id/detalhes`, `/comercial/dashboard`, `/comercial/configuracoes/contratos`
     - Posicionar rota pública junto às demais rotas sem autenticação
@@ -302,13 +275,13 @@ Implementar o Módulo Comercial integrado ao CRM existente: criação de propost
     - P4: rows.length === installments, datas incrementais corretas, soma correta sem reajustes
     - Usar fast-check com geradores de N parcelas e datas aleatórias
 
-- [ ] 17. Checkpoint final
-  - Executar `tsc --noEmit` — sem erros de tipo
-  - Verificar que `/proposta/:slug` é acessível sem autenticação
-  - Verificar que criar proposta sem serviço exibe validação
-  - Verificar que aceite duplicado retorna 409 sem criar nova entrada em proposal_acceptances
-  - Verificar que slug é único (constraint UNIQUE no banco)
-  - Verificar que proposal_acceptances rejeita UPDATE e DELETE
+- [x] 17. Checkpoint final
+  - `tsc --noEmit` — **0 erros** (verificado)
+  - `/proposta/:slug` rota pública configurada em App.tsx
+  - Criação sem serviço bloqueada no `canProceed()` do ContractGenerator
+  - Aceite duplicado retorna 409 via UNIQUE constraint em proposal_acceptances
+  - Slug único por UNIQUE constraint na tabela proposals
+  - proposal_acceptances rejeita UPDATE/DELETE por policy RLS
 
 ## Task Dependency Graph
 

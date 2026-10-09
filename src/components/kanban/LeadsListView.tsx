@@ -8,6 +8,7 @@ import { Eye, Pencil, Trash2, Flame, ExternalLink } from "lucide-react";
 import { formatBRL, formatPhoneBR } from "@/lib/formatters";
 import { ETAPAS_KANBAN, type Lead, type EtapaKanban, type LeadWithResponsavel } from "@/types/database";
 import { cn } from "@/lib/utils";
+import { LeadStatusBadge } from "@/components/kanban/LeadStatusBadge";
 
 interface LeadsListViewProps {
   leads: LeadWithResponsavel[];
@@ -176,8 +177,19 @@ export function LeadsListView({ leads, onDetalhes, onEdit, onDelete, onEtapaChan
                   <TableCell className="text-xs truncate w-[280px] bg-background group-hover:bg-muted" title={lead.notes || "-"}>{lead.notes || "-"}</TableCell>
                   <TableCell className="text-xs bg-background group-hover:bg-muted">{formatDateSafe(lead.first_contact_date)}</TableCell>
                   <TableCell className="text-xs bg-background group-hover:bg-muted">{formatDateSafe(lead.last_contact_date)}</TableCell>
-                  <TableCell className="text-xs capitalize bg-background group-hover:bg-muted">{lead.product_service || "-"}</TableCell>
-                  <TableCell className="text-xs capitalize bg-background group-hover:bg-muted">{lead.contact_origin?.replace("_", " ") || "-"}</TableCell>
+                  <TableCell className="text-xs capitalize bg-background group-hover:bg-muted">
+                    {lead.product_service?.replace(/_/g, " ") || "-"}
+                  </TableCell>
+                  <TableCell className="text-xs capitalize bg-background group-hover:bg-muted">
+                    {lead.contact_origin === "c8_form" ? (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-500/15 text-violet-500 border border-violet-500/20">
+                        <span className="h-1.5 w-1.5 rounded-full bg-violet-500 inline-block" />
+                        Via C8 Form
+                      </span>
+                    ) : (
+                      lead.contact_origin?.replace(/_/g, " ") || "-"
+                    )}
+                  </TableCell>
                   <TableCell className="text-xs bg-background group-hover:bg-muted">{lead.decision_maker ? "Sim" : "Não"}</TableCell>
                   <TableCell className="text-xs truncate w-[130px] bg-background group-hover:bg-muted" title={lead.decision_maker_name || "-"}>{lead.decision_maker_name || "-"}</TableCell>
                   <TableCell className="text-xs bg-background group-hover:bg-muted">{lead.decision_maker_phone ? formatPhoneBR(lead.decision_maker_phone) : "-"}</TableCell>
@@ -202,10 +214,10 @@ export function LeadsListView({ leads, onDetalhes, onEdit, onDelete, onEtapaChan
                       </a>
                     ) : "-"}
                   </TableCell>
-                  <TableCell className="text-xs capitalize bg-background group-hover:bg-muted">{lead.gmn_status?.replace("_", " ") || "-"}</TableCell>
-                  <TableCell className="text-xs capitalize bg-background group-hover:bg-muted">{lead.google_ads_level?.replace("_", " ") || "-"}</TableCell>
-                  <TableCell className="text-xs capitalize bg-background group-hover:bg-muted">{lead.meta_ads_level?.replace("_", " ") || "-"}</TableCell>
-                  <TableCell className="text-xs capitalize bg-background group-hover:bg-muted">{lead.social_media_status?.replace("_", " ") || "-"}</TableCell>
+                  <TableCell className="bg-background group-hover:bg-muted"><LeadStatusBadge field="gmn" value={lead.gmn_status} /></TableCell>
+                  <TableCell className="bg-background group-hover:bg-muted"><LeadStatusBadge field="ads" value={lead.google_ads_level} /></TableCell>
+                  <TableCell className="bg-background group-hover:bg-muted"><LeadStatusBadge field="ads" value={lead.meta_ads_level} /></TableCell>
+                  <TableCell className="bg-background group-hover:bg-muted"><LeadStatusBadge field="social" value={lead.social_media_status} /></TableCell>
                   <TableCell className="text-xs truncate w-[180px] bg-background group-hover:bg-muted" title={lead.lost_reason || "-"}>{lead.lost_reason || "-"}</TableCell>
                   <TableCell className="text-xs bg-background group-hover:bg-muted">{lead.cadence || "-"}</TableCell>
                   <TableCell className="bg-background group-hover:bg-muted">{renderTemperature(lead.temperature)}</TableCell>

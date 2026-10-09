@@ -2,16 +2,14 @@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Plus, Trash2 } from "lucide-react";
 import type { ScheduleConfig } from "@/types/proposals";
 import type { Client } from "@/types/crm";
+import { PropostaCronograma } from "@/components/propostas/PropostaCronograma";
+import type { WizardServiceDraft } from "./wizardTypes";
 
 interface Props {
   client: Client;
@@ -19,18 +17,19 @@ interface Props {
   heroMessage: string;
   closerWhatsapp: string;
   schedule: ScheduleConfig;
+  planValue?: number;
+  services: WizardServiceDraft[];
   onTitleChange: (v: string) => void;
   onHeroMessageChange: (v: string) => void;
   onCloserWhatsappChange: (v: string) => void;
   onScheduleChange: (s: ScheduleConfig) => void;
+  onPlanValueChange?: (v: number) => void;
+  onServicesChange: (services: WizardServiceDraft[]) => void;
 }
 
-const RECURRENCE_LABELS: Record<string, string> = {
-  mensal: "Mensal",
-  trimestral: "Trimestral",
-  semestral: "Semestral",
-  anual: "Anual",
-};
+function newManual(): WizardServiceDraft {
+  return { name: "", description: null, value: 0, is_bonus: false };
+}
 
 export function StepProposta({
   client,
@@ -38,20 +37,39 @@ export function StepProposta({
   heroMessage,
   closerWhatsapp,
   schedule,
+  planValue = 0,
+  services,
   onTitleChange,
   onHeroMessageChange,
   onCloserWhatsappChange,
   onScheduleChange,
+  onPlanValueChange,
+  onServicesChange,
 }: Props) {
-  const set = (patch: Partial<ScheduleConfig>) =>
-    onScheduleChange({ ...schedule, ...patch });
+
+  function updateService(idx: number, patch: Partial<WizardServiceDraft>) {
+    onServicesChange(services.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
+  }
+
+  function removeService(idx: number) {
+    onServicesChange(services.filter((_, i) => i !== idx));
+  }
+
+  function addManual() {
+    onServicesChange([...services, newManual()]);
+  }
+
+  const totalIndividual = services
+    .filter((s) => !s.is_bonus)
+    .reduce((sum, s) => sum + s.value, 0);
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold">Informações da proposta</h2>
+        <h2 className="text-lg font-semibold">Financeiro</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Dados específicos para <strong>{client.name}</strong>.
+          Defina preços, bônus e condições de pagamento para{" "}
+          <strong>{client.name}</strong>.
         </p>
       </div>
 
@@ -115,74 +133,128 @@ export function StepProposta({
         </CardContent>
       </Card>
 
-      {/* Cronograma financeiro */}
+      {/* Editor de itens da proposta */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-            Cronograma financeiro
+            Itens da proposta
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="space-y-1">
-              <Label className="text-xs">Valor da parcela (R$)</Label>
-              <Input
-                type="number"
-                min={0}
-                step={0.01}
-                placeholder="0,00"
-                value={schedule.firstValue || ""}
-                onChange={(e) => set({ firstValue: parseFloat(e.target.value) || 0 })}
-              />
-            </div>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground -mt-1">
+            Valor de tabela é opcional — serve para mostrar o desconto do pacote ao cliente.
+            O valor cobrado é definido no cronograma financeiro abaixo.
+          </p>
 
-            <div className="space-y-1">
-              <Label className="text-xs">Data da 1ª parcela</Label>
-              <Input
-                type="date"
-                value={schedule.firstDate}
-                onChange={(e) => set({ firstDate: e.target.value })}
-              />
-            </div>
+          {services.length === 0 && (
+            <p className="text-sm text-muted-foreground italic">
+              Nenhum serviço selecionado. Volte à etapa anterior ou adicione manualmente.
+            </p>
+          )}
 
-            <div className="space-y-1">
-              <Label className="text-xs">Recorrência</Label>
-              <Select
-                value={schedule.recurrence}
-                onValueChange={(v) =>
-                  set({ recurrence: v as ScheduleConfig["recurrence"] })
-                }
+          <div className="space-y-2">
+            {services.map((svc, idx) => (
+              <div
+                key={`${svc.catalog_id ?? "manual"}-${idx}`}
+                className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto_auto_auto] gap-2 items-end p-3 rounded-lg border bg-muted/10"
               >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(RECURRENCE_LABELS).map(([val, label]) => (
-                    <SelectItem key={val} value={val}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+                {/* Nome */}
+                <div className="space-y-1">
+                  <Label className="text-xs">Nome *</Label>
+                  <Input
+                    maxLength={120}
+                    placeholder="Nome do serviço"
+                    value={svc.name}
+                    onChange={(e) => updateService(idx, { name: e.target.value })}
+                  />
+                </div>
 
-            <div className="space-y-1">
-              <Label className="text-xs">Nº de parcelas</Label>
-              <Input
-                type="number"
-                min={1}
-                max={360}
-                value={schedule.installments}
-                onChange={(e) =>
-                  set({
-                    installments: Math.min(360, Math.max(1, parseInt(e.target.value) || 1)),
-                  })
-                }
-              />
-            </div>
+                {/* Descrição */}
+                <div className="space-y-1">
+                  <Label className="text-xs">Descrição</Label>
+                  <Input
+                    maxLength={500}
+                    placeholder="Opcional"
+                    value={svc.description ?? ""}
+                    onChange={(e) =>
+                      updateService(idx, { description: e.target.value || null })
+                    }
+                  />
+                </div>
+
+                {/* Valor de tabela */}
+                <div className="space-y-1">
+                  <Label className="text-xs flex items-center gap-1">
+                    Valor de tabela (R$)
+                    <span
+                      title="Preço individual. Usado para mostrar economia ao cliente no comparativo do pacote. Opcional."
+                      className="cursor-help text-muted-foreground/60 hover:text-muted-foreground"
+                    >
+                      ⓘ
+                    </span>
+                  </Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    className="w-32"
+                    placeholder="Opcional"
+                    value={svc.value || ""}
+                    onChange={(e) =>
+                      updateService(idx, {
+                        value: Math.min(
+                          999999.99,
+                          Math.max(0, parseFloat(e.target.value) || 0)
+                        ),
+                      })
+                    }
+                  />
+                </div>
+
+                {/* Bônus */}
+                <div className="flex items-center gap-1.5 pb-1">
+                  <Switch
+                    checked={svc.is_bonus}
+                    onCheckedChange={(v) => updateService(idx, { is_bonus: v })}
+                    id={`bonus-fin-${idx}`}
+                  />
+                  <Label htmlFor={`bonus-fin-${idx}`} className="text-xs cursor-pointer">
+                    🎁 Bônus
+                  </Label>
+                </div>
+
+                {/* Remover */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-destructive hover:bg-destructive/10 self-end"
+                  onClick={() => removeService(idx)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
           </div>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={addManual}
+            className="border-dashed gap-2"
+          >
+            <Plus className="h-4 w-4" /> Adicionar item manualmente
+          </Button>
         </CardContent>
       </Card>
+
+      {/* Cronograma financeiro */}
+      <PropostaCronograma
+        value={schedule}
+        planValue={planValue}
+        totalIndividual={totalIndividual}
+        onPlanValueChange={onPlanValueChange}
+        onChange={onScheduleChange}
+      />
     </div>
   );
 }

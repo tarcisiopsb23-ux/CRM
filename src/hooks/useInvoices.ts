@@ -7,7 +7,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { emitirNFSe, cancelarNFSe } from "@/lib/notaasClient";
-import { deriveCompetencia, resolveCodigoServico } from "@/lib/fiscalValidators";
+import { deriveCompetencia, resolveCodigoServico, resolveServicoMapping } from "@/lib/fiscalValidators";
 import type { Invoice, InvoiceFilters, InvoiceEmitFormData, NotaasConfig } from "@/types/fiscal";
 import type { Client, Payment } from "@/types/crm";
 
@@ -169,6 +169,7 @@ export function useInvoices(
           tomador_cnpj_cpf:  client.document,
           tomador_email:     client.email,
           tomador_endereco:  tomadorEndereco,
+          ...(formData.observacao ? { observacao: formData.observacao } : {}),
         })
         .select()
         .single();
@@ -207,6 +208,7 @@ export function useInvoices(
               aliquota_iss:       formData.aliquota_iss,
               codigo_servico:     formData.codigo_servico,
               descricao_servico:  formData.descricao_servico,
+              observacao:         formData.observacao          ?? null,
             }),
             signal: AbortSignal.timeout(30_000),
           });
@@ -244,6 +246,7 @@ export function useInvoices(
             aliquotaIss: formData.aliquota_iss,
           },
           competencia: formData.competencia,
+          observacao:  formData.observacao,
         });
 
         await supabase
@@ -468,6 +471,7 @@ export function useInvoices(
           aliquota_iss:       invoice.aliquota_iss        ?? null,
           codigo_servico:     invoice.codigo_servico      ?? null,
           descricao_servico:  invoice.descricao_servico   ?? null,
+          observacao:         invoice.observacao          ?? null,
         }),
         signal: AbortSignal.timeout(30_000),
       });
@@ -672,6 +676,7 @@ export function useInvoices(
     notaasConfig,
     contractId,
     paymentValue,
+    paymentDescription,
   }: {
     paymentId: string;
     paidAt: string;
@@ -680,6 +685,9 @@ export function useInvoices(
     notaasConfig: NotaasConfig;
     contractId?: string | null;
     paymentValue: number;
+    /** Descrição do lançamento (payment.description) — usada como fallback
+     *  quando não há contrato vinculado ou o mapeamento não define descrição. */
+    paymentDescription?: string | null;
   }): Promise<void> => {
     if (!organizationId) return;
     if (!notaasConfig.api_key) return;
@@ -700,7 +708,19 @@ export function useInvoices(
       }
 
       const codigoServico = resolveCodigoServico(contractType, notaasConfig);
-      const descricaoServico = notaasConfig.descricao_servico_padrao ?? "Prestação de serviços";
+
+      // Hierarquia de descrição:
+      // 1. ServicoMapping.descricao do tipo de contrato (mapeamento rico nas settings)
+      // 2. Descrição do lançamento (payment.description) — para registros avulsos
+      // 3. descricao_servico_padrao das settings
+      // 4. Fallback hardcoded
+      const mapping = resolveServicoMapping(contractType, notaasConfig);
+      const descricaoServico =
+        mapping?.descricao?.trim() ||
+        paymentDescription?.trim() ||
+        notaasConfig.descricao_servico_padrao ||
+        "Prestação de serviços";
+
       const competencia = deriveCompetencia(paidAt);
 
       await emit.mutateAsync({

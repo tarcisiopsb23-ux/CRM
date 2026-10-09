@@ -1,642 +1,568 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
-import { toJson } from "@/lib/supabase-utils";
-import { dispatchWebhook } from "@/lib/webhookDispatcher";
-import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database } from "@/types/supabase";
-import { addMonths, format } from "date-fns";
+import { useOrganization } from "@/hooks/useOrganization";
+import { useAuth } from "@/contexts/AuthContext";
+import type { ContractPaymentLine } from "@/hooks/useContractSchedule";
 
-type ContractStatus = Database["public"]["Enums"]["contract_status"];
-type PaymentStatus = Database["public"]["Enums"]["payment_status"];
-type ContractTypeEnum = Database["public"]["Enums"]["contract_type_enum"];
+// ── Tipos ─────────────────────────────────────────────────────────────────────
 
-export type ContractRow = {
+export interface ContractV2 {
   id: string;
   organization_id: string;
   client_id: string;
-  responsible_id: string | null;
-  title: string;
-  description: string | null;
-  value: number;
-  status: ContractStatus | null;
-  start_date: string;
-  end_date: string | null;
-  billing_cycle: string | null;
-  service_contracted: string | null;
-  contract_type: ContractTypeEnum | null;
-  periodicity: Database["public"]["Enums"]["payment_periodicity"] | null;
-  contract_date: string | null;
-  duration_months: number | null;
-  first_payment_value: number | null;
-  first_payment_due_date: string | null;
-  first_payment_method: string | null;
-  first_payment_installments: number | null;
-  first_payment_fees: number | null;
-  first_payment_split: boolean | null;
-  first_payment_second_due_date: string | null;
-  recurring_due_date: string | null;
-  ended_at: string | null;
-  ended_reason: string | null;
-  ended_by: string | null;
-  metadata: Record<string, unknown> | null;
-  created_at: string | null;
-  updated_at: string | null;
-  is_dashboard_reference: boolean | null;
-  is_signed: boolean | null;
-  signed_at: string | null;
-  generated_at: string | null;
   template_id: string | null;
-  min_duration_months: number | null;
-};
+  proposal_id: string | null;
+  contract_number: string | null;
+  title: string;
+  service_slugs: string[];
+  variables: Record<string, string | number | null>;
+  html_content: string | null;
+  due_day: number | null;
+  first_payment_date: string | null;
+  total_monthly: number | null;
+  total_setup: number | null;
+  status: "rascunho" | "emitido" | "assinado" | "cancelado" | "encerrado";
+  signed_at: string | null;
+  cancelled_at: string | null;
+  cancellation_reason: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  notes: string | null;
+  /** Vigência diferida — data de início efetivo quando posterior à assinatura */
+  vigencia_inicio: string | null;
+  /** Prazo mínimo de permanência em meses */
+  prazo_minimo_meses: number | null;
+  created_at: string;
+  updated_at: string;
+  /** @deprecated grace_period_months removido — carência não é mais suportada */
+  grace_period_months?: number | null;
+  // ── Campos de segurança (migration 092) ──────────────────────────────────
+  /** Usuário que criou o contrato */
+  created_by: string | null;
+  /** Usuário que gerou o PDF (emitiu) */
+  emitted_by: string | null;
+  /** Momento da emissão */
+  emitted_at: string | null;
+  /** SHA-256 do conteúdo no momento da emissão */
+  content_hash: string | null;
+  /** Momento em que o hash foi calculado */
+  content_hash_at: string | null;
+  /** Usuário que confirmou a assinatura (four-eyes) */
+  signed_confirmed_by: string | null;
+  /** Momento da confirmação */
+  signed_confirmed_at: string | null;
+  /** Número do contrato físico assinado (migration 111) */
+  signed_contract_number: string | null;
+  /** Data de assinatura registrada manualmente (migration 111) */
+  signed_date: string | null;
+  // joins opcionais
+  clients?: { name: string; company: string | null } | null;
+  payment_schedule?: ContractPaymentLine[];
+}
 
-const toIsoDate = (d: Date) => format(d, "yyyy-MM-dd");
+export interface CreateContractInput {
+  client_id: string;
+  template_id?: string;
+  proposal_id?: string;
+  title?: string;
+  service_slugs: string[];
+  primary_service_slug?: string | null;
+  variables: Record<string, string | number | null>;
+  html_content?: string;
+  due_day?: number;
+  first_payment_date?: string;
+  total_monthly?: number | null;
+  total_setup?: number | null;
+  start_date?: string | null;
+  end_date?: string;
+  notes?: string;
+  vigencia_inicio?: string | null;
+  prazo_minimo_meses?: number | null;
+  /** @deprecated grace_period_months removido — carência não é mais suportada */
+  grace_period_months?: number | null;
+  setup_amount_manual?: number | null;
+  recurring_payment_method?: string | null;
+  payment_schedule?: Omit<ContractPaymentLine, "id" | "contract_id" | "created_at">[];
+  clause_snapshot?: Record<string, string>;
+}
 
-const asContractStatus = (s: string | null | undefined): ContractStatus | null => {
-  const v = (s ?? null) as ContractStatus | null;
-  return v;
-};
+// ── Hook: listagem por cliente ────────────────────────────────────────────────
 
-export function useContractsByClient(organizationId: string | undefined, clientId: string | undefined) {
-  const supabaseUntyped = supabase as unknown as SupabaseClient;
-  return useQuery({
-    queryKey: ["contracts", organizationId, clientId],
+export function useClientContracts(clientId: string | undefined) {
+  const organizationId = useOrganization();
+
+  return useQuery<ContractV2[]>({
+    queryKey: ["contracts_v2", organizationId, clientId],
     queryFn: async () => {
       if (!organizationId || !clientId) return [];
-      const { data, error } = await supabaseUntyped
+      const { data, error } = await supabase
+        .from("contracts_v2")
+        .select("*, payment_schedule:contract_payment_schedule(*)")
+        .eq("organization_id", organizationId)
+        .eq("client_id", clientId)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as ContractV2[];
+    },
+    enabled: !!organizationId && !!clientId,
+    staleTime: 30_000,
+  });
+}
+
+// ── Hook: CRUD completo ───────────────────────────────────────────────────────
+
+export function useContracts() {
+  const organizationId = useOrganization();
+  const { profile } = useAuth();
+  const qc = useQueryClient();
+
+  const invalidate = (clientId?: string) => {
+    qc.invalidateQueries({ queryKey: ["contracts_v2", organizationId] });
+    if (clientId) qc.invalidateQueries({ queryKey: ["contracts_v2", organizationId, clientId] });
+  };
+
+  // ── Criar contrato ──────────────────────────────────────────────────────────
+  const createContract = useMutation({
+    mutationFn: async (input: CreateContractInput): Promise<ContractV2> => {
+      if (!organizationId) throw new Error("Organização não identificada.");
+
+      // Gera número sequencial via RPC
+      const { data: numData } = await supabase
+        .rpc("generate_contract_number", { p_org_id: organizationId });
+      const contractNumber = numData as string | null;
+
+      const { data, error } = await supabase
+        .from("contracts_v2")
+        .insert({
+          organization_id:      organizationId,
+          client_id:            input.client_id,
+          template_id:          input.template_id ?? null,
+          proposal_id:          input.proposal_id ?? null,
+          contract_number:      contractNumber,
+          title:                input.title ?? "Contrato de Prestação de Serviços",
+          service_slugs:        input.service_slugs,
+          primary_service_slug: input.primary_service_slug ?? null,
+          variables:            input.variables,
+          html_content:         input.html_content ?? null,
+          due_day:              input.due_day ?? null,
+          first_payment_date:   input.first_payment_date ?? null,
+          total_monthly:        input.total_monthly ?? null,
+          total_setup:          input.total_setup ?? null,
+          start_date:           input.start_date ?? null,
+          end_date:             input.end_date ?? null,
+          notes:                input.notes ?? null,
+          vigencia_inicio:      input.vigencia_inicio ?? null,
+          prazo_minimo_meses:   input.prazo_minimo_meses ?? null,
+          grace_period_months:  input.grace_period_months ?? null,
+          setup_amount_manual:  input.setup_amount_manual ?? null,
+          recurring_payment_method: input.recurring_payment_method ?? null,
+          clause_snapshot:      input.clause_snapshot ?? null,
+          status:               "rascunho",
+          // created_by requer migration 092 — inserido com guard abaixo
+        })
+        .select()
+        .single();
+      if (error) throw error;
+
+      const contract = data as ContractV2;
+
+      // Tenta registrar created_by (requer migration 092).
+      // Se a coluna ainda não existir no banco, o erro é silenciado para não
+      // bloquear a criação do contrato.
+      if (profile?.id) {
+        await supabase
+          .from("contracts_v2")
+          .update({ created_by: profile.id })
+          .eq("id", contract.id)
+          .then(({ error: e }) => {
+            if (e) console.warn("[useContracts] created_by update skipped (migration 092 pending?):", e.message);
+          });
+      }
+
+      // Insere cronograma de pagamento se fornecido
+      if (input.payment_schedule?.length) {
+        const lines = input.payment_schedule.map((l, idx) => ({
+          ...l,
+          contract_id: contract.id,
+          line_order:  l.line_order ?? idx,
+        }));
+        const { error: schedErr } = await supabase
+          .from("contract_payment_schedule")
+          .insert(lines);
+        if (schedErr) console.error("[useContracts] schedule insert:", schedErr);
+      }
+
+      // Injeta numero_contrato nas variables para que {{numero_contrato}}
+      // funcione em reimpreções e visualizações do template
+      if (contractNumber && contract.variables) {
+        const updatedVars = {
+          ...contract.variables,
+          numero_contrato: contractNumber,
+        };
+        const { error: varErr } = await supabase
+          .from("contracts_v2")
+          .update({ variables: updatedVars })
+          .eq("id", contract.id);
+        if (!varErr) contract.variables = updatedVars;
+      }
+
+      // Registra criação no audit_log (requer migration 092).
+      // Silencia erros se a tabela ainda não existir.
+      supabase.rpc("log_contract_action", {
+        p_contract_id:  contract.id,
+        p_action:       "criacao",
+        p_action_label: `Contrato ${contractNumber ?? ""} criado`,
+        p_metadata:     {
+          title:           contract.title,
+          service_slugs:   input.service_slugs,
+          created_by_name: profile?.full_name ?? null,
+        },
+      }).then(({ error: e }) => {
+        if (e) console.warn("[useContracts] audit log skipped (migration 092 pending?):", e.message);
+      });
+
+      return contract;
+    },
+    onSuccess: (data) => invalidate(data.client_id),
+  });
+
+  // ── Atualizar contrato ──────────────────────────────────────────────────────
+  const updateContract = useMutation({
+    mutationFn: async ({ id, clientId, ...updates }: Partial<ContractV2> & { id: string; clientId: string }) => {
+      if (!organizationId) throw new Error("Organização não identificada.");
+      const { error } = await supabase
+        .from("contracts_v2")
+        .update(updates)
+        .eq("id", id)
+        .eq("organization_id", organizationId);
+      if (error) throw error;
+    },
+    onSuccess: (_data, vars) => invalidate(vars.clientId),
+  });
+
+  // ── Atualizar cronograma (substitui tudo) ───────────────────────────────────
+  const updateSchedule = useMutation({
+    mutationFn: async ({
+      contractId,
+      clientId,
+      lines,
+    }: {
+      contractId: string;
+      clientId: string;
+      lines: Omit<ContractPaymentLine, "id" | "contract_id" | "created_at">[];
+    }) => {
+      // Deleta e reinsere
+      await supabase.from("contract_payment_schedule").delete().eq("contract_id", contractId);
+      if (lines.length > 0) {
+        const { error } = await supabase.from("contract_payment_schedule").insert(
+          lines.map((l, idx) => ({ ...l, contract_id: contractId, line_order: l.line_order ?? idx }))
+        );
+        if (error) throw error;
+      }
+    },
+    onSuccess: (_data, vars) => invalidate(vars.clientId),
+  });
+
+  // ── Alterar status ──────────────────────────────────────────────────────────
+  const changeStatus = useMutation({
+    mutationFn: async ({
+      id, clientId, status, reason, signedAt,
+    }: {
+      id: string;
+      clientId: string;
+      status: ContractV2["status"];
+      reason?: string;
+      /** ISO date string da data de assinatura (yyyy-MM-dd). Usado quando status = "assinado". */
+      signedAt?: string;
+    }) => {
+      if (!organizationId) throw new Error("Organização não identificada.");
+      const updates: Record<string, unknown> = { status };
+
+      if (status === "assinado") {
+        // signed_at é registro interno — não altera o template do contrato.
+        // A confirmação real usa a RPC confirm_contract_signature (four-eyes).
+        const signedDate = signedAt
+          ? new Date(signedAt + "T12:00:00").toISOString()
+          : new Date().toISOString();
+        updates.signed_at = signedDate;
+      }
+
+      if (status === "cancelado") {
+        updates.cancelled_at        = new Date().toISOString();
+        updates.cancellation_reason = reason ?? null;
+      }
+
+      const { error } = await supabase
+        .from("contracts_v2")
+        .update(updates)
+        .eq("id", id)
+        .eq("organization_id", organizationId);
+      if (error) throw error;
+    },
+    onSuccess: (_data, vars) => invalidate(vars.clientId),
+  });
+
+  return { createContract, updateContract, updateSchedule, changeStatus };
+}
+
+// ── Aliases e stubs de compatibilidade com código legado ─────────────────────
+// Esses exports existiam no hook antigo e são usados por componentes existentes
+// (C8ControlTab, ContractDetailPage, ClientsPage, etc.).
+// Buscam da tabela 'contracts' original para preservar todos os campos legados.
+
+export type ContractRow = Record<string, unknown>;
+
+function useLegacyContracts(
+  organizationId: string | undefined,
+  filters?: Record<string, unknown>
+) {
+  return useQuery({
+    queryKey: ["contracts_legacy", organizationId, filters],
+    queryFn: async () => {
+      if (!organizationId) return [];
+      let q = supabase
         .from("contracts")
         .select("*")
         .eq("organization_id", organizationId)
-        .eq("client_id", clientId)
-        .order("start_date", { ascending: false });
-      if (error) throw error;
-      const rows = (data ?? []) as unknown as Array<Record<string, unknown>>;
-      return rows.map((r) => ({
-        id: String(r.id),
-        organization_id: String(r.organization_id),
-        client_id: String(r.client_id),
-        responsible_id: (r.responsible_id as string | null) ?? null,
-        title: String(r.title ?? ""),
-        description: (r.description as string | null) ?? null,
-        value: Number(r.value ?? 0),
-        status: asContractStatus((r.status as string | null) ?? null),
-        start_date: String(r.start_date),
-        end_date: (r.end_date as string | null) ?? null,
-        billing_cycle: (r.billing_cycle as string | null) ?? null,
-        service_contracted: (r.service_contracted as string | null) ?? null,
-        contract_type: (r.contract_type as ContractTypeEnum | null) ?? null,
-        periodicity: (r.periodicity as ContractRow["periodicity"]) ?? null,
-        contract_date: (r.contract_date as string | null) ?? null,
-        duration_months: typeof r.duration_months === "number" ? r.duration_months : (r.duration_months ? Number(r.duration_months) : null),
-        first_payment_value: typeof r.first_payment_value === "number" ? r.first_payment_value : (r.first_payment_value ? Number(r.first_payment_value) : null),
-        first_payment_due_date: (r.first_payment_due_date as string | null) ?? null,
-        first_payment_method: (r.first_payment_method as string | null) ?? null,
-        first_payment_installments: typeof r.first_payment_installments === "number" ? r.first_payment_installments : (r.first_payment_installments ? Number(r.first_payment_installments) : null),
-        first_payment_fees: typeof r.first_payment_fees === "number" ? r.first_payment_fees : (r.first_payment_fees ? Number(r.first_payment_fees) : null),
-        first_payment_split: (r.first_payment_split as boolean | null) ?? null,
-        first_payment_second_due_date: (r.first_payment_second_due_date as string | null) ?? null,
-        recurring_due_date: (r.recurring_due_date as string | null) ?? null,
-        ended_at: (r.ended_at as string | null) ?? null,
-        ended_reason: (r.ended_reason as string | null) ?? null,
-        ended_by: (r.ended_by as string | null) ?? null,
-        metadata: (r.metadata as Record<string, unknown> | null) ?? null,
-        created_at: (r.created_at as string | null) ?? null,
-        updated_at: (r.updated_at as string | null) ?? null,
-        is_dashboard_reference: (r.is_dashboard_reference as boolean | null) ?? false,
-        is_signed: (r.is_signed as boolean | null) ?? false,
-        signed_at: (r.signed_at as string | null) ?? null,
-        generated_at: (r.generated_at as string | null) ?? null,
-        template_id: (r.template_id as string | null) ?? null,
-      })) as ContractRow[];
-    },
-    enabled: !!organizationId && !!clientId,
-  });
-}
-
-export function useCreateContract(organizationId: string | undefined) {
-  const qc = useQueryClient();
-  const supabaseUntyped = supabase as unknown as SupabaseClient;
-
-  return useMutation({
-    mutationFn: async (input: {
-      client_id: string;
-      title: string;
-      service_contracted?: string | null;
-      contract_date: string;
-      duration_months: number;
-      first_payment_value: number;
-      first_payment_method: string;
-      first_payment_due_date: string;
-      first_payment_installments?: number;
-      first_payment_fees?: number;
-      recurring_value: number;
-      recurring_due_date: string;
-      metadata?: Record<string, unknown>;
-    }) => {
-      if (!organizationId) throw new Error("Sem organização");
-
-      // Lê o contract_type do metadata para determinar periodicity e comportamento
-      const contractType = (input.metadata?.contract_type as string) ?? "mensal";
-      const isEventual = contractType === "eventual";
-
-      const start = new Date(input.contract_date);
-      const end = addMonths(start, Math.max(0, Number(input.duration_months ?? 0)));
-
-      const installmentsRaw = Number(input.first_payment_installments ?? 1);
-      const installments = Math.min(12, Math.max(1, Number.isFinite(installmentsRaw) ? installmentsRaw : 1));
-      const fees = installments > 1 ? Math.max(0, Number(input.first_payment_fees ?? 0)) : 0;
-
-      const contractPayload: Record<string, unknown> = {
-        organization_id: organizationId,
-        client_id: input.client_id,
-        title: input.title,
-        status: "ativo" as ContractStatus,
-        start_date: input.contract_date,
-        contract_date: input.contract_date,
-        end_date: toIsoDate(end),
-        service_contracted: input.service_contracted ?? null,
-        contract_type: contractType,
-        periodicity: isEventual ? "pagamento_unico" : "mensal",
-        value: input.recurring_value,
-        duration_months: input.duration_months,
-        first_payment_value: input.first_payment_value,
-        first_payment_method: input.first_payment_method,
-        first_payment_due_date: input.first_payment_due_date,
-        first_payment_installments: installments,
-        first_payment_fees: fees,
-        first_payment_split: false,
-        first_payment_second_due_date: null,
-        recurring_due_date: input.recurring_due_date,
-        ...(input.metadata ? { metadata: toJson(input.metadata) } : {}),
-      };
-
-      const { data: contract, error: contractError } = await supabaseUntyped
-        .from("contracts")
-        .insert(contractPayload)
-        .select("*")
-        .single();
-      if (contractError) throw contractError;
-
-      const contractId = String((contract as Record<string, unknown>).id);
-      const clientId = input.client_id;
-
-      const payments: Database["public"]["Tables"]["payments"]["Insert"][] = [];
-      const baseMeta = toJson({ source: "contract_create", contract_id: contractId }) ?? null;
-      const firstBase = Number(input.first_payment_value ?? 0);
-      const installmentValue = installments > 1 ? (firstBase + fees) / installments : firstBase;
-      const baseDue = new Date(input.first_payment_due_date || input.contract_date);
-      for (let i = 0; i < installments; i++) {
-        payments.push({
-          organization_id: organizationId,
-          contract_id: contractId,
-          client_id: clientId,
-          description: installments > 1 ? `Contrato • ${input.title} • ${i + 1}/${installments}` : `Contrato • ${input.title} • Inicial`,
-          value: installmentValue,
-          due_date: toIsoDate(addMonths(baseDue, i)),
-          status: "pendente" as PaymentStatus,
-          payment_method: input.first_payment_method,
-          metadata: baseMeta,
+        .order("created_at", { ascending: false });
+      if (filters) {
+        Object.entries(filters).forEach(([k, v]) => {
+          if (v !== undefined && v !== null) q = q.eq(k, v);
         });
       }
-
-      const duration = Math.max(0, Number(input.duration_months ?? 0));
-      const recurringCount = Math.max(0, duration - 1);
-      const recurringBaseDue = new Date(input.recurring_due_date || input.contract_date);
-      for (let i = 0; i < recurringCount; i++) {
-        payments.push({
-          organization_id: organizationId,
-          contract_id: contractId,
-          client_id: clientId,
-          description: `Contrato • ${input.title}`,
-          value: Number(input.recurring_value),
-          due_date: toIsoDate(addMonths(recurringBaseDue, i)),
-          status: "pendente" as PaymentStatus,
-          metadata: baseMeta,
-        });
-      }
-
-      const { error: payErr } = await supabase.from("payments").insert(payments);
-      if (payErr) throw payErr;
-
-      return contract as unknown as ContractRow;
-    },
-    onSuccess: (c) => {
-      qc.invalidateQueries({ queryKey: ["contracts", organizationId, c.client_id] });
-      qc.invalidateQueries({ queryKey: ["payments", organizationId] });
-      if (organizationId) dispatchWebhook(organizationId, "contract.created", c);
-    },
-  });
-}
-
-export function useUpdateContract(organizationId: string | undefined) {
-  const qc = useQueryClient();
-  const supabaseUntyped = supabase as unknown as SupabaseClient;
-  return useMutation({
-    mutationFn: async (input: Partial<ContractRow> & { id: string; client_id: string }) => {
-      const { id, client_id, ...rest } = input;
-
-      // ── 1. Atualiza o contrato ────────────────────────────────────────────
-      const payload: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(rest)) {
-        if (v !== undefined) payload[k] = v;
-      }
-      if (payload.metadata !== undefined) payload.metadata = toJson(payload.metadata as Record<string, unknown>);
-      const { data, error } = await supabaseUntyped.from("contracts").update(payload).eq("id", id).select("*").single();
+      const { data, error } = await q;
       if (error) throw error;
-      const updated = data as unknown as ContractRow;
-
-      // ── 2. Sincroniza pagamentos futuros pendentes ────────────────────────
-      // Determina o tipo do contrato a partir do campo ou do metadata
-      const contractType = (updated.contract_type as string)
-        ?? ((updated.metadata as Record<string, unknown> | null)?.contract_type as string)
-        ?? "mensal";
-      const isEventual = contractType === "eventual";
-
-      const today = toIsoDate(new Date());
-
-      // Cancela todos os pagamentos futuros pendentes vinculados a este contrato
-      const { error: cancelErr } = await supabase
-        .from("payments")
-        .update({ status: "cancelado" as PaymentStatus })
-        .eq("contract_id", id)
-        .gt("due_date", today)
-        .neq("status", "pago");
-      if (cancelErr) throw cancelErr;
-
-      // Recria os pagamentos futuros com base nos novos dados do contrato
-      if (!isEventual && organizationId) {
-        const recurringValue = Number(updated.value ?? 0);
-        const recurringDue = updated.recurring_due_date ?? updated.contract_date ?? today;
-        const duration = Math.max(0, Number(updated.duration_months ?? 0));
-        const title = updated.title ?? "Contrato";
-        const baseMeta = toJson({ source: "contract_update", contract_id: id }) ?? null;
-
-        // Gera parcelas mensais a partir de hoje (não recria parcelas já vencidas)
-        const newPayments: Database["public"]["Tables"]["payments"]["Insert"][] = [];
-        const baseDate = new Date(recurringDue);
-
-        for (let i = 0; i < duration; i++) {
-          const dueDate = toIsoDate(addMonths(baseDate, i));
-          // Só cria parcelas futuras (após hoje)
-          if (dueDate <= today) continue;
-          newPayments.push({
-            organization_id: organizationId!,
-            contract_id: id,
-            client_id,
-            description: `Contrato • ${title}`,
-            value: recurringValue,
-            due_date: dueDate,
-            status: "pendente" as PaymentStatus,
-            metadata: baseMeta,
-          });
-        }
-
-        if (newPayments.length > 0) {
-          const { error: insertErr } = await supabase.from("payments").insert(newPayments);
-          if (insertErr) throw insertErr;
-        }
-      }
-      // Se eventual: apenas cancela os futuros (já feito acima), sem recriar
-
-      return updated;
+      return (data ?? []) as ContractRow[];
     },
-    onSuccess: (_c, vars) => {
-      qc.invalidateQueries({ queryKey: ["contracts", organizationId, vars.client_id] });
-      qc.invalidateQueries({ queryKey: ["contracts_with_c8", organizationId, vars.client_id] });
-      qc.invalidateQueries({ queryKey: ["payments", organizationId] });
-    },
+    enabled: !!organizationId,
+    staleTime: 30_000,
   });
 }
 
-export function useSuspendContract(organizationId: string | undefined) {
-  const qc = useQueryClient();
-  const supabaseUntyped = supabase as unknown as SupabaseClient;
-
-  return useMutation({
-    mutationFn: async (input: { id: string; client_id: string; reason: string }) => {
-      if (!input.reason?.trim()) {
-        throw new Error("O motivo da suspensão é obrigatório.");
-      }
-
-      const { data: current, error: curErr } = await supabaseUntyped
-        .from("contracts")
-        .select("metadata")
-        .eq("id", input.id)
-        .single();
-      if (curErr) throw curErr;
-
-      const currentMeta = ((current as { metadata?: unknown }).metadata ?? {}) as Record<string, unknown>;
-      const nextMeta = {
-        ...currentMeta,
-        suspended_at: new Date().toISOString(),
-        suspended_reason: input.reason.trim(),
-      };
-
-      const { error } = await supabaseUntyped
-        .from("contracts")
-        .update({ status: "suspenso" as ContractStatus, metadata: toJson(nextMeta) })
-        .eq("id", input.id);
-      if (error) throw error;
-    },
-    onSuccess: (_c, vars) => {
-      qc.invalidateQueries({ queryKey: ["contracts", organizationId, vars.client_id] });
-      qc.invalidateQueries({ queryKey: ["contracts", "metrics", organizationId] });
-      qc.invalidateQueries({ queryKey: ["payments", "metrics", organizationId] });
-      if (organizationId) dispatchWebhook(organizationId, "contract.suspended", { id: vars.id, client_id: vars.client_id });
-    },
-  });
-}
-
-export function useReactivateContract(organizationId: string | undefined) {
-  const qc = useQueryClient();
-  const supabaseUntyped = supabase as unknown as SupabaseClient;
-
-  return useMutation({
-    mutationFn: async (input: { id: string; client_id: string }) => {
-      const { data: current, error: curErr } = await supabaseUntyped
-        .from("contracts")
-        .select("metadata")
-        .eq("id", input.id)
-        .single();
-      if (curErr) throw curErr;
-
-      const currentMeta = ((current as { metadata?: unknown }).metadata ?? {}) as Record<string, unknown>;
-      const nextMeta = { ...currentMeta, reactivated_at: new Date().toISOString() };
-
-      const { error } = await supabaseUntyped
-        .from("contracts")
-        .update({ status: "ativo" as ContractStatus, metadata: toJson(nextMeta) })
-        .eq("id", input.id);
-      if (error) throw error;
-    },
-    onSuccess: (_c, vars) => {
-      qc.invalidateQueries({ queryKey: ["contracts", organizationId, vars.client_id] });
-      qc.invalidateQueries({ queryKey: ["contracts", "metrics", organizationId] });
-      qc.invalidateQueries({ queryKey: ["payments", "metrics", organizationId] });
-      if (organizationId) dispatchWebhook(organizationId, "contract.reactivated", { id: vars.id, client_id: vars.client_id });
-    },
-  });
-}
-
-export function useEndContract(organizationId: string | undefined, profileId: string | null | undefined) {
-  const qc = useQueryClient();
-  const supabaseUntyped = supabase as unknown as SupabaseClient;
-  return useMutation({
-    mutationFn: async (input: { id: string; client_id: string; reason: string }) => {
-      const today = toIsoDate(new Date());
-      const endedAt = new Date().toISOString();
-      const payload: Record<string, unknown> = {
-        status: "encerrado" as ContractStatus,
-        end_date: today,
-        ended_at: endedAt,
-        ended_reason: input.reason,
-        ...(profileId ? { ended_by: profileId } : {}),
-      };
-      const { error } = await supabaseUntyped.from("contracts").update(payload).eq("id", input.id);
-      if (error) throw error;
-
-      const { error: updPayErr } = await supabase
-        .from("payments")
-        .update({ status: "cancelado" as PaymentStatus })
-        .eq("contract_id", input.id)
-        .gt("due_date", today)
-        .neq("status", "pago");
-      if (updPayErr) throw updPayErr;
-    },
-    onSuccess: (_c, vars) => {
-      qc.invalidateQueries({ queryKey: ["contracts", organizationId, vars.client_id] });
-      qc.invalidateQueries({ queryKey: ["payments", organizationId] });
-      if (organizationId) dispatchWebhook(organizationId, "contract.ended", { id: vars.id, client_id: vars.client_id });
-    },
-  });
-}
-
-export function useDeleteContract(organizationId: string | undefined) {
-  const qc = useQueryClient();
-  const supabaseUntyped = supabase as unknown as SupabaseClient;
-  return useMutation({
-    mutationFn: async (input: { id: string; client_id: string }) => {
-      const { error: delPayErr } = await supabase.from("payments").delete().eq("contract_id", input.id);
-      if (delPayErr) throw delPayErr;
-      const { error: delContractErr } = await supabaseUntyped.from("contracts").delete().eq("id", input.id);
-      if (delContractErr) throw delContractErr;
-    },
-    onSuccess: (_c, vars) => {
-      qc.invalidateQueries({ queryKey: ["contracts", organizationId, vars.client_id] });
-      qc.invalidateQueries({ queryKey: ["payments", organizationId] });
-    },
-  });
-}
-
-/** Define qual contrato é a referência de data para o dashboard público.
- *  Garante que apenas 1 contrato por cliente tenha is_dashboard_reference = true.
- *  Se outro contrato já estiver marcado, desmarca antes de marcar o novo.
- */
-export function useGenerateContract(organizationId: string | undefined) {
-  const qc = useQueryClient();
-  const supabaseUntyped = supabase as unknown as SupabaseClient;
-  return useMutation({
-    mutationFn: async ({ id, client_id, template_id }: { id: string; client_id: string; template_id?: string }) => {
-      if (!organizationId) throw new Error("Sem organização");
-      const { error } = await supabaseUntyped
-        .from("contracts")
-        .update({ generated_at: new Date().toISOString(), template_id: template_id ?? null })
-        .eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: (_c, vars) => {
-      qc.invalidateQueries({ queryKey: ["contracts", organizationId, vars.client_id] });
-    },
-  });
-}
-
-export function useSignContract(organizationId: string | undefined) {
-  const qc = useQueryClient();
-  const supabaseUntyped = supabase as unknown as SupabaseClient;
-  return useMutation({
-    mutationFn: async ({ id, client_id }: { id: string; client_id: string }) => {
-      if (!organizationId) throw new Error("Sem organização");
-      const { error } = await supabaseUntyped
-        .from("contracts")
-        .update({ is_signed: true, signed_at: new Date().toISOString() })
-        .eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: (_c, vars) => {
-      qc.invalidateQueries({ queryKey: ["contracts", organizationId, vars.client_id] });
-    },
-  });
-}
-
-/** Define qual contrato é a referência de data para o dashboard público.
- *  Garante que apenas 1 contrato por cliente tenha is_dashboard_reference = true.
- *  Se outro contrato já estiver marcado, desmarca antes de marcar o novo.
- */
-export function useSetDashboardReference(organizationId: string | undefined) {
-  const qc = useQueryClient();
-  const supabaseUntyped = supabase as unknown as SupabaseClient;
-  return useMutation({
-    mutationFn: async ({ contractId, clientId, value }: { contractId: string; clientId: string; value: boolean }) => {
-      // Se ativando, desmarca qualquer outro contrato do mesmo cliente primeiro
-      if (value) {
-        await supabaseUntyped
-          .from("contracts")
-          .update({ is_dashboard_reference: false })
-          .eq("client_id", clientId)
-          .neq("id", contractId);
-      }
-      const { error } = await supabaseUntyped
-        .from("contracts")
-        .update({ is_dashboard_reference: value })
-        .eq("id", contractId);
-      if (error) throw error;
-    },
-    onSuccess: (_c, vars) => qc.invalidateQueries({ queryKey: ["contracts", organizationId, vars.clientId] }),
-  });
-}
-
-/**
- * useContractsWithC8 — combines regular contracts with the C8 Control plan
- * for a given client, so the Clients module contracts tab shows both.
- */
-export function useContractsWithC8(
+export function useContractsByClient(
   organizationId: string | undefined,
   clientId: string | undefined
 ) {
-  const supabaseUntyped = supabase as unknown as SupabaseClient;
-
   return useQuery({
-    queryKey: ["contracts_with_c8", organizationId, clientId],
-    queryFn: async (): Promise<ContractRow[]> => {
+    queryKey: ["contracts_legacy", organizationId, "client", clientId],
+    queryFn: async () => {
       if (!organizationId || !clientId) return [];
-
-      // 1. Regular contracts
-      const { data: contractsData, error: contractsError } = await supabaseUntyped
+      const { data, error } = await supabase
         .from("contracts")
         .select("*")
         .eq("organization_id", organizationId)
         .eq("client_id", clientId)
-        .order("start_date", { ascending: false });
-      if (contractsError) throw contractsError;
-
-      const contracts: ContractRow[] = ((contractsData ?? []) as unknown as Array<Record<string, unknown>>).map((r) => ({
-        id: String(r.id),
-        organization_id: String(r.organization_id),
-        client_id: String(r.client_id),
-        responsible_id: (r.responsible_id as string | null) ?? null,
-        title: String(r.title ?? ""),
-        description: (r.description as string | null) ?? null,
-        value: Number(r.value ?? 0),
-        status: asContractStatus((r.status as string | null) ?? null),
-        start_date: String(r.start_date),
-        end_date: (r.end_date as string | null) ?? null,
-        billing_cycle: (r.billing_cycle as string | null) ?? null,
-        service_contracted: (r.service_contracted as string | null) ?? null,
-        contract_type: (r.contract_type as ContractTypeEnum | null) ?? null,
-        periodicity: (r.periodicity as ContractRow["periodicity"]) ?? null,
-        contract_date: (r.contract_date as string | null) ?? null,
-        duration_months: r.duration_months ? Number(r.duration_months) : null,
-        first_payment_value: r.first_payment_value ? Number(r.first_payment_value) : null,
-        first_payment_due_date: (r.first_payment_due_date as string | null) ?? null,
-        first_payment_method: (r.first_payment_method as string | null) ?? null,
-        first_payment_installments: r.first_payment_installments ? Number(r.first_payment_installments) : null,
-        first_payment_fees: r.first_payment_fees ? Number(r.first_payment_fees) : null,
-        first_payment_split: (r.first_payment_split as boolean | null) ?? null,
-        first_payment_second_due_date: (r.first_payment_second_due_date as string | null) ?? null,
-        recurring_due_date: (r.recurring_due_date as string | null) ?? null,
-        ended_at: (r.ended_at as string | null) ?? null,
-        ended_reason: (r.ended_reason as string | null) ?? null,
-        ended_by: (r.ended_by as string | null) ?? null,
-        metadata: (r.metadata as Record<string, unknown> | null) ?? null,
-        created_at: (r.created_at as string | null) ?? null,
-        updated_at: (r.updated_at as string | null) ?? null,
-        is_dashboard_reference: (r.is_dashboard_reference as boolean | null) ?? false,
-        is_signed: (r.is_signed as boolean | null) ?? false,
-        signed_at: (r.signed_at as string | null) ?? null,
-        generated_at: (r.generated_at as string | null) ?? null,
-        template_id: (r.template_id as string | null) ?? null,
-        min_duration_months: r.min_duration_months ? Number(r.min_duration_months) : null,
-      }));
-
-      // 2. C8 Control plan — only if not already covered by a contract
-      const hasC8Contract = contracts.some(
-        (c) => c.service_contracted === "C8 Control CRM"
-      );
-
-      if (!hasC8Contract) {
-        const { data: plan } = await supabaseUntyped
-          .from("crm_client_plans")
-          .select("*")
-          .eq("client_id", clientId)
-          .maybeSingle();
-
-        if (plan) {
-          const p = plan as Record<string, unknown>;
-          const statusMap: Record<string, ContractStatus> = {
-            ativo: "ativo",
-            suspenso: "suspenso",
-            bloqueado: "suspenso",
-            cancelado: "encerrado",
-          };
-
-          const planValue = Number(p.plan_value ?? 0);
-          const contractStart = (p.contract_start as string) ?? null;
-          const contractEnd = (p.contract_end as string) ?? null;
-
-          // Calculate duration in months from start/end dates
-          const durationMonths = contractStart && contractEnd
-            ? Math.max(1, Math.round(
-                (new Date(contractEnd).getTime() - new Date(contractStart).getTime()) /
-                (1000 * 60 * 60 * 24 * 30.44)
-              ))
-            : null;
-
-          // Total value = monthly value × duration (for the total column)
-          const totalValue = durationMonths ? planValue * durationMonths : planValue;
-
-          const c8Contract: ContractRow = {
-            id: `c8_${clientId}`,
-            organization_id: organizationId,
-            client_id: clientId,
-            responsible_id: null,
-            title: `C8 Control CRM — ${p.plan_name ?? "Starter"}`,
-            description: (p.notes as string | null) ?? null,
-            value: totalValue,
-            status: statusMap[(p.subscription_status as string) ?? "ativo"] ?? "ativo",
-            start_date: contractStart ?? toIsoDate(new Date()),
-            end_date: contractEnd,
-            billing_cycle: "mensal",
-            service_contracted: "C8 Control CRM",
-            contract_type: "mensal" as ContractTypeEnum,
-            periodicity: "mensal",
-            contract_date: contractStart,
-            duration_months: durationMonths,
-            first_payment_value: planValue,
-            first_payment_due_date: contractStart,
-            first_payment_method: "boleto",
-            first_payment_installments: 1,
-            first_payment_fees: 0,
-            first_payment_split: false,
-            first_payment_second_due_date: null,
-            recurring_due_date: null,
-            ended_at: null,
-            ended_reason: null,
-            ended_by: null,
-            metadata: { source: "c8_control", plan_name: p.plan_name, max_users: p.max_users, monthly_value: planValue },
-            created_at: null,
-            updated_at: null,
-            is_dashboard_reference: false,
-            is_signed: false,
-            signed_at: null,
-            generated_at: null,
-            template_id: null,
-            min_duration_months: durationMonths,
-          };
-          contracts.push(c8Contract);
-        }
-      }
-
-      return contracts;
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as ContractRow[];
     },
     enabled: !!organizationId && !!clientId,
+    staleTime: 30_000,
+  });
+}
+
+export function useContractsWithC8(organizationId: string | undefined, clientId?: string) {
+  return useLegacyContracts(organizationId, clientId ? { client_id: clientId } : undefined);
+}
+
+export function useCreateContract(organizationId?: string) {
+  const qc = useQueryClient();
+  // Colunas válidas da tabela contracts — evita PGRST204 por campos inexistentes
+  const VALID_COLUMNS = new Set([
+    "organization_id","client_id","responsible_id","title","description","value",
+    "status","start_date","end_date","billing_cycle","metadata","service_contracted",
+    "contract_type","periodicity","contract_date","duration_months",
+    "first_payment_value","first_payment_due_date","first_payment_method",
+    "first_payment_split","first_payment_second_due_date","first_payment_installments",
+    "first_payment_fees","recurring_due_date","min_duration_months",
+    "ended_at","ended_reason","ended_by","is_dashboard_reference","proposal_id",
+    "contract_version","contract_content","pdf_url","is_signed","generated_at","template_id",
+  ]);
+  return useMutation({
+    mutationFn: async (input: Record<string, unknown>) => {
+      const raw = organizationId ? { ...input, organization_id: organizationId } : input;
+      // Filtra apenas colunas que existem na tabela
+      const payload = Object.fromEntries(
+        Object.entries(raw).filter(([k]) => VALID_COLUMNS.has(k))
+      );
+      const { data, error } = await supabase.from("contracts").insert(payload).select().single();
+      if (error) {
+        console.error("[useCreateContract] error code:", error.code, "message:", error.message);
+        throw error;
+      }
+      return data as ContractRow;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["contracts_legacy"] }),
+  });
+}
+
+export function useUpdateContract() {
+  const qc = useQueryClient();
+  const VALID_COLUMNS = new Set([
+    "client_id","responsible_id","title","description","value",
+    "status","start_date","end_date","billing_cycle","metadata","service_contracted",
+    "contract_type","periodicity","contract_date","duration_months",
+    "first_payment_value","first_payment_due_date","first_payment_method",
+    "first_payment_split","first_payment_second_due_date","first_payment_installments",
+    "first_payment_fees","recurring_due_date","min_duration_months",
+    "ended_at","ended_reason","ended_by","is_dashboard_reference","proposal_id",
+    "contract_version","contract_content","pdf_url","is_signed","generated_at","template_id",
+    "organization_id",
+  ]);
+  return useMutation({
+    mutationFn: async ({ id, ...updates }: Record<string, unknown> & { id: string }) => {
+      const filtered = Object.fromEntries(
+        Object.entries(updates).filter(([k]) => VALID_COLUMNS.has(k))
+      );
+      const { error } = await supabase.from("contracts").update(filtered).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["contracts_legacy"] }),
+  });
+}
+
+export function useDeleteContract() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, client_id }: { id: string; client_id: string }) => {
+      // Verifica se há pagamentos pagos — se sim, arquiva em vez de deletar
+      const { data: paidPayments } = await supabase
+        .from("payments")
+        .select("id")
+        .eq("contract_id", id)
+        .eq("status", "pago")
+        .limit(1);
+
+      const hasPaid = (paidPayments ?? []).length > 0;
+
+      // Cancela todos os pagamentos pendentes
+      await supabase
+        .from("payments")
+        .update({ status: "cancelado" })
+        .eq("contract_id", id)
+        .in("status", ["pendente", "atrasado", "processando"]);
+
+      if (hasPaid) {
+        // Arquiva o contrato — mantém histórico de pagamentos realizados
+        const { error } = await supabase
+          .from("contracts")
+          .update({ status: "cancelado", ended_at: new Date().toISOString(), ended_reason: "Excluído com pagamentos realizados — arquivado" })
+          .eq("id", id);
+        if (error) throw error;
+      } else {
+        // Sem pagamentos realizados — pode deletar definitivamente
+        const { error } = await supabase.from("contracts").delete().eq("id", id);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["contracts_legacy"] });
+      qc.invalidateQueries({ queryKey: ["payments"] });
+    },
+  });
+}
+
+export function useSuspendContract() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, client_id, reason }: { id: string; client_id: string; reason?: string }) => {
+      const { error } = await supabase
+        .from("contracts")
+        .update({ status: "suspenso", ...(reason ? { ended_reason: reason } : {}) })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["contracts_legacy"] }),
+  });
+}
+
+export function useReactivateContract() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, client_id }: { id: string; client_id: string }) => {
+      const { error } = await supabase
+        .from("contracts").update({ status: "ativo" }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["contracts_legacy"] }),
+  });
+}
+
+export function useEndContract() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, client_id, reason }: { id: string; client_id: string; reason?: string }) => {
+      // Encerra o contrato
+      const { error } = await supabase
+        .from("contracts")
+        .update({
+          status: "encerrado",
+          ended_at: new Date().toISOString(),
+          ...(reason ? { ended_reason: reason } : {}),
+        })
+        .eq("id", id);
+      if (error) throw error;
+
+      // Cancela todos os pagamentos pendentes do contrato
+      await supabase
+        .from("payments")
+        .update({ status: "cancelado" })
+        .eq("contract_id", id)
+        .in("status", ["pendente", "atrasado", "processando"]);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["contracts_legacy"] });
+      qc.invalidateQueries({ queryKey: ["payments"] });
+    },
+  });
+}
+
+export function useSignContract() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("contracts")
+        .update({ status: "assinado", signed_at: new Date().toISOString() })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["contracts_legacy"] }),
+  });
+}
+
+export function useSetDashboardReference() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ contractId, clientId, organizationId }: {
+      contractId: string; clientId: string; organizationId: string;
+    }) => {
+      // Remove referência anterior do cliente
+      await supabase
+        .from("contracts")
+        .update({ is_dashboard_reference: false })
+        .eq("organization_id", organizationId)
+        .eq("client_id", clientId);
+      // Define nova referência
+      const { error } = await supabase
+        .from("contracts")
+        .update({ is_dashboard_reference: true })
+        .eq("id", contractId);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["contracts_legacy"] }),
+  });
+}
+
+export function useGenerateContract() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id }: { id: string }) => {
+      const { data, error } = await supabase
+        .from("contracts").select("*").eq("id", id).single();
+      if (error) throw error;
+      return data as ContractRow;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["contracts_legacy"] }),
   });
 }

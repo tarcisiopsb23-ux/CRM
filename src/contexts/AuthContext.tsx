@@ -272,14 +272,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let timeoutId: NodeJS.Timeout;
-    const INACTIVITY_LIMIT = 5 * 60 * 1000; // 5 minutos
+    const INACTIVITY_LIMIT = 30 * 60 * 1000; // 30 minutos
 
     const resetTimer = () => {
       if (timeoutId) clearTimeout(timeoutId);
       // Não disparar em rotas públicas do dashboard do cliente
       if (user && !window.location.pathname.startsWith('/public/')) {
         timeoutId = setTimeout(() => {
-          console.log("[Auth] Logout por inatividade (5 minutos)");
+          console.log("[Auth] Logout por inatividade (30 minutos)");
           signOut();
         }, INACTIVITY_LIMIT);
       }

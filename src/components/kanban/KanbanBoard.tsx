@@ -13,13 +13,32 @@ import { useState, useMemo } from "react";
 import { LeadsKanbanColumn } from "./LeadsKanbanColumn";
 import { LeadCard } from "./LeadCard";
 import { ETAPAS_KANBAN } from "@/types/database";
-import type { Lead, EtapaKanban } from "@/types/database";
+import type { Lead, EtapaKanban, PrioridadeLead } from "@/types/database";
 
 interface KanbanBoardProps {
   leads: Lead[];
   onDetalhes: (lead: Lead) => void;
   onEtapaChange: (leadId: string, etapa: EtapaKanban) => void;
   activeProposalsPerEtapa?: Record<string, number>;
+}
+
+const PRIORIDADE_RANK: Record<PrioridadeLead, number> = {
+  urgente: 4,
+  alta: 3,
+  media: 2,
+  baixa: 1,
+};
+
+function sortLeadsByPriorityTemperature(leads: Lead[]): Lead[] {
+  return [...leads].sort((a, b) => {
+    const tempA = a.temperature ?? 0;
+    const tempB = b.temperature ?? 0;
+    if (tempB !== tempA) return tempB - tempA;
+
+    const prioA = PRIORIDADE_RANK[a.prioridade as PrioridadeLead] ?? 0;
+    const prioB = PRIORIDADE_RANK[b.prioridade as PrioridadeLead] ?? 0;
+    return prioB - prioA;
+  });
 }
 
 function groupLeadsByEtapa(leads: Lead[]): Record<EtapaKanban, Lead[]> {
@@ -37,6 +56,10 @@ function groupLeadsByEtapa(leads: Lead[]): Record<EtapaKanban, Lead[]> {
     } else {
       grouped.leads_recebidos.push(lead);
     }
+  }
+  // Sort each column by temperature (desc) then priority (desc)
+  for (const etapa of ETAPAS_KANBAN) {
+    grouped[etapa.id] = sortLeadsByPriorityTemperature(grouped[etapa.id]);
   }
   return grouped;
 }
@@ -96,7 +119,7 @@ export function KanbanBoard({
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <div className="flex gap-4 overflow-x-auto pb-4 min-h-[500px] h-[calc(100vh-280px)] kanban-board-container">
+      <div className="flex gap-4 overflow-x-auto pb-4 min-h-[500px] h-[calc(100vh-280px)] kanban-scroll-x kanban-board-container">
         {ETAPAS_KANBAN.map(({ id, label }) => (
           <LeadsKanbanColumn
             key={id}

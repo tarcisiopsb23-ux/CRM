@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Plus, Loader2, GitMerge, X, Pencil, Trash2, GripVertical } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Plus, Loader2, GitMerge, X, Pencil, Trash2, GripVertical, Settings2, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -152,18 +152,22 @@ export function CrmPipelinePage() {
   const {
     stages, stagesLoading, deals, dealsLoading,
     createDeal, moveDeal, updateDeal, removeDeal,
+    createStage, updateStage, removeStage,
     seedDefaultStages,
   } = useCrmPipeline(clientId);
 
   const { data: contacts = [] } = useCrmContacts(clientId);
   const { data: products = [] } = useCrmProducts(clientId);
 
-  // Seed estágios padrão se vazio
+  // Seed estágios padrão se vazio — usa ref para evitar loop infinito
+  // quando dc muda referência a cada render (modo bank_a)
+  const seedAttemptedRef = useRef(false);
   useEffect(() => {
-    if (!stagesLoading && stages.length === 0 && clientId && dc) {
+    if (!stagesLoading && stages.length === 0 && clientId && dc && !seedAttemptedRef.current) {
+      seedAttemptedRef.current = true;
       seedDefaultStages.mutate(clientId);
     }
-  }, [stagesLoading, stages.length, clientId, dc]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [stagesLoading, stages.length, clientId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
@@ -181,6 +185,16 @@ export function CrmPipelinePage() {
   const [dealProductId, setDealProductId] = useState("");
   const [dealValue, setDealValue]       = useState("");
   const [dealStatus, setDealStatus]     = useState<"open" | "won" | "lost">("open");
+
+  // ── Estado de gerenciamento de stages ──
+  const [stagesDialogOpen, setStagesDialogOpen] = useState(false);
+  const [editingStageId, setEditingStageId]     = useState<string | null>(null);
+  const [editStageName, setEditStageName]       = useState("");
+  const [editStageColor, setEditStageColor]     = useState("");
+  const [newStageName, setNewStageName]         = useState("");
+  const [newStageColor, setNewStageColor]       = useState("#6366f1");
+
+  const STAGE_COLORS = ["#6366f1", "#3b82f6", "#06b6d4", "#f59e0b", "#f97316", "#ec4899", "#10b981", "#ef4444"];
 
   if (!dc) return <CredentialsErrorState />;
 
@@ -288,12 +302,64 @@ export function CrmPipelinePage() {
 
   const totalValue = localDeals.filter(d => d.status === "won").reduce((s, d) => s + d.value, 0);
 
+  async function handleAddStage() {
+    if (!newStageName.trim()) { toast.error("Nome da etapa é obrigatório"); return; }
+    try {
+      await createStage.mutateAsync({
+        client_id: clientId,
+        name: newStageName.trim(),
+        order: stages.length,
+        color: newStageColor,
+      });
+      toast.success("Etapa adicionada");
+      setNewStageName(""); setNewStageColor("#6366f1");
+    } catch (e: any) { toast.error(e.message); }
+  }
+
+  async function handleSaveStageEdit(stageId: string) {
+    if (!editStageName.trim()) { toast.error("Nome da etapa é obrigatório"); return; }
+    try {
+      await updateStage.mutateAsync({ id: stageId, name: editStageName.trim(), color: editStageColor });
+      toast.success("Etapa atualizada");
+      setEditingStageId(null);
+    } catch (e: any) { toast.error(e.message); }
+  }
+
+  async function handleDeleteStage(stageId: string, stageName: string) {
+    if (!confirm(`Excluir a etapa "${stageName}"? Negociações nela ficarão sem etapa.`)) return;
+    try {
+      await removeStage.mutateAsync(stageId);
+      toast.success("Etapa excluída");
+    } catch (e: any) { toast.error(e.message); }
+  }
+
+  async function handleReorderStage(stageId: string, direction: "up" | "down") {
+    const idx = stages.findIndex(s => s.id === stageId);
+    if (idx === -1) return;
+    if (direction === "up" && idx === 0) return;
+    if (direction === "down" && idx === stages.length - 1) return;
+    const newOrder = direction === "up" ? idx - 1 : idx + 1;
+    try {
+      await updateStage.mutateAsync({ id: stageId, order: newOrder });
+      // Atualizar a stage vizinha também para não ter colisão
+      const neighbor = direction === "up" ? stages[idx - 1] : stages[idx + 1];
+      await updateStage.mutateAsync({ id: neighbor.id, order: idx });
+    } catch (e: any) { toast.error(e.message); }
+  }
+
   return (
     <div className="mx-auto flex max-w-full flex-col gap-6">
-      <PageHeader
-        title="Pipeline de Vendas"
-        description={totalValue > 0 ? `${fmtCurrency(totalValue)} em negociações ganhas` : "Gerencie suas oportunidades de negócio"}
-      />
+      <div className="flex items-start justify-between gap-4">
+        <PageHeader
+          title="Pipeline de Vendas"
+          description={totalValue > 0 ? `${fmtCurrency(totalValue)} em negociações ganhas` : "Gerencie suas oportunidades de negócio"}
+        />
+        {canManageStages && (
+          <Button variant="outline" size="sm" onClick={() => setStagesDialogOpen(true)} className="gap-2">
+            <Settings2 className="h-4 w-4" /> Configurar Etapas
+          </Button>
+        )}
+      </div>
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <div className="flex gap-4 overflow-x-auto pb-4">
@@ -320,7 +386,7 @@ export function CrmPipelinePage() {
 
       {/* Dialog negociação */}
       <Dialog open={dealDialogOpen} onOpenChange={open => { if (!open) setDealDialogOpen(false); }}>
-        <DialogContent className="border-border bg-card sm:max-w-md">
+        <DialogContent className="border-border bg-card sm:max-w-[50vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-display">
               {editingDeal ? "Editar Negociação" : "Nova Negociação"}
@@ -398,6 +464,146 @@ export function CrmPipelinePage() {
             >
               {(createDeal.isPending || updateDeal.isPending) && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Salvar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Modal: Configurar Etapas do Pipeline ── */}
+      <Dialog open={stagesDialogOpen} onOpenChange={open => { if (!open) { setStagesDialogOpen(false); setEditingStageId(null); } }}>
+        <DialogContent className="border-border bg-card sm:max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="font-display flex items-center gap-2">
+              <Settings2 className="h-5 w-5 text-muted-foreground" /> Configurar Etapas
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-5 py-2">
+            {/* Lista de stages existentes */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                Etapas do Pipeline
+                <span className="ml-2 font-bold text-muted-foreground/60">{stages.length}/12</span>
+              </p>
+
+              {stages.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">Nenhuma etapa criada ainda.</p>
+              )}
+
+              <div className="space-y-2">
+                {stages.map((stage, idx) => (
+                  <div key={stage.id} className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/10 px-3 py-2">
+                    <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: editingStageId === stage.id ? editStageColor : stage.color }} />
+
+                    {editingStageId === stage.id ? (
+                      <div className="flex-1 space-y-2">
+                        <Input
+                          value={editStageName}
+                          onChange={e => setEditStageName(e.target.value)}
+                          onKeyDown={e => { if (e.key === "Enter") handleSaveStageEdit(stage.id); if (e.key === "Escape") setEditingStageId(null); }}
+                          className="h-7 text-sm"
+                          autoFocus
+                        />
+                        <div className="flex gap-1.5 flex-wrap">
+                          {STAGE_COLORS.map(c => (
+                            <button
+                              key={c}
+                              onClick={() => setEditStageColor(c)}
+                              className={cn("h-5 w-5 rounded-full ring-offset-background transition-all",
+                                editStageColor === c ? "ring-2 ring-ring ring-offset-2" : "opacity-60 hover:opacity-100")}
+                              style={{ backgroundColor: c }}
+                            />
+                          ))}
+                        </div>
+                        <div className="flex gap-2">
+                          <Button size="sm" onClick={() => handleSaveStageEdit(stage.id)}
+                            disabled={updateStage.isPending}
+                            className="h-7 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white">
+                            {updateStage.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                            Salvar
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setEditingStageId(null)} className="h-7 text-xs text-muted-foreground gap-1">
+                            <X className="h-3 w-3" /> Cancelar
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="flex-1 text-sm font-medium text-foreground">{stage.name}</span>
+                    )}
+
+                    {editingStageId !== stage.id && (
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground/60 hover:text-foreground"
+                          disabled={idx === 0}
+                          onClick={() => handleReorderStage(stage.id, "up")}
+                          title="Mover para cima">
+                          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground/60 hover:text-foreground"
+                          disabled={idx === stages.length - 1}
+                          onClick={() => handleReorderStage(stage.id, "down")}
+                          title="Mover para baixo">
+                          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M19 12l-7 7-7-7" /></svg>
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground/60 hover:text-foreground"
+                          onClick={() => { setEditingStageId(stage.id); setEditStageName(stage.name); setEditStageColor(stage.color); }}>
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground/60 hover:text-destructive"
+                          onClick={() => handleDeleteStage(stage.id, stage.name)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Formulário nova etapa */}
+            {stages.length < 12 && (
+              <div className="space-y-2 rounded-lg border border-dashed border-border p-3">
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Nova Etapa</p>
+                <Input
+                  value={newStageName}
+                  onChange={e => setNewStageName(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") handleAddStage(); }}
+                  placeholder="Nome da etapa (ex: Proposta Enviada)"
+                  className="text-sm"
+                />
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex gap-1.5 flex-wrap flex-1">
+                    {STAGE_COLORS.map(c => (
+                      <button
+                        key={c}
+                        onClick={() => setNewStageColor(c)}
+                        className={cn("h-5 w-5 rounded-full ring-offset-background transition-all",
+                          newStageColor === c ? "ring-2 ring-ring ring-offset-2" : "opacity-60 hover:opacity-100")}
+                        style={{ backgroundColor: c }}
+                      />
+                    ))}
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={handleAddStage}
+                    disabled={createStage.isPending || !newStageName.trim()}
+                    className="bg-gradient-ember text-primary-foreground shadow-glow gap-1 shrink-0"
+                  >
+                    {createStage.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                    Adicionar
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {stages.length >= 12 && (
+              <p className="text-xs text-amber-500 text-center">Limite de 12 etapas atingido. Remova uma para adicionar outra.</p>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setStagesDialogOpen(false); setEditingStageId(null); }}>
+              Fechar
             </Button>
           </DialogFooter>
         </DialogContent>

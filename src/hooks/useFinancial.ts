@@ -87,19 +87,22 @@ export function usePayments(organizationId: string | undefined, options?: { enab
           const d = new Date(input.due_date);
           const competencia = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
           await supabase.from("invoices").insert({
-            organization_id: organizationId,
-            client_id:        input.client_id,
-            contract_id:      input.contract_id ?? null,
-            payment_id:       data.id,
-            type:             "nfse",
-            status:           "pendente",
-            valor_servico:    input.value,
+            organization_id:   organizationId,
+            client_id:         input.client_id,
+            contract_id:       input.contract_id ?? null,
+            payment_id:        data.id,
+            type:              "nfse",
+            status:            "pendente",
+            valor_servico:     input.value,
             competencia,
-            due_date:         input.due_date, // data de vencimento do débito
-            tomador_nome:     clientData.company || clientData.name,
-            tomador_cnpj_cpf: clientData.document,
-            tomador_email:    clientData.email,
-            tomador_endereco: {},
+            // Propaga a descrição do lançamento para uso na emissão da NFS-e.
+            // Se não houver, fica null e o usuário/workflow usa o padrão configurado.
+            descricao_servico: input.description?.trim() || null,
+            due_date:          input.due_date, // data de vencimento do débito
+            tomador_nome:      clientData.company || clientData.name,
+            tomador_cnpj_cpf:  clientData.document,
+            tomador_email:     clientData.email,
+            tomador_endereco:  {},
           });
         }
       } catch (invoiceErr) {

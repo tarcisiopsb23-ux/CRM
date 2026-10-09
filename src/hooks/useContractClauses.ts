@@ -17,7 +17,7 @@ export interface CreateClauseInput {
   title: string;
   content: JSONContent;
   condition_type?: ContractClause["condition_type"];
-  condition_value?: string | null;
+  condition_value?: ContractClause["condition_value"] | null;
   is_editable?: boolean;
   service_id?: string | null;
 }
@@ -27,7 +27,7 @@ export interface UpdateClauseInput {
   title?: string;
   content?: JSONContent;
   condition_type?: ContractClause["condition_type"];
-  condition_value?: string | null;
+  condition_value?: ContractClause["condition_value"] | null;
   is_editable?: boolean;
   service_id?: string | null;
 }

@@ -1,68 +1,73 @@
 /**
- * useDynamicClient — Fase 1 (T-1.4)
+ * useDynamicClient — Banco A unificado
  *
- * Instancia o cliente Supabase do Banco B com o JWT da sessão ativa,
- * garantindo que as políticas de RLS sejam aplicadas corretamente.
+ * Retorna um SupabaseClient com o JWT da sessão ativa injetado.
+ * Todos os clientes operam exclusivamente no Banco A.
  *
- * O access_token nunca é exposto — fica apenas no header Authorization
- * das requisições HTTP ao Supabase.
+ * Estratégia:
+ *   - Singleton — uma única instância do cliente Supabase para o Banco A
+ *   - Injeta a sessão via setSession() para refresh automático
+ *   - O token renovado é propagado de volta ao ClientAuthContext via updateSession
  *
- * ISOLAMENTO: Cada cliente possui seu próprio Supabase (client_supabase_url
- * único por cliente). Sem URL configurada → retorna null e NENHUMA query
- * é executada. Não existe fallback para banco compartilhado — isso
- * evita qualquer possibilidade de vazamento de dados entre clientes.
+ * null retornado se não há sessão válida → nenhuma query executada.
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useClientAuth } from "@/hooks/useClientAuth";
 import { createClientSupabase } from "@/lib/createClientSupabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+const BANK_A_URL      = import.meta.env.VITE_SUPABASE_URL      as string | undefined;
+const BANK_A_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+
+// Singleton — evita múltiplas conexões WebSocket
+let _bankAClient: SupabaseClient | null = null;
+
+function getBankAClient(): SupabaseClient | null {
+  if (!BANK_A_URL || !BANK_A_ANON_KEY) {
+    console.error("[useDynamicClient] VITE_SUPABASE_URL ou VITE_SUPABASE_ANON_KEY não definidos.");
+    return null;
+  }
+  if (!_bankAClient) {
+    _bankAClient = createClientSupabase(BANK_A_URL, BANK_A_ANON_KEY);
+  }
+  return _bankAClient;
+}
+
 export function useDynamicClient(): SupabaseClient | null {
-  const { auth } = useClientAuth();
+  const { auth, updateSession } = useClientAuth();
+  const lastTokenRef = useRef<string | null>(null);
 
-  return useMemo(() => {
-    // Sem URL do banco do cliente → null imediato, sem fallback
-    // Isso garante isolamento total: nunca há risco de queries de um
-    // cliente atingirem dados de outro cliente.
-    if (!auth?.client_supabase_url) return null;
+  const client = useMemo(() => {
+    if (!auth?.session?.access_token) return null;
+    return getBankAClient();
+  }, [auth?.session?.access_token]);
 
-    // anon_key: vem do contexto (carregada no login) ou do sessionStorage
-    // temporário (definido logo após o login, antes do primeiro render).
-    // NÃO existe fallback para variável de ambiente global — cada cliente
-    // tem sua própria chave, armazenada apenas em memória de sessão.
-    //
-    // Hierarquia de busca:
-    //   1. auth.client_supabase_anon_key  (contexto — presente durante o render pós-login)
-    //   2. client_anon_${auth.id}          (UUID do cliente — salvo pelo login atual)
-    //   3. client_anon_${slug}             (slug da URL — fallback para sessões anteriores)
-    const slug = window.location.pathname.split("/")[3] ?? "";
-    const anonKey =
-      auth.client_supabase_anon_key ??
-      sessionStorage.getItem(`client_anon_${auth.id}`) ??
-      (slug ? sessionStorage.getItem(`client_anon_${slug}`) : null) ??
-      null;
+  // Injeta sessão quando o token muda (login ou refresh)
+  useEffect(() => {
+    if (!client || !auth?.session) return;
+    const token = auth.session.access_token;
+    if (token === lastTokenRef.current) return;
+    lastTokenRef.current = token;
 
-    // Sem anon_key → null (cliente sem banco configurado corretamente)
-    if (!anonKey) return null;
+    client.auth.setSession({
+      access_token:  token,
+      refresh_token: auth.session.refresh_token ?? "",
+    }).catch(() => { /* refresh falhou silenciosamente */ });
+  }, [client, auth?.session?.access_token]);
 
-    // Cria/reutiliza cliente Supabase isolado para este cliente específico
-    const client = createClientSupabase(auth.client_supabase_url, anonKey);
+  // Propaga renovação automática de token de volta ao contexto
+  useEffect(() => {
+    if (!client) return;
+    const { data: { subscription } } = client.auth.onAuthStateChange((event, session) => {
+      if ((event === "TOKEN_REFRESHED" || event === "SIGNED_IN") && session && auth?.user) {
+        if (session.access_token !== auth.session?.access_token) {
+          updateSession(session, auth.user);
+        }
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [client]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Injeta o access_token da sessão JWT para ativar RLS por usuário
-    if (auth.session?.access_token) {
-      client.auth.setSession({
-        access_token:  auth.session.access_token,
-        refresh_token: auth.session.refresh_token ?? "",
-      }).catch(() => {
-        // Ignora erros de refresh — o logout automático cuida disso
-      });
-    }
-
-    return client;
-  }, [
-    auth?.client_supabase_url,
-    auth?.client_supabase_anon_key,
-    auth?.session?.access_token,
-  ]);
+  return client;
 }

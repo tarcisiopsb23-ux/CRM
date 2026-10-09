@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { C8ControlDomainRouter } from "@/components/routing/C8ControlDomainRouter";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -56,11 +57,11 @@ import { PublicVagasRouter } from "@/router/PublicVagasRouter";
 import { PublicDashboardLayout } from "./pages/public-dashboard/PublicDashboardLayout";
 import { RedirectPage } from "./pages/public-dashboard/RedirectPage";
 import { SetPasswordPage as DashboardSetPasswordPage } from "./pages/public-dashboard/SetPasswordPage";
+import { GoogleCalendarCallbackPage } from "./pages/public-dashboard/GoogleCalendarCallbackPage";
 
 const DashboardGeralPage  = lazy(() => import("./pages/public-dashboard/DashboardGeralPage").then(m => ({ default: m.DashboardGeralPage })));
 const PerformancePage     = lazy(() => import("./pages/public-dashboard/PerformancePage").then(m => ({ default: m.PerformancePage })));
 const AtendimentoPage     = lazy(() => import("./pages/public-dashboard/AtendimentoPage").then(m => ({ default: m.AtendimentoPage })));
-const AgendaPage          = lazy(() => import("./pages/public-dashboard/AgendaPage").then(m => ({ default: m.AgendaPage })));
 const PromocoesPage       = lazy(() => import("./pages/public-dashboard/PromocoesPage").then(m => ({ default: m.PromocoesPage })));
 const SugestoesPage       = lazy(() => import("./pages/public-dashboard/SugestoesPage").then(m => ({ default: m.SugestoesPage })));
 const AvisosPage          = lazy(() => import("./pages/public-dashboard/AvisosPage").then(m => ({ default: m.AvisosPage })));
@@ -86,6 +87,14 @@ const PropostaWizardPage     = lazy(() => import("./pages/PropostaWizardPage"));
 const PropostaDetalhesPage   = lazy(() => import("./pages/PropostaDetalhesPage"));
 const ContractTemplatePage   = lazy(() => import("./pages/ContractTemplatePage"));
 const ComercialDashboardPage = lazy(() => import("./pages/ComercialDashboardPage"));
+
+// ── Módulo Content Operations ──────────────────────────────────────────────────
+const ContentItensPage       = lazy(() => import("./pages/content/ContentItensPage").then(m => ({ default: m.ContentItensPage })));
+const ContentItemDetailPage  = lazy(() => import("./pages/content/ContentItemDetailPage").then(m => ({ default: m.ContentItemDetailPage })));
+const ContentCampanhasPage   = lazy(() => import("./pages/content/ContentCampanhasPage").then(m => ({ default: m.ContentCampanhasPage })));
+const ContentPlanejamentoPage = lazy(() => import("./pages/content/ContentPlanejamentoPage").then(m => ({ default: m.ContentPlanejamentoPage })));
+const ContentBriefingPage    = lazy(() => import("./pages/content/ContentBriefingPage").then(m => ({ default: m.ContentBriefingPage })));
+const ContentEntregaveisPage = lazy(() => import("./pages/content/ContentEntregaveisPage").then(m => ({ default: m.ContentEntregaveisPage })));
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, refetchOnWindowFocus: false } } });
 
@@ -132,6 +141,8 @@ function App() {
               <DynamicTitle />
               <UserPreferencesProvider>
                 <Routes>
+                  {/* ── Roteamento por domínio: c8control.com.br → /public/dashboard/:slug ── */}
+                  <Route element={<C8ControlDomainRouter />}>
                   {/* ── Rotas do Dashboard Público — sempre dark (forçado via index.html + useEffect) ── */}
                   <Route path="/demo/dashboard" element={<PublicDemoDashboardPage />} />
                   {/* ── Proposta pública (sem autenticação) ── */}
@@ -142,7 +153,7 @@ function App() {
                     <Route index element={<Suspense fallback={<PageLoader />}><DashboardGeralPage /></Suspense>} />
                     <Route path="performance" element={<Suspense fallback={<PageLoader />}><PerformancePage /></Suspense>} />
                     <Route path="atendimento" element={<Suspense fallback={<PageLoader />}><AtendimentoPage /></Suspense>} />
-                    <Route path="agenda" element={<Suspense fallback={<PageLoader />}><AgendaPage /></Suspense>} />
+                    <Route path="agenda" element={<Suspense fallback={<PageLoader />}><AgendaMainPage /></Suspense>} />
                     <Route path="promocoes" element={<Suspense fallback={<PageLoader />}><PromocoesPage /></Suspense>} />
                     <Route path="sugestoes" element={<Suspense fallback={<PageLoader />}><SugestoesPage /></Suspense>} />
                     <Route path="avisos" element={<Suspense fallback={<PageLoader />}><AvisosPage /></Suspense>} />
@@ -160,7 +171,6 @@ function App() {
                     <Route path="configuracoes/integracoes" element={<Suspense fallback={<PageLoader />}><ConfigIntegracoesPage /></Suspense>} />
                     <Route path="configuracoes/pagamentos"  element={<Suspense fallback={<PageLoader />}><ConfigPagamentosPage /></Suspense>} />
                     {/* Fase 5 — Agenda */}
-                    <Route path="agenda"                    element={<Suspense fallback={<PageLoader />}><AgendaMainPage /></Suspense>} />
                     <Route path="agenda/configuracoes"      element={<Suspense fallback={<PageLoader />}><AgendaConfigPage /></Suspense>} />
                     <Route path="agenda/link"               element={<Suspense fallback={<PageLoader />}><AgendaLinkPage /></Suspense>} />
                   </Route>
@@ -169,6 +179,7 @@ function App() {
                   <Route path="/public/dashboard/:slug/login" element={<PublicDashboardLoginPage />} />
                   <Route path="/public/dashboard/:slug/set-password" element={<DashboardSetPasswordPage />} />
                   <Route path="/public/dashboard/:slug/crm/login" element={<C8ControlLoginPage />} />
+                  <Route path="/public/dashboard/google-calendar-callback" element={<GoogleCalendarCallbackPage />} />
                   <Route path="/vagas/*" element={<PublicVagasRouter />} />
                   {/* ── Rotas internas ── */}
                   <Route path="/login" element={<LoginPage />} />
@@ -219,9 +230,17 @@ function App() {
                       <Route path="/comercial/propostas/:id/detalhes" element={<Suspense fallback={<PageLoader />}><PropostaDetalhesPage /></Suspense>} />
                       <Route path="/comercial/dashboard" element={<Suspense fallback={<PageLoader />}><ComercialDashboardPage /></Suspense>} />
                       <Route path="/comercial/configuracoes/contratos" element={<Suspense fallback={<PageLoader />}><ContractTemplatePage /></Suspense>} />
+                      {/* ── Módulo Content Operations ── */}
+                      <Route path="/content/itens"          element={<Suspense fallback={<PageLoader />}><ContentItensPage /></Suspense>} />
+                      <Route path="/content/itens/:itemId"  element={<Suspense fallback={<PageLoader />}><ContentItemDetailPage /></Suspense>} />
+                      <Route path="/content/campanhas"      element={<Suspense fallback={<PageLoader />}><ContentCampanhasPage /></Suspense>} />
+                      <Route path="/content/planejamento"   element={<Suspense fallback={<PageLoader />}><ContentPlanejamentoPage /></Suspense>} />
+                      <Route path="/content/briefing"       element={<Suspense fallback={<PageLoader />}><ContentBriefingPage /></Suspense>} />
+                      <Route path="/content/entregaveis"    element={<Suspense fallback={<PageLoader />}><ContentEntregaveisPage /></Suspense>} />
                     </Route>
                   </Route>
                   <Route path="*" element={<NotFound />} />
+                  </Route>{/* C8ControlDomainRouter */}
                 </Routes>
               </UserPreferencesProvider>
             </BrowserRouter>

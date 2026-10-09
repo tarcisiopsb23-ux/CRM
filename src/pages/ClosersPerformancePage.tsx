@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+﻿import { useState, useMemo, useEffect } from 'react';
 import { useOrganization } from '@/hooks/useOrganization';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCloserPerformance, type CloserMetrics } from '@/hooks/useCloserPerformance';
@@ -47,8 +47,8 @@ export function ClosersPerformancePage() {
     const metrics = filterCloserId && closerMetrics ? closerMetrics : totalMetrics;
     return [
       { name: 'Leads Recebidos', value: metrics.leads_recebidos },
-      { name: 'Contatos Efetivos', value: metrics.contatos_efetivos },
       { name: 'Qualificados', value: metrics.leads_qualificados },
+      { name: 'Contatos Efetivos', value: metrics.contatos_efetivos },
       { name: 'Reuniões Agendadas', value: metrics.reunioes_agendadas },
       { name: 'Propostas', value: metrics.propostas_enviadas },
       { name: 'Clientes Fechados', value: metrics.clientes_fechados },
@@ -249,7 +249,7 @@ export function ClosersPerformancePage() {
                 <AlertDescription>Nenhum closer com atividade no período</AlertDescription>
               </Alert>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="table-scroll-container">
                 <Table>
                   <TableHeader>
                     <TableRow>

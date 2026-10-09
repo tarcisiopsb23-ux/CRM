@@ -47,11 +47,20 @@ import type { ContractClause } from "@/types/contracts";
 // ---------------------------------------------------------------------------
 
 const CONDITION_LABELS: Record<ContractClause["condition_type"], string> = {
-  always: "Sempre",
-  has_setup: "Com Setup",
-  has_min_duration: "Com Prazo Mínimo",
-  has_service: "Com Serviço",
-  has_setup_installments: "Setup Parcelado",
+  always:                      "Sempre",
+  has_setup:                   "Com Setup",
+  has_min_duration:            "Com Prazo Mínimo",
+  has_service:                 "Com Serviço (ID)",
+  has_setup_installments:      "Setup Parcelado",
+  service:                     "Com Serviço (slug)",
+  has_multiple_representatives:"Assinatura Conjunta",
+  signing_type:                "Tipo de Assinatura",
+  has_schedule:                "Com Cronograma",
+  service_count:               "Nº de Serviços",
+  has_grace_period:            "Com Carência",
+  is_pf:                       "Pessoa Física",
+  is_pj:                       "Pessoa Jurídica",
+  has_procurador:              "Com Procurador",
 };
 
 // ---------------------------------------------------------------------------

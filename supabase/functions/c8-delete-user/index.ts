@@ -2,12 +2,13 @@
  * Edge Function: c8-delete-user
  * Projeto: Maestr.ia
  *
- * Exclui o usuário do auth.users do C8 Control pelo e-mail.
- * Chamada pelo Maestr.ia ao deletar um tenant do C8 Control.
+ * Remove o usuário do auth.users do Banco B de um cliente específico.
+ * Recebe client_id para buscar as credenciais do Banco B correto.
+ *
+ * Não usa mais C8_SUPABASE_URL, C8_SUPABASE_SERVICE_KEY.
  *
  * Secrets necessários:
- *   C8_SUPABASE_URL         — URL do projeto C8 Control
- *   C8_SUPABASE_SERVICE_KEY — Service role key do C8 Control
+ *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY — Banco A (injetados automaticamente)
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -18,18 +19,14 @@ const corsHeaders = {
 };
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), {
-      status,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
   try {
-    // ── 1. Autenticar chamador (owner/admin do Maestr.ia) ─────────────────────
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) return json({ error: "Não autorizado" }, 401);
 
@@ -40,59 +37,63 @@ Deno.serve(async (req: Request) => {
     );
 
     const jwt = authHeader.replace("Bearer ", "").trim();
-    const { data: { user: callerUser }, error: jwtErr } = await maestriaAdmin.auth.getUser(jwt);
-    if (jwtErr || !callerUser) return json({ error: "Sessão inválida" }, 401);
+    const { data: { user: caller }, error: jwtErr } = await maestriaAdmin.auth.getUser(jwt);
+    if (jwtErr || !caller) return json({ error: "Sessão inválida" }, 401);
 
     const { data: callerProfile } = await maestriaAdmin
-      .from("profiles")
-      .select("role")
-      .eq("id", callerUser.id)
-      .single();
+      .from("profiles").select("role").eq("id", caller.id).single();
+    if (!["owner", "admin"].includes(callerProfile?.role ?? ""))
+      return json({ error: "Apenas owner/admin podem excluir usuários" }, 403);
 
-    if (!["owner", "admin"].includes(callerProfile?.role ?? "")) {
-      return json({ error: "Apenas owner/admin podem excluir usuários do C8 Control" }, 403);
-    }
+    const body = await req.json() as { client_id: string; email: string };
+    const { client_id, email } = body;
 
-    // ── 2. Payload ────────────────────────────────────────────────────────────
-    const body = await req.json() as { email: string };
-    const { email } = body;
+    if (!client_id) return json({ error: "client_id é obrigatório" }, 400);
     if (!email?.includes("@")) return json({ error: "E-mail inválido" }, 400);
 
-    // ── 3. Conectar ao C8 Control ─────────────────────────────────────────────
-    const c8Url = Deno.env.get("C8_SUPABASE_URL");
-    const c8ServiceKey = Deno.env.get("C8_SUPABASE_SERVICE_KEY");
-    if (!c8Url || !c8ServiceKey) {
-      return json({ error: "C8_SUPABASE_URL ou C8_SUPABASE_SERVICE_KEY não configurados" }, 500);
+    // ── Busca credenciais do Banco B ──────────────────────────────────────────
+    const { data: clientRow, error: clientErr } = await maestriaAdmin
+      .from("clients")
+      .select("name, client_supabase_url, client_supabase_service_key")
+      .eq("id", client_id)
+      .maybeSingle();
+
+    if (clientErr || !clientRow) return json({ error: "Cliente não encontrado" }, 404);
+
+    const bankBUrl = (clientRow as Record<string, unknown>).client_supabase_url as string | null;
+    const bankBKey = (clientRow as Record<string, unknown>).client_supabase_service_key as string | null;
+
+    if (!bankBUrl || !bankBKey) {
+      // Banco B não configurado — nada a deletar lá, retorna sucesso
+      console.log("[c8-delete-user] Banco B não configurado para cliente:", client_id);
+      return json({ success: true, message: "Banco B não configurado — nada a remover." });
     }
 
-    const c8Admin = createClient(c8Url, c8ServiceKey, {
-      auth: { persistSession: false },
-    });
+    const bankBAdmin = createClient(bankBUrl, bankBKey, { auth: { persistSession: false } });
 
-    // ── 4. Buscar usuário pelo e-mail ─────────────────────────────────────────
-    const { data: usersPage } = await c8Admin.auth.admin.listUsers({ perPage: 1000 });
-    const c8User = usersPage?.users?.find(
+    // ── Localiza usuário pelo e-mail ──────────────────────────────────────────
+    const { data: usersPage } = await bankBAdmin.auth.admin.listUsers({ perPage: 1000 });
+    const target = usersPage?.users?.find(
       (u: { email?: string }) => u.email?.toLowerCase() === email.toLowerCase()
     );
 
-    if (!c8User) {
-      // Usuário não existe no C8 Control — não é erro, apenas log
-      console.log("[c8-delete-user] user not found in C8 Control:", email);
-      return json({ success: true, message: "Usuário não encontrado no C8 Control (já removido ou nunca criado)" });
+    if (!target) {
+      console.log("[c8-delete-user] usuário não encontrado no Banco B:", email, client_id);
+      return json({ success: true, message: "Usuário não encontrado no Banco B (já removido ou nunca criado)." });
     }
 
-    // ── 5. Excluir do auth.users do C8 Control ────────────────────────────────
-    const { error: deleteErr } = await c8Admin.auth.admin.deleteUser(c8User.id);
+    // ── Remove do auth.users do Banco B ───────────────────────────────────────
+    const { error: deleteErr } = await bankBAdmin.auth.admin.deleteUser(target.id);
     if (deleteErr) {
-      console.error("[c8-delete-user] delete error:", deleteErr);
+      console.error("[c8-delete-user] erro ao deletar:", deleteErr);
       return json({ error: `Erro ao excluir usuário: ${deleteErr.message}` }, 500);
     }
 
-    console.log("[c8-delete-user] user deleted:", c8User.id, email);
-    return json({ success: true, message: `Usuário ${email} excluído do C8 Control` });
+    console.log("[c8-delete-user] usuário removido:", target.id, email, "client:", client_id);
+    return json({ success: true, message: `Usuário ${email} removido do Banco B.` });
 
   } catch (err) {
-    console.error("[c8-delete-user] unexpected error:", err);
+    console.error("[c8-delete-user]", err);
     return json({ error: `Erro interno: ${String(err)}` }, 500);
   }
 });

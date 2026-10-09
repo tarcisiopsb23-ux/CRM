@@ -1,19 +1,21 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useOrganization } from '@/hooks/useOrganization';
 import { useListasManager, type CreateListaInput, type UpdateListaInput } from '@/hooks/useListasManager';
 import { useProfiles } from '@/hooks/useProfiles';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { AlertCircle, Plus, Edit2, Trash2, AlertTriangle, Loader2 } from 'lucide-react';
+import { AlertCircle, Plus, Edit2, Trash2, AlertTriangle, Loader2, Link2, FolderOpen, ChevronDown, ChevronRight } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { toast } from 'sonner';
+import { NICHO_OPTIONS } from '@/constants/crmOptions';
 import type { Lista } from '@/types/database';
 
 export function ListasPage() {
@@ -27,6 +29,8 @@ export function ListasPage() {
     createListaVersion,
     updateLista,
     deleteLista,
+    fetchLeadsSemLista,
+    linkLeadsBatchToLista,
   } = useListasManager(organizationId);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -37,6 +41,25 @@ export function ListasPage() {
   const [filterStatus, setFilterStatus] = useState<string>('ativa');
   const [filterCidade, setFilterCidade] = useState('');
   const [filterNicho, setFilterNicho] = useState('');
+
+  // ── Leads sem lista ──────────────────────────────────────────────
+  type LeadSemLista = {
+    id: string; name: string; company: string | null;
+    nicho: string | null; metadata: Record<string, unknown>; created_at: string;
+  };
+  type GrupoPendente = {
+    nicho: string; cidade: string; leads: LeadSemLista[];
+  };
+
+  const [leadsSemLista, setLeadsSemLista] = useState<LeadSemLista[]>([]);
+  const [loadingPendentes, setLoadingPendentes] = useState(false);
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  // dialog de vínculo para um grupo
+  const [vincularGroup, setVincularGroup] = useState<GrupoPendente | null>(null);
+  const [vincularMode, setVincularMode] = useState<'existing' | 'new'>('existing');
+  const [vincularListaId, setVincularListaId] = useState<string>('');
+  const [vincularSaving, setVincularSaving] = useState(false);
+  const [vincularNovaForm, setVincularNovaForm] = useState({ nome: '', estado: '' });
 
   const [createForm, setCreateForm] = useState<CreateListaInput>({
     nome: '',
@@ -64,6 +87,34 @@ export function ListasPage() {
       });
     }
   }, [organizationId, filterStatus, filterCidade, filterNicho, fetchListas]);
+
+  const loadPendentes = useCallback(async () => {
+    setLoadingPendentes(true);
+    try {
+      const data = await fetchLeadsSemLista();
+      setLeadsSemLista(data);
+    } finally {
+      setLoadingPendentes(false);
+    }
+  }, [fetchLeadsSemLista]);
+
+  useEffect(() => {
+    if (organizationId) loadPendentes();
+  }, [organizationId, loadPendentes]);
+
+  // Agrupar leads sem lista por nicho+cidade
+  const gruposPendentes = useMemo<GrupoPendente[]>(() => {
+    const map = new Map<string, GrupoPendente>();
+    for (const lead of leadsSemLista) {
+      const cidade = (lead.metadata?.cidade as string | undefined) ?? '';
+      const nicho = lead.nicho ?? '';
+      const key = `${nicho}||${cidade}`;
+      if (!map.has(key)) map.set(key, { nicho, cidade, leads: [] });
+      map.get(key)!.leads.push(lead);
+    }
+    // Sort: groups with most leads first
+    return Array.from(map.values()).sort((a, b) => b.leads.length - a.leads.length);
+  }, [leadsSemLista]);
 
   // ==================
   // CRIAR LISTA
@@ -161,6 +212,44 @@ export function ListasPage() {
   };
 
   // ==================
+  // VINCULAR GRUPO AO LISTA
+  // ==================
+  const handleVincularSave = async () => {
+    if (!vincularGroup) return;
+    const leadIds = vincularGroup.leads.map(l => l.id);
+    setVincularSaving(true);
+    try {
+      let targetId = vincularListaId;
+      if (vincularMode === 'new') {
+        if (!vincularNovaForm.nome.trim() || !vincularNovaForm.estado) {
+          toast.error('Nome e estado são obrigatórios para criar a lista.');
+          return;
+        }
+        const nova = await createLista({
+          nome: vincularNovaForm.nome,
+          cidade: vincularGroup.cidade,
+          estado: vincularNovaForm.estado,
+          nicho: vincularGroup.nicho,
+        });
+        targetId = nova.id;
+        toast.success(`Lista "${nova.nome}" criada!`);
+      }
+      if (!targetId) { toast.error('Selecione uma lista.'); return; }
+      await linkLeadsBatchToLista(leadIds, targetId);
+      toast.success(`${leadIds.length} lead(s) vinculado(s) com sucesso.`);
+      setVincularGroup(null);
+      setVincularListaId('');
+      setVincularNovaForm({ nome: '', estado: '' });
+      await loadPendentes();
+      await fetchListas();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erro ao vincular leads.');
+    } finally {
+      setVincularSaving(false);
+    }
+  };
+
+  // ==================
   // DELETAR LISTA
   // ==================
   const handleDeleteLista = async (listaId: string) => {
@@ -214,6 +303,102 @@ export function ListasPage() {
           Nova Lista
         </Button>
       </div>
+
+      {/* LEADS SEM LISTA — PENDENTES */}
+      {(loadingPendentes || gruposPendentes.length > 0) && (
+        <Card className="border-amber-200 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <FolderOpen className="h-5 w-5 text-amber-600" />
+                <CardTitle className="text-base text-amber-900 dark:text-amber-200">
+                  Leads importados sem lista
+                  {!loadingPendentes && (
+                    <span className="ml-2 text-sm font-normal">
+                      ({leadsSemLista.length} lead{leadsSemLista.length !== 1 ? 's' : ''} em {gruposPendentes.length} grupo{gruposPendentes.length !== 1 ? 's' : ''})
+                    </span>
+                  )}
+                </CardTitle>
+              </div>
+              {loadingPendentes && <Loader2 className="h-4 w-4 animate-spin text-amber-600" />}
+            </div>
+            <CardDescription className="text-amber-700 dark:text-amber-300">
+              Estes leads estão sem lista vinculada. Clique em "Vincular" para associá-los a uma lista existente ou criar uma nova.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {gruposPendentes.map((grupo) => {
+              const key = `${grupo.nicho}||${grupo.cidade}`;
+              const isOpen = openGroups[key] ?? false;
+              const label = [grupo.nicho, grupo.cidade].filter(Boolean).join(' · ') || '(sem nicho/cidade)';
+              return (
+                <Collapsible key={key} open={isOpen} onOpenChange={(v) => setOpenGroups(g => ({ ...g, [key]: v }))}>
+                  <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-white/70 dark:bg-amber-950/30 px-3 py-2">
+                    <CollapsibleTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-6 w-6 p-0 shrink-0">
+                        {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                      </Button>
+                    </CollapsibleTrigger>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-medium">{label}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        {grupo.leads.length} lead{grupo.leads.length !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="shrink-0 h-7 gap-1.5 border-amber-300 text-amber-800 hover:bg-amber-100 dark:text-amber-200"
+                      onClick={() => {
+                        setVincularGroup(grupo);
+                        setVincularMode('existing');
+                        setVincularListaId('');
+                        setVincularNovaForm({ nome: `${grupo.nicho}${grupo.cidade ? ' · ' + grupo.cidade : ''}`, estado: '' });
+                      }}
+                    >
+                      <Link2 className="h-3.5 w-3.5" />
+                      Vincular
+                    </Button>
+                  </div>
+                  <CollapsibleContent>
+                    <div className="ml-8 mt-1 mb-2 rounded-md border border-amber-100 bg-white/50 dark:bg-amber-950/20 overflow-hidden">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="hover:bg-transparent">
+                            <TableHead className="h-8 text-xs">Empresa / Nome</TableHead>
+                            <TableHead className="h-8 text-xs">Nicho</TableHead>
+                            <TableHead className="h-8 text-xs">Cidade</TableHead>
+                            <TableHead className="h-8 text-xs">Importado em</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {grupo.leads.slice(0, 10).map(lead => (
+                            <TableRow key={lead.id} className="hover:bg-amber-50/50">
+                              <TableCell className="text-sm py-1.5">{lead.company || lead.name}</TableCell>
+                              <TableCell className="text-sm py-1.5 text-muted-foreground">{lead.nicho || '—'}</TableCell>
+                              <TableCell className="text-sm py-1.5 text-muted-foreground">{(lead.metadata?.cidade as string) || '—'}</TableCell>
+                              <TableCell className="text-sm py-1.5 text-muted-foreground">
+                                {new Date(lead.created_at).toLocaleDateString('pt-BR')}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                          {grupo.leads.length > 10 && (
+                            <TableRow>
+                              <TableCell colSpan={4} className="text-xs text-center text-muted-foreground py-1.5">
+                                ... e mais {grupo.leads.length - 10} lead(s)
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
 
       {/* FILTROS */}
       <Card>
@@ -286,7 +471,7 @@ export function ListasPage() {
               <p className="text-muted-foreground">Nenhuma lista encontrada</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="table-scroll-container">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -295,6 +480,7 @@ export function ListasPage() {
                     <TableHead>Nicho</TableHead>
                     <TableHead>Versão</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Leads</TableHead>
                     <TableHead>Responsável</TableHead>
                     <TableHead>Criada em</TableHead>
                     <TableHead>Ações</TableHead>
@@ -314,6 +500,9 @@ export function ListasPage() {
                         >
                           {lista.status}
                         </Badge>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Badge variant="outline">{lista.leads_count ?? 0}</Badge>
                       </TableCell>
                       <TableCell>{getResponsavelName(lista.responsavel_id)}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">
@@ -347,6 +536,109 @@ export function ListasPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* DIALOG: VINCULAR GRUPO A LISTA */}
+      <Dialog open={!!vincularGroup} onOpenChange={(o) => { if (!o && !vincularSaving) { setVincularGroup(null); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Link2 className="h-4 w-4" />
+              Vincular leads à lista
+            </DialogTitle>
+            <DialogDescription>
+              {vincularGroup && (
+                <>
+                  <strong>{vincularGroup.leads.length} lead(s)</strong>
+                  {vincularGroup.nicho && <> · {vincularGroup.nicho}</>}
+                  {vincularGroup.cidade && <> · {vincularGroup.cidade}</>}
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* mode toggle */}
+            <div className="flex rounded-lg border overflow-hidden">
+              <button
+                className={`flex-1 py-2 text-sm font-medium transition-colors ${vincularMode === 'existing' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
+                onClick={() => setVincularMode('existing')}
+              >
+                Lista existente
+              </button>
+              <button
+                className={`flex-1 py-2 text-sm font-medium transition-colors ${vincularMode === 'new' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
+                onClick={() => setVincularMode('new')}
+              >
+                Criar nova lista
+              </button>
+            </div>
+
+            {vincularMode === 'existing' ? (
+              <div className="space-y-2">
+                <Label>Selecione a lista</Label>
+                <Select value={vincularListaId} onValueChange={setVincularListaId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Escolha uma lista ativa..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {listas.filter(l => l.status === 'ativa').length === 0 ? (
+                      <SelectItem value="__none__" disabled>Nenhuma lista ativa</SelectItem>
+                    ) : (
+                      listas.filter(l => l.status === 'ativa').map(l => (
+                        <SelectItem key={l.id} value={l.id}>
+                          {l.nome} — {l.cidade}{l.estado ? ` (${l.estado})` : ''} · {l.nicho} · {new Date(l.created_at).toLocaleDateString('pt-BR')}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2 rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
+                  <span>Nicho: <strong className="text-foreground">{vincularGroup?.nicho || '—'}</strong></span>
+                  <span>Cidade: <strong className="text-foreground">{vincularGroup?.cidade || '—'}</strong></span>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Nome da lista <span className="text-destructive">*</span></Label>
+                  <Input
+                    value={vincularNovaForm.nome}
+                    onChange={e => setVincularNovaForm(f => ({ ...f, nome: e.target.value }))}
+                    placeholder="Ex.: Clínicas BH Julho/25"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Estado <span className="text-destructive">*</span></Label>
+                  <Select value={vincularNovaForm.estado} onValueChange={v => setVincularNovaForm(f => ({ ...f, estado: v }))}>
+                    <SelectTrigger><SelectValue placeholder="UF" /></SelectTrigger>
+                    <SelectContent>
+                      {["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"].map(uf => (
+                        <SelectItem key={uf} value={uf}>{uf}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVincularGroup(null)} disabled={vincularSaving}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleVincularSave}
+              disabled={
+                vincularSaving ||
+                (vincularMode === 'existing' && !vincularListaId) ||
+                (vincularMode === 'new' && (!vincularNovaForm.nome.trim() || !vincularNovaForm.estado))
+              }
+            >
+              {vincularSaving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Vinculando...</> : 'Vincular leads'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* DIALOG: CRIAR LISTA */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>

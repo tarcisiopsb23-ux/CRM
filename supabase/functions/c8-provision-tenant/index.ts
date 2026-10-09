@@ -2,34 +2,40 @@
  * Edge Function: c8-provision-tenant
  * Projeto: Maestr.ia
  *
- * Provisiona um novo tenant no C8 Control chamando a edge function
- * provision-tenant do projeto C8 Control.
+ * Cria o usuário principal de um cliente diretamente no auth.users
+ * do Banco B daquele cliente. Cada cliente tem seu próprio Supabase
+ * isolado — credenciais lidas da tabela `clients` no Banco A.
+ *
+ * Não usa mais CRM_URL, CRM_API_KEY, C8_ANON_KEY.
  *
  * Secrets necessários:
- *   CRM_URL     — URL do projeto C8 Control (ex: https://xcymhcqbyyuozkzhpxgi.supabase.co)
- *   CRM_API_KEY — Chave compartilhada configurada no C8 Control
- *   RESEND_API_KEY, RESEND_FROM_EMAIL, C8_APP_URL — para e-mail de boas-vindas
+ *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY — Banco A (injetados automaticamente)
+ *   RESEND_API_KEY, RESEND_FROM_EMAIL       — e-mail de boas-vindas
+ *   APP_URL                                 — URL do painel do cliente (dashboard)
  */
+
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status, headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
 
 function generateTempPassword(): string {
   const chars = "abcdefghjkmnpqrstuvwxyz23456789";
-  const groups = 3;
-  const groupLen = 4;
+  const groups = 3; const groupLen = 4;
   let pwd = "";
   const bytes = new Uint8Array(groups * groupLen);
   crypto.getRandomValues(bytes);
   for (let g = 0; g < groups; g++) {
     if (g > 0) pwd += "-";
-    for (let i = 0; i < groupLen; i++) {
-      pwd += chars[bytes[g * groupLen + i] % chars.length];
-    }
+    for (let i = 0; i < groupLen; i++) pwd += chars[bytes[g * groupLen + i] % chars.length];
   }
   return pwd;
 }
@@ -37,13 +43,7 @@ function generateTempPassword(): string {
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
-  const json = (body: unknown, status = 200) =>
-    new Response(JSON.stringify(body), {
-      status, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-
   try {
-    // ── Auth ──────────────────────────────────────────────────────────────────
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) return json({ error: "Não autorizado" }, 401);
 
@@ -62,146 +62,150 @@ Deno.serve(async (req: Request) => {
     if (!["owner", "admin"].includes(profile?.role ?? ""))
       return json({ error: "Apenas owner/admin" }, 403);
 
-    // ── Payload ───────────────────────────────────────────────────────────────
     const body = await req.json() as {
-      tenant_id?: string;
-      tenant_name: string;
+      client_id: string;
       admin_email: string;
       admin_password?: string;
-      company?: string;
-      document?: string;
-      phone?: string;
-      address_street?: string;
-      address_city?: string;
-      address_state?: string;
-      address_zip?: string;
-      slug?: string;
-      client_id: string;
+      tenant_name?: string;
       plan_name?: string;
-      plan_value?: number;
       max_users?: number;
-      due_day?: number;
-      billing_cycle?: string;
-      contract_start?: string;
-      contract_end?: string;
-      support_email?: string;
-      support_password?: string;
-      is_support?: boolean;
       send_welcome_email?: boolean;
     };
 
-    const crmUrl = Deno.env.get("CRM_URL");
-    const crmApiKey = Deno.env.get("CRM_API_KEY");
+    const { client_id, admin_email } = body;
+    if (!client_id) return json({ error: "client_id é obrigatório" }, 400);
+    if (!admin_email?.includes("@")) return json({ error: "admin_email inválido" }, 400);
 
-    if (!crmUrl || !crmApiKey) {
-      return json({ error: "CRM_URL ou CRM_API_KEY não configurados nos Secrets" }, 500);
-    }
+    // ── Busca credenciais do Banco B ──────────────────────────────────────────
+    const { data: clientRow, error: clientErr } = await maestriaAdmin
+      .from("clients")
+      .select("name, company, dashboard_slug, client_supabase_url, client_supabase_service_key")
+      .eq("id", client_id)
+      .maybeSingle();
+
+    if (clientErr || !clientRow)
+      return json({ error: "Cliente não encontrado" }, 404);
+
+    const bankBUrl = (clientRow as Record<string, unknown>).client_supabase_url as string | null;
+    const bankBKey = (clientRow as Record<string, unknown>).client_supabase_service_key as string | null;
+
+    if (!bankBUrl || !bankBKey)
+      return json({
+        error: `Cliente "${clientRow.name}" sem Banco B configurado. Preencha client_supabase_url e client_supabase_service_key.`,
+      }, 400);
+
+    const bankBAdmin = createClient(bankBUrl, bankBKey, { auth: { persistSession: false } });
 
     const tempPassword = body.admin_password ?? generateTempPassword();
+    const displayName  = body.tenant_name ?? clientRow.company ?? clientRow.name ?? admin_email.split("@")[0];
 
-    // ── Chamar provision-tenant do C8 Control ─────────────────────────────────
-    const c8AnonKey = Deno.env.get("C8_ANON_KEY") ?? "";
-    const provisionRes = await fetch(`${crmUrl}/functions/v1/provision-tenant`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-crm-api-key": crmApiKey,
-        "apikey": c8AnonKey,
-        "Authorization": `Bearer ${c8AnonKey}`,
-      },
-      body: JSON.stringify({
-        tenant_id:        body.tenant_id ?? body.client_id,
-        tenant_name:      body.tenant_name,
-        admin_email:      body.admin_email,
-        admin_password:   tempPassword,
-        // Campos mapeados para a tabela clients do C8 Control
-        company:          body.company,
-        cnpj:             body.document,
-        phone:            body.phone,
-        email:            body.admin_email,
-        primary_contact:  body.tenant_name,
-        address:          [body.address_street, body.address_city, body.address_state, body.address_zip].filter(Boolean).join(", ") || null,
-        contract_start_date: body.contract_start ?? null,
-        client_status:    "ativo",
-        // Dados do plano
-        plan_name:        body.plan_name,
-        plan_value:       body.plan_value,
-        max_users:        body.max_users,
-        due_day:          body.due_day,
-        billing_cycle:    body.billing_cycle,
-        contract_end:     body.contract_end,
-        // Suporte
-        support_email:    body.support_email,
-        support_password: body.support_password,
-        is_support:       body.is_support ?? false,
-      }),
-    });
+    // ── Cria ou atualiza usuário no auth.users do Banco B ─────────────────────
+    const { data: usersPage } = await bankBAdmin.auth.admin.listUsers({ perPage: 1000 });
+    const existing = usersPage?.users?.find(
+      (u: { email?: string }) => u.email?.toLowerCase() === admin_email.toLowerCase()
+    );
 
-    const provisionData = await provisionRes.json();
+    let userId: string;
+    let isNewUser: boolean;
 
-    if (!provisionRes.ok) {
-      console.error("[c8-provision-tenant] C8 Control error:", provisionData);
-      return json({
-        error: provisionData?.error ?? `Erro ${provisionRes.status} no C8 Control`,
-        details: provisionData,
-      }, provisionRes.status === 409 ? 409 : 500);
+    if (existing) {
+      await bankBAdmin.auth.admin.updateUserById(existing.id, {
+        password: tempPassword,
+        user_metadata: {
+          ...existing.user_metadata,
+          full_name: displayName,
+          client_id,
+          role: "owner",
+          force_password_change:    true,
+          temp_password_expires_at: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
+        },
+      });
+      userId    = existing.id;
+      isNewUser = false;
+    } else {
+      const { data: newUser, error: createErr } = await bankBAdmin.auth.admin.createUser({
+        email:         admin_email.toLowerCase(),
+        password:      tempPassword,
+        email_confirm: true,
+        user_metadata: {
+          full_name:                displayName,
+          client_id,
+          role:                     "owner",
+          force_password_change:    true,
+          temp_password_expires_at: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
+        },
+      });
+      if (createErr || !newUser?.user)
+        return json({ error: `Erro ao criar usuário: ${createErr?.message}` }, 500);
+      userId    = newUser.user.id;
+      isNewUser = true;
     }
 
-    // ── Salvar tenant_id no Maestr.ia se não for suporte ──────────────────────
-    if (!body.is_support && body.client_id && provisionData.tenant_id) {
-      await maestriaAdmin
-        .from("crm_client_plans")
-        .update({ provisioned_at: new Date().toISOString(), provisioning_status: "sent" })
-        .eq("client_id", body.client_id);
-    }
+    // ── Atualiza status de provisionamento no Banco A ─────────────────────────
+    await maestriaAdmin
+      .from("crm_client_plans")
+      .update({ provisioned_at: new Date().toISOString(), provisioning_status: "confirmed" })
+      .eq("client_id", client_id);
 
-    // ── Enviar e-mail de boas-vindas via Resend ───────────────────────────────
+    await maestriaAdmin
+      .from("clients")
+      .update({ c8_control_enabled: true })
+      .eq("id", client_id);
+
+    // ── E-mail de boas-vindas via Resend ──────────────────────────────────────
     const resendKey = Deno.env.get("RESEND_API_KEY");
-    const fromEmail = Deno.env.get("RESEND_FROM_EMAIL") ?? "suporte@agenciac8.com.br";
-    const c8AppUrl = (Deno.env.get("C8_APP_URL") ?? "https://app.c8control.com.br").replace(/\/$/, "");
+    // Remetente sempre no domínio c8control.com.br
+    const fromEmail = Deno.env.get("C8_FROM_EMAIL") ?? "noreply@c8control.com.br";
+    const slug      = (clientRow as Record<string, unknown>).dashboard_slug as string | null;
+    const c8Base    = (Deno.env.get("C8_CONTROL_URL") ?? Deno.env.get("APP_URL") ?? "https://app.c8control.com.br").replace(/\/$/, "");
+    const loginUrl  = slug ? `${c8Base}/${slug}` : c8Base;
 
-    if (resendKey && !body.is_support && (body.send_welcome_email !== false)) {
-      const emailHtml = `
+    if (resendKey && body.send_welcome_email !== false) {
+      // Tenta buscar template customizado do banco; fallback para HTML inline
+      const { data: profile } = await maestriaAdmin
+        .from("profiles").select("organization_id").eq("id", caller.id).single();
+      const orgId = profile?.organization_id;
+
+      const { getEmailTemplate } = await import("../_shared/emailTemplate.ts");
+      const tplSlug = isNewUser ? "tenant_welcome" : "password_reset";
+      const tpl = orgId ? await getEmailTemplate(maestriaAdmin, orgId, tplSlug, {
+        client_name:   displayName,
+        admin_email:   admin_email,
+        temp_password: tempPassword,
+        dashboard_url: loginUrl,
+        plan_name:     body.plan_name ?? "Starter",
+        max_users:     body.max_users ?? 1,
+      }) : null;
+
+      const emailHtml = tpl?.html ?? `
         <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px">
-          <h2 style="color:#7c3aed">Bem-vindo ao C8 Control!</h2>
-          <p>Olá, <strong>${body.tenant_name}</strong>!</p>
-          <p>Sua conta no <strong>C8 Control CRM</strong> foi criada com sucesso.</p>
+          <h2 style="color:#7c3aed">${isNewUser ? "Bem-vindo ao C8 Control!" : "Nova senha temporária"}</h2>
+          <p>Olá, <strong>${displayName}</strong>!</p>
           <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:20px;margin:20px 0">
-            <p style="margin:6px 0"><strong>URL:</strong> <a href="${c8AppUrl}" style="color:#7c3aed">${c8AppUrl}</a></p>
-            <p style="margin:6px 0"><strong>E-mail:</strong> ${body.admin_email}</p>
+            <p style="margin:6px 0"><strong>URL:</strong> <a href="${loginUrl}" style="color:#7c3aed">${loginUrl}</a></p>
+            <p style="margin:6px 0"><strong>E-mail:</strong> ${admin_email}</p>
             <p style="margin:12px 0 6px 0"><strong>Senha temporária:</strong></p>
             <div style="background:#ede9fe;border:1px solid #c4b5fd;border-radius:6px;padding:12px;text-align:center">
               <span style="font-family:monospace;font-size:22px;font-weight:bold;color:#5b21b6;letter-spacing:2px">${tempPassword}</span>
             </div>
-            <p style="margin:8px 0 0 0;font-size:12px;color:#64748b">Plano: ${body.plan_name ?? "Starter"} · ${body.max_users ?? 1} usuário(s)</p>
+            ${isNewUser && body.plan_name ? `<p style="margin:8px 0 0;font-size:12px;color:#64748b">Plano: ${body.plan_name} · ${body.max_users ?? 1} usuário(s)</p>` : ""}
           </div>
           <p style="color:#dc2626;font-size:13px;font-weight:500">⚠️ Ao fazer login, você será solicitado a criar uma senha permanente.</p>
           <div style="margin:24px 0;text-align:center">
-            <a href="${c8AppUrl}" style="background:#7c3aed;color:white;padding:14px 32px;text-decoration:none;border-radius:8px;font-weight:bold;font-size:15px;display:inline-block">Acessar o C8 Control</a>
+            <a href="${loginUrl}" style="background:#7c3aed;color:white;padding:14px 32px;text-decoration:none;border-radius:8px;font-weight:bold;font-size:15px;display:inline-block">Acessar o Dashboard</a>
           </div>
-        </div>
-      `;
+        </div>`;
+
+      const emailSubject = tpl?.subject ?? (isNewUser ? "Seu acesso ao C8 Control está pronto!" : "Nova senha temporária — C8 Control");
 
       await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          from: fromEmail,
-          to: [body.admin_email],
-          subject: "Seu acesso ao C8 Control está pronto!",
-          html: emailHtml,
-        }),
+        body: JSON.stringify({ from: fromEmail, to: [admin_email], subject: emailSubject, html: emailHtml }),
       }).catch(e => console.warn("[c8-provision-tenant] email error:", e));
     }
 
-    return json({
-      success: true,
-      tenant_id: provisionData.tenant_id,
-      user_id:   provisionData.user_id,
-      email:     provisionData.email,
-      slug:      provisionData.slug,
-      temp_password: tempPassword,
-    }, 201);
+    return json({ success: true, user_id: userId, email: admin_email, is_new_user: isNewUser, temp_password: tempPassword }, 201);
 
   } catch (err) {
     console.error("[c8-provision-tenant]", err);

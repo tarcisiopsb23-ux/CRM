@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+﻿import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { startOfMonth, endOfMonth, startOfDay, format } from "date-fns";
 
@@ -26,6 +26,7 @@ export function useKanbanFunnel(organizationId: string | undefined) {
       const ETAPAS: Record<string, string> = {
         leads_recebidos: "Leads Recebidos",
         qualificados: "Qualificados",
+        contato_realizado: "Contato Realizado",
         reuniao_agendada: "Reunião Agendada",
         emissao_contrato: "Negociações",
         efetivados: "Efetivados",

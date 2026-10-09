@@ -7,6 +7,7 @@ import { useLeadsKanban, type CreateLeadInput, type CreateLeadRow } from "@/hook
 import { useListasManager } from "@/hooks/useListasManager";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useProfiles } from "@/hooks/useProfiles";
+import { useTabCounts } from "@/hooks/useTabCounts";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -34,6 +35,7 @@ import { ListasPage } from "@/pages/ListasPage";
 import { LeadsPendingPage } from "@/pages/LeadsPendingPage";
 import { ClosersPerformancePage } from "@/pages/ClosersPerformancePage";
 import { FormLeadsTab } from "@/components/kanban/FormLeadsTab";
+import { ConversionsTab } from "@/components/tracking/ConversionsTab";
 import { useProposals } from "@/hooks/useProposals";
 import type { Proposal } from "@/types/proposals";
 
@@ -46,6 +48,8 @@ export function LeadsKanbanPage() {
   const { data: profiles = [] } = useProfiles(organizationId);
   const { proposals } = useProposals(organizationId);
   const { listas, fetchListas, createLista, getLista } = useListasManager(organizationId);
+
+  const tabCounts = useTabCounts({ organizationId, leads, listas });
 
   // Aba ativa controlada via query param para permitir navegação direta
   const activeTab = searchParams.get("tab") ?? "leads";
@@ -454,12 +458,50 @@ export function LeadsKanbanPage() {
 
       <Tabs value={activeTab} onValueChange={setTab} className="w-full">
         <TabsList>
-          <TabsTrigger value="leads">Leads</TabsTrigger>
-          <TabsTrigger value="prequal">Pré-qualificação</TabsTrigger>
-          <TabsTrigger value="formulario">Recebidos do Formulário</TabsTrigger>
-          <TabsTrigger value="listas">Listas</TabsTrigger>
-          <TabsTrigger value="pendentes">Leads Pendentes</TabsTrigger>
+          <TabsTrigger value="leads" className="flex items-center gap-1.5">
+            Leads
+            {tabCounts.leads > 0 && (
+              <span className="inline-flex items-center justify-center rounded-full bg-primary/15 text-primary text-[10px] font-semibold min-w-[18px] h-[18px] px-1 leading-none">
+                {tabCounts.leads}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="prequal" className="flex items-center gap-1.5">
+            Pré-qualificação
+            {tabCounts.preQual > 0 && (
+              <span className="inline-flex items-center justify-center rounded-full bg-orange-500/15 text-orange-500 text-[10px] font-semibold min-w-[18px] h-[18px] px-1 leading-none">
+                {tabCounts.preQual}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="formulario" className="flex items-center gap-1.5">
+            Recebidos do Formulário
+            {tabCounts.formulario > 0 && (
+              <span className="inline-flex items-center justify-center rounded-full bg-blue-500/15 text-blue-500 text-[10px] font-semibold min-w-[18px] h-[18px] px-1 leading-none">
+                {tabCounts.formulario}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="listas" className="flex items-center gap-1.5">
+            Listas
+            {tabCounts.listas > 0 && (
+              <span className="inline-flex items-center justify-center rounded-full bg-primary/15 text-primary text-[10px] font-semibold min-w-[18px] h-[18px] px-1 leading-none">
+                {tabCounts.listas}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="pendentes" className="flex items-center gap-1.5">
+            Leads Pendentes
+            {tabCounts.pendentes > 0 && (
+              <span className="inline-flex items-center justify-center rounded-full bg-yellow-500/15 text-yellow-600 text-[10px] font-semibold min-w-[18px] h-[18px] px-1 leading-none">
+                {tabCounts.pendentes}
+              </span>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="performance">Performance Closers</TabsTrigger>
+          <TabsTrigger value="conversoes" className="flex items-center gap-1.5">
+            Conversões C8
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="leads" className="space-y-4">
@@ -745,6 +787,11 @@ export function LeadsKanbanPage() {
         {/* ── Recebidos do Formulário ── */}
         <TabsContent value="formulario">
           <FormLeadsTab />
+        </TabsContent>
+
+        {/* ── Conversões C8 — eventos de pixel rastreados pelo C8 Control ── */}
+        <TabsContent value="conversoes">
+          <ConversionsTab organizationId={organizationId} />
         </TabsContent>
 
       </Tabs>

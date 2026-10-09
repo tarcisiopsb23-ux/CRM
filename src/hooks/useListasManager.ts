@@ -38,9 +38,9 @@ export function useListasManager(organizationId: string | undefined) {
     setError(null);
 
     try {
-      let query = supabase
+      let query = (supabase as any)
         .from('listas')
-        .select('*, profiles:responsavel_id(full_name)')
+        .select('*, profiles:responsavel_id(full_name), leads(count)')
         .eq('organization_id', organizationId);
 
       if (filters?.status) {
@@ -57,8 +57,12 @@ export function useListasManager(organizationId: string | undefined) {
 
       if (fetchError) throw fetchError;
 
-      // Cast para incluir o profile information
-      const typed = (data as unknown as (Lista & { profiles: { full_name: string } | null })[]) ?? [];
+      // Normalise the embedded count: Supabase returns leads as [{ count: N }]
+      const typed = ((data as any[]) ?? []).map((row: any) => ({
+        ...row,
+        leads_count: Array.isArray(row.leads) ? (row.leads[0]?.count ?? 0) : 0,
+        leads: undefined, // drop the raw array from the object
+      })) as ListaWithResponsavel[];
       setListas(typed as ListaWithResponsavel[]);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
@@ -331,6 +335,112 @@ export function useListasManager(organizationId: string | undefined) {
     return (data ?? []) as LeadListaHistory[];
   }, [organizationId]);
 
+  // ==================
+  // LEADS SEM LISTA (lista_id IS NULL)
+  // ==================
+  const fetchLeadsSemLista = useCallback(async (): Promise<
+    Array<{
+      id: string;
+      name: string;
+      company: string | null;
+      nicho: string | null;
+      metadata: Record<string, unknown>;
+      created_at: string;
+    }>
+  > => {
+    if (!organizationId) return [];
+
+    // lista_id may not be in the generated supabase.ts types yet, so we cast
+    // the table reference to `any` to bypass type-checking on the filter.
+    const { data, error } = await (supabase as any)
+      .from('leads')
+      .select('id, name, company, nicho, metadata, created_at, lista_id')
+      .eq('organization_id', organizationId)
+      .is('lista_id', null)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Erro ao buscar leads sem lista:', error);
+      return [];
+    }
+
+    return (data ?? []) as Array<{
+      id: string;
+      name: string;
+      company: string | null;
+      nicho: string | null;
+      metadata: Record<string, unknown>;
+      created_at: string;
+    }>;
+  }, [organizationId]);
+
+  // ==================
+  // VINCULAR LOTE DE LEADS A UMA LISTA
+  // ==================
+  const linkLeadsBatchToLista = useCallback(async (
+    leadIds: string[],
+    listaId: string
+  ): Promise<void> => {
+    if (!organizationId || leadIds.length === 0) return;
+
+    // Fetch lista cidade/nicho once to backfill leads that have no cidade
+    let listaCidade: string | null = null;
+    let listaNicho: string | null = null;
+    const { data: listaData } = await (supabase as any)
+      .from('listas')
+      .select('cidade, nicho')
+      .eq('id', listaId)
+      .single();
+    if (listaData) {
+      listaCidade = listaData.cidade ?? null;
+      listaNicho  = listaData.nicho  ?? null;
+    }
+
+    // 1. Set lista_id on all leads in the batch
+    const { error } = await (supabase as any)
+      .from('leads')
+      .update({ lista_id: listaId })
+      .in('id', leadIds)
+      .eq('organization_id', organizationId);
+
+    if (error) throw error;
+
+    // 2. Backfill metadata.cidade and nicho for leads that are missing them.
+    //    We do this per-lead so we don't overwrite existing values.
+    if (listaCidade) {
+      // Fetch current metadata for all leads in batch
+      const { data: leadsData } = await (supabase as any)
+        .from('leads')
+        .select('id, nicho, metadata')
+        .in('id', leadIds)
+        .eq('organization_id', organizationId);
+
+      const updates: Array<Promise<void>> = (leadsData ?? [])
+        .filter((l: any) => {
+          const hasCidade = l.metadata?.cidade;
+          const hasNicho  = l.nicho;
+          return !hasCidade || !hasNicho;
+        })
+        .map(async (l: any) => {
+          const patch: Record<string, unknown> = {};
+          if (!l.metadata?.cidade) {
+            patch.metadata = { ...(l.metadata ?? {}), cidade: listaCidade };
+          }
+          if (!l.nicho && listaNicho) {
+            patch.nicho = listaNicho;
+          }
+          if (Object.keys(patch).length === 0) return;
+          await (supabase as any)
+            .from('leads')
+            .update(patch)
+            .eq('id', l.id)
+            .eq('organization_id', organizationId);
+        });
+
+      await Promise.all(updates);
+    }
+  }, [organizationId]);
+
   return {
     listas,
     loading,
@@ -346,5 +456,7 @@ export function useListasManager(organizationId: string | undefined) {
     autoLinkLead,
     autoLinkPendingLeads,
     getListaHistory,
+    fetchLeadsSemLista,
+    linkLeadsBatchToLista,
   };
 }

@@ -10,11 +10,14 @@ import { useLeadsKanban } from "@/hooks/useLeadsKanban";
 import { usePayments } from "@/hooks/useFinancial";
 import { useContractsByClient, useContractsWithC8, useCreateContract, useDeleteContract, useEndContract, useReactivateContract, useSuspendContract, useUpdateContract, useSetDashboardReference, useGenerateContract, useSignContract } from "@/hooks/useContracts";
 import type { ContractRow } from "@/hooks/useContracts";
+import { useContractsPendingSignature, useContractsWorkList } from "@/hooks/useContractSecurity";
+import { useContractSecurity } from "@/hooks/useContractSecurity";
 import { useContractMetrics } from "@/hooks/useContractMetrics";
 import { useModulePermission } from "@/hooks/usePermissions";
 import { getDriveFoldersFromOrganizationSettings, useOrganizationSettings } from "@/hooks/useSettings";
 import { useAuth } from "@/contexts/AuthContext";
 import { RepresentativesEditor } from "@/components/clients/RepresentativesEditor";
+import { NacionalidadeCombobox } from "@/components/ui/nacionalidade-combobox";
 import { useClientRepresentatives, QUALIFICACAO_LABELS } from "@/hooks/useClientRepresentatives";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,13 +50,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Eye, Pencil, Plus, UserCheck, Loader2, Trash2, PauseCircle, RotateCw, Search, Check, FileText } from "lucide-react";
+import { Eye, Pencil, Plus, UserCheck, Loader2, Trash2, PauseCircle, RotateCw, Search, Check, FileText, FileSignature } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { fetchAddressByCep } from "@/lib/viacep";
 import { toast } from "sonner";
 import { logger } from "@/lib/logger";
 import type { Client } from "@/types/crm";
 import { formatCpfCnpj, formatPhoneBR, formatEntityCode } from "@/lib/formatters";
+import { applyMask, onlyDigits } from "@/lib/masks";
 import { addMonths, endOfMonth, format, isWithinInterval, parseISO, startOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -62,7 +67,12 @@ import { DRIVE_AUTO_FOLDERS } from "@/constants/driveAutoFolders";
 import { ServicesSelectorSection } from "@/components/contracts/form/ServicesSelectorSection";
 import { SetupSection } from "@/components/contracts/form/SetupSection";
 import { PaymentMethodSelect } from "@/components/contracts/form/PaymentMethodSelect";
+import { EvolutiveScheduleSection } from "@/components/contracts/form/EvolutiveScheduleSection";
+import { VariableContractSection, type VariableConfig, type VariableResultType } from "@/components/contracts/form/VariableContractSection";
+import { ContractAmendmentModal } from "@/components/contracts/ContractAmendmentModal";
+import { useContractAmendments } from "@/hooks/useContractAmendments";
 import { generatePayments } from "@/lib/contracts/generatePayments";
+import type { EvolutiveEntry } from "@/lib/contracts/generatePayments";
 import { calcSetupParcel } from "@/lib/contracts/calcSetupParcel";
 import type { SelectedService } from "@/types/contracts";
 import { useServiceCatalog } from "@/hooks/useServiceCatalog";
@@ -75,6 +85,7 @@ import { usePinConfirm } from "@/hooks/usePinConfirm";
 import { DriveFolderButton } from "@/components/shared/DriveFolderButton";
 import { useDriveFolder } from "@/hooks/useDriveFolder";
 import { ClientPerformanceTab } from "@/components/clients/ClientPerformanceTab";
+import { ClientContractsTab } from "@/components/contracts/ClientContractsTab";
 import { ContractDetailPage } from "@/components/clients/ContractDetailPage";
 import useFormPersistence from "@/hooks/useFormPersistence";
 import { migrateResponsibleToDecisionMaker } from "@/utils/clientMigration";
@@ -128,6 +139,10 @@ export default function ClientsPage() {
   const [contractTargetClientId, setContractTargetClientId] = useState<string | null>(null);
   const [contractSuspendOpen, setContractSuspendOpen] = useState(false);
   const [contractSuspendReason, setContractSuspendReason] = useState("");
+  // Modal de aditivo — abre quando is_signed=true e usuário tenta editar
+  const [amendmentModalOpen, setAmendmentModalOpen] = useState(false);
+  const [amendmentTargetContract, setAmendmentTargetContract] = useState<ContractRow | null>(null);
+  const [amendmentTargetNextNumber, setAmendmentTargetNextNumber] = useState(1);
   const [leadViewOpen, setLeadViewOpen] = useState(false);
 
   // Estados para aba de pagamentos do cliente
@@ -141,6 +156,7 @@ export default function ClientsPage() {
   const [isReceiving, setIsReceiving] = useState(false);
   const [leadEditOpen, setLeadEditOpen] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  const [listTab, setListTab] = useState<"clientes" | "pendentes" | "contratos-pendentes">("clientes");
   const [leadDraft, setLeadDraft] = useState<{ name: string; company: string; email: string; phone: string }>({
     name: "",
     company: "",
@@ -197,6 +213,9 @@ export default function ClientsPage() {
     decision_maker_name: "",
     decision_maker_phone: "",
     portfolio_team_id: "",
+    inscricao_estadual: "",
+    inscricao_municipal: "",
+    revenue: undefined,
   };
   const [form, setForm, clearForm] = useFormPersistence<Partial<Client>>(formPersistKey, INITIAL_FORM);
 
@@ -404,6 +423,15 @@ export default function ClientsPage() {
   });
 
   const clientContractsQuery = useContractsWithC8(organizationId, viewing?.id ?? undefined);
+  const pendingContracts = useContractsPendingSignature();
+  const contractsWorkList = useContractsWorkList();
+  const { confirmSignature: confirmSig } = useContractSecurity();
+  const [isConfirmingId, setIsConfirmingId] = useState<string | null>(null);
+
+  // ── Filtros da aba Contratos Pendentes ────────────────────────────────────
+  const [filterWorkStatus, setFilterWorkStatus] = useState<"todos" | "rascunho" | "emitido" | "aguardando">("todos");
+  const [filterWorkSearch, setFilterWorkSearch] = useState("");
+  const isManagerOrAbove = profile?.role === "manager" || profile?.role === "admin" || profile?.role === "owner";
   const createContract = useCreateContract(organizationId);
   const updateContract = useUpdateContract(organizationId);
   const endContract = useEndContract(organizationId, profile?.id);
@@ -447,6 +475,26 @@ export default function ClientsPage() {
       if (String(r.status ?? "") === "cancelado") continue;
       map.set(String(r.contract_id), (map.get(String(r.contract_id)) ?? 0) + Number(r.value ?? 0));
     }
+    // Para contratos evolutivos sem pagamentos gerados, calcula o total pelo schedule
+    for (const ct of clientContractsQuery.data ?? []) {
+      if (map.has(String(ct.id))) continue; // já tem pagamentos somados
+      const meta = (ct.metadata ?? {}) as Record<string, unknown>;
+      const contractType = meta.contract_type as string | undefined;
+      const duration = ct.duration_months ?? 0;
+      if (contractType === "evolutivo" && duration > 0) {
+        const schedule = (meta.evolutive_schedule ?? []) as { month: number; value: number }[];
+        if (schedule.length > 0) {
+          const sorted = [...schedule].sort((a, b) => a.month - b.month);
+          let total = 0;
+          for (let m = 1; m <= duration; m++) {
+            let val = sorted[0].value;
+            for (const e of sorted) { if (e.month <= m) val = e.value; else break; }
+            total += val;
+          }
+          map.set(String(ct.id), total);
+        }
+      }
+    }
     return map;
   }, [contractPaymentsQuery.data]);
 
@@ -465,7 +513,7 @@ export default function ClientsPage() {
     client_id: "",
     title: "",
     service_contracted: "",
-    contract_type: "mensal" as "mensal" | "eventual",
+    contract_type: "mensal" as "mensal" | "eventual" | "evolutivo" | "variavel",
     contract_date: "",
     duration_months: "12",
     first_payment_value: "",
@@ -487,6 +535,11 @@ export default function ClientsPage() {
     setup_payment_method: undefined as string | undefined,
     min_duration_months: 0,
     signing_representative_ids: [] as string[],
+    // Evolutivo
+    evolutive_schedule: [] as EvolutiveEntry[],
+    // Variável
+    variable_commission_pct: 0,
+    variable_result_type: "contrato_individual" as VariableResultType,
   });
 
   const [suspendedMonthOpen, setSuspendedMonthOpen] = useState(false);
@@ -549,7 +602,10 @@ export default function ClientsPage() {
       decision_maker_name: migrated.decision_maker_name ?? "",
       decision_maker_phone: migrated.decision_maker_phone ?? "",
       portfolio_team_id: c.portfolio_team_id ?? "",
-      ...(({ estado_civil: (c as any).estado_civil ?? "", nacionalidade: (c as any).nacionalidade ?? "" } as any)),
+      ...(({ estado_civil: (c as any).estado_civil ?? "", nacionalidade: (c as any).nacionalidade ?? "", sexo: (c as any).sexo ?? "" } as any)),
+      inscricao_estadual: (c as any).inscricao_estadual ?? "",
+      inscricao_municipal: (c as any).inscricao_municipal ?? "",
+      revenue: c.revenue ?? undefined,
     });
     setModalOpen(true);
   };
@@ -604,19 +660,38 @@ export default function ClientsPage() {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      // Remove campos UUID vazios para evitar erro de sintaxe 22P02
-      const cleanedForm = { ...form };
-      if (cleanedForm.portfolio_team_id === "") {
-        delete cleanedForm.portfolio_team_id;
+      // Monta payload removendo apenas campos de state local que não existem na tabela
+      const cleanedForm = { ...form } as Record<string, unknown>;
+      // Converte strings vazias em null para campos com constraints (evita violação de CHECK)
+      const NULL_IF_EMPTY = ["nacionalidade", "niche", "origin", "sexo",
+                             "registration_type", "priority", "signing_type"];
+      for (const field of NULL_IF_EMPTY) {
+        if (cleanedForm[field] === "") cleanedForm[field] = null;
       }
-      if (cleanedForm.lead_id === "") {
-        delete cleanedForm.lead_id;
+      // Normaliza CPF/CNPJ: salva apenas os dígitos no banco
+      if (cleanedForm.document) {
+        cleanedForm.document = onlyDigits(String(cleanedForm.document));
       }
+      // Normaliza telefone: salva apenas os dígitos no banco
+      if (cleanedForm.phone) {
+        cleanedForm.phone = onlyDigits(String(cleanedForm.phone));
+      }
+      // Normaliza CEP: salva apenas os dígitos no banco
+      if (cleanedForm.address_zip) {
+        cleanedForm.address_zip = onlyDigits(String(cleanedForm.address_zip));
+      }
+      // Remove UUIDs vazios para evitar erro 22P02
+      if (!cleanedForm.portfolio_team_id) delete cleanedForm.portfolio_team_id;
+      if (!cleanedForm.lead_id)           delete cleanedForm.lead_id;
 
       if (editing) {
+        // registration_date nunca é editado manualmente — remove do payload de update
+        delete (cleanedForm as any).registration_date;
         await update.mutateAsync({ ...cleanedForm, id: editing.id } as Partial<Client> & { id: string });
       } else {
-        const created = await create.mutateAsync({ ...cleanedForm, name: cleanedForm.name! });
+        // registration_date preenchido automaticamente com a data atual ao criar
+        cleanedForm.registration_date = format(new Date(), "yyyy-MM-dd");
+        const created = await create.mutateAsync({ ...cleanedForm, name: cleanedForm.name as string } as Client & { name: string });
         // Auto-criar pasta no Drive — marca como pendente para suprimir o alerta imediatamente
         autoCreateFolder("client", { id: created.id, name: created.name, company: created.company ?? undefined, code: (created as any).code ?? null }, ["clients", organizationId]);
         setFolderPendingIds((prev) => new Set(prev).add(created.id));
@@ -663,6 +738,7 @@ export default function ClientsPage() {
       clearForm();
       setModalOpen(false);
       setSubmitError(null);
+      if (fromLeadId) setListTab("clientes");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Erro desconhecido";
       setSubmitError(msg);
@@ -887,78 +963,252 @@ export default function ClientsPage() {
         </>
       )}
 
-      {!clientId && efetivadosParaConverter.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Prospecções efetivadas (prontas para conversão)</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Ao finalizar, abre o cadastro do cliente e depois o cadastro do contrato
-            </p>
-          </CardHeader>
-          <CardContent>
-            <div className="rounded-md border bg-background overflow-hidden">
-              <Table className="border-separate border-spacing-0">
-                <TableHeader className="sticky top-0 z-20 bg-background shadow-sm">
-                  <TableRow className="bg-background hover:bg-background">
-                    <TableHead className="bg-background border-b font-bold text-foreground">Empresa</TableHead>
-                    <TableHead className="bg-background border-b font-bold text-foreground">Efetivação</TableHead>
-                    <TableHead className="bg-background border-b font-bold text-foreground">Serviço</TableHead>
-                    <TableHead className="text-right bg-background border-b font-bold text-foreground">Valor</TableHead>
-                    <TableHead className="text-right bg-background border-b font-bold text-foreground">Ações</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody className="bg-background">
-                  {efetivadosParaConverter.map((l) => {
-                    const efet = leadEfetivacaoDates.data?.get(String(l.id)) ?? null;
-                    const efetLabel = efet ? format(parseISO(efet), "dd/MM/yyyy", { locale: ptBR }) : "—";
-                    const serviceId = (l.product_service as string | null) ?? null;
-                    const service = serviceId ? (SERVICE_LABELS[serviceId] ?? serviceId) : "—";
-                    return (
-                      <TableRow key={l.id} className="bg-background hover:bg-muted/30 transition-colors group">
-                        <TableCell className="font-medium bg-background group-hover:bg-transparent">{l.company || l.name}</TableCell>
-                        <TableCell className="bg-background group-hover:bg-transparent">{efetLabel}</TableCell>
-                        <TableCell className="bg-background group-hover:bg-transparent">{service}</TableCell>
-                        <TableCell className="text-right bg-background group-hover:bg-transparent">R$ {Number(l.value ?? 0).toFixed(2).replace(".", ",")}</TableCell>
-                        <TableCell className="text-right bg-background group-hover:bg-transparent">
-                          <div className="flex justify-end gap-1">
-                            <Button size="sm" onClick={() => openFromLead(l.id)}>
-                              <UserCheck className="h-4 w-4 mr-1" />
-                              Finalizar
-                            </Button>
-                            <Button size="icon" variant="ghost" onClick={() => openLeadView(l.id)} aria-label="Visualizar lead" className="bg-background hover:bg-muted">
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                            <Button size="icon" variant="ghost" onClick={() => openLeadEdit(l.id)} aria-label="Editar lead" className="bg-background hover:bg-muted">
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="text-destructive bg-background hover:bg-muted"
-                              onClick={async () => {
-                                requirePin(
-                                  "Excluir lead",
-                                  "Esta ação não pode ser desfeita. Digite seu PIN para confirmar.",
-                                  async () => { await removeLead(l.id); }
-                                );
-                              }}
-                              aria-label="Excluir lead"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {!clientId && (
+        <Tabs value={listTab} onValueChange={(v) => setListTab(v as "clientes" | "pendentes" | "contratos-pendentes")}>
+          <TabsList className="mb-4">
+            <TabsTrigger value="clientes">Clientes</TabsTrigger>
+            <TabsTrigger value="pendentes" className="gap-2">
+              Pendentes de registro
+              {efetivadosParaConverter.length > 0 && (
+                <Badge variant="destructive" className="h-5 min-w-5 px-1.5 text-xs">
+                  {efetivadosParaConverter.length}
+                </Badge>
+              )}
+            </TabsTrigger>
+            {/* Aba visível apenas para manager, admin e owner */}
+            {isManagerOrAbove && (
+              <TabsTrigger value="contratos-pendentes" className="gap-2">
+                Contratos Pendentes
+                {(contractsWorkList.data?.length ?? 0) > 0 && (
+                  <Badge className="h-5 min-w-5 px-1.5 text-xs bg-amber-500 hover:bg-amber-500 text-white">
+                    {contractsWorkList.data!.length}
+                  </Badge>
+                )}
+              </TabsTrigger>
+            )}
+          </TabsList>
+
+          {/* ── ABA: PENDENTES DE REGISTRO ── */}
+          <TabsContent value="pendentes">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Pendentes de registro</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Leads efetivados no kanban que ainda não têm cadastro em Clientes. Clique em "Registrar" para pré-preencher o formulário com os dados do lead.
+                </p>
+              </CardHeader>
+              <CardContent>
+                {efetivadosParaConverter.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Nenhum lead pendente de registro.</p>
+                ) : (
+                  <div className="rounded-md border bg-background overflow-hidden">
+                    <Table className="border-separate border-spacing-0">
+                      <TableHeader className="sticky top-0 z-20 bg-background shadow-sm">
+                        <TableRow className="bg-background hover:bg-background">
+                          <TableHead className="bg-background border-b font-bold text-foreground">Empresa / Lead</TableHead>
+                          <TableHead className="bg-background border-b font-bold text-foreground">Efetivação</TableHead>
+                          <TableHead className="bg-background border-b font-bold text-foreground">Serviço</TableHead>
+                          <TableHead className="text-right bg-background border-b font-bold text-foreground">Valor</TableHead>
+                          <TableHead className="text-right bg-background border-b font-bold text-foreground">Ações</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody className="bg-background">
+                        {efetivadosParaConverter.map((l) => {
+                          const efet = leadEfetivacaoDates.data?.get(String(l.id)) ?? null;
+                          const efetLabel = efet ? format(parseISO(efet), "dd/MM/yyyy", { locale: ptBR }) : "—";
+                          const serviceId = (l.product_service as string | null) ?? null;
+                          const service = serviceId ? (SERVICE_LABELS[serviceId] ?? serviceId) : "—";
+                          return (
+                            <TableRow key={l.id} className="bg-background hover:bg-muted/30 transition-colors group">
+                              <TableCell className="font-medium bg-background group-hover:bg-transparent">{l.company || l.name}</TableCell>
+                              <TableCell className="bg-background group-hover:bg-transparent">{efetLabel}</TableCell>
+                              <TableCell className="bg-background group-hover:bg-transparent">{service}</TableCell>
+                              <TableCell className="text-right bg-background group-hover:bg-transparent">R$ {Number(l.value ?? 0).toFixed(2).replace(".", ",")}</TableCell>
+                              <TableCell className="text-right bg-background group-hover:bg-transparent">
+                                <div className="flex justify-end gap-1">
+                                  <Button size="sm" onClick={() => openFromLead(l.id)}>
+                                    <UserCheck className="h-4 w-4 mr-1" />
+                                    Registrar
+                                  </Button>
+                                  <Button size="icon" variant="ghost" onClick={() => openLeadView(l.id)} aria-label="Visualizar lead" className="bg-background hover:bg-muted">
+                                    <Eye className="h-4 w-4" />
+                                  </Button>
+                                  <Button size="icon" variant="ghost" onClick={() => openLeadEdit(l.id)} aria-label="Editar lead" className="bg-background hover:bg-muted">
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="text-destructive bg-background hover:bg-muted"
+                                    onClick={() => requirePin(
+                                      "Excluir lead",
+                                      "Esta ação não pode ser desfeita. Digite seu PIN para confirmar.",
+                                      async () => { await removeLead(l.id); }
+                                    )}
+                                    aria-label="Excluir lead"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ── ABA: CONTRATOS PENDENTES ── visível só para manager/admin/owner */}
+          {isManagerOrAbove && (
+            <TabsContent value="contratos-pendentes">
+              <div className="space-y-4" style={{ minHeight: "calc(100vh - 360px)" }}>
+                {/* Filtros */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative flex-1 min-w-[200px]">
+                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <input
+                      className="w-full h-9 pl-8 pr-3 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                      placeholder="Buscar por nº, cliente ou título…"
+                      value={filterWorkSearch}
+                      onChange={e => setFilterWorkSearch(e.target.value)}
+                    />
+                  </div>
+                  <select
+                    className="h-9 rounded-md border border-input bg-background px-2.5 text-sm focus:outline-none"
+                    value={filterWorkStatus}
+                    onChange={e => setFilterWorkStatus(e.target.value as typeof filterWorkStatus)}
+                  >
+                    <option value="todos">Todos os status</option>
+                    <option value="rascunho">Rascunho</option>
+                    <option value="emitido">Emitido</option>
+                    <option value="aguardando">Aguardando confirmação</option>
+                  </select>
+                </div>
+
+                {/* Tabela */}
+                {contractsWorkList.isLoading ? (
+                  <div className="flex items-center gap-2 text-muted-foreground py-10 justify-center">
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-muted border-t-primary" />
+                    Carregando…
+                  </div>
+                ) : contractsWorkList.isError ? (
+                  <div className="text-sm text-red-600 py-6 text-center">
+                    Erro ao carregar contratos. Verifique se a migration 111 foi executada.<br />
+                    <span className="text-xs text-muted-foreground">{String((contractsWorkList.error as Error)?.message ?? "")}</span>
+                  </div>
+                ) : (() => {
+                  const items = (contractsWorkList.data ?? []).filter(c => {
+                    if (filterWorkStatus === "rascunho"   && c.status !== "rascunho") return false;
+                    if (filterWorkStatus === "emitido"    && c.status !== "emitido") return false;
+                    if (filterWorkStatus === "aguardando" && !c.awaiting_confirmation) return false;
+                    if (filterWorkSearch) {
+                      const q = filterWorkSearch.toLowerCase();
+                      return (c.contract_number ?? "").toLowerCase().includes(q)
+                        || c.title.toLowerCase().includes(q)
+                        || (c.client_company ?? "").toLowerCase().includes(q)
+                        || (c.client_name ?? "").toLowerCase().includes(q);
+                    }
+                    return true;
+                  });
+                  if (items.length === 0) return (
+                    <p className="text-sm text-muted-foreground text-center py-10">
+                      Nenhum contrato encontrado com os filtros aplicados.
+                    </p>
+                  );
+                  return (
+                    <div className="rounded-md border overflow-auto" style={{ minHeight: "300px" }}>
+                      <table className="w-full text-sm min-w-[600px]">
+                        <thead>
+                          <tr className="bg-muted/40 border-b">
+                            <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Nº</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Cliente</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Contrato</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Status</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Início</th>
+                            <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">Ações</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {items.map(c => {
+                            const statusCfg: Record<string, { label: string; cls: string }> = {
+                              rascunho: { label: "Rascunho",  cls: "bg-slate-100 text-slate-600" },
+                              emitido:  { label: c.awaiting_confirmation ? "Aguard. confirmação" : "Emitido", cls: c.awaiting_confirmation ? "bg-amber-100 text-amber-700" : "bg-blue-100 text-blue-700" },
+                            };
+                            const { label: sLabel, cls: sCls } = statusCfg[c.status] ?? { label: c.status, cls: "bg-muted text-muted-foreground" };
+                            return (
+                              <tr key={c.id} className="border-b last:border-0 hover:bg-muted/20 transition-colors">
+                                <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground whitespace-nowrap">
+                                  {c.signed_contract_number ?? c.contract_number ?? "—"}
+                                </td>
+                                <td className="px-3 py-2.5 text-xs">
+                                  {c.client_company || c.client_name || "—"}
+                                </td>
+                                <td className="px-3 py-2.5 text-sm font-medium max-w-[220px] truncate">
+                                  {c.title}
+                                </td>
+                                <td className="px-3 py-2.5">
+                                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${sCls}`}>
+                                    {sLabel}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
+                                  {c.start_date ? format(new Date(c.start_date + "T00:00:00"), "dd/MM/yyyy", { locale: ptBR }) : "—"}
+                                </td>
+                                <td className="px-3 py-2.5">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    {/* Confirmar assinatura — owners podem confirmar sempre; outros: quatro olhos */}
+                                    {c.awaiting_confirmation && (
+                                      <Button
+                                        size="sm"
+                                        className="text-[11px] gap-1 bg-emerald-600 hover:bg-emerald-700 h-7 px-2"
+                                        disabled={isConfirmingId === c.id}
+                                        onClick={async () => {
+                                          setIsConfirmingId(c.id);
+                                          try {
+                                            const res = await confirmSig(c.id, c.client_id);
+                                            if (res.success) {
+                                              toast.success("Assinatura confirmada! Lançamentos ativados.");
+                                              contractsWorkList.refetch?.();
+                                            } else {
+                                              toast.error(res.error ?? "Erro ao confirmar assinatura.");
+                                            }
+                                          } finally {
+                                            setIsConfirmingId(null);
+                                          }
+                                        }}
+                                      >
+                                        {isConfirmingId === c.id
+                                          ? <div className="h-3 w-3 animate-spin rounded-full border border-white border-t-transparent" />
+                                          : <Check className="h-3 w-3" />}
+                                        Confirmar
+                                      </Button>
+                                    )}
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="text-[11px] gap-1 h-7 px-2"
+                                      onClick={() => navigate(`/clients/${c.client_id}?tab=contratos`)}
+                                    >
+                                      <Eye className="h-3 w-3" /> Ver
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+              </div>
+            </TabsContent>
+          )}
+        <TabsContent value="clientes">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-base">Lista de clientes</CardTitle>
@@ -1001,16 +1251,12 @@ export default function ClientsPage() {
                     <TableHead className="bg-background border-b font-bold text-foreground w-24">Código</TableHead>
                     <TableHead className="bg-background border-b font-bold text-foreground">Nome</TableHead>
                     <TableHead className="bg-background border-b font-bold text-foreground">Carteira</TableHead>
-                    <TableHead className="bg-background border-b font-bold text-foreground">Decisor</TableHead>
-                    <TableHead className="bg-background border-b font-bold text-foreground">Tel. decisor</TableHead>
                     <TableHead className="text-right bg-background border-b font-bold text-foreground">Total contratos</TableHead>
                     {profile?.role === "owner" && <TableHead className="bg-background border-b w-10" />}
                   </TableRow>
                 </TableHeader>
                   <TableBody className="bg-background">
                     {filteredClients.map((c) => {
-                      const decisor = c.decision_maker_name || c.responsible_name || "—";
-                      const decisorPhone = c.decision_maker_phone || c.responsible_phone || "—";
                       const total = contractsByClientTotals.get(c.id) ?? 0;
                       const hasSuspended = clientsWithSuspendedContracts.has(c.id);
                       const portfolio = portfolios.find(p => p.id === c.portfolio_team_id);
@@ -1036,8 +1282,6 @@ export default function ClientsPage() {
                               </Badge>
                             ) : "—"}
                           </TableCell>
-                          <TableCell className="bg-background group-hover:bg-transparent">{decisor}</TableCell>
-                          <TableCell className="bg-background group-hover:bg-transparent">{decisorPhone !== "—" ? formatPhoneBR(String(decisorPhone)) : "—"}</TableCell>
                           <TableCell className="text-right bg-background group-hover:bg-transparent">R$ {total.toFixed(2).replace(".", ",")}</TableCell>
                           {profile?.role === "owner" && (
                             <TableCell className="bg-background group-hover:bg-transparent" onClick={(e) => e.stopPropagation()}>
@@ -1061,6 +1305,8 @@ export default function ClientsPage() {
             )}
           </CardContent>
         </Card>
+        </TabsContent>
+        </Tabs>
       )}
 
       <Dialog open={!!deleteClientTarget} onOpenChange={(open) => { if (!open) setDeleteClientTarget(null); }}>
@@ -1114,16 +1360,31 @@ export default function ClientsPage() {
               {editing ? "Editar cliente" : fromLeadId ? "Finalizar Conversão" : "Novo cliente"}
             </DialogTitle>
           </DialogHeader>
+          {/* campos obrigatórios: name + document */}
+          {(() => {
+            const nameEmpty     = !form.name?.trim();
+            const documentEmpty = !(form.document ?? "").replace(/\D/g, "");
+            const isFormValid   = !nameEmpty && !documentEmpty;
+            return (
           <form onSubmit={handleSubmit} className="space-y-4">
+            {fromLeadId && (nameEmpty || documentEmpty) && (
+              <div className="flex items-start gap-2 rounded-md border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+                <span className="mt-0.5 shrink-0">⚠️</span>
+                <span>Preencha os campos obrigatórios destacados em laranja para concluir o registro.</span>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4 items-end">
               <div>
-                <Label>Nome de Exibição *</Label>
+                <Label className={nameEmpty ? "text-amber-600 dark:text-amber-400" : ""}>
+                  Nome de Exibição *{nameEmpty && <span className="ml-1 text-xs font-normal">(obrigatório)</span>}
+                </Label>
                 <p className="text-[11px] text-muted-foreground mb-1">Nome fantasia ou apelido usado para identificar o cliente no sistema.</p>
                 <Input
                   value={form.name ?? ""}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   placeholder="Ex: Acme, João Silva"
                   required
+                  className={nameEmpty ? "border-amber-400 focus-visible:ring-amber-400" : ""}
                 />
               </div>
               <div>
@@ -1136,47 +1397,94 @@ export default function ClientsPage() {
                 />
               </div>
               <div>
-                <Label>CPF / CNPJ *</Label>
+                <Label className={documentEmpty ? "text-amber-600 dark:text-amber-400" : ""}>
+                  CPF / CNPJ *{documentEmpty && <span className="ml-1 text-xs font-normal">(obrigatório)</span>}
+                </Label>
                 <p className="text-[11px] text-muted-foreground mb-1">CPF para pessoa física, CNPJ para pessoa jurídica.</p>
                 <Input
                   value={form.document ?? ""}
-                  onChange={(e) => setForm({ ...form, document: e.target.value })}
-                  placeholder="CPF ou CNPJ"
+                  onChange={(e) => setForm({ ...form, document: applyMask(e.target.value, "cpf_cnpj") })}
+                  placeholder="000.000.000-00 ou 00.000.000/0000-00"
+                  maxLength={18}
                   required
+                  className={documentEmpty ? "border-amber-400 focus-visible:ring-amber-400" : ""}
                 />
               </div>
 
-              {/* Estado civil e nacionalidade — apenas para PF (CPF, 11 dígitos) */}
+              {/* Sexo, Estado civil e nacionalidade — apenas para PF (CPF, 11 dígitos) */}
               {(form.document ?? "").replace(/\D/g, "").length <= 11 &&
                (form.document ?? "").replace(/\D/g, "").length >= 9 && (
                 <>
+                  <div>
+                    <Label>Sexo</Label>
+                    <p className="text-[11px] text-muted-foreground mb-1">Usado para gênero gramatical no contrato.</p>
+                    <Select
+                      value={(form as any).sexo ?? ""}
+                      onValueChange={(v) => setForm({ ...form, ...({ sexo: v } as any) })}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="masculino">Masculino</SelectItem>
+                        <SelectItem value="feminino">Feminino</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <div>
                     <Label>Estado Civil</Label>
                     <p className="text-[11px] text-muted-foreground mb-1">Usado na qualificação do contrato.</p>
                     <Select
                       value={(form as any).estado_civil ?? ""}
-                      onValueChange={(v) => setForm({ ...form, ...(({ estado_civil: v } as any)) })}
+                      onValueChange={(v) => setForm({ ...form, ...({ estado_civil: v } as any) })}
                     >
                       <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="solteiro">Solteiro(a)</SelectItem>
                         <SelectItem value="casado">Casado(a)</SelectItem>
-                        <SelectItem value="viuvo">Viúvo(a)</SelectItem>
                         <SelectItem value="divorciado">Divorciado(a)</SelectItem>
-                        <SelectItem value="uniao_estavel">União estável</SelectItem>
+                        <SelectItem value="viuvo">Viúvo(a)</SelectItem>
+                        <SelectItem value="uniao_estavel">União Estável</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
                     <Label>Nacionalidade</Label>
-                    <Input
+                    <NacionalidadeCombobox
                       value={(form as any).nacionalidade ?? ""}
-                      onChange={(e) => setForm({ ...form, ...({ nacionalidade: e.target.value } as any) })}
-                      placeholder="Ex: brasileiro(a)"
+                      onChange={(v) => setForm({ ...form, ...({ nacionalidade: v } as any) })}
                     />
                   </div>
                 </>
               )}
+
+              <div>
+                <Label>Inscrição Estadual (IE)</Label>
+                <div className="flex items-center gap-2 mt-1 mb-1">
+                  <Checkbox
+                    id="ie-isenta"
+                    checked={(form as any).inscricao_estadual === "ISENTO"}
+                    onCheckedChange={(checked) =>
+                      setForm({ ...form, ...({ inscricao_estadual: checked ? "ISENTO" : "" } as any) })
+                    }
+                  />
+                  <label htmlFor="ie-isenta" className="text-sm text-muted-foreground cursor-pointer select-none">
+                    Isenta
+                  </label>
+                </div>
+                <Input
+                  value={(form as any).inscricao_estadual === "ISENTO" ? "" : ((form as any).inscricao_estadual ?? "")}
+                  onChange={(e) => setForm({ ...form, ...({ inscricao_estadual: e.target.value } as any) })}
+                  placeholder="Ex: 123.456.789.000"
+                  disabled={(form as any).inscricao_estadual === "ISENTO"}
+                />
+              </div>
+              <div>
+                <Label>Inscrição Municipal (IM)</Label>
+                <Input
+                  value={(form as any).inscricao_municipal ?? ""}
+                  onChange={(e) => setForm({ ...form, ...({ inscricao_municipal: e.target.value } as any) })}
+                  placeholder="Ex: 00123456"
+                />
+              </div>
 
               <div>
                 <Label>E-mail</Label>
@@ -1191,8 +1499,9 @@ export default function ClientsPage() {
                 <Label>Telefone</Label>
                 <Input
                   value={form.phone ?? ""}
-                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                  placeholder="Telefone"
+                  onChange={(e) => setForm({ ...form, phone: applyMask(e.target.value, "phone") })}
+                  placeholder="(00) 00000-0000"
+                  maxLength={15}
                 />
               </div>
               <div>
@@ -1217,7 +1526,7 @@ export default function ClientsPage() {
                   <Input
                     value={form.address_zip ?? ""}
                     onChange={(e) => {
-                      const val = e.target.value;
+                      const val = applyMask(e.target.value, "cep");
                       setForm({ ...form, address_zip: val });
                       if (val.replace(/\D/g, "").length === 8) {
                         handleCepSearch(val);
@@ -1286,22 +1595,6 @@ export default function ClientsPage() {
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
-              <div>
-                <Label>Decisor</Label>
-                <Input
-                  value={(form.decision_maker_name as string | undefined) ?? ""}
-                  onChange={(e) => setForm({ ...form, decision_maker_name: e.target.value })}
-                  placeholder="Nome do decisor"
-                />
-              </div>
-              <div>
-                <Label>Tel. decisor</Label>
-                <Input
-                  value={(form.decision_maker_phone as string | undefined) ?? ""}
-                  onChange={(e) => setForm({ ...form, decision_maker_phone: e.target.value })}
-                  placeholder="Telefone do decisor"
-                />
               </div>
               <div>
                 <Label>Origem</Label>
@@ -1376,12 +1669,14 @@ export default function ClientsPage() {
               <Button type="button" variant="outline" onClick={() => setModalOpen(false)} disabled={submitting}>
                 Cancelar
               </Button>
-              <Button type="submit" disabled={submitting || create.isPending || update.isPending}>
+              <Button type="submit" disabled={submitting || create.isPending || update.isPending || !isFormValid}>
                 {(submitting || create.isPending || update.isPending) && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 {editing ? "Salvar" : "Cadastrar"}
               </Button>
             </DialogFooter>
           </form>
+          );
+          })()}
 
           {/* Representantes legais — obrigatório para CNPJ, opcional para CPF */}
           {editing?.id && (() => {
@@ -1391,6 +1686,11 @@ export default function ClientsPage() {
                 {!isCnpj && (
                   <p className="text-[11px] text-muted-foreground mb-3">
                     Representantes legais são opcionais para pessoas físicas (CPF).
+                  </p>
+                )}
+                {isCnpj && (
+                  <p className="text-[11px] text-muted-foreground mb-3">
+                    Para CNPJ, informe estado civil e nacionalidade em cada representante legal.
                   </p>
                 )}
                 <RepresentativesEditor
@@ -1504,6 +1804,19 @@ export default function ClientsPage() {
                 <p className="text-sm text-muted-foreground">CPF/CNPJ</p>
                 <p className="font-medium">{viewing.document ? formatCpfCnpj(viewing.document) : "—"}</p>
               </div>
+              {/* Estado civil e nacionalidade — exibir apenas para PF */}
+              {viewing.document && viewing.document.replace(/\D/g, "").length <= 11 && (
+                <>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Estado Civil</p>
+                    <p className="font-medium capitalize">{(viewing as any).estado_civil?.replace(/_/g, " ") || "—"}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Nacionalidade</p>
+                    <p className="font-medium capitalize">{(viewing as any).nacionalidade || "—"}</p>
+                  </div>
+                </>
+              )}
               <div>
                 <p className="text-sm text-muted-foreground">Código</p>
                 <p className="font-mono font-medium">{formatEntityCode("CLI", viewing.code)}</p>
@@ -1514,7 +1827,15 @@ export default function ClientsPage() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Endereço</p>
-                <p className="font-medium">{viewing.address_street || "—"}</p>
+                <p className="font-medium">
+                  {[viewing.address_street, (viewing as any).address_number].filter(Boolean).join(", ") || "—"}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Complemento / Bairro</p>
+                <p className="font-medium">
+                  {[(viewing as any).address_complement, (viewing as any).address_neighborhood].filter(Boolean).join(" — ") || "—"}
+                </p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">UF</p>
@@ -1522,7 +1843,7 @@ export default function ClientsPage() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">CEP</p>
-                <p className="font-medium">{viewing.address_zip || "—"}</p>
+                <p className="font-medium">{viewing.address_zip ? applyMask(viewing.address_zip, "cep") : "—"}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">E-mail</p>
@@ -1531,14 +1852,6 @@ export default function ClientsPage() {
               <div>
                 <p className="text-sm text-muted-foreground">Telefone</p>
                 <p className="font-medium">{viewing.phone ? formatPhoneBR(viewing.phone) : "—"}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Decisor</p>
-                <p className="font-medium">{viewing.decision_maker_name || viewing.responsible_name || "—"}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Tel. decisor</p>
-                <p className="font-medium">{viewing.decision_maker_phone ? formatPhoneBR(String(viewing.decision_maker_phone)) : (viewing.responsible_phone ? formatPhoneBR(String(viewing.responsible_phone)) : "—")}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Nicho</p>
@@ -1556,29 +1869,58 @@ export default function ClientsPage() {
                 <p className="text-sm text-muted-foreground">Data de cadastro</p>
                 <p className="font-medium">{viewing.registration_date ? format(parseISO(viewing.registration_date), "dd/MM/yyyy", { locale: ptBR }) : "—"}</p>
               </div>
+              {(viewing as any).asaas_id && (
+                <div>
+                  <p className="text-sm text-muted-foreground">ID Asaas</p>
+                  <p className="font-mono text-sm text-muted-foreground">{(viewing as any).asaas_id}</p>
+                </div>
+              )}
               <div>
                 <p className="text-sm text-muted-foreground">Receita (cadastro)</p>
-                <p className="font-medium">{viewing.revenue ? `R$ ${Number(viewing.revenue).toFixed(2).replace(".", ",")}` : "—"}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Prioridade</p>
-                <p className="font-medium">{viewing.priority || "—"}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Lead de origem</p>
-                <p className="font-medium">{viewing.lead_id || "—"}</p>
+                <p className="font-medium">{viewing.revenue ? `R$ ${Number(viewing.revenue).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}</p>
               </div>
             </div>
           </CardContent>
         </Card>
           </TabsContent>
 
-          <TabsContent value="contratos" className="space-y-6">
-            {viewingContractId ? (
-              (() => {
-                const ct = (clientContractsQuery.data ?? []).find(c => c.id === viewingContractId);
-                if (!ct) return null;
-                return (
+          {/* ── Aba Contratos — wizard unificado (contracts_v2) + legados ── */}
+          <TabsContent value="contratos">
+            <ClientContractsTab
+              clientId={viewing.id}
+              clientName={viewing.company || viewing.name || ""}
+              clientCnpj={viewing.document ?? null}
+              clientAddress={[
+                viewing.address_street,
+                (viewing as any).address_number,
+                (viewing as any).address_complement,
+                (viewing as any).address_neighborhood,
+                viewing.address_city && viewing.address_state
+                  ? `${viewing.address_city} (${viewing.address_state})`
+                  : viewing.address_city || viewing.address_state,
+              ].filter(Boolean).join(", ") || null}
+              clientAddressStreet={viewing.address_street ?? null}
+              clientAddressNumber={(viewing as any).address_number ?? null}
+              clientAddressComplement={(viewing as any).address_complement ?? null}
+              clientAddressNeighborhood={(viewing as any).address_neighborhood ?? null}
+              clientAddressCity={viewing.address_city ?? null}
+              clientAddressState={viewing.address_state ?? null}
+              organizationId={organizationId!}
+              canEdit={canEdit}
+              legacyContracts={clientContractsQuery.data ?? []}
+              onOpenLegacyContract={(contractId) => {
+                setViewingContractId(contractId);
+              }}
+            />
+          </TabsContent>
+
+          {/* ── Dialog: visualização de contrato legado ───────────────── */}
+          {viewingContractId && (() => {
+            const ct = (clientContractsQuery.data ?? []).find(c => c.id === viewingContractId);
+            if (!ct) return null;
+            return (
+              <Dialog open={!!viewingContractId} onOpenChange={(o) => { if (!o) setViewingContractId(null); }}>
+                <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto p-0">
                   <ContractDetailPage
                     contract={ct}
                     organizationId={organizationId!}
@@ -1600,7 +1942,7 @@ export default function ClientsPage() {
                         first_payment_fees: ct.first_payment_fees ? String(ct.first_payment_fees) : "",
                         first_payment_method: ct.first_payment_method ?? "pix",
                         first_payment_due_date: ct.first_payment_due_date ?? "",
-                        recurring_due_date: ct.recurring_due_date ?? "",
+                        recurring_due_date: ct.recurring_due_date ? String(parseInt(ct.recurring_due_date.split("-")[2] ?? "20", 10)) : "20",
                         recurring_value: String(ct.value ?? 0),
                         recurring_payment_method: (ct.metadata as any)?.recurring_payment_method ?? "pix",
                         notes: (ct.metadata as any)?.notes ?? "",
@@ -1612,9 +1954,18 @@ export default function ClientsPage() {
                         setup_first_due_date: (ct.metadata as any)?.setup_first_due_date as string | undefined,
                         setup_payment_method: (ct.metadata as any)?.setup_payment_method as string | undefined,
                         min_duration_months: ct.min_duration_months ?? 0,
+                        signing_representative_ids: ((ct.metadata as any)?.signing_representative_ids ?? []) as string[],
+                        evolutive_schedule: ((ct.metadata as any)?.evolutive_schedule ?? []) as EvolutiveEntry[],
+                        variable_commission_pct: (ct.metadata as any)?.variable_commission_pct ?? 0,
+                        variable_result_type: ((ct.metadata as any)?.variable_result_type ?? "contrato_individual") as VariableResultType,
                       });
                       setContractClientIdForReps(viewing?.id || "");
+                      setViewingContractId(null);
                       setContractModalOpen(true);
+                    }}
+                    onAmendment={() => {
+                      setAmendmentTargetContract(ct as ContractRow);
+                      setAmendmentModalOpen(true);
                     }}
                     onSuspend={() => {
                       setContractTargetId(ct.id);
@@ -1636,203 +1987,10 @@ export default function ClientsPage() {
                       setContractEndOpen(true);
                     }}
                   />
-                );
-              })()
-            ) : (
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-3">
-            <CardTitle className="text-base">Contratos</CardTitle>
-            <Button
-              size="sm"
-              onClick={() => {
-                setContractEditingId(null);
-                setContractForm({
-                  client_id: viewing.id,
-                  title: viewing.company || viewing.name || "Contrato",
-                  service_contracted: "",
-                  contract_type: "mensal",
-                  contract_date: format(new Date(), "yyyy-MM-dd"),
-                  duration_months: "12",
-                  first_payment_value: "",
-                  first_payment_installments: "1",
-                  first_payment_fees: "",
-                  first_payment_method: "pix",
-                  first_payment_due_date: format(new Date(), "yyyy-MM-dd"),
-                  recurring_due_date: format(new Date(), "yyyy-MM-dd"),
-                  recurring_value: "",
-                  recurring_payment_method: "pix",
-                  notes: "",
-                  services: [] as SelectedService[],
-                  setup_enabled: false,
-                  setup_value: undefined,
-                  setup_installments: undefined,
-                  setup_fees: undefined,
-                  setup_first_due_date: undefined,
-                  setup_payment_method: undefined,
-                  min_duration_months: 0,
-                });
-                setContractClientIdForReps(viewing?.id || "");
-                setContractModalOpen(true);
-              }}
-              disabled={!canCreate}
-            >
-              <Plus className="h-4 w-4 mr-1" />
-              Novo contrato
-            </Button>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Total contratos ativos</span>
-              <span className="font-semibold">{new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(activeContractsTotal)}</span>
-            </div>
-
-            {clientContractsQuery.isLoading ? (
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Carregando...
-              </div>
-            ) : (clientContractsQuery.data ?? []).length === 0 ? (
-              <p className="text-sm text-muted-foreground">Nenhum contrato.</p>
-            ) : (
-              <div className="rounded-lg border border-border overflow-hidden bg-background">
-                <Table className="border-separate border-spacing-0">
-                  <TableHeader className="sticky top-0 z-10 bg-background shadow-sm">
-                    <TableRow className="bg-background hover:bg-background">
-                      <TableHead className="bg-background border-b">Serviço</TableHead>
-                      <TableHead className="bg-background border-b">Contratação</TableHead>
-                      <TableHead className="bg-background border-b">Status</TableHead>
-                      <TableHead className="bg-background border-b text-center">Assinado</TableHead>
-                      <TableHead className="bg-background border-b text-center">Ref. Dashboard</TableHead>
-                      <TableHead className="text-right bg-background border-b">Total</TableHead>
-                      <TableHead className="text-right bg-background border-b">Ações</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody className="bg-background">
-                    {(clientContractsQuery.data ?? []).map((ct) => (
-                      <TableRow key={ct.id} className="bg-background hover:bg-muted/30 transition-colors group cursor-pointer" onClick={() => setViewingContractId(ct.id)}>
-                        <TableCell className="font-medium bg-background group-hover:bg-transparent">{ct.service_contracted || ct.title}</TableCell>
-                        <TableCell className="bg-background group-hover:bg-transparent">{ct.contract_date ? format(parseISO(ct.contract_date), "dd/MM/yyyy", { locale: ptBR }) : "—"}</TableCell>
-                        <TableCell className="bg-background group-hover:bg-transparent">
-                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full capitalize ${
-                            ct.status === "ativo" ? "bg-emerald-100 text-emerald-700" :
-                            ct.status === "suspenso" ? "bg-yellow-100 text-yellow-700" :
-                            "bg-slate-100 text-slate-600"
-                          }`}>{ct.status ?? "—"}</span>
-                        </TableCell>
-                        <TableCell className="bg-background group-hover:bg-transparent text-center">
-                          {ct.is_signed ? (
-                            <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
-                              <Check className="w-3 h-3" /> Assinado
-                            </span>
-                          ) : (
-                            <span className="text-xs text-slate-500">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="bg-background group-hover:bg-transparent text-center" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex flex-col items-center gap-1">
-                            <Switch
-                              checked={!!ct.is_dashboard_reference}
-                              onCheckedChange={(val) => setDashboardReference.mutate({ contractId: ct.id, clientId: viewing.id, value: val })}
-                              disabled={setDashboardReference.isPending}
-                            />
-                            {ct.is_dashboard_reference && (
-                              <span className="text-[9px] font-bold text-[#2D8CC7] uppercase">Ativo</span>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right bg-background group-hover:bg-transparent">{new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(contractTotalById.get(String(ct.id)) ?? ct.value ?? 0)}</TableCell>
-                        <TableCell className="text-right bg-background group-hover:bg-transparent" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex justify-end gap-1">
-                            <Button size="icon" variant="ghost" onClick={() => setViewingContractId(ct.id)} aria-label="Ver detalhes" className="bg-background hover:bg-muted">
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                            {!ct.generated_at && (
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                onClick={() => generateContract.mutate({ id: ct.id, client_id: viewing.id })}
-                                disabled={!canManageContracts || generateContract.isPending}
-                                aria-label="Gerar contrato"
-                                className="bg-background hover:bg-muted"
-                              >
-                                <FileText className="h-4 w-4" />
-                              </Button>
-                            )}
-                            {ct.generated_at && !ct.is_signed && (
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                onClick={() => signContract.mutate({ id: ct.id, client_id: viewing.id })}
-                                disabled={!canManageContracts || signContract.isPending}
-                                aria-label="Assinar contrato"
-                                className="bg-background hover:bg-muted text-emerald-600"
-                              >
-                                <Check className="h-4 w-4" />
-                              </Button>
-                            )}
-                            <Button
-                              size="icon" variant="ghost"
-                              onClick={() => {
-                                setContractEditingId(ct.id);
-                                setContractForm({
-                                  client_id: viewing.id,
-                                  title: ct.title,
-                                  service_contracted: ct.service_contracted ?? "",
-                                  contract_type: (ct.metadata as any)?.contract_type ?? "mensal",
-                                  contract_date: ct.contract_date ?? ct.start_date,
-                                  duration_months: ct.duration_months ? String(ct.duration_months) : "12",
-                                  first_payment_value: ct.first_payment_value ? String(ct.first_payment_value) : "",
-                                  first_payment_installments: ct.first_payment_installments ? String(ct.first_payment_installments) : "1",
-                                  first_payment_fees: ct.first_payment_fees ? String(ct.first_payment_fees) : "",
-                                  first_payment_method: ct.first_payment_method ?? "pix",
-                                  first_payment_due_date: ct.first_payment_due_date ?? "",
-                                  recurring_due_date: ct.recurring_due_date ?? "",
-                                  recurring_value: String(ct.value ?? 0),
-                                  recurring_payment_method: (ct.metadata as any)?.recurring_payment_method ?? "pix",
-                                  notes: (ct.metadata as any)?.notes ?? "",
-                                  services: ((ct.metadata as any)?.services ?? []) as SelectedService[],
-                                  setup_enabled: !!((ct.metadata as any)?.setup_value),
-                                  setup_value: (ct.metadata as any)?.setup_value as number | undefined,
-                                  setup_installments: (ct.metadata as any)?.setup_installments as number | undefined,
-                                  setup_fees: (ct.metadata as any)?.setup_fees as number | undefined,
-                                  setup_first_due_date: (ct.metadata as any)?.setup_first_due_date as string | undefined,
-                                  setup_payment_method: (ct.metadata as any)?.setup_payment_method as string | undefined,
-                                  min_duration_months: ct.min_duration_months ?? 0,
-                                });
-                                setContractClientIdForReps(viewing?.id || "");
-                                setContractModalOpen(true);
-                              }}
-                              disabled={!canManageContracts} aria-label="Alterar" className="bg-background hover:bg-muted"
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              size="icon" variant="ghost"
-                              className="text-destructive bg-background hover:bg-muted"
-                              onClick={async () => {
-                                requirePin(
-                                  "Excluir contrato",
-                                  "Esta ação não pode ser desfeita. Digite seu PIN para confirmar.",
-                                  async () => { await deleteContract.mutateAsync({ id: ct.id, client_id: viewing.id }); }
-                                );
-                              }}
-                              disabled={!canManageContracts || !canDelete || deleteContract.isPending}
-                              aria-label="Excluir"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-            )}
-          </TabsContent>
+                </DialogContent>
+              </Dialog>
+            );
+          })()}
 
           <TabsContent value="documentos" className="space-y-6">
         <DocumentsCard
@@ -1978,10 +2136,44 @@ export default function ClientsPage() {
                 toast.error("Informe a duração do contrato em meses.");
                 return;
               }
+              if (contractForm.contract_type === "evolutivo" && contractForm.evolutive_schedule.length === 0) {
+                toast.error("Defina ao menos uma faixa no cronograma evolutivo.");
+                return;
+              }
+              if (contractForm.contract_type === "variavel" && contractForm.variable_commission_pct <= 0) {
+                toast.error("Informe o percentual de comissão variável.");
+                return;
+              }
               const end = addMonths(new Date(contractDate), duration);
               const endDisplay = format(end, "yyyy-MM-dd");
               const installments = Math.min(12, Math.max(1, Number(contractForm.first_payment_installments || 1)));
               const fees = installments > 1 ? Math.max(0, Number(contractForm.first_payment_fees || 0)) : 0;
+
+              // Converte o dia escolhido para uma data ISO real de vencimento recorrente
+              // aplicando a regra dos 25 dias em relação ao 1º pagamento
+              const recurringDueDay = contractForm.recurring_due_date
+                ? Math.min(28, Math.max(1, parseInt(contractForm.recurring_due_date, 10)))
+                : undefined;
+              const calcRecurringDueDate = (): string | null => {
+                if (isEventual || !recurringDueDay || !contractForm.first_payment_due_date) return null;
+                const firstPay = new Date(contractForm.first_payment_due_date);
+                // Candidato: dia escolhido no mês seguinte ao 1º pagamento
+                let targetYear  = firstPay.getFullYear();
+                let targetMonth = firstPay.getMonth() + 1; // próximo mês
+                if (targetMonth > 11) { targetMonth = 0; targetYear++; }
+                const daysInTgt = new Date(targetYear, targetMonth + 1, 0).getDate();
+                const candidate = new Date(targetYear, targetMonth, Math.min(recurringDueDay, daysInTgt));
+                const diffDays  = Math.floor((candidate.getTime() - firstPay.getTime()) / 86_400_000);
+                if (diffDays < 25) {
+                  // Pula mais um mês
+                  targetMonth++;
+                  if (targetMonth > 11) { targetMonth = 0; targetYear++; }
+                  const daysInNext = new Date(targetYear, targetMonth + 1, 0).getDate();
+                  return format(new Date(targetYear, targetMonth, Math.min(recurringDueDay, daysInNext)), "yyyy-MM-dd");
+                }
+                return format(candidate, "yyyy-MM-dd");
+              };
+              const recurringDueDateISO = calcRecurringDueDate();
               const extraMeta = {
                 contract_type: contractForm.contract_type,
                 recurring_payment_method: contractForm.recurring_payment_method,
@@ -1996,8 +2188,6 @@ export default function ClientsPage() {
               const newMetadata: Record<string, unknown> = {
                 ...extraMeta,
                 services: contractForm.services.length > 0 ? contractForm.services : undefined,
-                // Snapshot dos itens do catálogo referenciados — usado por assembleContract
-                // para enriquecer {{servicos}} com modalidade, escopo e detalhes dos entregáveis
                 catalogItems: contractForm.services.length > 0
                   ? catalogServices.filter((s) =>
                       contractForm.services.some((sel) => sel.service_id === s.id)
@@ -2010,6 +2200,15 @@ export default function ClientsPage() {
                   setup_fees: contractForm.setup_fees,
                   setup_first_due_date: contractForm.setup_first_due_date,
                   setup_payment_method: contractForm.setup_payment_method,
+                } : {}),
+                // Evolutivo
+                ...(contractForm.contract_type === "evolutivo" ? {
+                  evolutive_schedule: contractForm.evolutive_schedule,
+                } : {}),
+                // Variável
+                ...(contractForm.contract_type === "variavel" ? {
+                  variable_commission_pct: contractForm.variable_commission_pct,
+                  variable_result_type: contractForm.variable_result_type,
                 } : {}),
               };
 
@@ -2032,14 +2231,16 @@ export default function ClientsPage() {
                   first_payment_fees: fees,
                   first_payment_split: false,
                   first_payment_second_due_date: null,
-                  recurring_due_date: isEventual ? null : (contractForm.recurring_due_date || null),
+                  recurring_due_date: isEventual ? null : (recurringDueDateISO || null),
                   value: isEventual ? 0 : (contractForm.recurring_value ? Number(contractForm.recurring_value) : 0),
                   min_duration_months: contractForm.min_duration_months,
                   metadata: newMetadata,
                 });
 
-                // Generate/update payments for edited monthly contracts — Task 15.2 / Req 8.7, 8.8
-                if (!isEventual && contractForm.contract_type === "mensal" && duration > 0) {
+                // Generate/update payments for edited monthly/evolutive/variable contracts — Task 15.2 / Req 8.7, 8.8
+                const isEvolutivoEdit = contractForm.contract_type === "evolutivo";
+                const isVariavelEdit  = contractForm.contract_type === "variavel";
+                if (!isEventual && (contractForm.contract_type === "mensal" || isEvolutivoEdit || isVariavelEdit) && duration > 0) {
                   const recurringValue = Number(contractForm.recurring_value || 0);
                   const dueDate = contractForm.first_payment_due_date || contractDate;
                   try {
@@ -2056,8 +2257,10 @@ export default function ClientsPage() {
                       recurringValue,
                       durationMonths: duration,
                       firstPaymentDueDate: dueDate,
+                      recurringDueDay,
                       setupInstallments: contractForm.setup_enabled ? (contractForm.setup_installments ?? 0) : 0,
                       setupParcelValue: setupParcelValue ?? 0,
+                      evolutiveSchedule: isEvolutivoEdit ? contractForm.evolutive_schedule : undefined,
                     });
 
                     for (const draft of drafts) {
@@ -2071,7 +2274,11 @@ export default function ClientsPage() {
                       if (existing && (existing as { status: string }).status !== "pago") {
                         await supabase.from("payments").update({ value: draft.value, description: draft.description }).eq("id", (existing as { id: string }).id);
                       } else if (!existing) {
-                        await supabase.from("payments").insert(draft);
+                        await supabase.from("payments").insert({
+                          ...draft,
+                          organization_id: organizationId,
+                          client_id: contractForm.client_id,
+                        });
                       }
                     }
                   } catch (payErr) {
@@ -2084,14 +2291,18 @@ export default function ClientsPage() {
                   title: contractForm.title,
                   service_contracted: contractForm.services.length > 0 ? contractForm.services[0].service_name : (contractForm.service_contracted || null),
                   contract_date: contractDate,
+                  start_date: contractDate,
+                  end_date: endDisplay,
                   duration_months: duration,
+                  contract_type: contractForm.contract_type as ContractRow["contract_type"],
+                  periodicity: isEventual ? "pagamento_unico" : "mensal",
                   first_payment_value: Number(contractForm.first_payment_value || 0),
                   first_payment_method: contractForm.first_payment_method,
                   first_payment_due_date: contractForm.first_payment_due_date || contractDate,
                   first_payment_installments: installments,
                   first_payment_fees: fees,
-                  recurring_value: isEventual ? 0 : Number(contractForm.recurring_value || 0),
-                  recurring_due_date: isEventual ? contractDate : (contractForm.recurring_due_date || contractDate),
+                  recurring_due_date: isEventual ? contractDate : (recurringDueDateISO || contractDate),
+                  value: isEventual ? 0 : Number(contractForm.recurring_value || 0),
                   metadata: newMetadata,
                 });
 
@@ -2104,8 +2315,10 @@ export default function ClientsPage() {
                     .update({ min_duration_months: contractForm.min_duration_months })
                     .eq("id", savedContractId);
 
-                  // Generate payments for new monthly contracts — Task 15.2 / Req 8.1
-                  if (!isEventual && contractForm.contract_type === "mensal" && duration > 0) {
+                  // Generate payments for new monthly/evolutive/variable contracts — Task 15.2 / Req 8.1
+                  const isEvolutivo = contractForm.contract_type === "evolutivo";
+                  const isVariavel  = contractForm.contract_type === "variavel";
+                  if (!isEventual && (contractForm.contract_type === "mensal" || isEvolutivo || isVariavel) && duration > 0) {
                     const recurringValue = Number(contractForm.recurring_value || 0);
                     const dueDate = contractForm.first_payment_due_date || contractDate;
                     try {
@@ -2115,8 +2328,10 @@ export default function ClientsPage() {
                         recurringValue,
                         durationMonths: duration,
                         firstPaymentDueDate: dueDate,
+                        recurringDueDay,
                         setupInstallments: contractForm.setup_enabled ? (contractForm.setup_installments ?? 0) : 0,
                         setupParcelValue: setupParcelValue ?? 0,
+                        evolutiveSchedule: isEvolutivo ? contractForm.evolutive_schedule : undefined,
                       });
 
                       for (const draft of drafts) {
@@ -2130,7 +2345,11 @@ export default function ClientsPage() {
                         if (existing && (existing as { status: string }).status !== "pago") {
                           await supabase.from("payments").update({ value: draft.value, description: draft.description }).eq("id", (existing as { id: string }).id);
                         } else if (!existing) {
-                          await supabase.from("payments").insert(draft);
+                          await supabase.from("payments").insert({
+                            ...draft,
+                            organization_id: organizationId,
+                            client_id: contractForm.client_id,
+                          });
                         }
                       }
                     } catch (payErr) {
@@ -2158,12 +2377,14 @@ export default function ClientsPage() {
                 <Label>Tipo de Contrato</Label>
                 <Select
                   value={contractForm.contract_type}
-                  onValueChange={(v: "mensal" | "eventual") => setContractForm({ ...contractForm, contract_type: v })}
+                  onValueChange={(v) => setContractForm({ ...contractForm, contract_type: v as typeof contractForm.contract_type })}
                   disabled={contractEditingId ? !canEdit : !canCreate}
                 >
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="mensal">Mensal</SelectItem>
+                    <SelectItem value="evolutivo">Evolutivo (crescimento programado)</SelectItem>
+                    <SelectItem value="variavel">Variável (fixo + comissão)</SelectItem>
                     <SelectItem value="eventual">Eventual</SelectItem>
                   </SelectContent>
                 </Select>
@@ -2191,7 +2412,7 @@ export default function ClientsPage() {
                   required
                 />
               </div>
-              {contractForm.contract_type === "mensal" && (
+              {contractForm.contract_type !== "eventual" && (
                 <div>
                   <Label>Duração (meses)</Label>
                   <Input
@@ -2288,10 +2509,21 @@ export default function ClientsPage() {
             )}
 
             {/* Linha 5: Campos mensais (ocultos se eventual) */}
-            {contractForm.contract_type === "mensal" && (
+            {(contractForm.contract_type === "mensal" || contractForm.contract_type === "evolutivo" || contractForm.contract_type === "variavel") && (
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <Label>Valor mensal (demais pagamentos)</Label>
+                  <Label>
+                    {contractForm.contract_type === "evolutivo"
+                      ? "Valor integral (referência)"
+                      : contractForm.contract_type === "variavel"
+                        ? "Valor fixo mensal"
+                        : "Valor mensal (demais pagamentos)"}
+                  </Label>
+                  {contractForm.contract_type === "evolutivo" && (
+                    <p className="text-[11px] text-muted-foreground mb-1">
+                      Valor cheio do contrato — usado como base para multa e rescisão.
+                    </p>
+                  )}
                   <CurrencyInput
                     value={contractForm.recurring_value}
                     onChange={(v) => setContractForm({ ...contractForm, recurring_value: v })}
@@ -2299,13 +2531,22 @@ export default function ClientsPage() {
                   />
                 </div>
                 <div>
-                  <Label>Vencimento dos demais pagamentos</Label>
+                  <Label>Dia de vencimento (demais pagamentos)</Label>
                   <Input
-                    type="date"
+                    type="number"
+                    min={1}
+                    max={28}
+                    placeholder="Ex: 20"
                     value={contractForm.recurring_due_date}
-                    onChange={(e) => setContractForm({ ...contractForm, recurring_due_date: e.target.value })}
+                    onChange={(e) => {
+                      const val = Math.min(28, Math.max(1, Number(e.target.value) || 1));
+                      setContractForm({ ...contractForm, recurring_due_date: String(val) });
+                    }}
                     disabled={contractEditingId ? !canEdit : !canCreate}
                   />
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    Dia do mês (1–28). Se ficar menos de 25 dias após o 1º pagamento, inicia no mês seguinte.
+                  </p>
                 </div>
                 <div>
                   <Label>Forma de pagamento mensal</Label>
@@ -2316,6 +2557,33 @@ export default function ClientsPage() {
                   />
                 </div>
               </div>
+            )}
+
+            {/* Cronograma evolutivo */}
+            {contractForm.contract_type === "evolutivo" && (
+              <EvolutiveScheduleSection
+                schedule={contractForm.evolutive_schedule}
+                durationMonths={Number(contractForm.duration_months) || 0}
+                onChange={(evolutive_schedule) => setContractForm(prev => ({ ...prev, evolutive_schedule }))}
+                disabled={contractEditingId ? !canEdit : !canCreate}
+              />
+            )}
+
+            {/* Configuração variável */}
+            {contractForm.contract_type === "variavel" && (
+              <VariableContractSection
+                config={{
+                  commission_pct: contractForm.variable_commission_pct,
+                  result_type: contractForm.variable_result_type,
+                  fixed_value: Number(contractForm.recurring_value || 0),
+                }}
+                onChange={(cfg: VariableConfig) => setContractForm(prev => ({
+                  ...prev,
+                  variable_commission_pct: cfg.commission_pct,
+                  variable_result_type: cfg.result_type,
+                }))}
+                disabled={contractEditingId ? !canEdit : !canCreate}
+              />
             )}
 
             {/* Setup / Taxa de Implantação — Task 15.2 */}
@@ -2377,7 +2645,7 @@ export default function ClientsPage() {
               // Conjunta → seleciona todos automaticamente
               if (singleRep) {
                 // garante seleção automática sem renderizar seletor
-                if (contractForm.signing_representative_ids[0] !== contractLegalReps[0].id) {
+                if ((contractForm.signing_representative_ids ?? [])[0] !== contractLegalReps[0].id) {
                   setTimeout(() => setContractForm(prev => ({
                     ...prev,
                     signing_representative_ids: [contractLegalReps[0].id],
@@ -2502,6 +2770,20 @@ export default function ClientsPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Modal de Aditivo — abre quando contrato is_signed=true */}
+      {amendmentTargetContract && (
+        <ContractAmendmentModal
+          open={amendmentModalOpen}
+          onClose={() => {
+            setAmendmentModalOpen(false);
+            setAmendmentTargetContract(null);
+          }}
+          contract={amendmentTargetContract}
+          organizationId={organizationId!}
+          nextAmendmentNumber={amendmentTargetNextNumber}
+        />
+      )}
 
       <Dialog open={contractEndOpen} onOpenChange={(o) => setContractEndOpen(o)}>
         <DialogContent className="max-w-lg">

@@ -1,0 +1,29 @@
+/* ============================================================
+   contract-print.css
+   Estilos do wrapper do iframe WYSIWYG do ContractViewer.
+   O conteúdo do contrato fica dentro do iframe — estilos de
+   impressão (@page, timbrado, margens) ficam no HTML do iframe.
+   ============================================================ */
+
+/* Fundo cinza ao redor do iframe (simula mesa de trabalho) */
+.contract-iframe-wrapper {
+  background: #cbd5e1;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+/* O iframe ocupa a largura A4 e altura 100% do wrapper */
+.contract-iframe {
+  border: none;
+  width: 210mm;
+  min-width: 210mm;
+  flex: 1;
+  background: white;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.15);
+}

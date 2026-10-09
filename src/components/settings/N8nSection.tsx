@@ -21,6 +21,13 @@ const FIELD_DEFS: {
   { key: "clientWebhookUrl",           label: "Webhook URL: Novo Cliente",                                                    placeholder: "https://n8n.dominio.com/webhook/clients",              section: "out"   },
   { key: "financialWebhookUrl",        label: "Webhook URL: Financeiro (Pagamentos)",                                         placeholder: "https://n8n.dominio.com/webhook/payments",             section: "out"   },
   { key: "asaasWebhookUrl",            label: "Webhook URL: Asaas (eventos de cobrança)",                                     placeholder: "https://n8n.dominio.com/webhook/asaas",                section: "out"   },
+  // Cobranças por forma de pagamento
+  { key: "pixWebhookUrl",              label: "PIX — Webhook de envio (CRM → n8n): gerar QR Code",                        placeholder: "https://n8n.dominio.com/webhook/gerar-pix",            section: "pay"   },
+  { key: "pixReturnWebhookUrl",        label: "PIX — Webhook de retorno (Asaas → n8n → CRM): confirmar pagamento",        placeholder: "https://n8n.dominio.com/webhook/retorno-pix",          section: "pay"   },
+  { key: "boletoWebhookUrl",           label: "Boleto — Webhook de envio (CRM → n8n): gerar boleto",                      placeholder: "https://n8n.dominio.com/webhook/gerar-boleto",         section: "pay"   },
+  { key: "boletoReturnWebhookUrl",     label: "Boleto — Webhook de retorno (Asaas → n8n → CRM): confirmar pagamento",     placeholder: "https://n8n.dominio.com/webhook/retorno-boleto",       section: "pay"   },
+  { key: "cartaoWebhookUrl",           label: "Cartão — Webhook de envio (CRM → n8n): gerar link de pagamento",           placeholder: "https://n8n.dominio.com/webhook/gerar-cartao",         section: "pay"   },
+  { key: "cartaoReturnWebhookUrl",     label: "Cartão — Webhook de retorno (Asaas → n8n → CRM): confirmar pagamento",     placeholder: "https://n8n.dominio.com/webhook/retorno-cartao",       section: "pay"   },
   { key: "notificationsWebhookUrl",    label: "Webhook URL: Notificações de Sistema (E-mail)",                                placeholder: "https://n8n.dominio.com/webhook/notifications",        section: "out"   },
   { key: "calendarWebhookUrl",         label: "Webhook URL: Google Calendar (Eventos)",                                       placeholder: "https://n8n.dominio.com/webhook/calendar",             section: "out"   },
   { key: "driveFolderClientWebhookUrl",   label: "Webhook URL: Pasta de Clientes",                                           placeholder: "https://n8n.dominio.com/webhook/drive-folder-client",   section: "drive" },
@@ -34,11 +41,12 @@ const FIELD_DEFS: {
   { key: "clickupMembersWebhookUrl",   label: "Webhook URL: Participantes ClickUp (convidar/remover)",                       placeholder: "https://n8n.dominio.com/webhook/clickup-members",        section: "clickup" },
   { key: "adsWebhookUrl",              label: "Webhook URL: Sync de Ads (Meta + Google)",                                     placeholder: "https://n8n.dominio.com/webhook/sync-ads",               section: "ads"     },
   { key: "clickupCommentsWebhookUrl",  label: "Webhook URL: Comentarios ClickUp (Maestr.ia → ClickUp)",                      placeholder: "https://n8n.dominio.com/webhook/clickup-comment-from-maestria", section: "clickup" },
-  { key: "c8ProvisionWebhookUrl",      label: "Webhook URL: C8 Control — Provisionar cliente (schema + ativação)",           placeholder: "https://n8n.dominio.com/webhook/c8-provision-client",       section: "c8"      },
-  { key: "c8UpdateSchemaWebhookUrl",   label: "Webhook URL: C8 Control — Atualizar schema (todos ou por cliente)",            placeholder: "https://n8n.dominio.com/webhook/c8-update-schemas",          section: "c8"      },
-  { key: "c8ClientOpsWebhookUrl",      label: "Webhook URL: C8 Control — Operações no banco do cliente (reset senha, criar usuário, teste de conexão)", placeholder: "https://n8n.dominio.com/webhook/c8-client-ops", section: "c8" },
-  { key: "c8SchemaRawUrl",             label: "URL Raw do Schema (bank_b_full_schema.sql no repositório GitHub)",          placeholder: "https://api.github.com/repos/seu-usuario/seu-repo/contents/migrations/bank_b_full_schema.sql", section: "c8" },
-  { key: "githubToken",                label: "GitHub Token (repositório privado — Personal Access Token com read:repo)", placeholder: "ghp_...",                                                                 section: "c8" },
+  // C8 Control — lidos via useN8nConfig (integration_type='n8n') em useC8PendingActivation e C8TenantDetail
+  { key: "c8ProvisionWebhookUrl",      label: "Webhook: Provisionar Cliente C8 Control",                                      placeholder: "https://n8n.dominio.com/webhook/c8-provision-client",       section: "c8" },
+  { key: "c8UpdateSchemaWebhookUrl",   label: "Webhook: Atualizar Schema (todos os clientes ou um específico)",                placeholder: "https://n8n.dominio.com/webhook/c8-update-schemas",          section: "c8" },
+  { key: "c8ClientOpsWebhookUrl",      label: "Webhook: Operações no Banco do Cliente (test, reset senha, apply schema)",     placeholder: "https://n8n.dominio.com/webhook/c8-client-ops",              section: "c8" },
+  { key: "c8SchemaRawUrl",             label: "URL Raw do Schema (bank_b_full_schema.sql — API do GitHub, não URL do browser)", placeholder: "https://api.github.com/repos/seu-usuario/seu-repo/contents/migrations/bank_b_full_schema.sql", section: "c8" },
+  { key: "githubToken",                label: "GitHub Token (repositório privado — Personal Access Token com read:repo)",      placeholder: "ghp_...",                                                    section: "c8" },
 ];
 
 const CACHE_PREFIX = "n8n_cfg_";
@@ -232,6 +240,20 @@ export function N8nSection() {
           </p>
         </div>
 
+        {/* Cobranças por forma de pagamento */}
+        <div className="space-y-4">
+          <h4 className="text-xs font-black uppercase tracking-widest text-slate-500">Cobranças — Formas de Pagamento</h4>
+          <p className="text-[10px] text-slate-400 italic">
+            Configure os webhooks para cada forma de pagamento. Uma forma só estará disponível no cadastro
+            de contratos quando <strong>ambos os webhooks</strong> (envio e retorno) estiverem preenchidos.
+            O webhook de envio chama o n8n para gerar o QR Code/boleto/link. O webhook de retorno é a URL
+            que o Asaas usa para notificar quando o pagamento for confirmado ou vencido.
+          </p>
+          {FIELD_DEFS.filter((f) => f.section === "pay").map(({ key, label, placeholder }) => (
+            <SettingsInput key={key} label={label} value={v(key)} onChange={(val) => setValue(key, val)} placeholder={placeholder} />
+          ))}
+        </div>
+
         {/* Google Drive */}
         <div className="space-y-4">
           <h4 className="text-xs font-black uppercase tracking-widest text-slate-500">Google Drive — Pastas e Documentos</h4>
@@ -329,23 +351,20 @@ export function N8nSection() {
           </div>
         </div>
 
-        {/* C8 Control */}
+        {/* Webhooks C8 Control */}
         <div className="space-y-4">
-          <h4 className="text-xs font-black uppercase tracking-widest text-slate-500">C8 Control — Webhooks e Repositório</h4>
+          <h4 className="text-xs font-black uppercase tracking-widest text-slate-500">Webhooks C8 Control</h4>
           <p className="text-[10px] text-slate-400 italic">
-            Webhooks dos workflows n8n de provisionamento e atualização de schema do C8 Control.
-            Os arquivos JSON estão em <code>n8n-workflows/</code> — importe no seu n8n e configure as URLs aqui.
+            Webhooks dos workflows n8n para provisionamento e operações no Banco B dos clientes.
+            Importe os arquivos de <code>n8n-workflows/</code> no seu n8n e configure as URLs aqui.
           </p>
-          <div className="rounded-md bg-blue-50 border border-blue-200 p-3 space-y-1">
-            <p className="text-[10px] font-bold text-blue-700 uppercase tracking-wider">Variáveis de ambiente no n8n</p>
-            <p className="text-[10px] text-blue-600">
-              Configure em Settings → Variables no painel do n8n:
-            </p>
-            <code className="block text-[10px] text-blue-700 font-mono mt-1">
-              SUPABASE_URL = URL da agência<br/>
-              SUPABASE_SERVICE_KEY = Service key da agência<br/>
-              C8_SCHEMA_RAW_URL = URL raw do schema no GitHub<br/>
-              GITHUB_TOKEN = ghp_... (token com read:repo)
+          <div className="rounded-md bg-amber-50 border border-amber-200 p-3 space-y-1">
+            <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wider">Variáveis necessárias no n8n</p>
+            <code className="block text-[10px] text-amber-700 font-mono mt-1">
+              SUPABASE_URL = URL da agência (Banco A)<br />
+              SUPABASE_SERVICE_KEY = Service Role Key do Banco A<br />
+              C8_SCHEMA_RAW_URL = URL raw do schema no GitHub<br />
+              GITHUB_TOKEN = ghp_... (read:repo)
             </code>
           </div>
           {FIELD_DEFS.filter((f) => f.section === "c8").map(({ key, label, placeholder }) => (

@@ -15,6 +15,13 @@ export interface WizardServiceDraft {
   description: string | null;
   value: number;
   is_bonus: boolean;
+  /**
+   * IDs dos entregáveis do catálogo incluídos nesta proposta.
+   * undefined = todos incluídos (padrão ao selecionar pelo catálogo).
+   * [] = nenhum incluído (closer desmarcou todos).
+   * Para itens manuais sem catalog_id, este campo é irrelevante.
+   */
+  deliverables_included?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -22,20 +29,30 @@ export interface WizardServiceDraft {
 // ---------------------------------------------------------------------------
 
 export interface WizardState {
-  // Etapa 1 — Cliente
+  // Etapa 0 — Cliente
   client: Client | null;
 
-  // Etapa 2 — Serviços
+  // Etapa 1 — Serviços
   services: WizardServiceDraft[];
   planValue: number;
 
-  // Etapa 3 — Proposta
-  title: string;
+  // Etapa 2 — Aparência (hero)
+  heroLogoUrl: string | null;
+  heroImageUrl: string | null;
+  heroVideoUrl: string | null;
+  heroTitle: string;
+  heroSubtitle: string;
   heroMessage: string;
-  closerWhatsapp: string;
+  heroWhatsappNumber: string;
+  heroWhatsappText: string;
+  heroCtaText: string;
+  heroCtaColor: string;
+
+  // Etapa 3 — Financeiro
+  title: string;
   schedule: ScheduleConfig;
 
-  // Etapa 4 — Seções variáveis
+  // Etapa 4 — Seções (variáveis por cliente + padrão da agência)
   sections: Partial<Record<SectionKey, { content: string; is_visible: boolean }>>;
 
   // Controle de navegação
@@ -47,14 +64,15 @@ export interface WizardState {
 // ---------------------------------------------------------------------------
 
 export const WIZARD_STEPS = [
-  { index: 0, label: "Cliente",   shortLabel: "Cliente"   },
-  { index: 1, label: "Serviços",  shortLabel: "Serviços"  },
-  { index: 2, label: "Proposta",  shortLabel: "Proposta"  },
-  { index: 3, label: "Seções",    shortLabel: "Seções"    },
-  { index: 4, label: "Resumo",    shortLabel: "Resumo"    },
+  { index: 0, label: "Cliente",    shortLabel: "Cliente"    },
+  { index: 1, label: "Serviços",   shortLabel: "Serviços"   },
+  { index: 2, label: "Aparência",  shortLabel: "Aparência"  },
+  { index: 3, label: "Financeiro", shortLabel: "Financeiro" },
+  { index: 4, label: "Conteúdo",   shortLabel: "Conteúdo"   },
+  { index: 5, label: "Revisão",    shortLabel: "Revisão"    },
 ] as const;
 
-export type WizardStepIndex = 0 | 1 | 2 | 3 | 4;
+export type WizardStepIndex = 0 | 1 | 2 | 3 | 4 | 5;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -62,11 +80,13 @@ export type WizardStepIndex = 0 | 1 | 2 | 3 | 4;
 
 export function defaultSchedule(): ScheduleConfig {
   return {
+    mode: "mensal",
     firstValue: 0,
     firstDate: new Date().toISOString().split("T")[0],
     dueDay: 10,
     recurrence: "mensal",
     installments: 12,
+    paymentMethod: "pix",
   };
 }
 

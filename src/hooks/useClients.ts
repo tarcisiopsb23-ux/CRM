@@ -87,7 +87,7 @@ export function useClients(organizationId: string | undefined) {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["clients", organizationId] });
       if (organizationId) {
-        dispatchWebhook(organizationId, "client.created", data);
+        // dispatchWebhook desativado — webhook genérico não está em uso
         void fireNewClientWebhook(organizationId, data);
         void fireN8nWebhook(organizationId, "clients", "create", data as unknown as Record<string, unknown>);
       }
@@ -105,7 +105,7 @@ export function useClients(organizationId: string | undefined) {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["clients", organizationId] });
       if (organizationId) {
-        dispatchWebhook(organizationId, "client.updated", data);
+        // dispatchWebhook desativado — webhook genérico não está em uso
         void fireN8nWebhook(organizationId, "clients", "update", data as unknown as Record<string, unknown>);
       }
     },
@@ -133,7 +133,7 @@ export function useClients(organizationId: string | undefined) {
     onSuccess: async (_data, id) => {
       await qc.invalidateQueries({ queryKey: ["clients", organizationId] });
       qc.invalidateQueries({ queryKey: ["payments", organizationId] });
-      if (organizationId) dispatchWebhook(organizationId, "client.deactivated", { id });
+      // dispatchWebhook desativado — webhook genérico não está em uso
     },
     onError: (err) => console.error("[useClients] deactivate error:", err),
   });
@@ -163,7 +163,7 @@ export function useClients(organizationId: string | undefined) {
     onSuccess: (_data, id) => {
       qc.invalidateQueries({ queryKey: ["clients", organizationId] });
       qc.invalidateQueries({ queryKey: ["payments", organizationId] });
-      if (organizationId) dispatchWebhook(organizationId, "client.deactivated", { id });
+      // dispatchWebhook desativado — webhook genérico não está em uso
     },
     onError: (err) => console.error("[useClients] hardDelete error:", err),
   });

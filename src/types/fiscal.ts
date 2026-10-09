@@ -39,6 +39,7 @@ export interface Invoice {
   created_at: string;
   updated_at: string;
   due_date: string | null; // Data de vencimento do pagamento vinculado (DATE)
+  observacao: string | null;
 }
 
 /**
@@ -96,6 +97,7 @@ export interface EmitirNFSePayload {
     aliquotaIss: number;
   };
   competencia: string; // YYYY-MM
+  observacao?: string;
 }
 
 export interface NotaasEmissaoResponse {
@@ -116,6 +118,7 @@ export interface InvoiceEmitFormData {
   descricao_servico: string;
   competencia: string; // YYYY-MM
   aliquota_iss: number;
+  observacao?: string;
 }
 
 export interface InvoiceFilters {

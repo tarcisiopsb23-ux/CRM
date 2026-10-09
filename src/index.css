@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap');
+﻿@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap');
 @import url("https://fonts.googleapis.com/css2?family=Inter&display=swap");
 @import url("https://fonts.googleapis.com/css2?family=Lora&display=swap");
 
@@ -149,6 +149,27 @@
     background: transparent;
   }
   .kanban-scroll-x::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  /* Tabelas com scroll horizontal fixo na viewport */
+  .table-scroll-container {
+    overflow-x: auto;
+    overflow-y: auto;
+    max-height: calc(100vh - 320px);
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  .table-scroll-container::-webkit-scrollbar {
+    height: 8px;
+    width: 6px;
+  }
+  .table-scroll-container::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .table-scroll-container::-webkit-scrollbar-thumb {
     background-color: hsl(var(--border));
     border-radius: 9999px;
     border: 2px solid transparent;
@@ -413,3 +434,127 @@
   scrollbar-width: thin;
   scrollbar-color: hsl(var(--border)) hsl(var(--muted));
 }
+
+/* ── Editor de contratos e alíneas (TipTap) ──────────────────────────────────
+   Espelha exatamente o contractCss do ContractViewer para que o editor
+   mostre o mesmo espaçamento que aparece no preview e na impressão.
+   ─────────────────────────────────────────────────────────────────────────── */
+.contract-editor {
+  font-family: "Calibri", Calibri, sans-serif;
+  font-size: 12pt;
+  line-height: 1.6;
+  color: #000;
+}
+
+/* Parágrafos — mesma margem do contractCss */
+.contract-editor p {
+  margin: 3pt 0;
+  text-align: justify;
+}
+
+/* Parágrafo vazio (Enter) — garante altura visível */
+.contract-editor p:empty,
+.contract-editor p:has(> br:only-child) {
+  min-height: 1.4em;
+  display: block;
+}
+
+/* Títulos */
+.contract-editor h1 {
+  font-size: 14pt;
+  font-weight: bold;
+  text-align: center;
+  text-transform: uppercase;
+  margin: 0 0 16pt;
+  letter-spacing: 0.5pt;
+  border: none;
+}
+
+.contract-editor h2 {
+  font-size: 12pt;
+  font-weight: bold;
+  text-transform: uppercase;
+  border-bottom: 1px solid #888;
+  padding-bottom: 2pt;
+  margin: 8pt 0 4pt;
+}
+
+/* Listas — mesma margem do contractCss */
+.contract-editor ul {
+  list-style-type: disc;
+  margin: 5pt 0 5pt 22pt;
+  padding: 0;
+}
+
+.contract-editor ol {
+  list-style-type: decimal;
+  margin: 5pt 0 5pt 22pt;
+  padding: 0;
+}
+
+.contract-editor li {
+  margin: 2pt 0;
+  display: list-item;
+  text-align: justify;
+}
+
+/* Aninhamento nível 2 */
+.contract-editor ul ul,
+.contract-editor ol ul {
+  list-style-type: circle;
+  margin-left: 22pt;
+}
+
+.contract-editor ul ol,
+.contract-editor ol ol {
+  list-style-type: lower-alpha;
+  margin-left: 22pt;
+}
+
+/* Aninhamento nível 3 */
+.contract-editor ul ul ul { list-style-type: square; }
+.contract-editor ol ol ol { list-style-type: lower-roman; }
+
+/* Texto */
+.contract-editor strong { font-weight: bold; }
+.contract-editor em     { font-style: italic; }
+.contract-editor u      { text-decoration: underline; }
+
+/* Cursor e foco */
+.contract-editor:focus-visible { outline: none; }
+
+/* Placeholder do TipTap */
+.contract-editor p.is-empty::before {
+  content: attr(data-placeholder);
+  color: #aaa;
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+/* ── Marcador de letra a), b), c)... no editor TipTap ───────────────────────── */
+.contract-editor p[data-alpha-list]::before {
+  content: attr(data-alpha-list) ") ";
+  font-weight: normal;
+  /* O marcador recua junto com o parágrafo via text-indent negativo */
+  margin-left: -1.5em;
+  display: inline-block;
+  width: 1.5em;
+}
+
+/* Bloco inteiro recuado — texto alinhado com a letra */
+.contract-editor p[data-alpha-list] {
+  padding-left: 2em;
+}
+
+/* ── Hierarquia de nós (migration 00216) ────────────────────────────────────── */
+.contract-editor .contract-node       { display: block; }
+.contract-editor .clause-node-row     { display: flex; gap: 6pt; align-items: baseline; }
+.contract-editor .clause-marker       { flex-shrink: 0; font-weight: normal; min-width: 2em; }
+.contract-editor .clause-node-content { flex: 1; }
+.contract-editor .clause-node-content p { margin: 5pt 0; text-align: justify; }
+.contract-editor .clause-children     { margin-left: 18pt; }
+.contract-editor .clause-depth-0      { margin-bottom: 4pt; }
+.contract-editor .clause-depth-1      { margin-bottom: 3pt; }
+.contract-editor .clause-depth-2      { margin-bottom: 2pt; }
+.contract-editor .clause-depth-3      { margin-bottom: 2pt; }

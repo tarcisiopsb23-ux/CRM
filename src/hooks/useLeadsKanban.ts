@@ -23,6 +23,7 @@ export interface CreateLeadRow {
   name?: string | null;
   email?: string | null;
   phone?: string | null;
+  cidade?: string | null;
   nicho?: string | null;
   source?: string | null;
   value?: number | null;
@@ -103,7 +104,8 @@ export function useLeadsKanban(
       })) as Lead[];
 
       if (includeConverted) {
-        setLeads(mappedRaw);
+        // Exclui leads ainda na antecâmara do formulário mesmo nos relatórios
+        setLeads(mappedRaw.filter((l) => l.stage_id !== "formulario"));
       } else {
         // preserve old behaviour: filter out leads that were converted to
         // clients or marked with metadata.converted_to_client
@@ -120,6 +122,8 @@ export function useLeadsKanban(
         const filtered = mappedRaw.filter((l) => {
           const meta = (l.metadata ?? {}) as Record<string, unknown>;
           return (
+            // Exclui leads ainda na antecâmara do formulário (aguardando triagem)
+            l.stage_id !== "formulario" &&
             meta.converted_to_client !== true &&
             !linkedLeadIds.has(String(l.id))
           );
@@ -190,6 +194,7 @@ export function useLeadsKanban(
     async (input: CreateLeadInput) => {
       if (!organizationId) throw new Error("Sem organização");
       const etapa = "leads_recebidos" as const;
+      // Keep cidade in metadata for backwards compatibility with existing queries
       const metadata = input.cidade ? { cidade: input.cidade } : undefined;
       const { data, error: insertError } = await supabase
         .from("leads")
@@ -197,6 +202,7 @@ export function useLeadsKanban(
           organization_id: organizationId,
           name: input.empresa,
           company: input.empresa,
+          cidade: input.cidade ?? null,
           nicho: input.nicho ?? null,
           email: input.email ?? null,
           phone: input.telefone ?? null,
@@ -251,12 +257,14 @@ export function useLeadsKanban(
           profileNameToId && input.responsavel?.trim()
             ? profileNameToId(input.responsavel)
             : null;
+        // Keep cidade in metadata for backwards compatibility
         const metadata = input.cidade ? { cidade: input.cidade } : undefined;
         try {
           const { data: insertedLead, error: insertError } = await supabase.from("leads").insert({
             organization_id: organizationId,
             name: input.empresa,
             company: input.empresa,
+            cidade: input.cidade ?? null,
             nicho: input.nicho ?? null,
             email: input.email ?? null,
             phone: input.telefone ?? null,
@@ -357,6 +365,7 @@ export function useLeadsKanban(
               company,
               email: r.email ?? null,
               phone: r.phone ?? null,
+              cidade: r.cidade ?? listaCidade ?? null,
               nicho: r.nicho ?? listaNicho ?? null,
               source: r.source ?? null,
               value: r.value ?? 0,
@@ -416,6 +425,7 @@ export function useLeadsKanban(
       const payload: Record<string, unknown> = {
         ...(input.name !== undefined && { name: input.name }),
         ...(input.company !== undefined && { company: input.company }),
+        ...(input.cidade !== undefined && { cidade: input.cidade }),
         ...(input.email !== undefined && { email: input.email }),
         ...(input.phone !== undefined && { phone: input.phone }),
         ...(input.nicho !== undefined && { nicho: input.nicho }),

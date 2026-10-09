@@ -77,6 +77,11 @@ CREATE INDEX IF NOT EXISTS idx_proposal_templates_org
   ON public.proposal_templates(organization_id);
 
 -- Schema migrations version
+CREATE TABLE IF NOT EXISTS public.schema_migrations (
+  version    TEXT PRIMARY KEY,
+  applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 INSERT INTO public.schema_migrations (version)
 VALUES ('proposal_templates_v1')
 ON CONFLICT (version) DO NOTHING;

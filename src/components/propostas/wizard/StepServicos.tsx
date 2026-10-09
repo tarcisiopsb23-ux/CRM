@@ -1,91 +1,164 @@
 // src/components/propostas/wizard/StepServicos.tsx
+// Step 1 do wizard — seleção de entregáveis.
+// O closer seleciona quais serviços e quais entregáveis de cada serviço
+// fazem parte desta proposta. Preço/bônus são definidos no Financeiro.
+
 import { useState } from "react";
-import { Plus, Trash2, Package, ChevronDown, ChevronRight, Check } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import {
+  Package, ChevronDown, ChevronRight, Check, X,
+  ChevronUp, RefreshCw,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useServiceCatalog } from "@/hooks/useServiceCatalog";
+import type { ServiceCatalogItem, ServiceDeliverable } from "@/types/contracts";
 import type { WizardServiceDraft } from "./wizardTypes";
+
+// ─── Helpers de tipo de entrega ──────────────────────────────────────────────
+const DELIVERY_TYPE_LABEL: Record<string, string> = {
+  recorrente: "Recorrente",
+  unico:      "Único",
+  pontual:    "Pontual",
+};
+
+const DELIVERY_TYPE_COLOR: Record<string, string> = {
+  recorrente: "bg-blue-50 text-blue-700 border-blue-200",
+  unico:      "bg-purple-50 text-purple-700 border-purple-200",
+  pontual:    "bg-amber-50 text-amber-700 border-amber-200",
+};
+
+// Formata o texto descritivo de um entregável
+function formatDeliverable(d: ServiceDeliverable): string {
+  if (d.output_format === "texto" && d.text_value) return d.text_value;
+  if (d.output_format === "numero" && d.unit) return `Por ${d.unit}`;
+  return "";
+}
 
 interface Props {
   organizationId: string;
   services: WizardServiceDraft[];
-  planValue: number;
   onServicesChange: (services: WizardServiceDraft[]) => void;
-  onPlanValueChange: (value: number) => void;
 }
 
-const fmt = (v: number) =>
-  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
+export function StepServicos({ organizationId, services, onServicesChange }: Props) {
+  const { services: catalog, servicesByCategory, isLoading } =
+    useServiceCatalog(organizationId);
 
-function newManual(): WizardServiceDraft {
-  return { name: "", description: null, value: 0, is_bonus: false };
-}
+  // Categorias expandidas no catálogo (abertas por padrão)
+  const [expandedCategories, setExpandedCategories] =
+    useState<Record<string, boolean>>({});
 
-export function StepServicos({
-  organizationId,
-  services,
-  planValue,
-  onServicesChange,
-  onPlanValueChange,
-}: Props) {
-  const { services: catalog, servicesByCategory, isLoading } = useServiceCatalog(organizationId);
-  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
+  // Serviços com painel de entregáveis aberto
+  const [expandedDeliverables, setExpandedDeliverables] =
+    useState<Record<string, boolean>>({});
 
   const selectedIds = new Set(services.map((s) => s.catalog_id).filter(Boolean));
-  const totalIndividual = services.filter((s) => !s.is_bonus).reduce((s, i) => s + i.value, 0);
-  const savings = totalIndividual > 0 && planValue > 0 ? totalIndividual - planValue : 0;
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
 
   function toggleCategory(cat: string) {
     setExpandedCategories((prev) => ({ ...prev, [cat]: !prev[cat] }));
   }
 
+  function toggleDeliverablesPanel(catalogId: string) {
+    setExpandedDeliverables((prev) => ({ ...prev, [catalogId]: !prev[catalogId] }));
+  }
+
+  /** Retorna os IDs dos entregáveis incluídos para um serviço do draft */
+  function getIncluded(draft: WizardServiceDraft, catalogItem: ServiceCatalogItem): Set<string> {
+    // undefined = todos incluídos (padrão)
+    if (draft.deliverables_included === undefined) {
+      return new Set(catalogItem.deliverables.map((d) => d.id));
+    }
+    return new Set(draft.deliverables_included);
+  }
+
   function toggleCatalogItem(catalogId: string) {
     if (selectedIds.has(catalogId)) {
+      // Desseleciona: remove do draft e fecha painel
       onServicesChange(services.filter((s) => s.catalog_id !== catalogId));
+      setExpandedDeliverables((prev) => ({ ...prev, [catalogId]: false }));
     } else {
       const svc = catalog.find((s) => s.id === catalogId);
       if (!svc) return;
       onServicesChange([
         ...services,
         {
-          catalog_id: svc.id,
-          name: svc.name,
-          description: svc.description_text ?? null,
-          value: 0,
-          is_bonus: false,
+          catalog_id:            svc.id,
+          name:                  svc.name,
+          description:           svc.description_text ?? null,
+          value:                 0,
+          is_bonus:              false,
+          // undefined = todos os entregáveis incluídos por padrão
+          deliverables_included: undefined,
         },
       ]);
+      // Abre o painel de entregáveis automaticamente se houver algum
+      if (svc.deliverables.length > 0) {
+        setExpandedDeliverables((prev) => ({ ...prev, [catalogId]: true }));
+      }
     }
   }
 
-  function updateService(idx: number, patch: Partial<WizardServiceDraft>) {
-    onServicesChange(services.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
+  /** Toggle de um entregável individual dentro de um serviço selecionado */
+  function toggleDeliverable(
+    catalogId: string,
+    deliverableId: string,
+    allDeliverableIds: string[],
+  ) {
+    onServicesChange(
+      services.map((s) => {
+        if (s.catalog_id !== catalogId) return s;
+        // Resolve o conjunto atual de incluídos
+        const current = s.deliverables_included === undefined
+          ? new Set(allDeliverableIds)
+          : new Set(s.deliverables_included);
+
+        if (current.has(deliverableId)) {
+          current.delete(deliverableId);
+        } else {
+          current.add(deliverableId);
+        }
+        return { ...s, deliverables_included: Array.from(current) };
+      }),
+    );
   }
 
-  function removeService(idx: number) {
-    onServicesChange(services.filter((_, i) => i !== idx));
+  /** Marca/desmarca todos os entregáveis de um serviço de uma vez */
+  function toggleAllDeliverables(catalogId: string, allDeliverableIds: string[], includeAll: boolean) {
+    onServicesChange(
+      services.map((s) =>
+        s.catalog_id !== catalogId
+          ? s
+          : { ...s, deliverables_included: includeAll ? undefined : [] },
+      ),
+    );
   }
 
-  function addManual() {
-    onServicesChange([...services, newManual()]);
+  function removeService(catalogId: string | undefined, idx: number) {
+    if (catalogId) {
+      onServicesChange(services.filter((s) => s.catalog_id !== catalogId));
+      setExpandedDeliverables((prev) => ({ ...prev, [catalogId]: false }));
+    } else {
+      onServicesChange(services.filter((_, i) => i !== idx));
+    }
   }
 
   const categories = Object.keys(servicesByCategory).sort();
+
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-lg font-semibold">Quais serviços fazem parte desta proposta?</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Selecione do catálogo e defina o valor de cada um. Você também pode adicionar itens manuais.
+          Selecione os serviços e defina quais entregáveis de cada um serão incluídos.
+          Preços e condições são definidos na etapa <strong>Financeiro</strong>.
         </p>
       </div>
 
-      {/* Catálogo */}
+      {/* ── Catálogo ── */}
       {!isLoading && catalog.length > 0 && (
         <div className="rounded-lg border overflow-hidden">
           <div className="px-4 py-2 bg-muted/40 border-b flex items-center justify-between">
@@ -109,19 +182,18 @@ export function StepServicos({
             <div className="divide-y">
               {categories.map((cat) => {
                 const items = servicesByCategory[cat];
-                const isOpen = expandedCategories[cat] !== false; // aberto por padrão
+                const isOpen = expandedCategories[cat] !== false;
                 return (
                   <div key={cat}>
+                    {/* Cabeçalho da categoria */}
                     <button
                       type="button"
                       onClick={() => toggleCategory(cat)}
                       className="w-full flex items-center gap-2 px-4 py-2.5 text-sm font-medium hover:bg-muted/30 transition-colors text-left"
                     >
-                      {isOpen ? (
-                        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                      ) : (
-                        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                      )}
+                      {isOpen
+                        ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                        : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
                       {cat}
                       <span className="text-xs text-muted-foreground ml-auto">
                         {items.length} serviço{items.length !== 1 ? "s" : ""}
@@ -129,38 +201,156 @@ export function StepServicos({
                     </button>
 
                     {isOpen && (
-                      <div className="divide-y border-t bg-background">
+                      <div className="border-t bg-background">
                         {items.map((svc) => {
                           const sel = selectedIds.has(svc.id);
+                          const draft = services.find((s) => s.catalog_id === svc.id);
+                          const hasDeliverables = svc.deliverables.length > 0;
+                          const delivPanelOpen = !!expandedDeliverables[svc.id];
+                          const allIds = svc.deliverables.map((d) => d.id);
+                          const included = draft ? getIncluded(draft, svc) : new Set<string>();
+                          const includedCount = draft ? included.size : 0;
+                          const allIncluded = includedCount === svc.deliverables.length;
+
                           return (
-                            <button
-                              key={svc.id}
-                              type="button"
-                              onClick={() => toggleCatalogItem(svc.id)}
-                              className={cn(
-                                "w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors",
-                                sel ? "bg-primary/5 hover:bg-primary/10" : "hover:bg-muted/20"
-                              )}
-                            >
-                              <div
-                                className={cn(
-                                  "w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-all",
-                                  sel
-                                    ? "bg-primary border-primary"
-                                    : "border-muted-foreground/40"
+                            <div key={svc.id} className={cn("border-b last:border-0", sel && "bg-primary/5")}>
+                              {/* Linha do serviço */}
+                              <div className="flex items-center gap-3 px-4 py-2.5">
+                                {/* Checkbox */}
+                                <button
+                                  type="button"
+                                  onClick={() => toggleCatalogItem(svc.id)}
+                                  className="shrink-0"
+                                >
+                                  <div className={cn(
+                                    "w-4 h-4 rounded border-2 flex items-center justify-center transition-all",
+                                    sel ? "bg-primary border-primary" : "border-muted-foreground/40 hover:border-primary/60"
+                                  )}>
+                                    {sel && <Check className="h-2.5 w-2.5 text-primary-foreground" />}
+                                  </div>
+                                </button>
+
+                                {/* Nome + modalidade */}
+                                <button
+                                  type="button"
+                                  onClick={() => toggleCatalogItem(svc.id)}
+                                  className="flex-1 text-left min-w-0"
+                                >
+                                  <span className="text-sm font-medium">{svc.name}</span>
+                                  {svc.modality && (
+                                    <span className="ml-2 text-xs text-muted-foreground">
+                                      · {svc.modality}
+                                    </span>
+                                  )}
+                                </button>
+
+                                {/* Badge de entregáveis + botão expandir */}
+                                {sel && hasDeliverables && (
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleDeliverablesPanel(svc.id)}
+                                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                                  >
+                                    <span className={cn(
+                                      "font-medium tabular-nums",
+                                      includedCount < svc.deliverables.length && "text-amber-600"
+                                    )}>
+                                      {includedCount}/{svc.deliverables.length} entregáveis
+                                    </span>
+                                    {delivPanelOpen
+                                      ? <ChevronUp className="h-3.5 w-3.5" />
+                                      : <ChevronDown className="h-3.5 w-3.5" />}
+                                  </button>
                                 )}
-                              >
-                                {sel && <Check className="h-2.5 w-2.5 text-primary-foreground" />}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <span className="text-sm font-medium">{svc.name}</span>
-                                {svc.modality && (
-                                  <span className="ml-2 text-xs text-muted-foreground">
-                                    · {svc.modality}
+
+                                {/* Indicador quando não selecionado mas tem entregáveis */}
+                                {!sel && hasDeliverables && (
+                                  <span className="text-[11px] text-muted-foreground/60 shrink-0 hidden sm:block">
+                                    {svc.deliverables.length} entregáveis
                                   </span>
                                 )}
                               </div>
-                            </button>
+
+                              {/* Painel de entregáveis — só quando selecionado e expandido */}
+                              {sel && hasDeliverables && delivPanelOpen && draft && (
+                                <div className="px-4 pb-3 pt-1 border-t bg-muted/20">
+                                  {/* Cabeçalho do painel */}
+                                  <div className="flex items-center justify-between mb-2">
+                                    <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+                                      Entregáveis incluídos
+                                    </p>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        toggleAllDeliverables(svc.id, allIds, !allIncluded)
+                                      }
+                                      className="flex items-center gap-1 text-[11px] text-primary hover:underline"
+                                    >
+                                      <RefreshCw className="h-3 w-3" />
+                                      {allIncluded ? "Desmarcar todos" : "Marcar todos"}
+                                    </button>
+                                  </div>
+
+                                  {/* Lista de entregáveis */}
+                                  <div className="space-y-1">
+                                    {svc.deliverables.map((d) => {
+                                      const isIncluded = included.has(d.id);
+                                      const desc = formatDeliverable(d);
+                                      const typeLabel = DELIVERY_TYPE_LABEL[d.delivery_type] ?? d.delivery_type;
+                                      const typeColor = DELIVERY_TYPE_COLOR[d.delivery_type] ?? "bg-gray-50 text-gray-600 border-gray-200";
+
+                                      return (
+                                        <button
+                                          key={d.id}
+                                          type="button"
+                                          onClick={() =>
+                                            toggleDeliverable(svc.id, d.id, allIds)
+                                          }
+                                          className={cn(
+                                            "w-full flex items-start gap-2.5 px-3 py-2 rounded-lg border text-left transition-all",
+                                            isIncluded
+                                              ? "bg-white border-primary/20 hover:border-primary/40"
+                                              : "bg-transparent border-dashed border-muted-foreground/20 opacity-50 hover:opacity-70"
+                                          )}
+                                        >
+                                          {/* Checkbox mini */}
+                                          <div className={cn(
+                                            "w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 mt-0.5 transition-all",
+                                            isIncluded
+                                              ? "bg-primary border-primary"
+                                              : "border-muted-foreground/30"
+                                          )}>
+                                            {isIncluded && (
+                                              <Check className="h-2.5 w-2.5 text-primary-foreground" />
+                                            )}
+                                          </div>
+
+                                          {/* Conteúdo */}
+                                          <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                              <span className="text-xs font-medium leading-tight">
+                                                {d.name}
+                                              </span>
+                                              <span className={cn(
+                                                "text-[10px] font-semibold px-1.5 py-0.5 rounded border",
+                                                typeColor
+                                              )}>
+                                                {typeLabel}
+                                              </span>
+                                            </div>
+                                            {desc && (
+                                              <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
+                                                {desc}
+                                              </p>
+                                            )}
+                                          </div>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                           );
                         })}
                       </div>
@@ -181,116 +371,52 @@ export function StepServicos({
         </div>
       )}
 
-      {/* Itens selecionados + valores inline */}
+      {/* ── Resumo dos selecionados ── */}
       {services.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Itens da proposta — defina o valor de cada um
+            Selecionados ({services.length})
           </p>
+          <div className="rounded-lg border divide-y overflow-hidden">
+            {services.map((svc, idx) => {
+              const catalogItem = catalog.find((c) => c.id === svc.catalog_id);
+              const hasDeliverables = catalogItem && catalogItem.deliverables.length > 0;
+              const included = catalogItem
+                ? getIncluded(svc, catalogItem)
+                : new Set<string>();
+              const totalDelivs = catalogItem?.deliverables.length ?? 0;
+              const allIncl = included.size === totalDelivs;
 
-          {services.map((svc, idx) => (
-            <div
-              key={`${svc.catalog_id ?? "manual"}-${idx}`}
-              className="flex gap-2 items-start p-3 rounded-lg border bg-muted/10"
-            >
-              <div className="flex-1 grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto_auto_auto] gap-2 items-end">
-                <div className="space-y-1">
-                  <Label className="text-xs">Nome *</Label>
-                  <Input
-                    maxLength={120}
-                    placeholder="Nome do serviço"
-                    value={svc.name}
-                    onChange={(e) => updateService(idx, { name: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Descrição</Label>
-                  <Input
-                    maxLength={500}
-                    placeholder="Opcional"
-                    value={svc.description ?? ""}
-                    onChange={(e) =>
-                      updateService(idx, { description: e.target.value || null })
-                    }
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Valor (R$)</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    className="w-28"
-                    placeholder="0,00"
-                    value={svc.value || ""}
-                    onChange={(e) =>
-                      updateService(idx, {
-                        value: Math.min(999999.99, Math.max(0, parseFloat(e.target.value) || 0)),
-                      })
-                    }
-                  />
-                </div>
-                <div className="flex items-center gap-1.5 pb-1">
-                  <Switch
-                    checked={svc.is_bonus}
-                    onCheckedChange={(v) => updateService(idx, { is_bonus: v })}
-                    id={`bonus-wiz-${idx}`}
-                  />
-                  <Label htmlFor={`bonus-wiz-${idx}`} className="text-xs cursor-pointer">
-                    🎁 Bônus
-                  </Label>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-destructive hover:bg-destructive/10 self-end"
-                  onClick={() => removeService(idx)}
+              return (
+                <div
+                  key={`${svc.catalog_id ?? "manual"}-${idx}`}
+                  className="flex items-center gap-3 px-4 py-2.5 bg-background"
                 >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Botão manual */}
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={addManual}
-        className="border-dashed gap-2 w-full sm:w-auto"
-      >
-        <Plus className="h-4 w-4" /> Adicionar item manualmente
-      </Button>
-
-      {/* Resumo de valores */}
-      {services.length > 0 && (
-        <div className="rounded-lg border p-4 space-y-3 bg-muted/20">
-          <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">Total individual</span>
-            <span className="font-semibold">{fmt(totalIndividual)}</span>
+                  <div className="w-2 h-2 rounded-full shrink-0 bg-primary/60" />
+                  <span className="flex-1 text-sm font-medium truncate">{svc.name}</span>
+                  {hasDeliverables && (
+                    <span className={cn(
+                      "text-xs tabular-nums shrink-0",
+                      !allIncl ? "text-amber-600 font-medium" : "text-muted-foreground"
+                    )}>
+                      {included.size}/{totalDelivs} entregáveis
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => removeService(svc.catalog_id, idx)}
+                    className="shrink-0 text-muted-foreground hover:text-destructive transition-colors"
+                    title="Remover"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              );
+            })}
           </div>
-          <div className="flex items-center gap-3">
-            <Label className="text-sm whitespace-nowrap shrink-0">Valor do plano (R$)</Label>
-            <Input
-              type="number"
-              min={0}
-              step={0.01}
-              className="w-36"
-              placeholder="0,00"
-              value={planValue || ""}
-              onChange={(e) => onPlanValueChange(parseFloat(e.target.value) || 0)}
-            />
-          </div>
-          {savings > 0 && (
-            <div className="flex justify-between text-sm text-emerald-600 dark:text-emerald-400">
-              <span>Economia para o cliente</span>
-              <span className="font-bold">
-                {fmt(savings)} ({((savings / totalIndividual) * 100).toFixed(0)}%)
-              </span>
-            </div>
-          )}
+          <p className="text-xs text-muted-foreground">
+            Valores, bônus e condições de pagamento são definidos na próxima etapa.
+          </p>
         </div>
       )}
     </div>

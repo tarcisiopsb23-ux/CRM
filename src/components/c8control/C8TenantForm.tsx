@@ -73,11 +73,31 @@ export function C8TenantForm({
   const [contractStart, setContractStart] = useState(editingTenant?.contract_start ?? "");
   const [contractEnd, setContractEnd] = useState(editingTenant?.contract_end ?? "");
   const [primaryUserEmail, setPrimaryUserEmail] = useState(editingTenant?.primary_user_email ?? "");
+  const [primaryEmailFromClient, setPrimaryEmailFromClient] = useState(false);
   const [notes, setNotes] = useState(editingTenant?.notes ?? "");
   const [sendCredentials, setSendCredentials] = useState(!isEditing);
   const [maxUsersError, setMaxUsersError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [contractDialogOpen, setContractDialogOpen] = useState(false);
+
+  // ── Auto-preenche email do usuário principal a partir do cadastro do cliente ──
+  useEffect(() => {
+    if (isEditing) return; // na edição, não sobrescrever o que já está salvo
+    if (!clientId) {
+      if (primaryEmailFromClient) {
+        setPrimaryUserEmail("");
+        setPrimaryEmailFromClient(false);
+      }
+      return;
+    }
+    const client = (allClients ?? []).find((c) => c.id === clientId);
+    const clientEmail = client?.email ?? "";
+    if (clientEmail) {
+      setPrimaryUserEmail(clientEmail);
+      setPrimaryEmailFromClient(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId, allClients]);
 
   // ── When plan selected, auto-fill fields and compute contract_end ──────────
   const handlePlanSelect = (planId: string) => {
@@ -137,6 +157,7 @@ export function C8TenantForm({
     if (!contractStart) { toast.error("Informe a data de início do contrato."); return; }
     if (!maxUsersValid) { toast.error("Número máximo de usuários inválido (1–100)."); return; }
     if (!planName.trim()) { toast.error("Informe o nome do plano."); return; }
+    if (!primaryUserEmail.trim()) { toast.error("Informe o e-mail do usuário principal."); return; }
 
     const values: C8TenantFormValues = {
       client_id: clientId,
@@ -320,13 +341,20 @@ export function C8TenantForm({
 
         {/* Primary user email */}
         <div className="space-y-1">
-          <Label className="text-xs">E-mail do Usuário Principal (opcional)</Label>
+          <Label className="text-xs">E-mail do Usuário Principal *</Label>
           <Input
             type="email"
             value={primaryUserEmail}
-            onChange={(e) => setPrimaryUserEmail(e.target.value)}
+            onChange={(e) => { setPrimaryUserEmail(e.target.value); setPrimaryEmailFromClient(false); }}
             placeholder="usuario@empresa.com"
+            required
           />
+          {primaryEmailFromClient && (
+            <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+              <Info className="h-3 w-3" />
+              Preenchido automaticamente pelo e-mail do cadastro do cliente. Você pode alterar se necessário.
+            </p>
+          )}
         </div>
 
         {/* Send credentials */}

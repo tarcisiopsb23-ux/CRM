@@ -23,17 +23,26 @@ export function RecruitmentSection() {
   });
   const [saving, setSaving] = useState(false);
 
+  const [initialized, setInitialized] = useState(false);
+
   useEffect(() => {
-    if (config) {
+    if (config && !initialized && (
+      config.drive_folder_id ||
+      config.drive_folder_url ||
+      config.drive_webhook_url ||
+      config.notification_email ||
+      config.auto_notify !== undefined
+    )) {
+      setInitialized(true);
       setForm({
-        drive_folder_id: config.drive_folder_id ?? "",
-        drive_folder_url: config.drive_folder_url ?? "",
-        drive_webhook_url: config.drive_webhook_url ?? "",
+        drive_folder_id:    config.drive_folder_id    ?? "",
+        drive_folder_url:   config.drive_folder_url   ?? "",
+        drive_webhook_url:  config.drive_webhook_url  ?? "",
         notification_email: config.notification_email ?? "",
-        auto_notify: config.auto_notify ?? false,
+        auto_notify:        config.auto_notify        ?? false,
       });
     }
-  }, [config]);
+  }, [config, initialized]);
 
   const handleSave = async () => {
     setSaving(true);

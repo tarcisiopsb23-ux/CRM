@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+﻿import { useState, useMemo } from "react";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useAdminAuditLogs } from "@/hooks/useAuditLogs";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -56,7 +56,7 @@ const VALUE_LABELS: Record<string, Record<string, string>> = {
   contract_status: { ativo: "Ativo", cancelado: "Cancelado", suspenso: "Suspenso", encerrado: "Encerrado" },
   etapa_kanban: {
     leads_recebidos: "Leads Recebidos", qualificados: "Qualificados",
-    reuniao_agendada: "Reunião Agendada", emissao_contrato: "Negociações",
+    contato_realizado: "Contato Realizado", reuniao_agendada: "Reunião Agendada", emissao_contrato: "Negociações",
     efetivados: "Efetivados", desqualificado: "Desqualificado",
   },
   role: { admin: "Administrador", manager: "Gestor", member: "Membro", viewer: "Visualizador" },

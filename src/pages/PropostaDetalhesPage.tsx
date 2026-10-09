@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { useProposal } from "@/hooks/useProposal";
 import { useProposals } from "@/hooks/useProposals";
 import { useOrganization } from "@/hooks/useOrganization";
+import { ProposalToContractButton } from "@/components/contracts/ProposalToContractButton";
 import { PropostaAnalyticsPanel } from "@/components/propostas/PropostaAnalyticsPanel";
 import type { ProposalStatus } from "@/types/proposals";
 
@@ -169,6 +170,15 @@ export default function PropostaDetalhesPage() {
             <Archive className="h-4 w-4 mr-2" />
             Arquivar
           </Button>
+        )}
+        {proposal.status === "aprovada" && proposal.client_id && (
+          <ProposalToContractButton
+            proposalId={proposal.id}
+            clientId={proposal.client_id}
+            clientName={proposal.hero_title ?? proposal.title}
+            size="default"
+            variant="default"
+          />
         )}
         <Button variant="destructive" onClick={handleDelete}>
           <Trash2 className="h-4 w-4 mr-2" />

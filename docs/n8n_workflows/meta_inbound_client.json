@@ -1,0 +1,284 @@
+{
+  "name": "Meta Inbound — C8 Control (Cliente)",
+  "description": "Recebe evento da Edge Function meta-webhook-client, busca configurações do agente no banco (agent_configs + knowledge base), processa com OpenAI e responde via send-message. Handoff automático para atendentes do cliente.",
+  "version": "1.0.0",
+  "nodes": [
+    {
+      "id": "webhook-trigger",
+      "name": "Webhook — Meta Client Inbound",
+      "type": "n8n-nodes-base.webhook",
+      "parameters": {
+        "path": "meta-inbound-client",
+        "httpMethod": "POST",
+        "responseMode": "responseNode"
+      },
+      "position": [240, 300]
+    },
+    {
+      "id": "respond-200",
+      "name": "Respond 200 Immediately",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "parameters": { "responseCode": 200, "responseBody": "{\"ok\":true}" },
+      "position": [460, 180]
+    },
+    {
+      "id": "extract-fields",
+      "name": "Extrair Campos",
+      "type": "n8n-nodes-base.set",
+      "parameters": {
+        "values": {
+          "string": [
+            { "name": "client_id",          "value": "={{ $json.client_id }}" },
+            { "name": "organization_id",    "value": "={{ $json.organization_id }}" },
+            { "name": "conversation_id",    "value": "={{ $json.conversation_id }}" },
+            { "name": "contact_id",         "value": "={{ $json.contact_id }}" },
+            { "name": "meta_connection_id", "value": "={{ $json.meta_connection_id }}" },
+            { "name": "event_type",         "value": "={{ $json.event_type }}" },
+            { "name": "channel_type",       "value": "={{ $json.channel_type }}" },
+            { "name": "sender_id",          "value": "={{ $json.sender_id }}" },
+            { "name": "sender_phone",       "value": "={{ $json.sender_phone }}" },
+            { "name": "sender_name",        "value": "={{ $json.sender_name ?? 'Contato' }}" },
+            { "name": "content",            "value": "={{ $json.content }}" },
+            { "name": "message_type",       "value": "={{ $json.message_type ?? 'text' }}" }
+          ]
+        }
+      },
+      "position": [460, 380]
+    },
+    {
+      "id": "get-conversation",
+      "name": "Busca Conversa Ativa",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/client_channel_conversations",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "id",     "value": "=eq.{{ $json.conversation_id }}" },
+            { "name": "select", "value": "id,status,bot_active,bot_context,assigned_agent_id,meta_connection_id" }
+          ]
+        }
+      },
+      "position": [680, 380]
+    },
+    {
+      "id": "check-bot-active",
+      "name": "Bot Está Ativo?",
+      "type": "n8n-nodes-base.if",
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $('get-conversation').first().json.bot_active }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "position": [900, 380]
+    },
+    {
+      "id": "get-knowledge-context",
+      "name": "Busca Contexto de Conhecimento",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/get_client_knowledge_context",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\"p_client_id\": \"{{ $json.client_id }}\"}"
+      },
+      "position": [1120, 280]
+    },
+    {
+      "id": "get-conversation-history",
+      "name": "Busca Histórico de Mensagens (15)",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/client_channel_messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "conversation_id", "value": "=eq.{{ $json.conversation_id }}" },
+            { "name": "select",          "value": "direction,content,sender_type,sender_name,created_at" },
+            { "name": "order",           "value": "created_at.desc" },
+            { "name": "limit",           "value": "15" }
+          ]
+        }
+      },
+      "position": [1120, 460]
+    },
+    {
+      "id": "build-system-prompt",
+      "name": "Monta System Prompt com Knowledge",
+      "type": "n8n-nodes-base.code",
+      "parameters": {
+        "jsCode": "const knowledge = $('get-knowledge-context').first().json;\nconst agent = knowledge.agent || knowledge.ai_settings || {};\nconst faqs = (knowledge.faqs || []).map(f => `P: ${f.question}\\nR: ${f.answer}`).join('\\n---\\n');\nconst services = (knowledge.services || []).map(s => `${s.name}: ${s.description}${s.price_info ? ' — ' + s.price_info : ''}`).join('\\n');\nconst policies = (knowledge.policies || []).map(p => `${p.title}: ${p.content}`).join('\\n---\\n');\nconst schedules = (knowledge.schedules || []).map(h => {\n  const days = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];\n  if (h.is_closed) return `${days[h.day_of_week]}: Fechado`;\n  return `${days[h.day_of_week]}: ${h.opens_at} às ${h.closes_at}`;\n}).join(', ');\n\nconst systemPrompt = [\n  `Você é ${agent.agent_name || 'Assistente'}, ${agent.agent_role || 'atendente virtual'}.`,\n  agent.instructions ? `\\nInstruções: ${agent.instructions}` : '',\n  agent.bot_active === false ? '\\nModo offline: encaminhe para humano.' : '',\n  faqs ? `\\n\\n## Perguntas Frequentes\\n${faqs}` : '',\n  services ? `\\n\\n## Serviços/Produtos\\n${services}` : '',\n  policies ? `\\n\\n## Políticas\\n${policies}` : '',\n  schedules ? `\\n\\n## Horários\\n${schedules}` : '',\n  '\\n\\nSe não souber responder, ou o cliente pedir para falar com humano, diga exatamente [HANDOFF].'\n].filter(Boolean).join('');\n\nconst history = $('get-conversation-history').all()\n  .map(m => ({ role: m.json.direction === 'outbound' ? 'assistant' : 'user', content: m.json.content ?? '' }))\n  .reverse();\n\nreturn [{\n  json: {\n    system_prompt: systemPrompt,\n    messages: [\n      { role: 'system', content: systemPrompt },\n      ...history,\n      { role: 'user', content: $json.content }\n    ],\n    client_id: $json.client_id,\n    organization_id: $json.organization_id,\n    conversation_id: $json.conversation_id,\n    contact_id: $json.contact_id,\n    meta_connection_id: $json.meta_connection_id,\n    channel_type: $json.channel_type,\n    sender_phone: $json.sender_phone,\n    sender_id: $json.sender_id,\n    agent_config: agent,\n    all_messages_for_summary: history\n  }\n}];"
+      },
+      "position": [1360, 280]
+    },
+    {
+      "id": "openai-chat",
+      "name": "OpenAI — Resposta com Knowledge",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "parameters": {
+        "resource": "chat",
+        "operation": "complete",
+        "model": "gpt-4o-mini",
+        "messages": "={{ $json.messages }}",
+        "options": { "maxTokens": 400, "temperature": 0.6 }
+      },
+      "position": [1580, 280]
+    },
+    {
+      "id": "check-handoff",
+      "name": "Precisa Handoff?",
+      "type": "n8n-nodes-base.if",
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.choices[0].message.content }}",
+              "operation": "contains",
+              "value2": "[HANDOFF]"
+            }
+          ]
+        }
+      },
+      "position": [1800, 280]
+    },
+    {
+      "id": "send-bot-reply",
+      "name": "Envia Resposta do Bot",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/functions/v1/send-message",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"connection_id\": \"{{ $('build-system-prompt').first().json.meta_connection_id }}\",\n  \"organization_id\": \"{{ $('build-system-prompt').first().json.organization_id }}\",\n  \"channel_type\": \"{{ $('build-system-prompt').first().json.channel_type }}\",\n  \"recipient_id\": \"{{ $('build-system-prompt').first().json.sender_phone || $('build-system-prompt').first().json.sender_id }}\",\n  \"message_type\": \"text\",\n  \"content\": \"{{ $json.choices[0].message.content.replace('[HANDOFF]', '').trim() }}\",\n  \"conversation_id\": \"{{ $('build-system-prompt').first().json.conversation_id }}\",\n  \"client_id\": \"{{ $('build-system-prompt').first().json.client_id }}\"\n}"
+      },
+      "position": [2020, 180]
+    },
+    {
+      "id": "process-handoff",
+      "name": "Processa Handoff — Busca Agente Disponível",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/get_next_available_agent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"p_client_id\": \"{{ $('build-system-prompt').first().json.client_id }}\",\n  \"p_channel_type\": \"{{ $('build-system-prompt').first().json.channel_type }}\",\n  \"p_rule_type\": \"round_robin\"\n}"
+      },
+      "position": [2020, 380]
+    },
+    {
+      "id": "build-handoff-summary",
+      "name": "Gera Resumo para Handoff",
+      "type": "n8n-nodes-base.code",
+      "parameters": {
+        "jsCode": "const msgs = $('build-system-prompt').first().json.all_messages_for_summary;\nconst lastFive = msgs.slice(-5).map(m => `${m.role === 'user' ? 'Cliente' : 'Bot'}: ${m.content}`).join('\\n');\nconst agentId = $('process-handoff').first().json || null;\nreturn [{\n  json: {\n    agent_id: agentId,\n    summary: `Conversa transferida para atendimento humano.\\n\\nÚltimas mensagens:\\n${lastFive}`,\n    conversation_id: $('build-system-prompt').first().json.conversation_id,\n    client_id: $('build-system-prompt').first().json.client_id,\n    organization_id: $('build-system-prompt').first().json.organization_id,\n    channel_type: $('build-system-prompt').first().json.channel_type,\n    meta_connection_id: $('build-system-prompt').first().json.meta_connection_id,\n    sender_phone: $('build-system-prompt').first().json.sender_phone,\n    sender_id: $('build-system-prompt').first().json.sender_id\n  }\n}];"
+      },
+      "position": [2240, 380]
+    },
+    {
+      "id": "assign-agent",
+      "name": "Atribui Agente à Conversa",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/assign_client_conversation",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"p_conversation_id\": \"{{ $json.conversation_id }}\",\n  \"p_agent_id\": \"{{ $json.agent_id }}\",\n  \"p_from_bot\": true,\n  \"p_reason\": \"Handoff automático via bot\",\n  \"p_summary\": \"{{ $json.summary }}\"\n}"
+      },
+      "position": [2460, 380]
+    },
+    {
+      "id": "send-handoff-msg",
+      "name": "Envia Mensagem de Handoff ao Cliente",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/functions/v1/send-message",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"connection_id\": \"{{ $json.meta_connection_id }}\",\n  \"organization_id\": \"{{ $json.organization_id }}\",\n  \"channel_type\": \"{{ $json.channel_type }}\",\n  \"recipient_id\": \"{{ $json.sender_phone || $json.sender_id }}\",\n  \"message_type\": \"text\",\n  \"content\": \"Vou transferir você para um de nossos atendentes. Em breve alguém entrará em contato! 🙏\",\n  \"conversation_id\": \"{{ $json.conversation_id }}\",\n  \"client_id\": \"{{ $json.client_id }}\"\n}"
+      },
+      "position": [2680, 380]
+    },
+    {
+      "id": "mark-bot-active",
+      "name": "Marca Conversa bot_active",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/client_channel_conversations",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [{ "name": "id", "value": "=eq.{{ $('build-system-prompt').first().json.conversation_id }}" }]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "{\"status\":\"bot_active\"}"
+      },
+      "position": [2240, 180]
+    }
+  ],
+  "connections": {
+    "webhook-trigger": {
+      "main": [
+        [
+          { "node": "respond-200",   "type": "main", "index": 0 },
+          { "node": "extract-fields","type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "extract-fields":          { "main": [[{ "node": "get-conversation",          "type": "main", "index": 0 }]] },
+    "get-conversation":        { "main": [[{ "node": "check-bot-active",           "type": "main", "index": 0 }]] },
+    "check-bot-active": {
+      "main": [
+        [
+          { "node": "get-knowledge-context",    "type": "main", "index": 0 },
+          { "node": "get-conversation-history", "type": "main", "index": 0 }
+        ],
+        []
+      ]
+    },
+    "get-knowledge-context":    { "main": [[{ "node": "build-system-prompt", "type": "main", "index": 0 }]] },
+    "get-conversation-history": { "main": [[{ "node": "build-system-prompt", "type": "main", "index": 0 }]] },
+    "build-system-prompt":      { "main": [[{ "node": "openai-chat",         "type": "main", "index": 0 }]] },
+    "openai-chat":              { "main": [[{ "node": "check-handoff",        "type": "main", "index": 0 }]] },
+    "check-handoff": {
+      "main": [
+        [{ "node": "send-bot-reply",   "type": "main", "index": 0 }],
+        [{ "node": "process-handoff",  "type": "main", "index": 0 }]
+      ]
+    },
+    "send-bot-reply":   { "main": [[{ "node": "mark-bot-active",   "type": "main", "index": 0 }]] },
+    "process-handoff":  { "main": [[{ "node": "build-handoff-summary", "type": "main", "index": 0 }]] },
+    "build-handoff-summary": { "main": [[{ "node": "assign-agent",   "type": "main", "index": 0 }]] },
+    "assign-agent":     { "main": [[{ "node": "send-handoff-msg",  "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": { "instanceId": "c8-control-client" }
+}

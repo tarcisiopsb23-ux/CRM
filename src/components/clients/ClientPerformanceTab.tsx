@@ -489,17 +489,19 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
             <CardContent className="flex-1 flex flex-col justify-center pt-2">
               <ModernFunnel textVariant="white" steps={(() => {
                 const hasLeads = totals.leads > 0;
-                return [
-                  { label: "Impressões", value: totals.impressions.toLocaleString("pt-BR"), color: "bg-slate-400", width: "w-full", percentage: ((totals.clicks / (totals.impressions || 1)) * 100).toFixed(1) + "%", rateLabel: "CTR" },
-                  ...(hasLeads ? [
-                    { label: "Cliques", value: totals.clicks.toLocaleString("pt-BR"), color: "bg-blue-400", width: "w-[85%]", percentage: ((totals.leads / (totals.clicks || 1)) * 100).toFixed(1) + "%", rateLabel: "TX. CONV." },
-                    { label: "Leads", value: totals.leads, color: "bg-indigo-500", width: "w-[70%]", percentage: ((totals.sales / (totals.leads || 1)) * 100).toFixed(1) + "%", rateLabel: "TX. FECH." },
-                    { label: "Vendas", value: totals.sales, color: "bg-emerald-500", width: "w-[55%]" },
-                  ] : [
-                    { label: "Cliques", value: totals.clicks.toLocaleString("pt-BR"), color: "bg-blue-400", width: "w-[85%]", percentage: ((totals.sales / (totals.clicks || 1)) * 100).toFixed(1) + "%", rateLabel: "TX. CONV." },
-                    { label: "Vendas", value: totals.sales, color: "bg-emerald-500", width: "w-[70%]" },
-                  ]),
+                const steps = hasLeads ? [
+                  { label: "Impressões",  value: totals.impressions.toLocaleString("pt-BR"), color: "bg-[#2b3a4a] dark:bg-slate-700", percentage: ((totals.clicks / (totals.impressions || 1)) * 100).toFixed(1) + "%", rateLabel: "CTR" },
+                  { label: "Cliques",     value: totals.clicks.toLocaleString("pt-BR"),       color: "bg-[#1e4d7b] dark:bg-blue-900",   percentage: ((totals.leads / (totals.clicks || 1)) * 100).toFixed(1) + "%", rateLabel: "TX. CONV." },
+                  { label: "Leads",       value: totals.leads,                                color: "bg-[#2d4e8a] dark:bg-indigo-900",  percentage: ((totals.sales / (totals.leads || 1)) * 100).toFixed(1) + "%", rateLabel: "TX. FECH." },
+                  { label: "Vendas",      value: totals.sales,                                color: "bg-[#1a6b5a] dark:bg-emerald-900" },
+                ] : [
+                  { label: "Impressões",  value: totals.impressions.toLocaleString("pt-BR"), color: "bg-[#2b3a4a] dark:bg-slate-700", percentage: ((totals.clicks / (totals.impressions || 1)) * 100).toFixed(1) + "%", rateLabel: "CTR" },
+                  { label: "Cliques",     value: totals.clicks.toLocaleString("pt-BR"),       color: "bg-[#1e4d7b] dark:bg-blue-900",   percentage: ((totals.sales / (totals.clicks || 1)) * 100).toFixed(1) + "%", rateLabel: "TX. CONV." },
+                  { label: "Vendas",      value: totals.sales,                                color: "bg-[#1a6b5a] dark:bg-emerald-900" },
                 ];
+                // marca o último como isLast
+                steps[steps.length - 1] = { ...steps[steps.length - 1], isLast: true } as typeof steps[0];
+                return steps;
               })()} />
               <div className="mt-6 pt-5 border-t border-slate-100 text-center">
                 <p className="text-slate-400 text-[10px] uppercase font-black tracking-widest">Faturamento Estimado</p>

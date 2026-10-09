@@ -1,7 +1,7 @@
 import { useCallback, useState, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useQuery } from '@tanstack/react-query';
-import type { Lead } from '@/types/database';
+import type { Lead, EtapaKanban } from '@/types/database';
 
 export interface CloserMetrics {
   closer_id: string | null;
@@ -35,7 +35,7 @@ export function useCloserPerformance(
 
       let query = supabase
         .from('leads')
-        .select('*, profiles:assigned_to(full_name), profiles:closer_id(full_name)')
+        .select('*, assigned_profile:assigned_to(full_name), closer_profile:closer_id(full_name)')
         .eq('organization_id', organizationId);
 
       // Filtrar por closer específico se fornecido
@@ -60,12 +60,34 @@ export function useCloserPerformance(
   // ==================
   // CALCULAR MÉTRICAS
   // ==================
+  // Ordem das etapas do funil (excluindo terminais)
+  const FUNNEL_ORDER: EtapaKanban[] = [
+    'leads_recebidos',
+    'qualificados',
+    'contato_realizado',
+    'reuniao_agendada',
+    'emissao_contrato',
+    'efetivados',
+  ];
+
+  /**
+   * Retorna true se `etapa` está na posição >= `referencia` no funil.
+   * Isso implementa a propagação: um lead em `emissao_contrato` também conta
+   * para `contato_realizado` e `reuniao_agendada`.
+   */
+  const atingiuEtapa = (etapa: EtapaKanban, referencia: EtapaKanban): boolean => {
+    const idx = FUNNEL_ORDER.indexOf(etapa);
+    const refIdx = FUNNEL_ORDER.indexOf(referencia);
+    if (idx === -1 || refIdx === -1) return false;
+    return idx >= refIdx;
+  };
+
   const metricsMap = useMemo(() => {
     const map = new Map<string | null, CloserMetrics>();
 
     for (const lead of leads) {
       const cid = lead.closer_id;
-      const closerName = (lead as any)?.profiles?.full_name || lead.closer_id || 'Sem responsável';
+      const closerName = (lead as any)?.closer_profile?.full_name || lead.closer_id || 'Sem responsável';
 
       if (!map.has(cid)) {
         map.set(cid, {
@@ -87,43 +109,43 @@ export function useCloserPerformance(
       }
 
       const metrics = map.get(cid)!;
+      const etapa = lead.etapa_kanban as EtapaKanban;
 
-      // Contar lead recebido
+      // Contar lead recebido — sempre
       metrics.leads_recebidos += 1;
 
-      // Contar conato efetivo (moveu da primeira etapa)
-      if (lead.etapa_kanban !== 'leads_recebidos') {
-        metrics.contatos_efetivos += 1;
-      }
-
-      // Contar qualificado (etapa qualificados ou além)
-      if (['qualificados', 'reuniao_agendada', 'emissao_contrato', 'efetivados'].includes(lead.etapa_kanban)) {
+      // Qualificado: etapa qualificados ou além (propagação)
+      if (atingiuEtapa(etapa, 'qualificados')) {
         metrics.leads_qualificados += 1;
       }
 
-      // Contar reunião agendada
-      if (lead.etapa_kanban === 'reuniao_agendada') {
+      // Contato efetivo: chegou em 'contato_realizado' ou além (propagação)
+      if (atingiuEtapa(etapa, 'contato_realizado')) {
+        metrics.contatos_efetivos += 1;
+      }
+
+      // Reunião agendada: chegou em 'reuniao_agendada' ou além (propagação)
+      if (atingiuEtapa(etapa, 'reuniao_agendada')) {
         metrics.reunioes_agendadas += 1;
       }
 
-      // Contar reunião realizada (aqui consideramos efetivado ou emissao como realizado)
-      if (['emissao_contrato', 'efetivados'].includes(lead.etapa_kanban)) {
+      // Reunião realizada: chegou em 'emissao_contrato' ou além (propagação)
+      if (atingiuEtapa(etapa, 'emissao_contrato')) {
         metrics.reunioes_realizadas += 1;
       }
 
-      // Contar proposta enviada (emissao_contrato)
-      if (lead.etapa_kanban === 'emissao_contrato') {
+      // Proposta enviada: está em 'emissao_contrato' (não propaga além — negociação ativa)
+      if (etapa === 'emissao_contrato') {
         metrics.propostas_enviadas += 1;
       }
 
-      // Contar cliente fechado (efetivados)
-      if (lead.etapa_kanban === 'efetivados') {
+      // Cliente fechado: efetivados
+      if (etapa === 'efetivados') {
         metrics.clientes_fechados += 1;
-      }
-
-      // Somar receita
-      if (lead.value) {
-        metrics.receita_gerada += lead.value;
+        // Receita só conta para fechados
+        if (lead.value) {
+          metrics.receita_gerada += lead.value;
+        }
       }
     }
 

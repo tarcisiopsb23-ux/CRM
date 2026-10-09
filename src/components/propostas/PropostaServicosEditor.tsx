@@ -208,14 +208,20 @@ export function PropostaServicosEditor({
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Valor (R$)</Label>
+                <Label className="text-xs flex items-center gap-1">
+                  Valor de tabela (R$)
+                  <span
+                    title="Preço individual deste serviço. Usado para mostrar economia ao cliente no comparativo do pacote. Opcional — deixe em branco se não quiser exibir comparativo."
+                    className="cursor-help text-muted-foreground/60 hover:text-muted-foreground"
+                  >ⓘ</span>
+                </Label>
                 <Input
                   type="number"
                   min={0.01}
                   max={999999.99}
                   step={0.01}
                   className="w-32"
-                  placeholder="0,00"
+                  placeholder="Opcional"
                   value={svc.value || ""}
                   onChange={(e) =>
                     update(svc._key, {
@@ -269,33 +275,13 @@ export function PropostaServicosEditor({
         </div>
 
         {services.length > 0 && (
-          <div className="pt-3 border-t space-y-2">
+          <div className="pt-3 border-t">
             <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Total individual:</span>
+              <span className="text-muted-foreground">Total dos serviços:</span>
               <span className="font-semibold">
                 {fmtCurrency(comparison.totalIndividual)}
               </span>
             </div>
-            <div className="flex items-center gap-3">
-              <Label className="text-sm whitespace-nowrap">Valor do plano (R$):</Label>
-              <Input
-                type="number"
-                min={0}
-                step={0.01}
-                className="w-40"
-                value={planValue || ""}
-                onChange={(e) => onPlanValueChange(parseFloat(e.target.value) || 0)}
-              />
-            </div>
-            {comparison.savings > 0 && (
-              <div className="flex justify-between text-sm text-emerald-600">
-                <span>Economia para o cliente:</span>
-                <span className="font-bold">
-                  {fmtCurrency(comparison.savings)} (
-                  {comparison.savingsPercent.toFixed(0)}%)
-                </span>
-              </div>
-            )}
           </div>
         )}
       </CardContent>

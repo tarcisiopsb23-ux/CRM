@@ -4,8 +4,8 @@ import { ptBR } from "date-fns/locale";
 import {
   Loader2, ShieldOff, ShieldCheck, Trash2, RefreshCcw,
   AlertTriangle, Pencil, Check, PauseCircle, KeyRound,
-  Users, FileText, Receipt, Settings2, Wifi, Eye, EyeOff,
-  Link2, Database, Copy, X,
+  Users, FileText, Receipt, Settings2,
+  Link2, Copy,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
@@ -47,6 +47,7 @@ import { InvoiceEmitModal } from "@/components/fiscal/InvoiceEmitModal";
 import { InvoiceViewModal } from "@/components/fiscal/InvoiceViewModal";
 import type { Invoice } from "@/types/fiscal";
 import { C8AdIntegrationsTab } from "@/components/c8control/C8AdIntegrationsTab";
+import { MetaConnectionsList } from "@/components/meta";
 import { useN8nConfig } from "@/hooks/useN8nConfig";
 import { useOrganization } from "@/hooks/useOrganization";
 
@@ -82,182 +83,14 @@ interface C8TenantDetailProps {
   canDelete: boolean;
   onClose: () => void;
   onEdit: () => void;
+  /** Aba principal a abrir automaticamente (ex: "configuracoes") */
+  initialTab?: string;
+  /** Sub-aba de configurações a abrir automaticamente (ex: "integracoes") */
+  initialSubTab?: string;
 }
 
 const fmtCurrency = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
-
-// ---------------------------------------------------------------------------
-// CredentialField — campo unificado: visualiza (via Edge Function) e edita
-// Modos:
-//   idle    → mostra ••••• + botão "Revelar" (ou "Definir" se !isSet)
-//   loading → buscando da Edge Function
-//   viewing → valor do banco em readOnly, com olho/copiar/Editar/Ocultar
-//   editing → campo livre, borda destacada, X para cancelar
-// ---------------------------------------------------------------------------
-
-type CredentialField = "service_key" | "email" | "password";
-
-interface CredentialFieldProps {
-  clientId: string;
-  field: CredentialField;
-  label: string;
-  placeholder: string;
-  isSet: boolean;
-  canEdit: boolean;
-  onChange: (value: string) => void;
-}
-
-function CredentialField({
-  clientId, field, label, placeholder, isSet, canEdit, onChange,
-}: CredentialFieldProps) {
-  type Mode = "idle" | "loading" | "viewing" | "editing";
-  const [mode, setMode]       = useState<Mode>("idle");
-  const [fetched, setFetched] = useState<string | null>(null);
-  const [draft, setDraft]     = useState("");
-  const [visible, setVisible] = useState(false);
-
-  const isPasswordType = field === "service_key" || field === "password";
-
-  const handleReveal = async () => {
-    if (!isSet) { setMode("editing"); return; }
-    setMode("loading");
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) { toast.error("Sessão expirada."); setMode("idle"); return; }
-      const res = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/get-client-credentials`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type":  "application/json",
-            "apikey":        import.meta.env.VITE_SUPABASE_ANON_KEY ?? "",
-            "Authorization": `Bearer ${token}`,
-          },
-          body: JSON.stringify({ client_id: clientId, field }),
-        }
-      );
-      const data = await res.json();
-      if (!res.ok) { toast.error(data.error ?? "Erro ao revelar."); setMode("idle"); return; }
-      setFetched(data.value);
-      setVisible(true);
-      setMode("viewing");
-    } catch {
-      toast.error("Erro de conexão.");
-      setMode("idle");
-    }
-  };
-
-  const handleEdit = () => {
-    setDraft(fetched ?? "");
-    onChange(fetched ?? "");
-    setMode("editing");
-    setVisible(true);
-  };
-
-  const handleCancel = () => {
-    setDraft("");
-    onChange("");
-    setMode(fetched !== null ? "viewing" : "idle");
-  };
-
-  const handleDraftChange = (val: string) => {
-    setDraft(val);
-    onChange(val);
-  };
-
-  const handleCopy = () => {
-    const v = mode === "editing" ? draft : fetched;
-    if (!v) return;
-    navigator.clipboard.writeText(v);
-    toast.success(`${label} copiado!`);
-  };
-
-  const handleHide = () => {
-    setFetched(null);
-    setDraft("");
-    onChange("");
-    setVisible(false);
-    setMode("idle");
-  };
-
-  const displayValue =
-    mode === "editing" ? draft :
-    mode === "viewing" ? (fetched ?? "") :
-    mode === "loading" ? "" :
-    isSet              ? "•••••••••••••••••" : "";
-
-  const inputType = isPasswordType ? (visible ? "text" : "password") : "text";
-
-  return (
-    <div className="grid gap-1.5">
-      <label className="text-xs font-semibold text-slate-600">{label}</label>
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1">
-          <Input
-            type={mode === "idle" ? "password" : inputType}
-            value={displayValue}
-            readOnly={mode === "viewing" || mode === "idle"}
-            disabled={mode === "loading" || (!canEdit && mode !== "viewing")}
-            placeholder={mode === "editing" ? placeholder : undefined}
-            onChange={e => handleDraftChange(e.target.value)}
-            className={[
-              "h-8 text-sm font-mono",
-              (mode === "viewing" || mode === "idle") ? "bg-slate-50 cursor-default" : "",
-              mode === "editing" ? "pr-16 border-primary ring-1 ring-primary/30" : "pr-16",
-            ].join(" ")}
-          />
-          {(mode === "viewing" || mode === "editing") && (
-            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1">
-              {isPasswordType && (
-                <button type="button" onClick={() => setVisible(v => !v)}
-                  className="text-slate-400 hover:text-slate-600" title={visible ? "Ocultar" : "Mostrar"}>
-                  {visible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                </button>
-              )}
-              <button type="button" onClick={handleCopy}
-                className="text-slate-400 hover:text-slate-600" title="Copiar">
-                <Copy className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          )}
-        </div>
-
-        {mode === "idle" && canEdit && (
-          <Button type="button" size="sm" variant="outline"
-            className="h-8 px-3 text-xs shrink-0" onClick={handleReveal}>
-            {isSet
-              ? <><Eye className="h-3.5 w-3.5 mr-1" />Revelar</>
-              : <><Pencil className="h-3.5 w-3.5 mr-1" />Definir</>}
-          </Button>
-        )}
-        {mode === "loading" && (
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground shrink-0" />
-        )}
-        {mode === "viewing" && canEdit && (
-          <>
-            <Button type="button" size="sm" variant="outline"
-              className="h-8 px-3 text-xs shrink-0" onClick={handleEdit}>
-              <Pencil className="h-3.5 w-3.5 mr-1" />Editar
-            </Button>
-            <button type="button" onClick={handleHide}
-              className="text-slate-400 hover:text-slate-600 shrink-0" title="Ocultar">
-              <EyeOff className="h-3.5 w-3.5" />
-            </button>
-          </>
-        )}
-        {mode === "editing" && (
-          <button type="button" onClick={handleCancel}
-            className="text-slate-400 hover:text-slate-600 shrink-0" title="Cancelar edição">
-            <X className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
 
 const fmtDate = (d: string | null) =>
   d ? format(parseISO(d), "dd/MM/yyyy", { locale: ptBR }) : "—";
@@ -283,11 +116,17 @@ export function C8TenantDetail({
   canDelete,
   onClose,
   onEdit,
+  initialTab,
+  initialSubTab,
 }: C8TenantDetailProps) {
   const actions = useC8TenantActions(organizationId);
   const qc = useQueryClient();
   const orgId = useOrganization();
   const n8nConfig = useN8nConfig(orgId);
+
+  // Tabs controladas para suportar abertura direta via props
+  const [activeTab,    setActiveTab]    = useState(initialTab    ?? "plano");
+  const [activeSubTab, setActiveSubTab] = useState(initialSubTab ?? "modulos");
   const { payments, legacyPayments, isLoading: paymentsLoading } = useC8Payments({
     organizationId,
     clientId: tenant.client_id,
@@ -378,33 +217,28 @@ export function C8TenantDetail({
   const [isSavingQuick, setIsSavingQuick] = useState(false);
 
   // ── Módulos config ────────────────────────────────────────────────────────
+  const mc = tenant.modules_config;
   const initialModules = {
-    crm_enabled:           (tenant as any).modules_config?.crm_enabled           ?? false,
-    whatsapp_enabled:      (tenant as any).modules_config?.whatsapp_enabled      ?? false,
-    demographics_enabled:  (tenant as any).modules_config?.demographics_enabled  ?? false,
-    ia_enabled:            (tenant as any).modules_config?.ia_enabled            ?? false,
-    dashboard_geral_enabled:        (tenant as any).modules_config?.dashboard_geral_enabled        ?? true,
-    dashboard_performance_enabled:  (tenant as any).modules_config?.dashboard_performance_enabled  ?? true,
-    dashboard_atendimento_enabled:  (tenant as any).modules_config?.dashboard_atendimento_enabled  ?? false,
-    max_contacts:          (tenant as any).modules_config?.max_contacts          ?? 5000,
-    max_users:             (tenant as any).modules_config?.max_users             ?? (tenant.max_users ?? 10),
-    asaas_enabled:         (tenant as any).modules_config?.asaas_enabled         ?? false,
+    // Dashboards
+    dashboard_geral_enabled:        mc?.dashboard_geral_enabled        ?? true,
+    dashboard_performance_enabled:  mc?.dashboard_performance_enabled  ?? true,
+    dashboard_atendimento_enabled:  mc?.dashboard_atendimento_enabled  ?? false,
+    // Módulos operacionais
+    crm_enabled:           mc?.crm_enabled           ?? false,
+    agenda_enabled:        mc?.agenda_enabled        ?? false,
+    demographics_enabled:  mc?.demographics_enabled  ?? false,
+    // Módulos de automação e mensagens (novos)
+    messaging_enabled:     mc?.messaging_enabled     ?? false,
+    automation_enabled:    mc?.automation_enabled    ?? false,
+    // Legado — mantidos para compatibilidade com clientes antigos
+    whatsapp_enabled:      mc?.whatsapp_enabled      ?? false,
+    ia_enabled:            mc?.ia_enabled            ?? false,
+    // Limites
+    max_contacts:          mc?.max_contacts          ?? 5000,
+    max_users:             mc?.max_users             ?? (tenant.max_users ?? 10),
   };
   const [modules, setModules] = useState(initialModules);
   const [isSavingModules, setIsSavingModules] = useState(false);
-
-  // ── Credenciais Supabase ──────────────────────────────────────────────────
-  const [supabaseUrl, setSupabaseUrl] = useState(tenant.client_supabase_url ?? "");
-  const [supabaseAnonKey, setSupabaseAnonKey] = useState(tenant.client_supabase_anon_key ?? "");
-  const [supabaseServiceKeySet, setSupabaseServiceKeySet] = useState(tenant.client_supabase_service_key_set ?? false);
-  const [supabaseEmailSet, setSupabaseEmailSet] = useState(tenant.client_supabase_email_set ?? false);
-  const [supabasePasswordSet, setSupabasePasswordSet] = useState(tenant.client_supabase_password_set ?? false);
-  // Drafts das credenciais sensíveis — string vazia significa "não alterar"
-  const [credDrafts, setCredDrafts] = useState({ service_key: "", email: "", password: "" });
-  const setCredDraft = (field: CredentialField, val: string) =>
-    setCredDrafts(prev => ({ ...prev, [field]: val }));
-  const [isSavingCredentials, setIsSavingCredentials] = useState(false);
-  const [testingConnection, setTestingConnection] = useState(false);
 
   // ── UTM Builder (ferramenta da agência) ────────────────────────────────────
   const [utmBase, setUtmBase]         = useState("");
@@ -415,21 +249,15 @@ export function C8TenantDetail({
   const [utmTerm, setUtmTerm]         = useState("");
   const [utmCopied, setUtmCopied]     = useState(false);
 
-  // ── Carrega campos do cliente que podem não vir via join ────────────────────
+  // ── Carrega slug do dashboard ─────────────────────────────────────────────
   useEffect(() => {
     supabase
       .from("clients")
-      .select("client_supabase_url, client_supabase_anon_key, client_supabase_service_key_set, client_supabase_email_set, client_supabase_password_set, dashboard_slug")
+      .select("dashboard_slug")
       .eq("id", tenant.client_id)
       .single()
       .then(({ data }) => {
-        if (!data) return;
-        if (data.client_supabase_url)     setSupabaseUrl(data.client_supabase_url);
-        if (data.client_supabase_anon_key) setSupabaseAnonKey(data.client_supabase_anon_key);
-        setSupabaseServiceKeySet(data.client_supabase_service_key_set ?? false);
-        setSupabaseEmailSet(data.client_supabase_email_set ?? false);
-        setSupabasePasswordSet(data.client_supabase_password_set ?? false);
-        if (data.dashboard_slug) setDashboardSlug(data.dashboard_slug);
+        if (data?.dashboard_slug) setDashboardSlug(data.dashboard_slug);
       });
   }, [tenant.client_id]);
 
@@ -475,93 +303,6 @@ export function C8TenantDetail({
     setTimeout(() => setUtmCopied(false), 2000);
   };
 
-  const handleSaveCredentials = async () => {
-    setIsSavingCredentials(true);
-    try {
-      // Salva URL e anon key diretamente
-      const { error } = await supabase
-        .from("clients")
-        .update({
-          client_supabase_url: supabaseUrl.trim() || null,
-          client_supabase_anon_key: supabaseAnonKey.trim() || null,
-        })
-        .eq("id", tenant.client_id);
-      if (error) throw error;
-
-      // Salva credenciais sensíveis via RPC segura (apenas campos com valor preenchido)
-      const { service_key, email: credEmail, password: credPassword } = credDrafts;
-      if (service_key || credEmail || credPassword) {
-        const { data: rpcRaw, error: rpcError } = await supabase.rpc("save_client_supabase_credentials", {
-          p_client_id:   tenant.client_id,
-          p_service_key: service_key.trim() || null,
-          p_email:       credEmail.trim() || null,
-          p_password:    credPassword.trim() || null,
-        });
-        if (rpcError) throw rpcError;
-        const rpcData = Array.isArray(rpcRaw) ? rpcRaw[0] : rpcRaw;
-        setCredDrafts({ service_key: "", email: "", password: "" });
-        if (rpcData) {
-          setSupabaseServiceKeySet(rpcData.client_supabase_service_key_set ?? supabaseServiceKeySet);
-          setSupabaseEmailSet(rpcData.client_supabase_email_set ?? supabaseEmailSet);
-          setSupabasePasswordSet(rpcData.client_supabase_password_set ?? supabasePasswordSet);
-        }
-      }
-
-      // Re-fetch direto para garantir que os badges *_set reflitam o estado real no banco
-      const { data: fresh } = await supabase
-        .from("clients")
-        .select("client_supabase_url, client_supabase_anon_key, client_supabase_service_key_set, client_supabase_email_set, client_supabase_password_set")
-        .eq("id", tenant.client_id)
-        .single();
-      if (fresh) {
-        setSupabaseUrl(fresh.client_supabase_url ?? "");
-        setSupabaseAnonKey(fresh.client_supabase_anon_key ?? "");
-        setSupabaseServiceKeySet(fresh.client_supabase_service_key_set ?? false);
-        setSupabaseEmailSet(fresh.client_supabase_email_set ?? false);
-        setSupabasePasswordSet(fresh.client_supabase_password_set ?? false);
-      }
-
-      qc.invalidateQueries({ queryKey: ["c8_tenants", organizationId] });
-      toast.success("Credenciais salvas com segurança.");
-    } catch (e: any) {
-      toast.error(e.message ?? "Erro ao salvar credenciais.");
-    } finally {
-      setIsSavingCredentials(false);
-    }
-  };
-
-  const handleTestConnection = async () => {
-    if (!supabaseUrl.trim() || !supabaseAnonKey.trim()) {
-      toast.error("Preencha URL e Anon Key antes de testar.");
-      return;
-    }
-    const webhookUrl = (n8nConfig as any)?.c8ClientOpsWebhookUrl ?? null;
-    if (!webhookUrl) {
-      toast.error("Webhook de operações não configurado.", {
-        description: "Configure em Configurações → n8n → C8 Control — Operações.",
-      });
-      return;
-    }
-    setTestingConnection(true);
-    try {
-      const result = await callClientOps(webhookUrl, "test_connection", tenant.client_id);
-      if (!result.success) {
-        toast.error(String(result.error ?? result.message ?? "Falha na conexão."));
-      } else if (result.schema_applied === false) {
-        toast.warning("Banco de dados conectado, mas o schema ainda não foi aplicado.", {
-          description: "Use 'Atualizar Schema' na aba Integrações.",
-          duration: 6000,
-        });
-      } else {
-        toast.success(String(result.message ?? "Banco de dados conectado com sucesso!"));
-      }
-    } catch (e: any) {
-      toast.error(`Falha na conexão: ${e.message}`);
-    } finally {
-      setTestingConnection(false);
-    }
-  };
-
   const handleSaveModules = async () => {
     setIsSavingModules(true);
     try {
@@ -573,16 +314,23 @@ export function C8TenantDetail({
       if (!current?.id) throw new Error("Plano não encontrado.");
       const payload = {
         modules_config: {
-          crm_enabled:          modules.crm_enabled,
-          whatsapp_enabled:     modules.whatsapp_enabled,
-          demographics_enabled: modules.demographics_enabled,
-          ia_enabled:           modules.ia_enabled,
+          // Dashboards
           dashboard_geral_enabled:       modules.dashboard_geral_enabled,
           dashboard_performance_enabled: modules.dashboard_performance_enabled,
           dashboard_atendimento_enabled: modules.dashboard_atendimento_enabled,
+          // Módulos operacionais
+          crm_enabled:          modules.crm_enabled,
+          agenda_enabled:       modules.agenda_enabled,
+          demographics_enabled: modules.demographics_enabled,
+          // Módulos de automação e mensagens
+          messaging_enabled:    modules.messaging_enabled,
+          automation_enabled:   modules.automation_enabled,
+          // Legado (mantidos para clientes antigos — não exibidos na UI principal)
+          whatsapp_enabled:     modules.whatsapp_enabled,
+          ia_enabled:           modules.ia_enabled,
+          // Limites
           max_contacts:         Number(modules.max_contacts),
           max_users:            Number(modules.max_users),
-          asaas_enabled:        modules.asaas_enabled,
         },
       };
       const { error } = await supabase
@@ -631,7 +379,6 @@ export function C8TenantDetail({
 
   // Sync tenant state
   const [isSyncingTenant, setIsSyncingTenant] = useState(false);
-  const [isUpdatingSchema, setIsUpdatingSchema] = useState(false);
 
   // ── Acesso gratuito ───────────────────────────────────────────────────────
   const [freeAccessDialogOpen, setFreeAccessDialogOpen] = useState(false);
@@ -678,36 +425,6 @@ export function C8TenantDetail({
       toast.error(e.message ?? "Erro ao revogar acesso gratuito.");
     } finally {
       setIsSavingFreeAccess(false);
-    }
-  };
-
-  const handleUpdateSchema = async () => {
-    const webhookUrl =
-      (n8nConfig as any)?.c8ClientOpsWebhookUrl ??
-      (n8nConfig as any)?.c8UpdateSchemaWebhookUrl?.replace("c8-update-schemas", "c8-client-ops") ??
-      null;
-
-    if (!webhookUrl) {
-      toast.error("Webhook de operações não configurado.", {
-        description: "Configure em Configurações → n8n → C8 Control — Operações.",
-      });
-      return;
-    }
-    setIsUpdatingSchema(true);
-    try {
-      const result = await callClientOps(webhookUrl, "apply_schema", tenant.client_id);
-      if (result.success) {
-        toast.success("Schema atualizado com sucesso!");
-        // Registra timestamp da atualização no Banco A
-        await supabase.rpc("update_c8_schema_timestamp", { p_client_id: tenant.client_id });
-        qc.invalidateQueries({ queryKey: ["c8_tenants", organizationId] });
-      } else {
-        toast.error(`Erro ao aplicar schema: ${result.error}`);
-      }
-    } catch (e: any) {
-      toast.error(`Erro: ${e.message}`);
-    } finally {
-      setIsUpdatingSchema(false);
     }
   };
 
@@ -866,7 +583,7 @@ export function C8TenantDetail({
   return (
     <>
       <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-        <DialogContent className="max-w-[75vw] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-1/2 max-w-[50vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {tenant.client_name}
@@ -876,7 +593,7 @@ export function C8TenantDetail({
             </DialogTitle>
           </DialogHeader>
 
-          <Tabs defaultValue="plano">
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="mb-4 flex-wrap">
               <TabsTrigger value="plano">Plano</TabsTrigger>
               <TabsTrigger value="usuarios">
@@ -1070,10 +787,10 @@ export function C8TenantDetail({
 
             {/* ── Configurações com sub-abas ── */}
             <TabsContent value="configuracoes" className="space-y-4">
-              <Tabs defaultValue="modulos" className="w-full">
+              <Tabs value={activeSubTab} onValueChange={setActiveSubTab} className="w-full">
                 <TabsList className="mb-4 flex-wrap">
                   <TabsTrigger value="modulos">Módulos</TabsTrigger>
-                  <TabsTrigger value="bancodb">Banco de Dados</TabsTrigger>
+                  <TabsTrigger value="bancodb">Dashboard</TabsTrigger>
                   <TabsTrigger value="integracoes">Integrações</TabsTrigger>
                   <TabsTrigger value="utm">Gerador de Links</TabsTrigger>
                 </TabsList>
@@ -1088,6 +805,7 @@ export function C8TenantDetail({
                         { key: "dashboard_geral_enabled"        as const, label: "Dashboard Geral",        desc: "Página inicial" },
                         { key: "dashboard_performance_enabled"  as const, label: "Performance",            desc: "Métricas de campanhas" },
                         { key: "dashboard_atendimento_enabled"  as const, label: "Atendimento",            desc: "KPIs de conversas" },
+                        { key: "demographics_enabled"           as const, label: "Audiência Demográfica",  desc: "Aba de dados demográficos no Performance" },
                       ]).map(({ key, label, desc }) => (
                         <div key={key} className="flex items-center justify-between rounded-lg border border-border bg-secondary/20 px-3 py-2.5">
                           <div>
@@ -1108,9 +826,9 @@ export function C8TenantDetail({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {([
                         { key: "crm_enabled"         as const, label: "CRM",                   desc: "Contatos, pipeline e produtos" },
-                        { key: "whatsapp_enabled"     as const, label: "WhatsApp",              desc: "Conexão e importação de contatos" },
-                        { key: "ia_enabled"           as const, label: "Conteúdo IA",           desc: "Agenda, promoções, avisos" },
-                        { key: "demographics_enabled" as const, label: "Audiência Demográfica", desc: "Aba no Performance" },
+                        { key: "agenda_enabled"       as const, label: "Agenda",                desc: "Agendamentos online e Google Calendar via n8n" },
+                        { key: "messaging_enabled"    as const, label: "Mensagens",             desc: "Caixa de entrada e histórico de conversas (canais Meta)" },
+                        { key: "automation_enabled"   as const, label: "Chatbot",               desc: "Canais (Instagram/WhatsApp), Meu Agente e Conhecimento" },
                       ]).map(({ key, label, desc }) => (
                         <div key={key} className="flex items-center justify-between rounded-lg border border-border bg-secondary/20 px-3 py-2.5">
                           <div>
@@ -1124,6 +842,13 @@ export function C8TenantDetail({
                       ))}
                     </div>
                   </div>
+
+                  {/* Nota: Mensagens requer Chatbot ativo */}
+                  {modules.messaging_enabled && !modules.automation_enabled && (
+                    <p className="text-xs text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-md px-3 py-2">
+                      ⚠️ O módulo <strong>Mensagens</strong> exige que o módulo <strong>Chatbot</strong> também esteja ativo para funcionar corretamente.
+                    </p>
+                  )}
 
                   {/* Limites */}
                   <div className="grid grid-cols-2 gap-3">
@@ -1151,7 +876,6 @@ export function C8TenantDetail({
 
                 {/* Sub-aba: Banco de Dados */}
                 <TabsContent value="bancodb" className="space-y-4">
-                  {/* Slug */}
                   <div className="space-y-2">
                     <p className="text-xs font-black uppercase tracking-widest text-slate-500">Identificação do Dashboard</p>
                     <div className="grid gap-1.5">
@@ -1187,126 +911,25 @@ export function C8TenantDetail({
                       )}
                     </div>
                   </div>
-
-                  {/* Banco de dados do cliente */}
-                  <div className="space-y-3 pt-3 border-t">
-                    <p className="text-xs font-black uppercase tracking-widest text-slate-500">Banco de Dados do Cliente — Supabase</p>
-                    <p className="text-[11px] text-muted-foreground">
-                      Credenciais do projeto Supabase do cliente. URL e Anon Key são públicas. Service Key, e-mail e senha são armazenados com segurança.
-                    </p>
-
-                    <div className="grid grid-cols-1 gap-3">
-                      <div className="grid gap-1.5">
-                        <label className="text-xs font-semibold text-slate-600">URL do Supabase</label>
-                        <Input value={supabaseUrl} onChange={e => setSupabaseUrl(e.target.value)}
-                          placeholder="https://xxxx.supabase.co" className="h-8 text-sm" disabled={!canEdit} />
-                      </div>
-                      <div className="grid gap-1.5">
-                        <label className="text-xs font-semibold text-slate-600">Anon Key (pública)</label>
-                        <Input value={supabaseAnonKey} onChange={e => setSupabaseAnonKey(e.target.value)}
-                          placeholder="eyJhbGci..." className="h-8 text-sm" disabled={!canEdit} />
-                      </div>
-                    </div>
-
-                    <Button type="button" variant="outline" size="sm" className="gap-2"
-                      disabled={testingConnection || !supabaseUrl.trim() || !supabaseAnonKey.trim()}
-                      onClick={handleTestConnection}>
-                      {testingConnection ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wifi className="h-3.5 w-3.5" />}
-                      Testar Conexão
-                    </Button>
-
-                    <div className="flex flex-wrap gap-2">
-                      {[
-                        { label: "Service Key", set: supabaseServiceKeySet },
-                        { label: "E-mail",      set: supabaseEmailSet },
-                        { label: "Senha",       set: supabasePasswordSet },
-                      ].map(f => (
-                        <Badge key={f.label} className={f.set ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}>
-                          {f.set ? <Check className="h-3 w-3 mr-1" /> : <KeyRound className="h-3 w-3 mr-1" />}
-                          {f.label}: {f.set ? "configurado" : "não configurado"}
-                        </Badge>
-                      ))}
-                    </div>
-
-                    {/* ── Credenciais sensíveis: campo unificado (revelar + editar) ── */}
-                    <div className="space-y-3">
-                      <CredentialField
-                        clientId={tenant.client_id}
-                        field="service_key"
-                        label="Service Role Key"
-                        placeholder="eyJhbGci..."
-                        isSet={supabaseServiceKeySet}
-                        canEdit={canEdit}
-                        onChange={val => setCredDraft("service_key", val)}
-                      />
-                      <div className="grid grid-cols-2 gap-3">
-                        <CredentialField
-                          clientId={tenant.client_id}
-                          field="email"
-                          label="E-mail do Painel"
-                          placeholder="admin@exemplo.com"
-                          isSet={supabaseEmailSet}
-                          canEdit={canEdit}
-                          onChange={val => setCredDraft("email", val)}
-                        />
-                        <CredentialField
-                          clientId={tenant.client_id}
-                          field="password"
-                          label="Senha do Painel"
-                          placeholder="senha"
-                          isSet={supabasePasswordSet}
-                          canEdit={canEdit}
-                          onChange={val => setCredDraft("password", val)}
-                        />
-                      </div>
-                    </div>
-
-                    {canEdit && (
-                      <Button onClick={handleSaveCredentials} disabled={isSavingCredentials} className="w-full" size="sm">
-                        {isSavingCredentials ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <KeyRound className="h-3.5 w-3.5 mr-1.5" />}
-                        Salvar Credenciais
-                      </Button>
-                    )}
-                  </div>
                 </TabsContent>
 
                 {/* Sub-aba: Integrações */}
                 <TabsContent value="integracoes" className="space-y-4">
-                  {/* Schema — mesmo estilo dos cards de Ads */}
-                  <div className="p-4 border rounded-xl flex items-center justify-between bg-white shadow-sm">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                        <Database className="h-5 w-5 text-primary" />
-                      </div>
-                      <div>
-                        <p className="font-bold text-slate-800">Banco de Dados do Cliente</p>
-                        <p className="text-sm text-slate-500">
-                          {n8nConfig?.c8ClientOpsWebhookUrl || n8nConfig?.c8UpdateSchemaWebhookUrl
-                            ? "Webhook configurado"
-                            : "Webhook não configurado — configure em Configurações → n8n"}
-                        </p>
-                      </div>
-                    </div>
-                    {canEdit && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="gap-2 shrink-0"
-                        disabled={isUpdatingSchema || (!n8nConfig?.c8ClientOpsWebhookUrl && !n8nConfig?.c8UpdateSchemaWebhookUrl)}
-                        onClick={handleUpdateSchema}
-                        title={(!n8nConfig?.c8ClientOpsWebhookUrl && !n8nConfig?.c8UpdateSchemaWebhookUrl) ? "Configure o webhook em Configurações → n8n" : ""}
-                      >
-                        {isUpdatingSchema ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5" />}
-                        Atualizar Schema
-                      </Button>
-                    )}
-                  </div>
-
-                  {/* Ads */}
-                  <C8AdIntegrationsTab
+                  {/* Conexões Meta (Facebook, Instagram, WhatsApp — OAuth e Manual) */}
+                  <MetaConnectionsList
                     organizationId={organizationId}
-                    initialClientId={tenant.client_id}
+                    clientId={tenant.client_id}
+                    clientSlug={tenant.dashboard_slug ?? ""}
                   />
+
+                  {/* Ads: Meta Ads e Google Ads (sync de métricas) */}
+                  <div className="pt-2 border-t">
+                    <p className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">Ads — Sincronização de Métricas</p>
+                    <C8AdIntegrationsTab
+                      organizationId={organizationId}
+                      initialClientId={tenant.client_id}
+                    />
+                  </div>
                 </TabsContent>
 
                 {/* Sub-aba: Gerador de Links */}
