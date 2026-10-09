@@ -16,6 +16,7 @@ ENV VITE_PUBLIC_ORG_ID=$VITE_PUBLIC_ORG_ID
 COPY package*.json ./
 RUN npm ci --prefer-offline
 
+# Cache bust: 7
 COPY . .
 RUN npm run build
 
