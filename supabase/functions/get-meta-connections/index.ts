@@ -33,11 +33,13 @@ Deno.serve(async (req) => {
   const SUPA_URL = Deno.env.get("SUPABASE_URL")!;
   const SVC_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-  // Lê organization_id do body
+  // Lê organization_id e client_id do body
   let organization_id: string | undefined;
+  let client_id:       string | undefined;
   try {
     const body = await req.json();
     organization_id = body?.organization_id as string | undefined;
+    client_id       = body?.client_id       as string | undefined; // NOVO
   } catch {
     return json({ error: "JSON inválido" }, 400);
   }
@@ -52,7 +54,7 @@ Deno.serve(async (req) => {
   });
 
   // Busca TODAS as conexões Meta da organização
-  const { data: connections, error } = await admin
+  let q = admin
     .from("meta_connections")
     .select(
       "id, organization_id, client_id, provider, status, display_name, " +
@@ -63,7 +65,13 @@ Deno.serve(async (req) => {
       "connection_method, use_agency_token"
     )
     .eq("organization_id", organization_id)
-    .not("status", "in", '("deleted")')
+    .not("status", "in", '("deleted")');
+
+  if (client_id) {
+    q = q.or(`client_id.eq.${client_id},client_id.is.null`);
+  }
+
+  const { data: connections, error } = await q
     .order("status", { ascending: false })  // active primeiro
     .order("created_at", { ascending: false });
 
