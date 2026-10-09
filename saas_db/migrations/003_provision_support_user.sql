@@ -1,0 +1,70 @@
+-- Migration: 003_provision_support_user.sql
+--
+-- ATENÇÃO: Este arquivo NÃO cria usuários diretamente via SQL.
+-- O Supabase Auth gerencia auth.users com hashing de senha — inserir diretamente
+-- quebraria a autenticação. Use a Admin API ou o Dashboard.
+--
+-- ============================================================
+-- COMO CRIAR O USUÁRIO DE SUPORTE (suporte@agenciac8.com.br)
+-- ============================================================
+--
+-- Opção 1 — Supabase Dashboard (mais simples):
+--   1. Acesse o projeto SaaS em app.supabase.com
+--   2. Vá em Authentication > Users > Add user
+--   3. Preencha:
+--        Email:    suporte@agenciac8.com.br
+--        Password: 62642301
+--        Auto Confirm: ON
+--   4. Após criar, clique no usuário e edite o user_metadata:
+--        { "tenant_id": null, "role": "support" }
+--
+-- Opção 2 — Admin API (curl):
+--
+--   curl -X POST https://<saas-ref>.supabase.co/auth/v1/admin/users \
+--     -H "Authorization: Bearer <SAAS_SERVICE_ROLE_KEY>" \
+--     -H "apikey: <SAAS_SERVICE_ROLE_KEY>" \
+--     -H "Content-Type: application/json" \
+--     -d '{
+--       "email": "suporte@agenciac8.com.br",
+--       "password": "62642301",
+--       "email_confirm": true,
+--       "user_metadata": { "tenant_id": null, "role": "support" }
+--     }'
+--
+-- ============================================================
+-- COMO ALTERAR A SENHA DE UM USUÁRIO DE SUPORTE
+-- ============================================================
+--
+--   curl -X PUT https://<saas-ref>.supabase.co/auth/v1/admin/users/<user_id> \
+--     -H "Authorization: Bearer <SAAS_SERVICE_ROLE_KEY>" \
+--     -H "apikey: <SAAS_SERVICE_ROLE_KEY>" \
+--     -H "Content-Type: application/json" \
+--     -d '{ "password": "nova_senha_aqui" }'
+--
+-- ============================================================
+-- COMO ADICIONAR OUTRO USUÁRIO DE SUPORTE
+-- ============================================================
+--
+-- Repita o processo da Opção 1 ou 2 com outro e-mail.
+-- O que define que é suporte é o user_metadata.role = "support".
+-- Pode haver quantos usuários de suporte quiser — não há limite.
+-- Nenhum deles é registrado em tenant_users.
+--
+-- ============================================================
+-- COMO CRIAR UM USUÁRIO NORMAL (tenant)
+-- ============================================================
+--
+-- Use a Edge Function validate-access com action="invite":
+--
+--   POST <CRM_URL>/functions/v1/validate-access
+--   Authorization: Bearer <JWT_DO_ADMIN_DO_TENANT>
+--   {
+--     "action": "invite",
+--     "tenant_id": "<uuid-do-tenant>",
+--     "email": "usuario@empresa.com"
+--   }
+--
+-- Isso cria o usuário no SaaS Auth com role="member" e registra em tenant_users.
+-- A senha inicial é enviada por e-mail pelo Supabase Auth (magic link ou reset).
+
+SELECT 'Leia os comentários acima para provisionar usuários no SaaS Auth.' AS instrucao;

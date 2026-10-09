@@ -1,0 +1,16 @@
+-- Migration: 20260501000005_jwt_config.sql
+--
+-- Este arquivo não contém SQL executável.
+-- A configuração do JWT secret compartilhado é feita via Supabase Dashboard.
+--
+-- Consulte: docs/jwt-config-setup.md
+--
+-- Resumo:
+--   CRM Dashboard > Settings > API > JWT Settings > JWT Secret
+--   Substituir pelo JWT Secret do projeto SaaS.
+--
+--   Edge Functions > Secrets:
+--     SAAS_JWT_SECRET = <jwt-secret-do-saas>
+--     SAAS_URL        = https://<saas-ref>.supabase.co
+--     SAAS_SERVICE_ROLE_KEY = <saas-service-role-key>
+--     APP_URL         = https://<seu-dominio>.com

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CRM WhatsApp</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <header class="header">
+    <h1 class="header-title">CRM WhatsApp</h1>
+    <div class="status-indicator" id="wa-status">
+      <span class="status-dot"></span>
+      <span class="status-label">Aguardando...</span>
+    </div>
+  </header>
+
+  <main class="main">
+
+    <section class="dashboard" aria-label="Métricas">
+      <div class="card-metric">
+        <span class="metric-number" id="stat-total">0</span>
+        <span class="metric-label">Total</span>
+      </div>
+      <div class="card-metric">
+        <span class="metric-number" id="stat-negocios">0</span>
+        <span class="metric-label">Negócios</span>
+      </div>
+      <div class="card-metric">
+        <span class="metric-number" id="stat-nao-negocios">0</span>
+        <span class="metric-label">Não Negócios</span>
+      </div>
+      <div class="card-metric">
+        <span class="metric-number" id="stat-pendentes">0</span>
+        <span class="metric-label">Pendentes</span>
+      </div>
+      <div class="card-metric">
+        <span class="metric-number" id="stat-conversao">0%</span>
+        <span class="metric-label">Taxa de Conversão</span>
+      </div>
+    </section>
+
+    <section class="filtros" aria-label="Filtros">
+      <button class="btn-filtro ativo" data-status="todos">Todos</button>
+      <button class="btn-filtro" data-status="pendente">Pendentes</button>
+      <button class="btn-filtro" data-status="negocio">Negócios</button>
+      <button class="btn-filtro" data-status="nao_negocio">Não Negócios</button>
+    </section>
+
+    <section class="lista-wrapper" aria-label="Contatos">
+      <div id="lista-contatos"></div>
+    </section>
+
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
