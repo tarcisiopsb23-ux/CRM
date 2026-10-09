@@ -1,9 +1,9 @@
-/**
+﻿/**
  * ChatbotCanaisPage
  *
- * Exibe o status das conexões Meta (WhatsApp, Instagram) do cliente.
- * A conexão é configurada pela agência no Maestr.IA (C8 Control → conta do cliente).
- * O cliente visualiza o estado e pode conectar Meta Ads / Google Ads para métricas.
+ * Exibe o status das conexÃµes Meta (WhatsApp, Instagram) do cliente.
+ * A conexÃ£o Ã© configurada pela agÃªncia no Maestr.IA (C8 Control â†’ conta do cliente).
+ * O cliente visualiza o estado e pode conectar Meta Ads / Google Ads para mÃ©tricas.
  */
 
 import { useEffect, useState, useCallback } from "react";
@@ -19,7 +19,10 @@ import { PageHeader }  from "./components/PageHeader";
 import { useClientAuth } from "@/hooks/useClientAuth";
 import { supabase }    from "@/lib/supabase";
 
-// ── Tipos ─────────────────────────────────────────────────────────────────────
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+const ANON_KEY     = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+
+// â”€â”€ Tipos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface MetaConn {
   id:                           string;
@@ -40,11 +43,11 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   inactive:                { label: "Inativo",          color: "text-slate-400 border-slate-500/30" },
   expired:                 { label: "Token expirado",   color: "text-amber-400 border-amber-500/30" },
   error:                   { label: "Erro",             color: "text-red-400 border-red-500/30" },
-  needs_reauthentication:  { label: "Reautenticação",   color: "text-amber-400 border-amber-500/30" },
+  needs_reauthentication:  { label: "ReautenticaÃ§Ã£o",   color: "text-amber-400 border-amber-500/30" },
   disconnected:            { label: "Desconectado",     color: "text-slate-400 border-slate-500/30" },
 };
 
-// ── Componente ────────────────────────────────────────────────────────────────
+// â”€â”€ Componente â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export function ChatbotCanaisPage() {
   const { auth }       = useClientAuth();
@@ -59,17 +62,17 @@ export function ChatbotCanaisPage() {
     if (!organizationId) return;
     setLoading(true);
     try {
-      // Busca conexões WhatsApp/Meta da organização.
-      // Não filtra por client_id pois a agência gerencia a conexão
-      // globalmente — o filtro por cliente é reservado para uso futuro.
-      const { data: conns } = await supabase
-        .from("meta_connections_safe")
-        .select("id, provider, status, display_name, whatsapp_display_phone_number, instagram_username, waba_id, client_id, health_status, last_error, created_at")
-        .eq("organization_id", organizationId)
-        .not("status", "in", '("disconnected","revoked")')
-        .order("created_at", { ascending: false });
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) { setLoading(false); return; }
 
-      setConns((conns ?? []) as MetaConn[]);
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/get-meta-connections`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}`, "apikey": ANON_KEY },
+        body: JSON.stringify({ organization_id: organizationId }),
+      });
+      const efData = await res.json() as { connections?: Array<Record<string,unknown>>; error?: string };
+      setConns((efData.connections ?? []) as MetaConn[]);
     } catch (e) {
       console.error("[ChatbotCanaisPage] load:", e);
     } finally {
@@ -122,7 +125,7 @@ export function ChatbotCanaisPage() {
               </div>
               {conn?.whatsapp_display_phone_number && (
                 <p className="text-xs text-muted-foreground pl-6">
-                  Número: <strong>{conn.whatsapp_display_phone_number}</strong>
+                  NÃºmero: <strong>{conn.whatsapp_display_phone_number}</strong>
                 </p>
               )}
               {conn?.instagram_username && (
@@ -136,7 +139,7 @@ export function ChatbotCanaisPage() {
                 </p>
               )}
               <p className="text-xs text-muted-foreground pl-6">
-                Conexão gerenciada pela agência.
+                ConexÃ£o gerenciada pela agÃªncia.
                 Para alterar, entre em contato com o suporte.
               </p>
             </div>
@@ -150,19 +153,19 @@ export function ChatbotCanaisPage() {
                 <p className="text-xs text-muted-foreground pl-6">{conn.last_error}</p>
               )}
               <p className="text-xs text-muted-foreground pl-6">
-                Entre em contato com a agência para reestabelecer a conexão.
+                Entre em contato com a agÃªncia para reestabelecer a conexÃ£o.
               </p>
             </div>
           ) : (
             <div className="rounded-lg border border-dashed border-border bg-secondary/10 p-4 text-center space-y-3">
               <p className="text-xs text-muted-foreground leading-relaxed">
                 {comingSoon
-                  ? "Canal em preparação. Disponível em breve após aprovação do App Review da Meta."
-                  : "Nenhuma conta conectada. A agência configura a conexão no painel administrativo."}
+                  ? "Canal em preparaÃ§Ã£o. DisponÃ­vel em breve apÃ³s aprovaÃ§Ã£o do App Review da Meta."
+                  : "Nenhuma conta conectada. A agÃªncia configura a conexÃ£o no painel administrativo."}
               </p>
               {!comingSoon && (
                 <Button size="sm" variant="outline" className="gap-2 border-border" disabled>
-                  <Plus className="h-3.5 w-3.5" /> Aguardando conexão
+                  <Plus className="h-3.5 w-3.5" /> Aguardando conexÃ£o
                 </Button>
               )}
             </div>
@@ -176,16 +179,16 @@ export function ChatbotCanaisPage() {
     <div className="space-y-6 max-w-3xl mx-auto">
       <PageHeader
         title="Canais"
-        description="Status das conexões Meta para atendimento e automações."
+        description="Status das conexÃµes Meta para atendimento e automaÃ§Ãµes."
       />
 
-      {/* Aviso de segurança */}
+      {/* Aviso de seguranÃ§a */}
       <div className="flex items-start gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
         <ShieldCheck className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" />
         <div className="space-y-1">
-          <p className="text-sm font-semibold text-emerald-400">Conexão 100% oficial Meta</p>
+          <p className="text-sm font-semibold text-emerald-400">ConexÃ£o 100% oficial Meta</p>
           <p className="text-xs text-muted-foreground">
-            Todos os canais são conectados exclusivamente via APIs oficiais da Meta (Instagram Login e WhatsApp Business Platform).
+            Todos os canais sÃ£o conectados exclusivamente via APIs oficiais da Meta (Instagram Login e WhatsApp Business Platform).
           </p>
         </div>
       </div>
@@ -199,7 +202,7 @@ export function ChatbotCanaisPage() {
           <ChannelStatus
             conn={waConn}
             name="WhatsApp Business"
-            description="Conecte seu número via WhatsApp Business Platform (API oficial)"
+            description="Conecte seu nÃºmero via WhatsApp Business Platform (API oficial)"
             icon={MessageCircle}
             iconBg="bg-emerald-500/10"
             iconColor="text-emerald-500"
@@ -207,7 +210,7 @@ export function ChatbotCanaisPage() {
           <ChannelStatus
             conn={igConn}
             name="Instagram"
-            description="Conecte sua conta profissional para receber DMs e responder comentários"
+            description="Conecte sua conta profissional para receber DMs e responder comentÃ¡rios"
             icon={Instagram}
             iconBg="bg-pink-500/10"
             iconColor="text-pink-500"
@@ -216,7 +219,7 @@ export function ChatbotCanaisPage() {
         </div>
       )}
 
-      {/* Link para documentação */}
+      {/* Link para documentaÃ§Ã£o */}
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <ExternalLink className="h-3.5 w-3.5 shrink-0" />
         <a
@@ -224,7 +227,7 @@ export function ChatbotCanaisPage() {
           target="_blank" rel="noopener noreferrer"
           className="hover:text-foreground transition-colors"
         >
-          Documentação WhatsApp Business API
+          DocumentaÃ§Ã£o WhatsApp Business API
         </a>
       </div>
     </div>

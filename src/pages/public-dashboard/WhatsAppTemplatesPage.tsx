@@ -125,18 +125,27 @@ export function WhatsAppTemplatesPage() {
     if (!organizationId) return;
     setLoading(true);
     try {
-      const { data: waConns } = await supabase
-        .from("meta_connections_safe")
-        .select("id, waba_id, status, display_name, whatsapp_display_phone_number, provider, client_id")
-        .eq("organization_id", organizationId)
-        .in("provider", ["whatsapp","meta_multi"])
-        .eq("status", "active")
-        .order("created_at", { ascending: false })
-        .limit(1);
+      // Usa a EF get-meta-connections com service_role para contornar RLS
+      // O usuario C8 Control nao tem perfil em profiles, entao a RLS bloqueia
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) { setLoading(false); return; }
 
-      setConnection((waConns?.[0] ?? null) as WaConnection | null);
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/get-meta-connections`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}`, "apikey": ANON_KEY },
+        body: JSON.stringify({ organization_id: organizationId }),
+      });
+      const efData = await res.json() as { connections?: Array<Record<string,unknown>>; error?: string };
 
-      if (!waConns?.[0]) { setLoading(false); return; }
+      const allConns = efData.connections ?? [];
+      const waConn = allConns.find(c =>
+        (c.provider === "whatsapp" || c.provider === "meta_multi") && c.status === "active"
+      ) ?? null;
+
+      setConnection(waConn as WaConnection | null);
+
+      if (!waConn) { setLoading(false); return; }
 
       const { data: tpls } = await supabase
         .from("whatsapp_templates")
