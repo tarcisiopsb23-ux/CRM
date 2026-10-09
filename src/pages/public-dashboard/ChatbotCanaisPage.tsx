@@ -131,6 +131,7 @@ function ConnectionCard({ conn }: { conn: MetaConn }) {
 export function ChatbotCanaisPage() {
   const { auth }       = useClientAuth();
   const organizationId = auth?.organization_id as string | undefined;
+  const clientId       = auth?.id as string | undefined;
 
   const [conns,   setConns]   = useState<MetaConn[]>([]);
   const [loading, setLoading] = useState(true);
@@ -150,7 +151,7 @@ export function ChatbotCanaisPage() {
           "Authorization": `Bearer ${token}`,
           "apikey":        ANON_KEY,
         },
-        body: JSON.stringify({ organization_id: organizationId }),
+        body: JSON.stringify({ organization_id: organizationId, client_id: clientId }),
       });
       const data = await res.json() as { connections?: MetaConn[]; error?: string };
       setConns(data.connections ?? []);
