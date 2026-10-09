@@ -25,7 +25,7 @@ const ROUTE_ROLE_MAP: Record<string, Role> = {
   "/chatbot/canais":                      "admin",
   "/chatbot/agente":                      "manager",
   "/chatbot/conhecimento":                "member",
-  "/meta-review":                         "admin",   // Meta App Review — admin mínimo
+  "/meta-review":                         "admin",
   "/whatsapp":                            "member",
   "/crm":                                 "member",
   "/crm/clientes":                        "member",
@@ -34,6 +34,11 @@ const ROUTE_ROLE_MAP: Record<string, Role> = {
   "/agenda":                              "member",
   "/agenda/configuracoes":                "manager",
   "/agenda/link":                         "member",
+  "/conteudo":                            "member",
+  "/conteudo/aprovacoes":                 "member",
+  "/conteudo/calendario":                 "member",
+  "/conteudo/briefings":                  "member",
+  "/conteudo/entregaveis":                "member",
 };
 
 const ROLE_ORDER: Role[] = ["viewer", "member", "manager", "admin", "owner"];
@@ -155,6 +160,12 @@ function PublicDashboardLayoutInner({ slug }: { slug: string }) {
   // Guard do módulo Chatbot
   const isChatbotRoute = routeSuffix.startsWith("/chatbot/");
   if (isChatbotRoute && auth?.modules_config?.automation_enabled !== true) {
+    return <Navigate to={`/${slug}`} replace />;
+  }
+
+  // Guard do módulo Conteúdo (Content Operations)
+  const isConteudoRoute = routeSuffix === "/conteudo" || routeSuffix.startsWith("/conteudo/");
+  if (isConteudoRoute && auth?.modules_config?.content_ops_enabled !== true) {
     return <Navigate to={`/${slug}`} replace />;
   }
 

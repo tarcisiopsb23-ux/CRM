@@ -57,6 +57,11 @@ export interface ModulesConfig {
    * Quando true, substitui whatsapp_enabled e show_ia_content na sidebar.
    */
   automation_enabled?: boolean;
+  /**
+   * Módulo Gestão de Conteúdo (Content Operations) — Calendário editorial,
+   * aprovação de conteúdos, briefings e entregáveis.
+   */
+  content_ops_enabled?: boolean;
 }
 
 /** Dados do cliente vindos do Banco A (imutáveis durante a sessão) */

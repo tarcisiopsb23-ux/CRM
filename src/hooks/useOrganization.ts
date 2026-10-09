@@ -1,13 +1,21 @@
-import { useAuth } from '@/contexts/AuthContext';
+import { useClientAuth } from "@/hooks/useClientAuth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 
 import { Json } from "@/types/supabase";
 
-/** Returns the current user's organization ID from their profile. */
+/**
+ * Retorna o organization_id do cliente atual.
+ *
+ * O C8 Control autentica via ClientAuthProvider (Banco A por slug), e NÃO via
+ * o AuthProvider do CRM (que nunca é montado neste app). Por isso o
+ * organization_id vem do contexto de auth do cliente. Usar useAuth() do
+ * AuthContext aqui quebra com "useAuth must be used within AuthProvider" em
+ * qualquer página do dashboard público.
+ */
 export function useOrganization() {
-  const { profile } = useAuth();
-  return profile?.organization_id ?? undefined;
+  const { auth } = useClientAuth();
+  return auth?.organization_id ?? undefined;
 }
 
 export function useOrganizationData(organizationId: string | undefined) {

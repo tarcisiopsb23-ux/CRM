@@ -34,7 +34,12 @@ import { GoogleCalendarCallbackPage } from "@/pages/public-dashboard/GoogleCalen
 import BookingPage from "@/pages/BookingPage";
 import { OAuthCallbackPage } from "@/pages/OAuthCallbackPage";
 
-// --- Lazy pages --------------------------------------------------------------
+// ── Módulo Content Operations ────────────────────────────────────────────────
+const ContentPortalIndexPage   = lazy(() => import("@/pages/public-dashboard/content/ContentPortalIndexPage").then(m => ({ default: m.ContentPortalIndexPage })));
+const ContentApprovalsPage     = lazy(() => import("@/pages/public-dashboard/content/ContentApprovalsPage").then(m => ({ default: m.ContentApprovalsPage })));
+const ContentCalendarClientPage = lazy(() => import("@/pages/public-dashboard/content/ContentCalendarClientPage").then(m => ({ default: m.ContentCalendarClientPage })));
+const ContentBriefingsClientPage = lazy(() => import("@/pages/public-dashboard/content/ContentBriefingsPage").then(m => ({ default: m.ContentBriefingsPage })));
+const ContentDeliverablesClientPage = lazy(() => import("@/pages/public-dashboard/content/ContentDeliverablesPage").then(m => ({ default: m.ContentDeliverablesPage })));
 const DashboardGeralPage    = lazy(() => import("@/pages/public-dashboard/DashboardGeralPage").then(m => ({ default: m.DashboardGeralPage })));
 const PerformancePage       = lazy(() => import("@/pages/public-dashboard/PerformancePage").then(m => ({ default: m.PerformancePage })));
 const AtendimentoPage       = lazy(() => import("@/pages/public-dashboard/AtendimentoPage").then(m => ({ default: m.AtendimentoPage })));
@@ -157,6 +162,12 @@ export default function App() {
                 <Route path="chatbot/canais"         element={<Suspense fallback={<PageLoader />}><ChatbotCanaisPage /></Suspense>} />
                 <Route path="chatbot/agente"         element={<Suspense fallback={<PageLoader />}><ChatbotAgentePage /></Suspense>} />
                 <Route path="chatbot/conhecimento"   element={<Suspense fallback={<PageLoader />}><ChatbotConhecimentoPage /></Suspense>} />
+                {/* ── Content Operations ── */}
+                <Route path="conteudo"                    element={<Suspense fallback={<PageLoader />}><ContentPortalIndexPage /></Suspense>} />
+                <Route path="conteudo/aprovacoes"         element={<Suspense fallback={<PageLoader />}><ContentApprovalsPage /></Suspense>} />
+                <Route path="conteudo/calendario"         element={<Suspense fallback={<PageLoader />}><ContentCalendarClientPage /></Suspense>} />
+                <Route path="conteudo/briefings"          element={<Suspense fallback={<PageLoader />}><ContentBriefingsClientPage /></Suspense>} />
+                <Route path="conteudo/entregaveis"        element={<Suspense fallback={<PageLoader />}><ContentDeliverablesClientPage /></Suspense>} />
                 <Route path="configuracoes/usuarios"              element={<Suspense fallback={<PageLoader />}><ConfigUsuariosPage /></Suspense>} />
                 <Route path="configuracoes/integracoes"           element={<Suspense fallback={<PageLoader />}><ConfigIntegracoesPage /></Suspense>} />
                 <Route path="configuracoes/integracoes/testes"    element={<Suspense fallback={<PageLoader />}><TrackingTestPage /></Suspense>} />

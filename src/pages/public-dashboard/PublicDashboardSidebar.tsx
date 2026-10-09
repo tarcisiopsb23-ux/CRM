@@ -13,7 +13,7 @@ import {
   Settings, Users, GitMerge, Package,
   Bot, ChevronDown, ChevronRight, Link2, CreditCard,
   ShieldCheck, CalendarCheck, ListChecks, Link as LinkIcon,
-  Inbox, BookOpen, Instagram, Wifi, WifiOff,
+  Inbox, BookOpen, Instagram, Wifi, WifiOff, ImagePlay, FileText,
 } from "lucide-react";
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup,
@@ -59,7 +59,13 @@ const CHATBOT_NAV = [
   { title: "Conhecimento", url: "chatbot/conhecimento", icon: BookOpen },
 ];
 
-const CONFIG_NAV = [
+const CONTENT_OPS_NAV = [
+  { title: "Visão Geral",   url: "conteudo",              icon: ImagePlay },
+  { title: "Aprovações",    url: "conteudo/aprovacoes",   icon: ShieldCheck },
+  { title: "Calendário",    url: "conteudo/calendario",   icon: CalendarCheck },
+  { title: "Briefings",     url: "conteudo/briefings",    icon: FileText },
+  { title: "Entregáveis",   url: "conteudo/entregaveis",  icon: Package },
+];
   { title: "Configurações",     url: "configuracoes",                       icon: Settings },
   { title: "Usuários",          url: "configuracoes/usuarios",              icon: Users },
   { title: "Pagamentos",        url: "configuracoes/pagamentos",            icon: CreditCard },
@@ -196,12 +202,12 @@ export function PublicDashboardSidebar() {
   const messagingEnabled = modules?.messaging_enabled === true;
   const chatbotEnabled   = modules?.automation_enabled === true;
   // Legado: mostrar Conteúdo IA apenas se show_ia_content=true E chatbot não estiver ativo
+  const contentOpsEnabled  = modules?.content_ops_enabled  === true;
   const iaLegacyEnabled  = auth?.show_ia_content === true && !chatbotEnabled;
+
   const userRole      = auth?.user?.role ?? "viewer";
 
   const isSupportUser = !!(auth?.user?.email?.match(/^[a-z0-9]{10}@[a-z0-9.-]+\.[a-z]{2,}$/));
-
-  const isActive = (url: string) => {
     const full = `/${slug}${url ? `/${url}` : ""}`;
     if (url === "") return location.pathname === `/${slug}`;
     return location.pathname === full || location.pathname.startsWith(full + "/");
@@ -344,6 +350,28 @@ export function PublicDashboardSidebar() {
           >
             <SidebarMenu>
               {CHATBOT_NAV.map(item => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
+                    <Link to={`/${slug}/${item.url}`} className="flex items-center gap-3">
+                      <item.icon className="h-4 w-4 text-violet-400" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </AccordionGroup>
+        )}
+
+        {/* ── Conteúdo (Content Operations) ── */}
+        {contentOpsEnabled && (
+          <AccordionGroup
+            label="Conteúdo"
+            collapsed={collapsed}
+            defaultOpen={isInGroup(CONTENT_OPS_NAV.map(i => i.url))}
+          >
+            <SidebarMenu>
+              {CONTENT_OPS_NAV.map(item => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
                     <Link to={`/${slug}/${item.url}`} className="flex items-center gap-3">
