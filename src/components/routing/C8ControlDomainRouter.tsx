@@ -45,6 +45,9 @@ export function C8ControlDomainRouter() {
     // Já está numa rota /public/dashboard — não redireciona novamente
     if (pathname.startsWith("/public/dashboard")) return;
 
+    // /login no domínio C8 Control → tela de login geral (detecta slug pelo e-mail)
+    if (pathname === "/login") return;
+
     // Extrai o slug do primeiro segmento do path
     // Ex: /cantinho-do-churrasco/login → slug = "cantinho-do-churrasco", rest = "/login"
     const parts = pathname.replace(/^\//, "").split("/");
@@ -52,8 +55,8 @@ export function C8ControlDomainRouter() {
     const rest  = parts.slice(1).join("/");
 
     if (!slug) {
-      // Raiz do domínio sem slug — redireciona para página de apresentação
-      navigate("/c8control-home", { replace: true });
+      // Raiz do domínio sem slug — vai para login geral (detecta slug pelo e-mail)
+      navigate("/login", { replace: true });
       return;
     }
 

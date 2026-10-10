@@ -182,7 +182,13 @@ function App() {
                   <Route path="/public/dashboard/google-calendar-callback" element={<GoogleCalendarCallbackPage />} />
                   <Route path="/vagas/*" element={<PublicVagasRouter />} />
                   {/* ── Rotas internas ── */}
-                  <Route path="/login" element={<LoginPage />} />
+                  <Route path="/login" element={
+                    // No domínio C8 Control → login do cliente (detecta slug pelo e-mail)
+                    // Em outros domínios → login do CRM da agência
+                    typeof window !== "undefined" && window.location.hostname === "app.c8control.com.br"
+                      ? <PublicDashboardLoginPage />
+                      : <LoginPage />
+                  } />
                   <Route path="/complete-registration" element={<CompleteRegistrationPage />} />
                   <Route path="/set-password" element={<SetPasswordPage />} />
                   <Route path="/profile-setup" element={<ProtectedRoute><ProfileSetupPage /></ProtectedRoute>} />
