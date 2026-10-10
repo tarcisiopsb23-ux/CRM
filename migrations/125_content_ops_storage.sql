@@ -57,6 +57,7 @@ END $$;
 DROP POLICY IF EXISTS "content_staging_authenticated_upload" ON storage.objects;
 DROP POLICY IF EXISTS "content_staging_service_role_access"  ON storage.objects;
 DROP POLICY IF EXISTS "content_staging_owner_read"           ON storage.objects;
+DROP POLICY IF EXISTS "content_staging_owner_delete"         ON storage.objects;
 
 -- Usuários autenticados podem fazer upload (INSERT) no bucket
 -- O path deve começar com organization_id do usuário (validado na Edge Function)
