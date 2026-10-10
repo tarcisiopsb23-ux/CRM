@@ -27,6 +27,7 @@ export type ConnectionEnvironment = "production" | "development" | "review";
 export interface MetaConnectionSafe {
   id: string;
   organization_id: string;
+  client_id: string | null;
   created_by: string | null;
   provider: MetaProvider;
   connection_method: ConnectionMethod;
@@ -143,21 +144,25 @@ async function callEdgeFunction<T>(
 
 // ── Hook principal ────────────────────────────────────────────────────────────
 
-export function useMetaConnections(externalOrganizationId?: string) {
+export function useMetaConnections(externalOrganizationId?: string, clientId?: string | null) {
   const hookOrganizationId = useOrganization();
   const organizationId = externalOrganizationId ?? hookOrganizationId;
   const qc = useQueryClient();
 
   // ── Lista de conexões (view segura) ──────────────────────────────────────
   const query = useQuery<MetaConnectionSafe[]>({
-    queryKey: ["meta_connections", organizationId],
+    queryKey: ["meta_connections", organizationId, clientId ?? "all"],
     queryFn: async () => {
       if (!organizationId) return [];
-      const { data, error } = await supabase
+      let q = supabase
         .from("meta_connections_safe")
         .select("*")
         .eq("organization_id", organizationId)
         .order("created_at", { ascending: false });
+      if (clientId) {
+        q = q.or(`client_id.eq.${clientId},client_id.is.null`);
+      }
+      const { data, error } = await q;
       if (error) throw error;
       return (data ?? []) as MetaConnectionSafe[];
     },
@@ -251,7 +256,7 @@ export function useMetaConnections(externalOrganizationId?: string) {
       });
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["meta_connections", organizationId] });
+      qc.invalidateQueries({ queryKey: ["meta_connections", organizationId], exact: false });
     },
   });
 
@@ -270,7 +275,7 @@ export function useMetaConnections(externalOrganizationId?: string) {
       });
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["meta_connections", organizationId] });
+      qc.invalidateQueries({ queryKey: ["meta_connections", organizationId], exact: false });
     },
   });
 
@@ -289,7 +294,7 @@ export function useMetaConnections(externalOrganizationId?: string) {
       });
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["meta_connections", organizationId] });
+      qc.invalidateQueries({ queryKey: ["meta_connections", organizationId], exact: false });
     },
   });
 
@@ -308,7 +313,7 @@ export function useMetaConnections(externalOrganizationId?: string) {
       });
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["meta_connections", organizationId] });
+      qc.invalidateQueries({ queryKey: ["meta_connections", organizationId], exact: false });
     },
   });
 
