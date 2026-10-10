@@ -93,18 +93,21 @@ export function PublicDashboardLoginPage() {
     e.preventDefault();
     setError(null);
 
-    if (!slug?.trim()) {
+    // Quando não há slug na URL (login geral), a EF resolve o slug pelo e-mail
+    if (slug && !slug.trim()) {
       setError("URL inválida.");
       return;
     }
 
-    if (!checkRateLimit(slug)) {
+    const effectiveSlug = slug?.trim() ?? "";
+
+    if (effectiveSlug && !checkRateLimit(effectiveSlug)) {
       setError("Muitas tentativas. Aguarde 15 minutos antes de tentar novamente.");
       return;
     }
 
     setLoading(true);
-    incrementRateLimit(slug);
+    if (effectiveSlug) incrementRateLimit(effectiveSlug);
 
     try {
       // ── Autenticação via Edge Function ──────────────────────────────────────
@@ -118,7 +121,11 @@ export function PublicDashboardLoginPage() {
           "apikey":        anonKey,
           "Authorization": `Bearer ${anonKey}`,
         },
-        body: JSON.stringify({ slug: slug.trim(), email: email.trim().toLowerCase(), password }),
+        body: JSON.stringify({
+          ...(effectiveSlug ? { slug: effectiveSlug } : {}),
+          email: email.trim().toLowerCase(),
+          password,
+        }),
       });
 
       const data = await resp.json();
@@ -142,7 +149,15 @@ export function PublicDashboardLoginPage() {
         return;
       }
 
-      resetRateLimit(slug);
+      resetRateLimit(effectiveSlug);
+
+      // Slug resolvido: usa o da URL ou o retornado pela EF (login sem slug)
+      const resolvedSlug = effectiveSlug || (data.slug as string) || "";
+
+      if (!resolvedSlug) {
+        setError("Não foi possível identificar o cliente. Tente acessar pelo link direto.");
+        return;
+      }
 
       const dynamicUser: DynamicUser = {
         id:        bankAUser.id,
@@ -173,18 +188,18 @@ export function PublicDashboardLoginPage() {
         session: session,
       };
 
-      sessionStorage.setItem(`client_auth_v2_${slug}`, JSON.stringify(auth));
-      localStorage.removeItem(`client_auth_${slug}`);
+      sessionStorage.setItem(`client_auth_v2_${resolvedSlug}`, JSON.stringify(auth));
+      localStorage.removeItem(`client_auth_${resolvedSlug}`);
 
       // Verifica force_password_change (definido pela edge function nos user_metadata)
       if (data.force_password_change) {
         const withFlag = { ...auth, force_password_change: true };
-        sessionStorage.setItem(`client_auth_v2_${slug}`, JSON.stringify(withFlag));
-        navigate(`/public/dashboard/${slug}/set-password`, { replace: true });
+        sessionStorage.setItem(`client_auth_v2_${resolvedSlug}`, JSON.stringify(withFlag));
+        navigate(`/public/dashboard/${resolvedSlug}/set-password`, { replace: true });
         return;
       }
 
-      navigate(`/public/dashboard/${slug}`, { replace: true });
+      navigate(`/public/dashboard/${resolvedSlug}`, { replace: true });
     } catch (err) {
       setError("Erro ao conectar. Tente novamente.");
     } finally {
