@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react";
+﻿import { useMemo, useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { KanbanBoard, LeadDetailsModal, LeadsListView } from "@/components/kanban";
 import { NovoLeadDialog } from "@/components/kanban/NovoLeadDialog";
@@ -35,6 +35,7 @@ import { ListasPage } from "@/pages/ListasPage";
 import { LeadsPendingPage } from "@/pages/LeadsPendingPage";
 import { ClosersPerformancePage } from "@/pages/ClosersPerformancePage";
 import { FormLeadsTab } from "@/components/kanban/FormLeadsTab";
+import { ConversionsTab } from "@/components/tracking/ConversionsTab";
 import { useProposals } from "@/hooks/useProposals";
 import type { Proposal } from "@/types/proposals";
 
@@ -498,6 +499,9 @@ export function LeadsKanbanPage() {
             )}
           </TabsTrigger>
           <TabsTrigger value="performance">Performance Closers</TabsTrigger>
+          <TabsTrigger value="conversoes" className="flex items-center gap-1.5">
+            Conversões C8
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="leads" className="space-y-4">
@@ -783,6 +787,11 @@ export function LeadsKanbanPage() {
         {/* ── Recebidos do Formulário ── */}
         <TabsContent value="formulario">
           <FormLeadsTab />
+        </TabsContent>
+
+        {/* ── Conversões C8 — eventos de pixel rastreados pelo C8 Control ── */}
+        <TabsContent value="conversoes">
+          <ConversionsTab organizationId={organizationId} />
         </TabsContent>
 
       </Tabs>

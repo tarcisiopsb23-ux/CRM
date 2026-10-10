@@ -13,9 +13,10 @@ import { assembleContract } from "@/lib/contracts/assembleContract";
 import { renderContractHtml } from "@/lib/contracts/renderContractHtml";
 import { dispatchWebhook } from "@/lib/webhookDispatcher";
 import { useOrganization } from "@/hooks/useOrganization";
-import type { ContractAssemblyResult, ContractClause, ContractTemplateV2, ClientRepresentativeAssembly } from "@/types/contracts";
+import type { ContractAssemblyResult, ContractClause, ContractTemplateV2, ClientRepresentativeAssembly, ServiceCatalogItem } from "@/types/contracts";
 import type { Client } from "@/types/crm";
 import type { ContractRow } from "@/hooks/useContracts";
+import type { PixKey } from "@/hooks/usePixKeys";
 
 // ---------------------------------------------------------------------------
 // Internal types
@@ -58,6 +59,8 @@ export interface UseContractAssemblyReturn {
   assemblyError: string | null;
   isAssembling: boolean;
   isConfirming: boolean;
+  /** Template resolvido — exposto para o ReviewModal montar o preview com timbrado/margens */
+  template: ContractTemplateV2 | null | undefined;
 
   // Actions
   openReviewModal: () => Promise<void>;
@@ -96,11 +99,21 @@ export function useContractAssembly(
 
   // ── Data loading ──────────────────────────────────────────────────────────
 
-  // Contract (with metadata)
+  // Contract (with metadata) — busca em contracts_v2 primeiro, depois contracts legado
   const { data: contract } = useQuery<ContractWithMeta | null>({
     queryKey: ["contract-assembly", "contract", contractId],
     queryFn: async (): Promise<ContractWithMeta | null> => {
       if (!contractId) return null;
+
+      // Tenta contracts_v2 primeiro
+      const { data: v2, error: v2Err } = await sb()
+        .from("contracts_v2")
+        .select("*")
+        .eq("id", contractId)
+        .maybeSingle();
+      if (!v2Err && v2) return v2 as unknown as ContractWithMeta;
+
+      // Fallback para contracts legado
       const { data, error } = await sb()
         .from("contracts")
         .select("*")
@@ -158,6 +171,60 @@ export function useContractAssembly(
         .order("display_order", { ascending: true });
       if (error) throw error;
       return (data ?? []) as unknown as ContractClause[];
+    },
+    enabled: !!organizationId,
+  });
+
+  // Payment schedule — linhas do cronograma para {{cronograma_pagamento}}
+  const { data: paymentSchedule } = useQuery<Array<{
+    line_type: string; period_label: string; due_date: string | null;
+    amount: number; month_to: number | null;
+  }>>({
+    queryKey: ["contract-assembly", "schedule", contractId],
+    queryFn: async () => {
+      if (!contractId) return [];
+      const { data, error } = await sb()
+        .from("contract_payment_schedule")
+        .select("line_type, period_label, due_date, amount, month_to")
+        .eq("contract_id", contractId)
+        .order("line_order", { ascending: true });
+      if (error) return [];
+      return (data ?? []) as Array<{
+        line_type: string; period_label: string; due_date: string | null;
+        amount: number; month_to: number | null;
+      }>;
+    },
+    enabled: !!contractId,
+  });
+
+  // Service catalog — enriches {{servicos}} with modality, scope and deliverable details.
+  // Keyed by slug (matches how service_id is stored in metadata.services).
+  const { data: catalogItems } = useQuery<ServiceCatalogItem[]>({
+    queryKey: ["contract-assembly", "catalog", organizationId],
+    queryFn: async () => {
+      if (!organizationId) return [];
+      const { data, error } = await sb()
+        .from("service_catalog")
+        .select("*")
+        .eq("organization_id", organizationId);
+      if (error) return [];
+      return (data ?? []) as unknown as ServiceCatalogItem[];
+    },
+    enabled: !!organizationId,
+  });
+
+  // PIX keys — resolve contract.chave_pix (UUID) to the key_value string
+  const { data: pixKeys } = useQuery<PixKey[]>({
+    queryKey: ["contract-assembly", "pix_keys", organizationId],
+    queryFn: async () => {
+      if (!organizationId) return [];
+      const { data, error } = await sb()
+        .from("pix_keys")
+        .select("*")
+        .eq("organization_id", organizationId)
+        .eq("is_active", true);
+      if (error) return [];
+      return (data ?? []) as unknown as PixKey[];
     },
     enabled: !!organizationId,
   });
@@ -241,17 +308,37 @@ export function useContractAssembly(
         due_day:                  cr.due_day as number | null | undefined,
         recurring_payment_method: cr.recurring_payment_method as string | null | undefined,
         chave_pix:                cr.chave_pix as string | null | undefined,
+        payment_schedule:         paymentSchedule ?? [],
+        // Resolve chave_pix: if stored value is a UUID matching a pix_key, use its key_value
+        chave_pix: (() => {
+          const stored = cr.chave_pix as string | null | undefined;
+          if (!stored) {
+            // fallback: use default pix key for the org
+            const def = (pixKeys ?? []).find(k => k.is_default) ?? (pixKeys ?? [])[0];
+            if (!def) return null;
+            return def.holder_name
+              ? `${def.key_value} – ${def.holder_name}`
+              : def.key_value;
+          }
+          const match = (pixKeys ?? []).find(k => k.id === stored);
+          if (match) {
+            return match.holder_name
+              ? `${match.key_value} – ${match.holder_name}`
+              : match.key_value;
+          }
+          return stored; // legacy literal value
+        })(),
         metadata: {
           ...((contract as ContractWithMeta).metadata ?? {}),
-          // Pass catalogItems snapshot so buildScopeString can enrich {{servicos}}
-          catalogItems: (contract as ContractWithMeta).metadata?.catalogItems ?? [],
+          // Pass catalogItems from DB so buildScopeString can enrich {{servicos}}
+          catalogItems: catalogItems ?? [],
         },
       },
       clauses ?? [],
       template,
       assemblyClient
     );
-  }, [contract, client, clauses, template, representatives]);
+  }, [contract, client, clauses, template, representatives, paymentSchedule, catalogItems, pixKeys]);
 
   // ── openReviewModal ────────────────────────────────────────────────────────
 
@@ -260,19 +347,23 @@ export function useContractAssembly(
     setIsAssembling(true);
 
     try {
-      // Aguarda até os dados estarem disponíveis (até 5 tentativas com 300ms de intervalo)
+      // Aguarda até os dados estarem disponíveis (até 8 tentativas com 500ms de intervalo)
       let result;
       let attempts = 0;
-      while (attempts < 5) {
+      while (attempts < 8) {
         try {
           result = assemble();
           break;
         } catch (err) {
           const msg = err instanceof Error ? err.message : '';
-          // Só retenta se for erro de dados não carregados
-          if ((msg.includes('não carregado') || msg.includes('not loaded')) && attempts < 4) {
+          // Só retenta se for erro de dados não carregados ou template/client não carregado
+          const isLoadingError = msg.includes('não carregado')
+            || msg.includes('not loaded')
+            || msg.includes('template padrão')
+            || msg.includes('Nenhum template');
+          if (isLoadingError && attempts < 7) {
             attempts++;
-            await new Promise(res => setTimeout(res, 400));
+            await new Promise(res => setTimeout(res, 500));
             continue;
           }
           throw err;
@@ -287,21 +378,25 @@ export function useContractAssembly(
         );
       }
 
-      // Seed clauseEdits from previously persisted edits in metadata
-      const persistedEdits =
-        (contract?.metadata?.clause_edits as Record<string, string> | undefined) ?? {};
-
+      // Sem edits — renderiza direto
+      const html = renderContractHtml(result, {});
       setAssembledResult(result);
-      setClauseEdits(persistedEdits);
-
-      // Build initial rendered HTML with any already-saved edits
-      const html = renderContractHtml(result, persistedEdits);
       setAssembledHtml(html);
       setIsOpen(true);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Erro desconhecido ao montar o contrato.";
+      console.error("[useContractAssembly] openReviewModal error:", message, {
+        contractId,
+        hasContract: !!contract,
+        hasClient: !!client,
+        hasTemplate: !!template,
+        hasClauses: !!(clauses?.length),
+        organizationId,
+        contractClientId: contract?.client_id,
+      });
       setAssemblyError(message);
+      toast.error(message);
     } finally {
       setIsAssembling(false);
     }
@@ -313,7 +408,6 @@ export function useContractAssembly(
     setIsOpen(false);
     setAssembledResult(null);
     setAssembledHtml(null);
-    setClauseEdits({});
     setAssemblyError(null);
   }, []);
 
@@ -333,25 +427,27 @@ export function useContractAssembly(
       const updatedHtml = renderContractHtml(assembledResult, nextEdits);
       setAssembledHtml(updatedHtml);
 
-      // Persist the edit snapshot to metadata.clause_edits
+      // Persist the edit snapshot — tenta contracts_v2 primeiro, fallback para contracts
       const currentMeta = (contract?.metadata ?? {}) as Record<string, unknown>;
-      const nextMeta = {
-        ...currentMeta,
-        clause_edits: nextEdits,
-      };
+      const nextMeta = { ...currentMeta, clause_edits: nextEdits };
 
-      const { error } = await sb()
-        .from("contracts")
+      const { error: v2Err } = await sb()
+        .from("contracts_v2")
         .update({ metadata: nextMeta })
         .eq("id", contractId);
 
-      if (error) {
-        // Non-fatal — the local state is already updated
-        console.warn("[useContractAssembly] Failed to persist clause_edits:", error.message);
-      } else {
-        // Keep the cached contract in sync
-        qc.invalidateQueries({ queryKey: ["contract-assembly", "contract", contractId] });
+      if (v2Err) {
+        // Fallback para contracts legado
+        const { error } = await sb()
+          .from("contracts")
+          .update({ metadata: nextMeta })
+          .eq("id", contractId);
+        if (error) {
+          console.warn("[useContractAssembly] Failed to persist clause_edits:", error.message);
+        }
       }
+
+      qc.invalidateQueries({ queryKey: ["contract-assembly", "contract", contractId] });
     },
     [contractId, contract, assembledResult, clauseEdits, qc]
   );
@@ -370,26 +466,39 @@ export function useContractAssembly(
     try {
       const finalHtml = renderContractHtml(assembledResult, clauseEdits);
 
-      // Dispatch webhook (fire-and-forget — dispatchWebhook handles errors internally)
+      // Dispatch webhook (fire-and-forget)
       void dispatchWebhook(organizationId, "contract.generated", {
         contract_id: contractId,
         client_id: contract?.client_id,
         html: finalHtml,
-        clause_edits: clauseEdits,
         generated_at: new Date().toISOString(),
       });
 
-      // Register generated_at timestamp
-      const { error } = await sb()
-        .from("contracts")
-        .update({ generated_at: new Date().toISOString() })
+      const generatedAt = new Date().toISOString();
+
+      // Tenta salvar em contracts_v2 primeiro (html_content + status emitido)
+      const { error: v2Err } = await sb()
+        .from("contracts_v2")
+        .update({
+          html_content: finalHtml,
+          status:       "emitido",
+          emitted_at:   generatedAt,
+        })
         .eq("id", contractId);
 
-      if (error) throw error;
+      // Se não era contracts_v2, salva em contracts legado
+      if (v2Err) {
+        const { error: legacyErr } = await sb()
+          .from("contracts")
+          .update({ generated_at: generatedAt })
+          .eq("id", contractId);
+        if (legacyErr) throw legacyErr;
+      }
 
-      // Invalidate any caches that show generated_at
+      // Invalidate caches
       if (contract?.client_id) {
         qc.invalidateQueries({ queryKey: ["contracts", organizationId, contract.client_id] });
+        qc.invalidateQueries({ queryKey: ["contracts_v2", organizationId, contract.client_id] });
         qc.invalidateQueries({ queryKey: ["contracts_with_c8", organizationId, contract.client_id] });
       }
       qc.invalidateQueries({ queryKey: ["contract-assembly", "contract", contractId] });
@@ -424,6 +533,7 @@ export function useContractAssembly(
     assemblyError,
     isAssembling,
     isConfirming,
+    template,
     openReviewModal,
     openReview: openReviewModal,
     closeReviewModal,

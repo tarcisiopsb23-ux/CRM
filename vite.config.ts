@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 
@@ -6,6 +6,15 @@ export default defineConfig({
   server: {
     host: "::",
     port: 8080,
+    hmr: { overlay: false },
+    proxy: {
+      // Proxy para evitar CORS em desenvolvimento local com o n8n
+      "/n8n-proxy": {
+        target: process.env.VITE_N8N_BASE_URL || "https://ia-n8n.whlwlh.easypanel.host",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/n8n-proxy/, ""),
+      },
+    },
   },
   plugins: [react()],
   resolve: {
@@ -14,36 +23,37 @@ export default defineConfig({
     },
   },
   build: {
+    chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {
         manualChunks: {
-          // Supabase isolado — carregado cedo mas separado do app
+          // React core
+          "vendor-react": ["react", "react-dom", "react-router-dom"],
+          // Supabase
           "vendor-supabase": ["@supabase/supabase-js"],
-          // Recharts só carrega quando o usuário abre a aba Performance
+          // React Query
+          "vendor-query": ["@tanstack/react-query"],
+          // Charts (recharts é pesado)
           "vendor-charts": ["recharts"],
-          // Radix UI / shadcn components
+          // UI components (radix)
           "vendor-ui": [
             "@radix-ui/react-dialog",
             "@radix-ui/react-dropdown-menu",
             "@radix-ui/react-select",
+            "@radix-ui/react-tabs",
             "@radix-ui/react-tooltip",
+            "@radix-ui/react-popover",
+            "@radix-ui/react-switch",
+            "@radix-ui/react-checkbox",
             "@radix-ui/react-label",
+            "@radix-ui/react-slot",
           ],
-          // date-fns é grande — chunk separado
-          "vendor-dates": ["date-fns"],
-          // DnD kit para o kanban
-          "vendor-dnd": ["@dnd-kit/core", "@dnd-kit/sortable", "@dnd-kit/utilities"],
-          // React Query
-          "vendor-query": ["@tanstack/react-query"],
+          // Date utilities
+          "vendor-date": ["date-fns"],
+          // Icons
+          "vendor-icons": ["lucide-react"],
         },
       },
     },
-    // Aumentar limite de aviso para 600KB (chunks individuais serão menores)
-    chunkSizeWarningLimit: 600,
-  },
-  test: {
-    environment: "jsdom",
-    globals: true,
-    setupFiles: ["./src/test-setup.ts"],
   },
 });

@@ -59,12 +59,21 @@ const emptyForm = (today: string): ResultForm => ({
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface Props {
+  /** ID do contrato legado (contracts) */
   contractId: string;
+  /** ID do contrato v2 — quando presente, o hook usará contract_v2_id */
+  contractV2Id?: string;
   clientId: string;
   commissionPct: number;
+  /** Tipo de comissão: percentual ou valor fixo por resultado */
+  commissionType?: "percent_value" | "fixed_per_unit";
+  /** Valor fixo por resultado (fixed_per_unit) */
+  commissionRateFixed?: number;
+  /** Texto descritivo do que é um "resultado" */
+  commissionDescription?: string;
   resultType: VariableResultType;
   recurringDueDate?: string;
-  revenueBaseline?: number | null;  // média calculada pelo useDynamicRevenue
+  revenueBaseline?: number | null;
   disabled?: boolean;
 }
 
@@ -81,8 +90,12 @@ function fmtMonth(iso: string) {
 
 export function VariableResultsPanel({
   contractId,
+  contractV2Id,
   clientId,
   commissionPct,
+  commissionType = "percent_value",
+  commissionRateFixed,
+  commissionDescription,
   resultType,
   recurringDueDate,
   revenueBaseline,
@@ -95,7 +108,7 @@ export function VariableResultsPanel({
     saveResult,
     generatePayment,
     removeResult,
-  } = useContractVariableResults(contractId);
+  } = useContractVariableResults(contractId, contractV2Id);
 
   const [editing, setEditing] = useState<ResultForm | null>(null);
   const [saving, setSaving]   = useState(false);
@@ -103,6 +116,10 @@ export function VariableResultsPanel({
 
   // ── Cálculo de preview ──────────────────────────────────────────────────────
   const previewCommission = (form: ResultForm): number => {
+    if (commissionType === "fixed_per_unit") {
+      const qty = form.individual_contracts.length;
+      return Math.round(qty * (commissionRateFixed ?? 0) * 100) / 100;
+    }
     if (resultType === "contrato_individual") {
       const total = form.individual_contracts.reduce((s, c) => s + (c.value || 0), 0);
       return Math.round(total * commissionPct / 100 * 100) / 100;
@@ -133,10 +150,14 @@ export function VariableResultsPanel({
       const input: SaveVariableResultInput = {
         id: editing.id,
         contract_id: contractId,
+        contract_v2_id: contractV2Id,
         client_id: clientId,
         reference_month: referenceMonth,
         result_type: resultType,
         commission_pct: commissionPct,
+        commission_type: commissionType,
+        commission_rate_fixed: commissionRateFixed,
+        commission_description: commissionDescription,
         recurring_due_date: recurringDueDate,
         notes: editing.notes || undefined,
         ...(resultType === "contrato_individual"
@@ -201,10 +222,14 @@ export function VariableResultsPanel({
             }
           </p>
           <p className="text-[11px] text-muted-foreground mt-0.5">
-            Comissão de {commissionPct}% sobre{" "}
-            {resultType === "contrato_individual"
-              ? "o valor dos contratos fechados"
-              : "o incremento acima da média de faturamento"}
+            {commissionType === "fixed_per_unit"
+              ? `${fmt(commissionRateFixed ?? 0)} por ${commissionDescription || "resultado"}`
+              : `Comissão de ${commissionPct}% sobre ${
+                  resultType === "contrato_individual"
+                    ? (commissionDescription ? `valor dos ${commissionDescription}s fechados` : "o valor dos contratos fechados")
+                    : "o incremento acima da média de faturamento"
+                }`
+            }
           </p>
         </div>
         <Button
@@ -340,7 +365,7 @@ export function VariableResultsPanel({
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 text-base">
                 {resultType === "contrato_individual"
-                  ? <><FileText className="h-4 w-4 text-blue-500" /> Registrar contratos do mês</>
+                  ? <><FileText className="h-4 w-4 text-blue-500" /> Registrar {commissionDescription || "contratos"} do mês</>
                   : <><TrendingUp className="h-4 w-4 text-green-500" /> Registrar faturamento do mês</>
                 }
               </DialogTitle>
@@ -361,7 +386,7 @@ export function VariableResultsPanel({
               {/* Contrato individual */}
               {resultType === "contrato_individual" && (
                 <div className="space-y-2">
-                  <Label>Contratos fechados <span className="text-red-500">*</span></Label>
+                  <Label>{commissionDescription ? `${commissionDescription}s registrados` : "Contratos fechados"} <span className="text-red-500">*</span></Label>
                   {editing.individual_contracts.map((c, i) => (
                     <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
                       <div className="space-y-1">
@@ -380,7 +405,7 @@ export function VariableResultsPanel({
                         <CurrencyInput
                           value={c.value === 0 ? "" : String(c.value)}
                           placeholder="R$ 0,00"
-                          onChange={v => {
+                          onValueChange={v => {
                             const updated = [...editing.individual_contracts];
                             updated[i] = { ...updated[i], value: v ? Number(v) : 0 };
                             setEditing(p => p ? { ...p, individual_contracts: updated } : p);
@@ -421,7 +446,7 @@ export function VariableResultsPanel({
                     <CurrencyInput
                       value={editing.total_result_global}
                       placeholder="R$ 0,00"
-                      onChange={v => setEditing(p => p ? { ...p, total_result_global: v } : p)}
+                      onValueChange={v => setEditing(p => p ? { ...p, total_result_global: v } : p)}
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -436,7 +461,7 @@ export function VariableResultsPanel({
                     <CurrencyInput
                       value={editing.revenue_baseline || (revenueBaseline ? String(revenueBaseline) : "")}
                       placeholder={revenueBaseline ? fmt(revenueBaseline) : "R$ 0,00"}
-                      onChange={v => setEditing(p => p ? { ...p, revenue_baseline: v } : p)}
+                      onValueChange={v => setEditing(p => p ? { ...p, revenue_baseline: v } : p)}
                     />
                     <p className="text-[10px] text-muted-foreground">
                       Pré-preenchido com a média calculada. Edite se necessário.
@@ -450,7 +475,13 @@ export function VariableResultsPanel({
                 <div className="rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-sm">
                   <span className="text-muted-foreground">Comissão apurada: </span>
                   <strong className="text-blue-700">{fmt(commission)}</strong>
-                  <span className="text-[11px] text-muted-foreground ml-2">({commissionPct}%)</span>
+                  {commissionType === "fixed_per_unit" ? (
+                    <span className="text-[11px] text-muted-foreground ml-2">
+                      ({editing?.individual_contracts.length ?? 0} resultado(s) × {fmt(commissionRateFixed ?? 0)})
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-muted-foreground ml-2">({commissionPct}%)</span>
+                  )}
                 </div>
               )}
 

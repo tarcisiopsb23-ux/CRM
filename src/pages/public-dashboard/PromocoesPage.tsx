@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,8 +55,7 @@ const defaultForm: FormState = {
 export function PromocoesPage() {
   const dc = useDynamicClient();
   const queryClient = useQueryClient();
-  const { auth } = useClientAuth();
-  const clientId = auth?.user?.client_id ?? "";
+  useClientAuth(); // ensure context is available
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<AiPromotion | null>(null);
@@ -67,13 +66,11 @@ export function PromocoesPage() {
 
   // ── Query ──────────────────────────────────────────────────────────────────
   const { data: items = [], isLoading } = useQuery({
-    queryKey: ["ai_promotions", clientId],
-    enabled: !!clientId,
+    queryKey: ["ai_promotions"],
     queryFn: async () => {
       const { data, error } = await dc
-        .from("client_ai_promotions")
+        .from("ai_promotions")
         .select("*")
-        .eq("client_id", clientId)
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as AiPromotion[];
@@ -84,37 +81,43 @@ export function PromocoesPage() {
   // ── Mutations ──────────────────────────────────────────────────────────────
   const createMutation = useMutation({
     mutationFn: async (payload: Omit<AiPromotion, "id" | "created_at">) => {
-      const { error } = await dc.from("client_ai_promotions").insert({ ...payload, client_id: clientId });
+      const { error } = await dc.from("ai_promotions").insert(payload);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_promotions", clientId] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_promotions"] }),
     onError: (e: any) => toast.error(e.message),
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, payload }: { id: string; payload: Partial<Omit<AiPromotion, "id" | "created_at">> }) => {
-      const { error } = await dc.from("client_ai_promotions").update(payload).eq("id", id).eq("client_id", clientId);
+    mutationFn: async ({
+      id,
+      payload,
+    }: {
+      id: string;
+      payload: Partial<Omit<AiPromotion, "id" | "created_at">>;
+    }) => {
+      const { error } = await dc.from("ai_promotions").update(payload).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_promotions", clientId] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_promotions"] }),
     onError: (e: any) => toast.error(e.message),
   });
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await dc.from("client_ai_promotions").delete().eq("id", id).eq("client_id", clientId);
+      const { error } = await dc.from("ai_promotions").delete().eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_promotions", clientId] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_promotions"] }),
     onError: (e: any) => toast.error(e.message),
   });
 
   const toggleStatusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: "active" | "inactive" }) => {
-      const { error } = await dc.from("client_ai_promotions").update({ status }).eq("id", id).eq("client_id", clientId);
+      const { error } = await dc.from("ai_promotions").update({ status }).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_promotions", clientId] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_promotions"] }),
     onError: (e: any) => toast.error(e.message),
   });
 

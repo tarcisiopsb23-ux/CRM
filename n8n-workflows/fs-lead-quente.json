@@ -1,0 +1,251 @@
+{
+  "name": "⚠️ DEPRECADO — FS — Lead Quente (Formulário Site)",
+  "nodes": [
+
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "FS_Lead_Quente",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook — Receber Lead Quente",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "FS_Lead_Quente",
+      "notes": "Recebe leads QUENTE, MORNO e ULTRA_QUENTE do formulário /form.\nresponderMode=onReceived → responde 200 imediatamente, processa em background.\nURL teste:    https://ia-n8n.whlwlh.easypanel.host/webhook-test/FS_Lead_Quente\nURL produção: https://ia-n8n.whlwlh.easypanel.host/webhook/FS_Lead_Quente"
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body ?? $input.first().json;\n\n// Valida token\nconst token = $input.first().json.headers?.['x-webhook-token']\n           ?? $input.first().json.headers?.['X-Webhook-Token'] ?? '';\nconst expectedToken = $env.WEBHOOK_TOKEN ?? '';\nif (expectedToken && token !== expectedToken) {\n  throw new Error('Token inválido');\n}\nif (!body.nome || !body.whatsapp) {\n  throw new Error('Campos obrigatórios ausentes: nome, whatsapp');\n}\n\n// Remove máscara do WhatsApp\nconst whatsappRaw = String(body.whatsapp).replace(/\\D/g, '');\n\n// Mapeia score → temperature (0-3) e prioridade\nconst score = body.score ?? 0;\nlet temperature = 1;\nlet prioridade  = 'media';\nif (score >= 15) { temperature = 3; prioridade = 'urgente'; }\nelse if (score >= 10) { temperature = 2; prioridade = 'alta'; }\nelse if (score >= 6)  { temperature = 1; prioridade = 'media'; }\n\nreturn [{ json: {\n  nome:          body.nome ?? '',\n  whatsapp:      whatsappRaw,\n  email:         body.email ?? '',\n  classificacao: body.classificacao ?? 'QUENTE',\n  score,\n  temperature,\n  prioridade,\n  segmento:      body.segmento ?? '',\n  fase:          body.fase ?? '',\n  faturamento:   body.faturamento ?? '',\n  dor:           body.dor ?? '',\n  aquisicao:     body.aquisicao ?? '',\n  orcamento:     body.orcamento ?? '',\n  prazo:         body.prazo ?? '',\n  experiencia:   body.experiencia ?? '',\n  texto_livre:   body.texto_livre ?? '',\n  utm_source:    body.utm_source ?? '',\n  utm_medium:    body.utm_medium ?? '',\n  utm_campaign:  body.utm_campaign ?? '',\n  recebido_em:   body.data ?? new Date().toISOString(),\n} }];"
+      },
+      "id": "validar-payload",
+      "name": "Validar e Normalizar Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "notes": "Calcula temperature (0-3) e prioridade automaticamente pelo score:\n  score >= 15 → temperature=3, prioridade=urgente  (ULTRA_QUENTE)\n  score >= 10 → temperature=2, prioridade=alta     (QUENTE)\n  score >= 6  → temperature=1, prioridade=media    (MORNO)"
+    },
+
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/leads",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "organization_id", "value": "=eq.{{ $env.C8_ORGANIZATION_ID }}" },
+            { "name": "phone",           "value": "=eq.{{ $json.whatsapp }}" },
+            { "name": "select",          "value": "id,name,phone,etapa_kanban,classificacao_lead,score_qualificacao,created_at" },
+            { "name": "limit",           "value": "1" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "neverError": true } }
+        }
+      },
+      "id": "verificar-duplicado",
+      "name": "Verificar Lead Duplicado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "notes": "Busca na tabela leads pelo WhatsApp (apenas dígitos).\nSe encontrar um registro existente, o fluxo atualiza ao invés de inserir."
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const lead      = $('Validar e Normalizar Payload').first().json;\nconst resultado = $input.first().json;\n\n// Supabase retorna array — se tiver um item, o lead já existe\nconst existing = Array.isArray(resultado) ? resultado[0] : null;\n\nreturn [{ json: {\n  ...lead,\n  lead_existente:  !!existing,\n  lead_id_existente: existing?.id ?? null,\n  etapa_existente:   existing?.etapa_kanban ?? null,\n} }];"
+      },
+      "id": "avaliar-duplicado",
+      "name": "Avaliar Duplicado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+
+    {
+      "parameters": {
+        "prompt": "=Você é um especialista comercial da Agência C8, uma agência de marketing digital e gestão para pequenas e médias empresas.\n\nA C8 trabalha com os seguintes serviços:\n- Assessoria: acompanhamento estratégico contínuo para organizar, estruturar e escalar o negócio\n- Consultoria: diagnóstico aprofundado e plano de ação personalizado\n- Site & Landing Page: presença digital focada em conversão\n- Automação & IA: agentes virtuais e fluxos de atendimento 24h\n- CRM: gestão de relacionamento, pipeline de vendas e follow-up automatizado\n- Lançamentos: estratégia e execução completa de lançamentos digitais\n\nMetodologia da C8:\n- Diagnóstico → Organização da base → Ativação → Ajustes e crescimento\n- Quick wins em 30-45 dias, aumento consistente em 60-90 dias\n- Foco em sistema: não é só tráfego, é processo completo\n\nPerfil de cliente ideal:\n- Faturamento a partir de R$15k/mês com disposição para investir\n- Negócio rodando mas desorganizado ou estagnado\n- Quer crescimento previsível, não aposta\n\nGere um briefing de abordagem DIRETO E PRÁTICO para o vendedor com:\n1. Resumo do perfil em 2 frases\n2. Principal dor identificada e contexto real\n3. Urgência percebida (interprete o texto livre se houver)\n4. Qual serviço da C8 tem mais fit com esse perfil e por quê\n5. Ângulo de abertura recomendado para a primeira mensagem\n6. Principal objeção provável e como neutralizá-la\n\nDados do lead:\n- Nome: {{ $json.nome }}\n- Segmento: {{ $json.segmento }}\n- Fase do negócio: {{ $json.fase }}\n- Faturamento: {{ $json.faturamento }}\n- Principal dor: {{ $json.dor }}\n- Aquisição atual: {{ $json.aquisicao }}\n- Orçamento: {{ $json.orcamento }}\n- Prazo para decidir: {{ $json.prazo }}\n- Experiência com agência: {{ $json.experiencia }}\n- Score de qualificação: {{ $json.score }}/17\n- Classificação: {{ $json.classificacao }}\n- Canal de origem: {{ $json.utm_source }}{{ $json.utm_campaign ? ' / campanha: ' + $json.utm_campaign : '' }}\n{{ $json.texto_livre ? '- Contexto (próprias palavras): \"' + $json.texto_livre + '\"' : '' }}\n\nMáximo 250 palavras. Seja direto — o vendedor vai ler isso antes de enviar a primeira mensagem.",
+        "options": {
+          "model": "gpt-4o-mini",
+          "temperature": 0.4
+        }
+      },
+      "id": "ai-agent-briefing",
+      "name": "AI Agent — Gerar Briefing",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [1120, 300],
+      "credentials": {
+        "openAiApi": {
+          "name": "OpenAI account"
+        }
+      },
+      "notes": "Gera briefing enriquecido com contexto da C8 embutido no system prompt.\nModelo: gpt-4o-mini — equilibra qualidade e custo de token.\nTemperature 0.4 — respostas consistentes mas com variação natural.\nSem tools externas — contexto da C8 está no prompt."
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const lead      = $('Avaliar Duplicado').first().json;\nconst aiOutput  = $input.first().json;\n\n// Extrai o texto gerado — compatível com resposta direta do LLM node\nlet briefing = '';\ntry {\n  briefing = aiOutput?.text\n          ?? aiOutput?.choices?.[0]?.message?.content\n          ?? aiOutput?.message?.content\n          ?? String(aiOutput ?? '');\n} catch (e) {\n  briefing = '';\n}\n\nreturn [{ json: { ...lead, briefing_ia: briefing.trim() } }];"
+      },
+      "id": "extrair-briefing",
+      "name": "Extrair Briefing",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false },
+          "conditions": [
+            {
+              "leftValue":  "={{ $json.lead_existente }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ]
+        }
+      },
+      "id": "if-duplicado",
+      "name": "Lead já existe?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1560, 300],
+      "notes": "true  → Atualiza o lead existente com novo score, briefing e classificação\nfalse → Insere um novo lead"
+    },
+
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/leads?id=eq.{{ $json.lead_id_existente }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  score_qualificacao: $json.score,\n  classificacao_lead: $json.classificacao,\n  briefing_ia:        $json.briefing_ia,\n  temperature:        $json.temperature,\n  prioridade:         $json.prioridade,\n  utm_source:         $json.utm_source || null,\n  utm_medium:         $json.utm_medium || null,\n  utm_campaign:       $json.utm_campaign || null,\n  form_respostas: {\n    segmento:    $json.segmento,\n    fase:        $json.fase,\n    faturamento: $json.faturamento,\n    dor:         $json.dor,\n    aquisicao:   $json.aquisicao,\n    orcamento:   $json.orcamento,\n    prazo:       $json.prazo,\n    experiencia: $json.experiencia,\n    texto_livre: $json.texto_livre\n  }\n}) }}",
+        "options": {
+          "response": { "response": { "neverError": true } }
+        }
+      },
+      "id": "atualizar-lead",
+      "name": "Atualizar Lead Existente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 180],
+      "notes": "Lead já existe — atualiza score, briefing, temperature e prioridade.\nNão altera etapa_kanban para não interferir no trabalho do vendedor."
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/leads",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  organization_id:    $env.C8_ORGANIZATION_ID,\n  name:               $json.nome,\n  company:            $json.nome,\n  phone:              $json.whatsapp,\n  email:              $json.email || null,\n  nicho:              $json.segmento || null,\n  source:             $json.utm_source ? ('formulario/' + $json.utm_source) : 'formulario',\n  etapa_kanban:       'formulario',\n  stage_id:           'formulario',\n  prioridade:         $json.prioridade,\n  temperature:        $json.temperature,\n  score_qualificacao: $json.score,\n  classificacao_lead: $json.classificacao,\n  briefing_ia:        $json.briefing_ia || null,\n  utm_source:         $json.utm_source || null,\n  utm_medium:         $json.utm_medium || null,\n  utm_campaign:       $json.utm_campaign || null,\n  form_respostas: {\n    segmento:    $json.segmento,\n    fase:        $json.fase,\n    faturamento: $json.faturamento,\n    dor:         $json.dor,\n    aquisicao:   $json.aquisicao,\n    orcamento:   $json.orcamento,\n    prazo:       $json.prazo,\n    experiencia: $json.experiencia,\n    texto_livre: $json.texto_livre\n  },\n  metadata: { recebido_em: $json.recebido_em }\n}) }}",
+        "options": {
+          "response": { "response": { "neverError": true } }
+        }
+      },
+      "id": "inserir-lead",
+      "name": "Inserir Novo Lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 420],
+      "notes": "Lead novo — insere na tabela leads com todos os campos.\netapa_kanban='formulario' → aparece na aba 'Recebidos do Formulário'.\ntemperature e prioridade já calculados pelo score."
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const result = $input.first().json;\nconst lead   = $('Extrair Briefing').first().json;\n\nconst inserted = Array.isArray(result) ? result[0] : result;\nconst leadId   = inserted?.id ?? lead.lead_id_existente ?? null;\n\nif (!leadId) {\n  console.error('Nenhum lead_id disponível:', JSON.stringify(result));\n  return [];\n}\n\nconst acao = lead.lead_existente ? 'atualizado' : 'inserido';\nconsole.log(`Lead ${acao}: ${leadId} — ${lead.nome} (${lead.classificacao}, score ${lead.score}, temperature ${lead.temperature})`);\nreturn [{ json: { lead_id: leadId, lead } }];"
+      },
+      "id": "consolidar-resultado",
+      "name": "Consolidar Resultado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 300],
+      "notes": "Unifica o caminho de insert e update num único nó.\nRetorna [] se nenhum lead_id disponível — interrompe sem notificação."
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/notifications",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  organization_id: $env.C8_ORGANIZATION_ID,\n  user_id:         null,\n  type:            $json.lead.classificacao === 'ULTRA_QUENTE' ? 'lead_ultra_quente'\n                   : $json.lead.classificacao === 'QUENTE'      ? 'lead_quente'\n                   : 'lead_morno',\n  title:           ($json.lead.classificacao === 'ULTRA_QUENTE' ? '🔥🔥 Ultra Quente'\n                    : $json.lead.classificacao === 'QUENTE'      ? '🔥 Lead Quente'\n                    : '🌡️ Lead Morno')\n                   + ' — ' + $json.lead.nome\n                   + ($json.lead.lead_existente ? ' (atualizado)' : ''),\n  body:            $json.lead.segmento\n                   + ' · ' + $json.lead.faturamento\n                   + ' · Score ' + $json.lead.score + '/17'\n                   + ' · ' + ['🔥','🔥🔥','🔥🔥🔥'][$json.lead.temperature - 1]\n                   + ($json.lead.prazo ? ' · ' + $json.lead.prazo : ''),\n  action_url:      '/kanban?tab=formulario',\n  metadata: {\n    lead_id:        $json.lead_id,\n    score:          $json.lead.score,\n    temperature:    $json.lead.temperature,\n    classificacao:  $json.lead.classificacao,\n    segmento:       $json.lead.segmento,\n    faturamento:    $json.lead.faturamento,\n    lead_existente: $json.lead.lead_existente,\n    utm_source:     $json.lead.utm_source\n  }\n}) }}",
+        "options": {
+          "response": { "response": { "neverError": true } }
+        }
+      },
+      "id": "criar-notificacao",
+      "name": "Criar Notificação no CRM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2220, 300],
+      "notes": "Cria notificação broadcast (user_id=null) — todos da org veem.\nSino do CRM acende. Título indica se é lead novo ou atualizado.\nBody inclui ícones de fogo compatíveis com o campo temperature (1-3)."
+    }
+
+  ],
+
+  "connections": {
+    "Webhook — Receber Lead Quente": { "main": [[{ "node": "Validar e Normalizar Payload", "type": "main", "index": 0 }]] },
+    "Validar e Normalizar Payload":  { "main": [[{ "node": "Verificar Lead Duplicado",     "type": "main", "index": 0 }]] },
+    "Verificar Lead Duplicado":      { "main": [[{ "node": "Avaliar Duplicado",            "type": "main", "index": 0 }]] },
+    "Avaliar Duplicado":             { "main": [[{ "node": "AI Agent — Gerar Briefing",    "type": "main", "index": 0 }]] },
+    "AI Agent — Gerar Briefing":     { "main": [[{ "node": "Extrair Briefing",             "type": "main", "index": 0 }]] },
+    "Extrair Briefing":              { "main": [[{ "node": "Lead já existe?",              "type": "main", "index": 0 }]] },
+    "Lead já existe?": {
+      "main": [
+        [{ "node": "Atualizar Lead Existente", "type": "main", "index": 0 }],
+        [{ "node": "Inserir Novo Lead",        "type": "main", "index": 0 }]
+      ]
+    },
+    "Atualizar Lead Existente": { "main": [[{ "node": "Consolidar Resultado", "type": "main", "index": 0 }]] },
+    "Inserir Novo Lead":        { "main": [[{ "node": "Consolidar Resultado", "type": "main", "index": 0 }]] },
+    "Consolidar Resultado":     { "main": [[{ "node": "Criar Notificação no CRM", "type": "main", "index": 0 }]] }
+  },
+
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "templateId": "fs-lead-quente-v2",
+    "description": "Recebe leads QUENTE/MORNO/ULTRA_QUENTE do formulário /form. Verifica duplicidade por WhatsApp, gera briefing com AI Agent (gpt-4o-mini + contexto C8 no prompt), calcula temperature e prioridade pelo score, insere ou atualiza no CRM e cria notificação."
+  },
+  "notes": "⚠️ DEPRECADO — NÃO USAR MAIS\n\nSubstituído por: fs-lead-universal.json (FS_Lead_Universal)\n\nEste workflow foi o receptor de leads QUENTE/MORNO/ULTRA_QUENTE do formulário /qualificacao.\nAgora o workflow universal trata todos os tipos e todos os formulários.\n\nUse: VITE_WEBHOOK_UNIVERSAL → https://ia-n8n.whlwlh.easypanel.host/webhook/FS_Lead_Universal\n\nO formulário de qualificação geral deve enviar:\n  classificacao: calculado com seus próprios thresholds (score 0-17: >=15 ULTRA, >=10 QUENTE, >=6 MORNO)\n  score:         pontuação obtida (0-17)\n  score_max:     17\n  funil:         { segmento, fase, faturamento, dor, aquisicao, orcamento, prazo, experiencia, texto_livre }"
+}

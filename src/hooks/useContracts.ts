@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useOrganization } from "@/hooks/useOrganization";
+import { useAuth } from "@/contexts/AuthContext";
 import type { ContractPaymentLine } from "@/hooks/useContractSchedule";
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
@@ -10,7 +11,7 @@ export interface ContractV2 {
   organization_id: string;
   client_id: string;
   template_id: string | null;
-  proposal_id: string | null;        // ID da proposta vinculada (TEXT)
+  proposal_id: string | null;
   contract_number: string | null;
   title: string;
   service_slugs: string[];
@@ -27,10 +28,33 @@ export interface ContractV2 {
   start_date: string | null;
   end_date: string | null;
   notes: string | null;
+  /** Vigência diferida — data de início efetivo quando posterior à assinatura */
+  vigencia_inicio: string | null;
+  /** Prazo mínimo de permanência em meses */
+  prazo_minimo_meses: number | null;
   created_at: string;
   updated_at: string;
-  /** Meses de carência: período sem cobrança no início do contrato (prazo não alterado) */
-  grace_period_months: number | null;
+  /** @deprecated grace_period_months removido — carência não é mais suportada */
+  grace_period_months?: number | null;
+  // ── Campos de segurança (migration 092) ──────────────────────────────────
+  /** Usuário que criou o contrato */
+  created_by: string | null;
+  /** Usuário que gerou o PDF (emitiu) */
+  emitted_by: string | null;
+  /** Momento da emissão */
+  emitted_at: string | null;
+  /** SHA-256 do conteúdo no momento da emissão */
+  content_hash: string | null;
+  /** Momento em que o hash foi calculado */
+  content_hash_at: string | null;
+  /** Usuário que confirmou a assinatura (four-eyes) */
+  signed_confirmed_by: string | null;
+  /** Momento da confirmação */
+  signed_confirmed_at: string | null;
+  /** Número do contrato físico assinado (migration 111) */
+  signed_contract_number: string | null;
+  /** Data de assinatura registrada manualmente (migration 111) */
+  signed_date: string | null;
   // joins opcionais
   clients?: { name: string; company: string | null } | null;
   payment_schedule?: ContractPaymentLine[];
@@ -54,7 +78,7 @@ export interface CreateContractInput {
   notes?: string;
   vigencia_inicio?: string | null;
   prazo_minimo_meses?: number | null;
-  /** Meses de carência: período sem cobrança no início do contrato (prazo não alterado) */
+  /** @deprecated grace_period_months removido — carência não é mais suportada */
   grace_period_months?: number | null;
   setup_amount_manual?: number | null;
   recurring_payment_method?: string | null;
@@ -89,6 +113,7 @@ export function useClientContracts(clientId: string | undefined) {
 
 export function useContracts() {
   const organizationId = useOrganization();
+  const { profile } = useAuth();
   const qc = useQueryClient();
 
   const invalidate = (clientId?: string) => {
@@ -133,12 +158,26 @@ export function useContracts() {
           recurring_payment_method: input.recurring_payment_method ?? null,
           clause_snapshot:      input.clause_snapshot ?? null,
           status:               "rascunho",
+          // created_by requer migration 092 — inserido com guard abaixo
         })
         .select()
         .single();
       if (error) throw error;
 
       const contract = data as ContractV2;
+
+      // Tenta registrar created_by (requer migration 092).
+      // Se a coluna ainda não existir no banco, o erro é silenciado para não
+      // bloquear a criação do contrato.
+      if (profile?.id) {
+        await supabase
+          .from("contracts_v2")
+          .update({ created_by: profile.id })
+          .eq("id", contract.id)
+          .then(({ error: e }) => {
+            if (e) console.warn("[useContracts] created_by update skipped (migration 092 pending?):", e.message);
+          });
+      }
 
       // Insere cronograma de pagamento se fornecido
       if (input.payment_schedule?.length) {
@@ -152,6 +191,35 @@ export function useContracts() {
           .insert(lines);
         if (schedErr) console.error("[useContracts] schedule insert:", schedErr);
       }
+
+      // Injeta numero_contrato nas variables para que {{numero_contrato}}
+      // funcione em reimpreções e visualizações do template
+      if (contractNumber && contract.variables) {
+        const updatedVars = {
+          ...contract.variables,
+          numero_contrato: contractNumber,
+        };
+        const { error: varErr } = await supabase
+          .from("contracts_v2")
+          .update({ variables: updatedVars })
+          .eq("id", contract.id);
+        if (!varErr) contract.variables = updatedVars;
+      }
+
+      // Registra criação no audit_log (requer migration 092).
+      // Silencia erros se a tabela ainda não existir.
+      supabase.rpc("log_contract_action", {
+        p_contract_id:  contract.id,
+        p_action:       "criacao",
+        p_action_label: `Contrato ${contractNumber ?? ""} criado`,
+        p_metadata:     {
+          title:           contract.title,
+          service_slugs:   input.service_slugs,
+          created_by_name: profile?.full_name ?? null,
+        },
+      }).then(({ error: e }) => {
+        if (e) console.warn("[useContracts] audit log skipped (migration 092 pending?):", e.message);
+      });
 
       return contract;
     },
@@ -211,31 +279,12 @@ export function useContracts() {
       const updates: Record<string, unknown> = { status };
 
       if (status === "assinado") {
-        // Usa a data informada pelo usuário; fallback para agora se não informada
+        // signed_at é registro interno — não altera o template do contrato.
+        // A confirmação real usa a RPC confirm_contract_signature (four-eyes).
         const signedDate = signedAt
           ? new Date(signedAt + "T12:00:00").toISOString()
           : new Date().toISOString();
         updates.signed_at = signedDate;
-
-        // Atualiza a variável {{data_assinatura}} no JSON de variáveis do contrato
-        // para que o documento reflita a data real de assinatura ao ser reimpresso
-        const { data: existing } = await supabase
-          .from("contracts_v2")
-          .select("variables")
-          .eq("id", id)
-          .single();
-
-        if (existing?.variables) {
-          const vars = existing.variables as Record<string, unknown>;
-          const { format } = await import("date-fns");
-          const { ptBR } = await import("date-fns/locale");
-          const formatted = format(
-            new Date(signedAt ? signedAt + "T12:00:00" : Date.now()),
-            "dd 'de' MMMM 'de' yyyy",
-            { locale: ptBR }
-          );
-          updates.variables = { ...vars, data_assinatura: formatted };
-        }
       }
 
       if (status === "cancelado") {

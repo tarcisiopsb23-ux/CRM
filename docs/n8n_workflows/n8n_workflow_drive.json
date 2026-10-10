@@ -1,0 +1,127 @@
+{
+  "name": "Maestr.IA — Google Drive",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "={{$json[\"httpMethod\"] || \"POST\"}}",
+        "path": "drive",
+        "responseMode": "lastNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "webhook-drive",
+      "name": "Webhook Drive",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "drive-webhook"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            { "conditions": { "options": { "caseSensitive": false }, "conditions": [{ "leftValue": "={{$json.body?.action || $json.query?.action}}", "rightValue": "documents.list", "operator": { "type": "string", "operation": "equals" } }] }, "renameOutput": true, "outputKey": "list_files" },
+            { "conditions": { "options": { "caseSensitive": false }, "conditions": [{ "leftValue": "={{$json.body?.action || $json.query?.action}}", "rightValue": "documents.folders.list", "operator": { "type": "string", "operation": "equals" } }] }, "renameOutput": true, "outputKey": "list_folders" },
+            { "conditions": { "options": { "caseSensitive": false }, "conditions": [{ "leftValue": "={{$json.body?.action || $json.query?.action}}", "rightValue": "documents.folders.create", "operator": { "type": "string", "operation": "equals" } }] }, "renameOutput": true, "outputKey": "create_folder" },
+            { "conditions": { "options": { "caseSensitive": false }, "conditions": [{ "leftValue": "={{$json.body?.action || $json.query?.action}}", "rightValue": "documents.upload", "operator": { "type": "string", "operation": "equals" } }] }, "renameOutput": true, "outputKey": "upload" }
+          ]
+        }
+      },
+      "id": "switch-action",
+      "name": "Switch Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "driveId": { "mode": "id", "value": "={{$json.body?.folderId || $json.query?.folderId}}" },
+        "folderId": { "mode": "id", "value": "={{$json.body?.folderId || $json.query?.folderId}}" },
+        "queryFilters": { "filters": [{ "field": "mimeType", "operator": "isNot", "value": "application/vnd.google-apps.folder" }] },
+        "options": { "fields": "id,name,mimeType,webViewLink,modifiedTime,size" }
+      },
+      "id": "drive-list-files",
+      "name": "List Files",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [700, 160],
+      "credentials": { "googleDriveOAuth2Api": { "id": "GOOGLE_CRED_ID", "name": "Google Drive OAuth2" } }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "driveId": { "mode": "id", "value": "={{$json.body?.folderId || $json.query?.folderId}}" },
+        "folderId": { "mode": "id", "value": "={{$json.body?.folderId || $json.query?.folderId}}" },
+        "queryFilters": { "filters": [{ "field": "mimeType", "operator": "is", "value": "application/vnd.google-apps.folder" }] },
+        "options": { "fields": "id,name,mimeType,webViewLink,modifiedTime" }
+      },
+      "id": "drive-list-folders",
+      "name": "List Folders",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [700, 300],
+      "credentials": { "googleDriveOAuth2Api": { "id": "GOOGLE_CRED_ID", "name": "Google Drive OAuth2" } }
+    },
+    {
+      "parameters": {
+        "operation": "createFolder",
+        "name": "={{$json.body?.name}}",
+        "driveId": { "mode": "id", "value": "={{$json.body?.parentFolderId}}" },
+        "folderId": { "mode": "id", "value": "={{$json.body?.parentFolderId}}" }
+      },
+      "id": "drive-create-folder",
+      "name": "Create Folder",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [700, 440],
+      "credentials": { "googleDriveOAuth2Api": { "id": "GOOGLE_CRED_ID", "name": "Google Drive OAuth2" } }
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "name": "={{$binary.file?.fileName}}",
+        "driveId": { "mode": "id", "value": "={{$json.body?.folderId}}" },
+        "folderId": { "mode": "id", "value": "={{$json.body?.folderId}}" },
+        "inputDataFieldName": "file"
+      },
+      "id": "drive-upload",
+      "name": "Upload File",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [700, 580],
+      "credentials": { "googleDriveOAuth2Api": { "id": "GOOGLE_CRED_ID", "name": "Google Drive OAuth2" } }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{\n  const action = $('Webhook Drive').first().json.body?.action || $('Webhook Drive').first().json.query?.action;\n  if (action === 'documents.list') {\n    return JSON.stringify({ files: $input.all().map(i => ({ id: i.json.id, name: i.json.name, url: i.json.webViewLink, mimeType: i.json.mimeType, modifiedTime: i.json.modifiedTime })) });\n  } else if (action === 'documents.folders.list') {\n    return JSON.stringify({ folders: $input.all().map(i => ({ id: i.json.id, name: i.json.name, url: i.json.webViewLink, mimeType: i.json.mimeType, modifiedTime: i.json.modifiedTime })) });\n  } else if (action === 'documents.folders.create') {\n    const f = $input.first().json;\n    return JSON.stringify({ id: f.id, name: f.name, url: f.webViewLink });\n  } else {\n    return JSON.stringify({ success: true });\n  }\n}}"
+      },
+      "id": "respond-drive",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [940, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Drive": { "main": [[{ "node": "Switch Action", "type": "main", "index": 0 }]] },
+    "Switch Action": {
+      "main": [
+        [{ "node": "List Files", "type": "main", "index": 0 }],
+        [{ "node": "List Folders", "type": "main", "index": 0 }],
+        [{ "node": "Create Folder", "type": "main", "index": 0 }],
+        [{ "node": "Upload File", "type": "main", "index": 0 }]
+      ]
+    },
+    "List Files": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] },
+    "List Folders": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] },
+    "Create Folder": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] },
+    "Upload File": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "versionId": "1.0.0",
+  "meta": { "templateCredsSetupCompleted": false }
+}

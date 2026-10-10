@@ -98,11 +98,11 @@ const CLAUSE_VARIABLES = [
   { key: "vencimento",               label: "Data de vencimento do 1º pagamento",          group: "Financeiro" },
   { key: "dia_vencimento",           label: "Dia do mês para vencimento recorrente (ex: 20)", group: "Financeiro" },
   { key: "primeiro_pagamento",       label: "Data do primeiro pagamento",                  group: "Financeiro" },
-  { key: "primeiro_vencimento",      label: "Primeiro vencimento do cronograma (qualquer tipo)", group: "Financeiro" },
-  { key: "vencimento_primeira_mensalidade", label: "Vencimento da 1ª mensalidade recorrente", group: "Financeiro" },
   { key: "cronograma_pagamento",     label: "Bloco do cronograma de pagamento",            group: "Financeiro" },
-  { key: "texto_pagamento",          label: "Frase completa de pagamento (via PIX/boleto + chave + datas)", group: "Financeiro" },
-  // ── Comissão variável ────────────────────────────────────────────────────
+  { key: "clausula_multa_atraso",    label: "Cláusula de multa por atraso",                group: "Financeiro" },
+  { key: "clausula_suspensao",       label: "Cláusula de suspensão por inadimplência",     group: "Financeiro" },
+
+  // Comissão variável
   { key: "comissao_habilitada",            label: "'Sim' ou 'Não' — comissão variável habilitada",                    group: "Comissão" },
   { key: "comissao_tipo",                  label: "'Percentual sobre o valor' ou 'Valor fixo por resultado'",          group: "Comissão" },
   { key: "comissao_taxa",                  label: "Valor da taxa (ex: 10% ou R$ 500,00)",                              group: "Comissão" },
@@ -110,8 +110,6 @@ const CLAUSE_VARIABLES = [
   { key: "comissao_periodicidade",         label: "'Semanal', 'Quinzenal' ou 'Mensal'",                                group: "Comissão" },
   { key: "comissao_periodicidade_extenso", label: "'semanalmente', 'quinzenalmente' ou 'mensalmente'",                 group: "Comissão" },
   { key: "comissao_prazo_pagamento",       label: "Prazo em dias úteis para pagamento após o período de apuração",     group: "Comissão" },
-  { key: "clausula_multa_atraso",    label: "Cláusula de multa por atraso",                group: "Financeiro" },
-  { key: "clausula_suspensao",       label: "Cláusula de suspensão por inadimplência",     group: "Financeiro" },
 
   // Serviços
   { key: "lista_servicos",           label: "Lista de serviços contratados (HTML)",        group: "Serviços" },

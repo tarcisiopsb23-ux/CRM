@@ -14,7 +14,7 @@
  *     has_grace_period, has_min_duration, has_setup, service, etc.
  *   - O clauseMap é derivado do resolvedVariables do assembleContract.
  */
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { format, addDays } from "date-fns";
@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/select";
 import {
   ChevronRight, ChevronLeft, FileText, Settings, Calendar,
-  CheckCircle2, Loader2, Star,
+  CheckCircle2, Loader2, Star, Users, Tag, Save,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useContractTemplates, useServiceBlocks, useClauseCategories, useClauses, useSignatureBlocks } from "@/hooks/useContractTemplates";
@@ -41,8 +41,9 @@ import { useClientRepresentatives, QUALIFICACAO_LABELS } from "@/hooks/useClient
 import { buildSignatureBlockHtml } from "@/lib/contracts/buildSignatureBlock";
 import { calculateSchedule } from "@/hooks/useContractSchedule";
 import type { ContractPaymentLine } from "@/hooks/useContractSchedule";
-import { ContractScheduleEditor } from "./ContractScheduleEditor";
 import { PaymentMethodSelect } from "./form/PaymentMethodSelect";
+import { usePixKeys } from "@/hooks/usePixKeys";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import type { ServiceBlock } from "@/hooks/useContractTemplates";
 import { assembleContract } from "@/lib/contracts/assembleContract";
 import { buildQualificacaoContratante } from "@/lib/contracts/buildQualificacaoContratante";
@@ -66,7 +67,11 @@ interface Props {
   organizationId: string;
   proposalId?: string | null;
   proposalData?: ProposalImport | null;
+  /** Contrato rascunho existente — pré-popula o wizard para edição */
+  editingContract?: import("@/hooks/useContracts").ContractV2 | null;
   onSuccess: (contractId: string) => void;
+  /** Chamado quando a edição do rascunho é concluída — recebe o novo contractId */
+  onEditSuccess?: (contractId: string) => void;
   onClose: () => void;
 }
 
@@ -85,22 +90,37 @@ export interface ProposalImport {
   due_day?: number;
   payment_method?: string;
   first_payment_date?: string;
+  /** @deprecated grace_period_months removido — carência não é mais suportada */
   grace_period_months?: number;
   prazo_meses?: number;
   vigencia_inicio?: string;
 }
 
 const STEPS = [
-  { id: 1, label: "Serviços",          icon: Settings },
-  { id: 2, label: "Dados do Contrato", icon: FileText },
-  { id: 3, label: "Cronograma",        icon: Calendar },
-  { id: 4, label: "Garantias",         icon: CheckCircle2 },
+  { id: 1, label: "Serviços",           icon: Settings },
+  { id: 2, label: "Dados Financeiros",  icon: Tag },
+  { id: 3, label: "Cronograma",         icon: Calendar },
+  { id: 4, label: "Contratante",        icon: Users },
+  { id: 5, label: "Garantias",          icon: CheckCircle2 },
 ];
 
 // Campos exibidos na seção "Dados do Contratante" — apenas os que o usuário
 // deve preencher manualmente. Campos derivados (prazos por extenso, datas
 // calculadas, setup, representante) são calculados automaticamente via useEffect.
 // Razão social, CNPJ, endereço e cidade são somente-leitura (do cadastro do cliente).
+
+/** Formata CNPJ (14 dígitos → XX.XXX.XXX/XXXX-XX) ou CPF (11 dígitos → XXX.XXX.XXX-XX) */
+function formatCnpjCpf(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  if (digits.length === 14) {
+    return digits.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
+  }
+  if (digits.length === 11) {
+    return digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
+  }
+  return value; // retorna original se não tiver 11 ou 14 dígitos
+}
+
 const VARIABLE_FIELDS_READONLY = [
   { key: "contratante_razao_social", label: "Razão Social / Nome" },
   { key: "contratante_cnpj",         label: "CNPJ / CPF" },
@@ -123,6 +143,18 @@ const EXTENSO_MAP: Record<number, string> = {
 // ── Helpers locais ────────────────────────────────────────────────────────────
 // buildScheduleHtml está definido no final deste arquivo
 
+// Tipo de linha editável do cronograma
+type ScheduleRow = {
+  mes:           number;
+  vencimento:    string; // ISO yyyy-MM-dd; "" = "Na entrega" (eventual conclusao)
+  valor:         number;
+  valorOriginal: number; // valor base antes do desconto inline
+  desconto:      number; // % de desconto nessa parcela (0 = sem desconto)
+  tipo:          string;
+  recorrente:    boolean;
+  metodo:        string;
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function ContractGenerator({
@@ -130,12 +162,14 @@ export function ContractGenerator({
   clientAddress,
   clientAddressStreet, clientAddressNumber, clientAddressComplement,
   clientAddressNeighborhood, clientAddressCity, clientAddressState,
-  organizationId, proposalId, proposalData, onSuccess, onClose,
+  organizationId, proposalId, proposalData, editingContract, onEditSuccess, onSuccess, onClose,
 }: Props) {
   const [step, setStep]         = useState(1);
   const [isSaving, setIsSaving] = useState(false);
 
-  // ── Step 1 ───────────────────────────────────────────────────────────────
+  // ── Pre-populate from editingContract (edit mode) ────────────────────────
+  // Runs once after catalog services are loaded so slugs can be matched.
+  const editInitialized = useRef(false);
   const { data: templates = [] }    = useContractTemplates();
   const [templateId, setTemplateId] = useState("");
   const [title, setTitle]           = useState("Contrato de Prestação de Serviços");
@@ -160,6 +194,36 @@ export function ContractGenerator({
     proposalData?.grace_period_months ? String(proposalData.grace_period_months) : ""
   );
 
+  // ── Dados Financeiros (Step 2) ────────────────────────────────────────────
+  // Tipo de contrato: mensal | eventual | evolutivo
+  const [contractType, setContractType] = useState<"mensal" | "eventual" | "evolutivo">("mensal");
+  // Valor mensal editável — sobrepõe o calculado pelos blocos quando preenchido
+  const [monthlyValueManual, setMonthlyValueManual] = useState(
+    proposalData?.monthly_amount ? String(proposalData.monthly_amount) : ""
+  );
+  // Formato de pagamento para contratos eventuais
+  const [eventualFormat, setEventualFormat] = useState<"integral" | "meio_meio" | "entrada_parcelado">("integral");
+  const [eventualInstallments, setEventualInstallments] = useState("3"); // parcelas do restante (entrada_parcelado)
+  const [eventualEntryPct, setEventualEntryPct] = useState("50"); // % de entrada (meio_meio)
+  // Setup parcelado: número de parcelas do setup (1 = à vista)
+  const [setupInstallments, setSetupInstallments] = useState("1");
+  // Linha do cronograma em edição
+  const [editingRowIdx, setEditingRowIdx] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState<ScheduleRow | null>(null);
+  // Desconto inline no cronograma — gerenciado por ScheduleRow.desconto (ver Step 3)
+  // Mantidos para compatibilidade com proposals importadas (não exposto na UI)
+  const [discountEnabled] = useState(false);
+  const [discountPercent] = useState("");
+  const [discountMonths]  = useState("");
+
+  // ── Comissão variável ─────────────────────────────────────────────────────
+  const [commissionEnabled, setCommissionEnabled]           = useState(false);
+  const [commissionType, setCommissionType]                 = useState<"percent_value" | "fixed_per_unit">("percent_value");
+  const [commissionRate, setCommissionRate]                 = useState("");  // % ou R$ por unidade
+  const [commissionDescription, setCommissionDescription]   = useState("");  // o que é um "resultado"
+  const [commissionSettlement, setCommissionSettlement]     = useState<"semanal" | "quinzenal" | "mensal">("mensal"); // periodicidade de apuração
+  const [commissionPaymentDays, setCommissionPaymentDays]   = useState("5");  // prazo em dias úteis para pagamento após apuração
+
   // ── Step 2 ───────────────────────────────────────────────────────────────
   const { data: allBlocks = [] }           = useServiceBlocks();
   const { services: catalogServices = [] } = useServiceCatalog(organizationId);
@@ -169,6 +233,9 @@ export function ContractGenerator({
   const [primarySlug, setPrimarySlug] = useState<string>(
     proposalData?.service_slugs?.[0] ?? ""
   );
+
+  // Aba ativa no painel de entregáveis (null = usa o primeiro serviço selecionado)
+  const [activeDelivSlug, setActiveDelivSlug] = useState<string | null>(null);
 
   /**
    * Configuração de entregáveis por serviço.
@@ -209,6 +276,77 @@ export function ContractGenerator({
       return { ...prev, [serviceSlug]: defaults };
     });
   };
+
+  // ── Pre-populate from editingContract (runs once when catalog is ready) ──
+  useEffect(() => {
+    if (!editingContract || editInitialized.current || catalogServices.length === 0) return;
+    editInitialized.current = true;
+
+    const meta = (editingContract as Record<string, unknown>).metadata as Record<string, unknown> ?? {};
+
+    // Step 1 — basic info
+    if (editingContract.template_id) setTemplateId(editingContract.template_id);
+    if (editingContract.title)       setTitle(editingContract.title);
+    if (editingContract.start_date)  setStartDate(editingContract.start_date);
+
+    const vI = editingContract.vigencia_inicio ?? (meta.vigencia_inicio as string | undefined);
+    if (vI) setVigenciaInicio(vI);
+
+    const pm = editingContract.prazo_minimo_meses ?? (meta.prazo_minimo_meses as number | undefined);
+    if (pm) setPrazoMinimo(String(pm));
+
+    const sm = (meta.setup_amount_manual as number | undefined) ?? editingContract.total_setup;
+    if (sm) setSetupManual(String(sm));
+
+    // Step 2 — services & deliverables
+    const slugs = editingContract.service_slugs ?? [];
+    setSelectedSlugs(slugs);
+    if (slugs.length > 0) setPrimarySlug(slugs[0]);
+
+    // Pre-populate deliverables from metadata.services
+    const metaServices = (meta.services as Array<{ service_id: string; selected_deliverables?: Array<{ deliverable_id: string; included: boolean; number_value?: number | null; period?: string | null }> }> | undefined) ?? [];
+    if (metaServices.length > 0) {
+      const delivMap: Record<string, Record<string, { included: boolean; number_value?: number | null; period?: string | null }>> = {};
+      for (const svc of metaServices) {
+        const slug = svc.service_id; // stored as slug
+        delivMap[slug] = {};
+        for (const d of svc.selected_deliverables ?? []) {
+          delivMap[slug][d.deliverable_id] = { included: d.included, number_value: d.number_value ?? null, period: d.period ?? null };
+        }
+      }
+      setSelectedDeliverables(delivMap);
+    } else {
+      // No metadata — init all deliverables as included
+      for (const slug of slugs) initDeliverables(slug);
+    }
+
+    // Step 4 — financial
+    if (editingContract.due_day)          setDueDay(editingContract.due_day);
+    if (editingContract.first_payment_date) setFirstPaymentDate(editingContract.first_payment_date);
+    const rpm = editingContract.recurring_payment_method ?? (meta.recurring_payment_method as string | undefined);
+    if (rpm) setRecurringPaymentMethod(rpm);
+    if (editingContract.total_monthly)    setMonthlyValueManual(String(editingContract.total_monthly));
+
+    // Contract type from metadata
+    const ct = meta.contract_type as string | undefined;
+    if (ct === "mensal" || ct === "eventual" || ct === "evolutivo") setContractType(ct);
+
+    // Commission from metadata
+    if (meta.commission_enabled) {
+      setCommissionEnabled(true);
+      if (meta.commission_type === "fixed_per_unit") setCommissionType("fixed_per_unit");
+      if (meta.commission_rate)        setCommissionRate(String(meta.commission_rate));
+      if (meta.commission_description) setCommissionDescription(String(meta.commission_description));
+      if (meta.commission_settlement === "semanal" || meta.commission_settlement === "quinzenal") {
+        setCommissionSettlement(meta.commission_settlement as "semanal" | "quinzenal");
+      }
+      if (meta.commission_payment_days) setCommissionPaymentDays(String(meta.commission_payment_days));
+    }
+
+    // Chave PIX do contrato em edição
+    if (editingContract.chave_pix) setSelectedPixKeyId(editingContract.chave_pix);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingContract, catalogServices]);
 
   // ── Cláusulas ─────────────────────────────────────────────────────────────
   const { data: categories = [] } = useClauseCategories();
@@ -266,8 +404,23 @@ export function ContractGenerator({
   const [recurringPaymentMethod, setRecurringPaymentMethod] = useState<string>(
     proposalData?.payment_method ?? "pix"
   );
-  const [scheduleLines, setScheduleLines]   = useState<ContractPaymentLine[]>([]);
-  const [scheduleWarnings, setScheduleWarnings] = useState<string[]>([]);
+
+  // ── Chave PIX selecionada para este contrato ──────────────────────────────
+  const { pixKeys } = usePixKeys();
+  const [selectedPixKeyId, setSelectedPixKeyId] = useState<string>("");
+
+  // Auto-seleciona a chave padrão quando o catálogo carrega (somente se nenhuma foi escolhida)
+  useEffect(() => {
+    if (selectedPixKeyId || pixKeys.length === 0) return;
+    const def = pixKeys.find(k => k.is_default) ?? pixKeys[0];
+    if (def) setSelectedPixKeyId(def.id);
+  }, [pixKeys]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [scheduleLines, setScheduleLines] = useState<ContractPaymentLine[]>([]);
+
+  // Cronograma editável linha a linha
+  const [scheduleRows, setScheduleRows] = useState<ScheduleRow[]>([]);
+  // Flag: usuário editou manualmente alguma linha → impede regeneração automática ao re-entrar no Step 3
+  const scheduleManuallyEdited = useRef(false);
 
   const { createContract } = useContracts();
   const { data: signatureBlocks = [] } = useSignatureBlocks();
@@ -278,20 +431,26 @@ export function ContractGenerator({
   // ── Step 5: Garantias ─────────────────────────────────────────────────
   const [guarantees, setGuarantees] = useState<GuaranteeDraft[]>([]);
 
-  // Busca signing_type do cadastro do cliente — fonte de verdade para tipo de assinatura
-  const { data: clientSigningType } = useQuery({
-    queryKey: ["client_signing_type", clientId],
+  // Busca signing_type e dados PF do cadastro do cliente — fonte de verdade
+  const { data: clientDbData } = useQuery({
+    queryKey: ["client_pf_data", clientId],
     queryFn: async () => {
       const { data } = await supabase
         .from("clients")
-        .select("signing_type")
+        .select("signing_type, estado_civil, nacionalidade, sexo")
         .eq("id", clientId)
         .single();
-      return (data?.signing_type as "individual" | "joint" | null) ?? "individual";
+      return data as {
+        signing_type:  "individual" | "joint" | null;
+        estado_civil:  string | null;
+        nacionalidade: string | null;
+        sexo:          string | null;
+      } | null;
     },
     enabled: !!clientId,
     staleTime: 30_000,
   });
+  const clientSigningType = clientDbData?.signing_type ?? "individual";
 
   // Template padrão auto-selecionado
   useEffect(() => {
@@ -304,8 +463,17 @@ export function ContractGenerator({
   // ── Cálculo automático das variáveis derivadas ────────────────────────────
   // Sempre que campos-fonte (prazos, datas, setup) mudarem, recalcula as
   // variáveis usadas nos templates de contrato sem exibir ao usuário.
+  //
+  // ATENÇÃO: `variables` NÃO pode estar nas deps — causaria loop infinito
+  // porque setVariables é chamado no corpo do efeito. Lemos prazo_vigencia_meses
+  // via ref para evitar a dependência reativa.
+  const prazoVigenciaRef = useRef(variables.prazo_vigencia_meses);
   useEffect(() => {
-    const prazoMeses   = Number(variables.prazo_vigencia_meses || 0);
+    prazoVigenciaRef.current = variables.prazo_vigencia_meses;
+  });
+
+  useEffect(() => {
+    const prazoMeses    = Number(prazoVigenciaRef.current || 0);
     const prazoMinMeses = Number(prazoMinimo || 0);
     const fmtSetup = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -335,22 +503,41 @@ export function ContractGenerator({
       ? fmtSetup.format(Number(setupManual))
       : totalSetupBlocks > 0 ? fmtSetup.format(totalSetupBlocks) : "";
 
-    setVariables(prev => ({
-      ...prev,
-      prazo_vigencia_dias:   prazoMeses > 0 ? String(prazoMeses * 30)                       : "",
-      prazo_vigencia_extenso: prazoMeses > 0 ? (EXTENSO_MAP[prazoMeses] ?? String(prazoMeses)) : "",
-      prazo_minimo_meses:     prazoMinMeses > 0 ? String(prazoMinMeses)                      : "",
-      prazo_minimo_extenso:   prazoMinMeses > 0 ? (EXTENSO_MAP[prazoMinMeses] ?? String(prazoMinMeses)) : "",
-      data_inicio_vigencia:   dataInicioVigencia,
-      data_fim_vigencia:      dataFimVigencia,
-      setup_valor:            setupValor,
-      // data_assinatura acompanha startDate (data de contratação)
-      data_assinatura:        startDate
+    setVariables(prev => {
+      // Só atualiza se algum valor realmente mudou — evita re-renders desnecessários
+      const prazoMesesStr   = prazoMeses > 0 ? String(prazoMeses * 30) : "";
+      const prazoExtStr     = prazoMeses > 0 ? (EXTENSO_MAP[prazoMeses] ?? String(prazoMeses)) : "";
+      const prazoMinStr     = prazoMinMeses > 0 ? String(prazoMinMeses) : "";
+      const prazoMinExtStr  = prazoMinMeses > 0 ? (EXTENSO_MAP[prazoMinMeses] ?? String(prazoMinMeses)) : "";
+      const dataAssinatura  = startDate
         ? format(new Date(startDate + "T12:00:00"), "dd 'de' MMMM 'de' yyyy", { locale: ptBR })
-        : prev.data_assinatura,
-    }));
+        : prev.data_assinatura;
+
+      if (
+        prev.prazo_vigencia_dias    === prazoMesesStr &&
+        prev.prazo_vigencia_extenso === prazoExtStr &&
+        prev.prazo_minimo_meses     === prazoMinStr &&
+        prev.prazo_minimo_extenso   === prazoMinExtStr &&
+        prev.data_inicio_vigencia   === dataInicioVigencia &&
+        prev.data_fim_vigencia      === dataFimVigencia &&
+        prev.setup_valor            === setupValor &&
+        prev.data_assinatura        === dataAssinatura
+      ) return prev; // nada mudou — retorna a mesma referência, evita re-render
+
+      return {
+        ...prev,
+        prazo_vigencia_dias:    prazoMesesStr,
+        prazo_vigencia_extenso: prazoExtStr,
+        prazo_minimo_meses:     prazoMinStr,
+        prazo_minimo_extenso:   prazoMinExtStr,
+        data_inicio_vigencia:   dataInicioVigencia,
+        data_fim_vigencia:      dataFimVigencia,
+        setup_valor:            setupValor,
+        data_assinatura:        dataAssinatura,
+      };
+    });
   }, [ // eslint-disable-line react-hooks/exhaustive-deps
-    variables.prazo_vigencia_meses,
+    // variables.prazo_vigencia_meses REMOVIDO — lido via prazoVigenciaRef para evitar loop
     prazoMinimo, vigenciaInicio, startDate,
     setupManual, allBlocks, selectedSlugs, catalogServices,
   ]);
@@ -358,29 +545,177 @@ export function ContractGenerator({
   // Blocos selecionados (para cronograma)
   // Para o cronograma financeiro, mapeia pelo slug do service_catalog → contract_service_block
   // Usa o slug do catalog para encontrar o block financeiro correspondente
-  const selectedBlocks: ServiceBlock[] = allBlocks.filter(b =>
-    selectedSlugs.some(slug =>
-      b.slug === slug ||
-      catalogServices.find(s => s.slug === slug)?.name?.toLowerCase() === b.name?.toLowerCase()
-    )
+  // useMemo: evita recriar o array a cada render (romperia o useCallback de generateScheduleRows)
+  const selectedBlocks: ServiceBlock[] = useMemo(
+    () => allBlocks.filter(b =>
+      selectedSlugs.some(slug =>
+        b.slug === slug ||
+        catalogServices.find(s => s.slug === slug)?.name?.toLowerCase() === b.name?.toLowerCase()
+      )
+    ),
+    [allBlocks, selectedSlugs, catalogServices]
   );
 
-  // Recalcula cronograma quando serviços ou datas mudam
-  const recalculateSchedule = useCallback(() => {
-    if (selectedBlocks.length === 0 || !firstPaymentDate) return;
-    const result = calculateSchedule({
-      blocks:            selectedBlocks,
-      firstPaymentDate:  new Date(firstPaymentDate + "T12:00:00"),
-      dueDay,
-      gracePeriodMonths: gracePeriodMonths ? Number(gracePeriodMonths) : undefined,
-    });
-    setScheduleLines(result.lines);
-    setScheduleWarnings(result.warnings);
-  }, [selectedBlocks, firstPaymentDate, dueDay, gracePeriodMonths]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Gera as linhas do cronograma editável. Chamado ao entrar no Step 3 ou ao clicar Recalcular.
+  const generateScheduleRows = useCallback(() => {
+    if (!firstPaymentDate) return;
 
+    const defMethod   = recurringPaymentMethod || "pix";
+    const prazoMeses  = Number(prazoVigenciaRef.current || 12);
+    const totalSetup  = setupManual ? Number(setupManual)
+      : selectedBlocks.reduce((s, b) => s + (b.setup_amount ?? 0) + (b.one_time_amount ?? 0), 0);
+    const totalMensal = monthlyValueManual ? Number(monthlyValueManual)
+      : selectedBlocks.reduce((s, b) => s + (b.monthly_amount ?? 0), 0);
+    const nSetupParcelas = Math.max(1, Number(setupInstallments) || 1);
+
+    // Adiciona N meses à data ISO preservando o dueDay como dia do mês
+    const addMonths = (iso: string, n: number, applyDueDay = false): string => {
+      const d = new Date(iso + "T12:00:00");
+      d.setMonth(d.getMonth() + n);
+      if (applyDueDay && dueDay >= 1) {
+        const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+        d.setDate(Math.min(dueDay, lastDay));
+      }
+      return d.toISOString().slice(0, 10);
+    };
+
+    const rows: ScheduleRow[] = [];
+    // ──────────────────────────────────────────────────────────────
+    // Eventual — geração directa sem calculateSchedule
+    // ──────────────────────────────────────────────────────────────
+    if (contractType === "eventual") {
+      if (totalMensal <= 0) return;
+      if (eventualFormat === "integral") {
+        rows.push({ mes: 1, vencimento: firstPaymentDate, valor: totalMensal, valorOriginal: totalMensal, desconto: 0, tipo: "unico",    recorrente: false, metodo: defMethod });
+      } else if (eventualFormat === "meio_meio") {
+        const entryAmt = Math.round(totalMensal * 0.5 * 100) / 100;
+        const restAmt  = Math.round((totalMensal - entryAmt) * 100) / 100;
+        rows.push({ mes: 1, vencimento: firstPaymentDate,  valor: entryAmt, valorOriginal: entryAmt, desconto: 0, tipo: "entrada",   recorrente: false, metodo: defMethod });
+        rows.push({ mes: 2, vencimento: "",                valor: restAmt,  valorOriginal: restAmt,  desconto: 0, tipo: "conclusao", recorrente: false, metodo: defMethod });
+      } else {
+        const entryPctNum = Number(eventualEntryPct) || 50;
+        const nParcelas   = Math.max(1, Number(eventualInstallments) || 3);
+        const entryAmt    = Math.round(totalMensal * (entryPctNum / 100) * 100) / 100;
+        const restAmt     = Math.round((totalMensal - entryAmt) * 100) / 100;
+        const parcelAmt   = Math.round((restAmt / nParcelas) * 100) / 100;
+        rows.push({ mes: 1, vencimento: firstPaymentDate, valor: entryAmt, valorOriginal: entryAmt, desconto: 0, tipo: "entrada", recorrente: false, metodo: defMethod });
+        for (let i = 1; i <= nParcelas; i++) {
+          const v = i === nParcelas ? Math.round((restAmt - parcelAmt * (nParcelas - 1)) * 100) / 100 : parcelAmt;
+          rows.push({ mes: i + 1, vencimento: addMonths(firstPaymentDate, i, true), valor: v, valorOriginal: v, desconto: 0, tipo: "mensalidade", recorrente: false, metodo: defMethod });
+        }
+      }
+      setScheduleRows(rows);
+      return;
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Mensal / Evolutivo — gera linha a linha com setup na linha 1
+    // ──────────────────────────────────────────────────────────────
+    const hasSetup = totalSetup > 0;
+
+    // Geração das mensalidades/evolutivo: retorna array de {mes, date, valor}
+    // totalLinhas: quantas mensalidades gerar (prazoMeses quando sem setup, prazoMeses-1 com setup)
+    const buildMensalRows = (totalLinhas: number): Array<{mes: number; date: string; valor: number}> => {
+      const out: Array<{mes: number; date: string; valor: number}> = [];
+      if (contractType === "evolutivo" && selectedBlocks.length > 0) {
+        const result = calculateSchedule({
+          blocks:           selectedBlocks,
+          firstPaymentDate: new Date(firstPaymentDate + "T12:00:00"),
+          dueDay,
+        });
+        for (let mp = 1; mp <= totalLinhas; mp++) {
+          const linha = result.lines.find(l => l.month_from <= mp && (l.month_to === null || l.month_to >= mp));
+          out.push({ mes: mp, date: addMonths(firstPaymentDate, mp - 1, mp > 1), valor: linha?.amount ?? totalMensal });
+        }
+      } else {
+        for (let mp = 1; mp <= totalLinhas; mp++) {
+          out.push({ mes: mp, date: addMonths(firstPaymentDate, mp - 1, mp > 1), valor: totalMensal });
+        }
+      }
+      return out;
+    };
+
+    if (!hasSetup) {
+      // Sem setup — prazoMeses mensalidades
+      const mensais = buildMensalRows(prazoMeses);
+      mensais.forEach((m, i) => {
+        rows.push({ mes: i + 1, vencimento: m.date, valor: m.valor, valorOriginal: m.valor, desconto: 0, tipo: "mensalidade", recorrente: true, metodo: defMethod });
+      });
+      setScheduleRows(rows);
+      return;
+    }
+
+    // Com setup: setup ocupa o mês 1, sobram prazoMeses - 1 mensalidades
+    const nMensais = Math.max(0, prazoMeses - 1);
+    const parcelSetup     = Math.round((totalSetup / nSetupParcelas) * 100) / 100;
+    const parcelSetupLast = Math.round((totalSetup - parcelSetup * (nSetupParcelas - 1)) * 100) / 100;
+    const mensais         = buildMensalRows(nMensais);
+
+    let rowMes = 1;
+
+    // Linha 1: apenas setup parcela 1 (exclusiva, data do 1º pagamento)
+    rows.push({
+      mes: rowMes++,
+      vencimento: firstPaymentDate,
+      valor: parcelSetup,
+      valorOriginal: parcelSetup,
+      desconto: 0,
+      tipo: "setup",
+      recorrente: false,
+      metodo: defMethod,
+    });
+
+    // Linhas 2..nSetupParcelas: setup parcela i + mensalidade i-1, mesma data
+    const overlapCount = nSetupParcelas - 1; // quantas mensalidades se sobrepõem
+    for (let i = 1; i < nSetupParcelas; i++) {
+      const setupV = i === nSetupParcelas - 1 ? parcelSetupLast : parcelSetup;
+      const mensal = mensais[i - 1]; // mensalidade i (0-indexed: i-1)
+      const d = addMonths(firstPaymentDate, i, true);
+      const valorTotal = Math.round((setupV + (mensal?.valor ?? 0)) * 100) / 100;
+      rows.push({
+        mes:           rowMes++,
+        vencimento:    d,
+        valor:         valorTotal,
+        valorOriginal: valorTotal,
+        desconto:      0,
+        tipo:          "setup+mensalidade",
+        recorrente:    true,
+        metodo:        defMethod,
+      });
+    }
+
+    // Mensalidades puras: a partir do índice overlapCount no array mensais
+    // O offset a partir de firstPaymentDate é: 1 (setup slot) + posição na lista total de mensalidades
+    for (let i = overlapCount; i < mensais.length; i++) {
+      const mensal = mensais[i];
+      // offset = 1 (setup) + i (posição 0-based na lista de mensalidades)
+      // i=0 seria o mês 2, mas como overlap já cobriu i=0..overlapCount-1,
+      // aqui i começa em overlapCount → offset = 1 + i
+      const d = addMonths(firstPaymentDate, 1 + i, true);
+      rows.push({
+        mes:           rowMes++,
+        vencimento:    d,
+        valor:         mensal.valor,
+        valorOriginal: mensal.valor,
+        desconto:      0,
+        tipo:          "mensalidade",
+        recorrente:    true,
+        metodo:        defMethod,
+      });
+    }
+
+    setScheduleRows(rows);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contractType, eventualFormat, eventualEntryPct, eventualInstallments,
+      firstPaymentDate, dueDay, recurringPaymentMethod, setupInstallments,
+      selectedBlocks, monthlyValueManual, setupManual, prazoVigenciaRef]);
+
+  // Regenera ao entrar no Step 3, a menos que o usuário já tenha editado manualmente o cronograma.
+  // Os campos de pagamento no Step 2 (firstPaymentDate, dueDay, recurringPaymentMethod) resetam
+  // scheduleManuallyEdited.current = false ao mudar, garantindo regeneração automática ao avançar.
   useEffect(() => {
-    if (step === 3) recalculateSchedule();
-  }, [step, recalculateSchedule]);
+    if (step === 3 && !scheduleManuallyEdited.current) generateScheduleRows();
+  }, [step, generateScheduleRows]);
 
   const toggleSlug = (slug: string) => {
     setSelectedSlugs(prev => {
@@ -541,9 +876,31 @@ export function ContractGenerator({
           "Atrasos superiores a 20 (vinte) dias conferem à CONTRATADA o direito de suspender a prestação dos serviços até a regularização do débito.",
       };
 
-      // Monta HTML do cronograma
-      const scheduleHtml = scheduleLines.length > 0
-        ? buildScheduleHtml(scheduleLines, fmt)
+      // Normaliza o tipo interno do ScheduleRow para os valores aceitos pelo banco
+      // (contract_payment_schedule.line_type CHECK: 'setup','mensalidade','unico','outro')
+      const normalizeLineType = (tipo: string): ContractPaymentLine["line_type"] => {
+        if (tipo === "setup" || tipo === "setup+mensalidade") return "setup";
+        if (tipo === "mensalidade")                           return "mensalidade";
+        if (tipo === "unico")                                 return "unico";
+        if (tipo === "entrada" || tipo === "conclusao")       return "mensalidade";
+        return "outro";
+      };
+
+      // Monta HTML do cronograma a partir das linhas editáveis
+      const derivedScheduleLines: ContractPaymentLine[] = scheduleRows.map(r => ({
+        line_type:      normalizeLineType(r.tipo),
+        month_from:     r.mes,
+        month_to:       r.mes,
+        amount:         r.valor,
+        due_date:       r.vencimento || null,
+        payment_method: r.metodo as ContractPaymentLine["payment_method"],
+        is_recurring:   r.recorrente,
+        period_label:   r.vencimento
+          ? new Date(r.vencimento + "T12:00:00").toLocaleDateString("pt-BR")
+          : "Na entrega",
+      }));
+      const scheduleHtml = derivedScheduleLines.length > 0
+        ? buildScheduleHtml(derivedScheduleLines, fmt)
         : totalMonthly > 0
           ? `<p>${fmt.format(totalMonthly)} mensais, vencimento todo dia ${dueDay}.</p>`
           : "";
@@ -590,8 +947,9 @@ export function ContractGenerator({
         address:          clientAddress ?? variables.contratante_endereco ?? "",
         cidade:           variables.cidade_estado?.split("/")?.[0] ?? "",
         estado:           variables.cidade_estado?.split("/")?.[1] ?? "",
-        estado_civil:     null,
-        nacionalidade:    "brasileiro(a)",
+        estado_civil:     clientDbData?.estado_civil ?? null,
+        nacionalidade:    clientDbData?.nacionalidade ?? "brasileiro(a)",
+        sexo:             clientDbData?.sexo ?? null,
         representatives:  contractReps.map(r => ({
           id:                    r.id,
           nome:                  r.nome,
@@ -628,12 +986,12 @@ export function ContractGenerator({
         })(),
         total_monthly:            totalMonthly || null,
         grace_months:             gracePeriodMonths ? Number(gracePeriodMonths) : null,
-        has_payment_schedule:     scheduleLines.length > 0,
+        has_payment_schedule:     derivedScheduleLines.length > 0,
         signing_type:             signingType,
         signed_at:                startDate || new Date().toISOString(),
         cidade_estado:            variables.cidade_estado ?? "",
         recurring_payment_method: recurringPaymentMethod,
-        chave_pix:                null,
+        chave_pix:                selectedPixKeyId || null,
         setup_amount_manual:      setupManual ? Number(setupManual) : null,
         has_guarantees:           guarantees.length > 0,
         guarantees:               guarantees.map(g => ({
@@ -656,13 +1014,20 @@ export function ContractGenerator({
               period:         cfg.period ?? null,
             })),
           })) satisfies SelectedService[],
-          setup_installments:   0,
-          setup_value:          setupManual ? Number(setupManual) : (totalSetup || 0),
-          setup_parcel_value:   0,
-          setup_fees:           0,
-          setup_first_due_date: firstPaymentDate,
-          setup_payment_method: recurringPaymentMethod,
-          setup_amount_manual:  setupManual ? Number(setupManual) : null,
+          setup_installments:        0,
+          setup_value:               setupManual ? Number(setupManual) : (totalSetup || 0),
+          setup_parcel_value:        0,
+          setup_fees:                0,
+          setup_first_due_date:      firstPaymentDate,
+          setup_payment_method:      recurringPaymentMethod,
+          setup_amount_manual:       setupManual ? Number(setupManual) : null,
+          // Comissão variável
+          commission_enabled:        commissionEnabled || undefined,
+          commission_type:           commissionEnabled ? commissionType : undefined,
+          commission_rate:           commissionEnabled && commissionRate ? Number(commissionRate) : undefined,
+          commission_description:    commissionEnabled && commissionDescription ? commissionDescription : undefined,
+          commission_settlement:     commissionEnabled ? commissionSettlement : undefined,
+          commission_payment_days:   commissionEnabled && commissionPaymentDays ? Number(commissionPaymentDays) : undefined,
         },
       };
 
@@ -733,12 +1098,16 @@ export function ContractGenerator({
           grace_period_months:  gracePeriodMonths ? Number(gracePeriodMonths) : null,
           setup_amount_manual:  setupManual ? Number(setupManual) : null,
           recurring_payment_method: recurringPaymentMethod || null,
-          payment_schedule:     scheduleLines,
+          payment_schedule:     derivedScheduleLines,
           clause_snapshot:      clauseMap,
         });
         await persistGuarantees(contract.id);
-        toast.success("Contrato gerado com sucesso!");
-        onSuccess(contract.id);
+        // Se estiver editando um rascunho existente, deleta o antigo
+        if (editingContract?.id) {
+          await supabase.from("contracts_v2").delete().eq("id", editingContract.id);
+        }
+        toast.success(editingContract ? "Rascunho atualizado com sucesso!" : "Contrato gerado com sucesso!");
+        (editingContract ? onEditSuccess ?? onSuccess : onSuccess)(contract.id);
         return;
       }
 
@@ -800,13 +1169,17 @@ export function ContractGenerator({
         grace_period_months:  gracePeriodMonths ? Number(gracePeriodMonths) : null,
         setup_amount_manual:  setupManual ? Number(setupManual) : null,
         recurring_payment_method: recurringPaymentMethod || null,
-        payment_schedule:     scheduleLines,
+        payment_schedule:     derivedScheduleLines,
         clause_snapshot:      clauseMap,
       });
 
       await persistGuarantees(contract.id);
-      toast.success("Contrato gerado com sucesso!");
-      onSuccess(contract.id);
+      // Se estiver editando um rascunho existente, deleta o antigo
+      if (editingContract?.id) {
+        await supabase.from("contracts_v2").delete().eq("id", editingContract.id);
+      }
+      toast.success(editingContract ? "Rascunho atualizado com sucesso!" : "Contrato gerado com sucesso!");
+      (editingContract ? onEditSuccess ?? onSuccess : onSuccess)(contract.id);
     } catch (err: unknown) {
       toast.error((err as Error).message ?? "Erro ao gerar contrato.");
     } finally {
@@ -817,31 +1190,26 @@ export function ContractGenerator({
   const canProceed = () => {
     // Step 1 — Serviços: pelo menos um serviço selecionado
     if (step === 1) return selectedSlugs.length > 0;
-    // Step 2 — Dados do Contrato: representante selecionado (campos do contratante são do cadastro)
-    if (step === 2) {
-      const camposOk = true; // todos os campos do contratante são somente-leitura
-      if (!camposOk) return false;
+    // Step 2 — Dados Financeiros: nada obrigatório além dos defaults
+    if (step === 2) return true;
+    // Step 3 — Cronograma: sempre pode avançar
+    if (step === 3) return true;
+    // Step 4 — Contratante: representante selecionado
+    if (step === 4) {
       const sigType = clientSigningType ?? "individual";
-      if (sigType === "individual") {
-        // Individual: pelo menos um representante selecionado
-        return selectedRepIds.length > 0;
-      } else {
-        // Conjunto: todos os legais obrigatórios precisam estar selecionados
-        // ou ter um procurador válido selecionado em seu lugar
-        const obrigatorios = representatives.filter(
-          r => r.is_legal_representative && r.tipo_representacao === "legal"
+      if (sigType === "individual") return selectedRepIds.length > 0;
+      const obrigatorios = representatives.filter(
+        r => r.is_legal_representative && r.tipo_representacao === "legal"
+      );
+      return obrigatorios.every(r => {
+        if (selectedRepIds.includes(r.id)) return true;
+        return representatives.some(
+          p => p.tipo_representacao === "procurador" &&
+               p.representa_ids?.includes(r.id) &&
+               selectedRepIds.includes(p.id)
         );
-        return obrigatorios.every(r => {
-          if (selectedRepIds.includes(r.id)) return true;
-          return representatives.some(
-            p => p.tipo_representacao === "procurador" &&
-                 p.representa_ids?.includes(r.id) &&
-                 selectedRepIds.includes(p.id)
-          );
-        });
-      }
+      });
     }
-    // Step 3 — Cronograma e Step 4 — Garantias: sempre pode avançar
     return true;
   };
 
@@ -873,18 +1241,28 @@ export function ContractGenerator({
 
         {/* ══════════════════════════════════════════════════════════════
             Step 1 — Serviços
-            Seleção de serviços com entregáveis configuráveis por item
+            Grid de cards compactos + painel de entregáveis full-width
         ══════════════════════════════════════════════════════════════ */}
-        {step === 1 && (
+        {step === 1 && (() => {
+          // Serviço ativo no painel — usa activeDelivSlug ou o primeiro selecionado com entregáveis
+          const svcsWithDeliverables = selectedSlugs
+            .map(slug => catalogServices.find(s => s.slug === slug))
+            .filter((s): s is typeof catalogServices[0] => !!s && (s.deliverables?.length ?? 0) > 0);
+
+          const activeSvc = svcsWithDeliverables.find(s => s.slug === activeDelivSlug)
+            ?? svcsWithDeliverables[0]
+            ?? null;
+
+          return (
           <div className="space-y-5 w-full">
             <div>
               <h2 className="text-base font-semibold">Serviços Contratados</h2>
               <p className="text-sm text-muted-foreground mt-0.5">
-                Selecione os serviços, defina o serviço principal e configure os entregáveis de cada um.
+                Selecione os serviços e defina o serviço principal. Configure os entregáveis clicando em um serviço selecionado.
               </p>
             </div>
 
-            {/* Banner de pré-preenchimento — aparece quando vem de uma proposta */}
+            {/* Banner proposta */}
             {proposalData && (
               <div className="flex items-start gap-2.5 px-3.5 py-3 rounded-lg bg-violet-50 border border-violet-200 text-xs text-violet-700">
                 <CheckCircle2 className="h-3.5 w-3.5 shrink-0 mt-0.5 text-violet-500" />
@@ -901,7 +1279,6 @@ export function ContractGenerator({
               </div>
             )}
 
-            {/* Instrução do serviço principal */}
             {selectedSlugs.length > 1 && (
               <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-700">
                 <Star className="h-3.5 w-3.5 shrink-0 fill-amber-400 text-amber-400" />
@@ -909,172 +1286,234 @@ export function ContractGenerator({
               </div>
             )}
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {/* ── Grid de cards compactos ── */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-2">
               {catalogServices.map(svc => {
                 const isSelected  = selectedSlugs.includes(svc.slug);
                 const isPrimary   = primarySlug === svc.slug;
+                const deliverables = svc.deliverables ?? [];
+                const svcDelivCfg  = selectedDeliverables[svc.slug] ?? {};
+                const includedCount = Object.values(svcDelivCfg).filter(d => d.included !== false).length;
                 const clauseCount = allClauses.filter(
                   c => !c.is_fixed && (
                     c.service_slug === svc.slug ||
                     (c.condition_type === "service" && (c.condition_value?.slugs as string[] | undefined)?.includes(svc.slug))
                   )
                 ).length;
-                const deliverables = svc.deliverables ?? [];
-                const svcDelivCfg  = selectedDeliverables[svc.slug] ?? {};
 
                 return (
                   <div
                     key={svc.slug}
-                    className={`rounded-lg border transition-colors ${
-                      isPrimary   ? "border-amber-400 bg-amber-50" :
-                      isSelected  ? "border-violet-400 bg-violet-50" :
-                      "hover:bg-muted/50"
+                    className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border transition-all cursor-pointer ${
+                      isPrimary  ? "border-amber-400 bg-amber-50" :
+                      isSelected ? "border-violet-400 bg-violet-50" :
+                      "border-border hover:bg-muted/40 hover:border-muted-foreground/30"
                     }`}
+                    onClick={() => toggleSlug(svc.slug)}
                   >
-                    {/* ── Cabeçalho do serviço ── */}
-                    <div
-                      className="flex items-start gap-3 p-4 cursor-pointer"
-                      onClick={() => !isSelected && toggleSlug(svc.slug)}
-                    >
-                      <Checkbox
-                        checked={isSelected}
-                        onCheckedChange={() => toggleSlug(svc.slug)}
-                        className="mt-0.5 shrink-0"
-                        onClick={e => e.stopPropagation()}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="text-sm font-medium">{svc.name}</p>
-                          {svc.category && (
-                            <Badge variant="outline" className="text-[10px] text-muted-foreground">{svc.category}</Badge>
-                          )}
-                          {isPrimary && (
-                            <Badge className="text-[10px] bg-amber-100 text-amber-700 border-amber-300 gap-0.5">
-                              <Star className="h-2.5 w-2.5 fill-amber-500 text-amber-500" /> Principal
-                            </Badge>
-                          )}
-                          {isSelected && deliverables.length > 0 && (
-                            <span className="text-[10px] text-violet-600">
-                              {Object.values(svcDelivCfg).filter(d => d.included).length}/{deliverables.length} entregáveis
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[10px] text-muted-foreground font-mono mt-0.5">{svc.slug}</p>
-                        {clauseCount > 0 && (
-                          <p className="text-[10px] text-violet-600 mt-1 flex items-center gap-1">
-                            <FileText className="h-3 w-3" />
-                            {clauseCount} {clauseCount === 1 ? "alínea específica" : "alíneas específicas"} incluídas
-                          </p>
+                    <Checkbox
+                      checked={isSelected}
+                      onCheckedChange={() => toggleSlug(svc.slug)}
+                      className="shrink-0"
+                      onClick={e => e.stopPropagation()}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="text-sm font-medium truncate">{svc.name}</p>
+                        {svc.category && (
+                          <Badge variant="outline" className="text-[9px] text-muted-foreground shrink-0">{svc.category}</Badge>
+                        )}
+                        {isPrimary && (
+                          <Badge className="text-[9px] bg-amber-100 text-amber-700 border-amber-300 gap-0.5 shrink-0">
+                            <Star className="h-2 w-2 fill-amber-500 text-amber-500" /> Principal
+                          </Badge>
                         )}
                       </div>
                       {isSelected && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              onClick={e => { e.stopPropagation(); setPrimarySlug(svc.slug); }}
-                              className={`shrink-0 p-1.5 rounded-full transition-colors ${
-                                isPrimary
-                                  ? "text-amber-500 bg-amber-100 hover:bg-amber-200"
-                                  : "text-muted-foreground/40 hover:text-amber-400 hover:bg-amber-50"
-                              }`}
-                            >
-                              <Star className={`h-4 w-4 ${isPrimary ? "fill-amber-400" : ""}`} />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="left" className="text-xs">
-                            {isPrimary ? "Serviço principal (objeto do contrato)" : "Definir como serviço principal"}
-                          </TooltipContent>
-                        </Tooltip>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {deliverables.length > 0 && (
+                            <span className="text-[10px] text-violet-600">
+                              {includedCount || deliverables.length}/{deliverables.length} entregáveis
+                            </span>
+                          )}
+                          {clauseCount > 0 && (
+                            <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                              <FileText className="h-2.5 w-2.5" />{clauseCount} alíneas
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
-
-                    {/* ── Entregáveis (expansível quando selecionado) ── */}
-                    {isSelected && deliverables.length > 0 && (
-                      <div className="px-4 pb-4 border-t border-violet-200 mt-0 pt-3 space-y-2">
-                        <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">
-                          Entregáveis
-                        </p>
-                        {deliverables.map(d => {
-                          const cfg = svcDelivCfg[d.id] ?? { included: true };
-                          return (
-                            <div key={d.id} className="flex items-start gap-2.5 p-2.5 rounded-md bg-background border">
-                              {/* Checkbox incluir/excluir */}
-                              <Checkbox
-                                checked={cfg.included !== false}
-                                onCheckedChange={v => updateDeliverable(svc.slug, d.id, { included: !!v })}
-                                className="mt-0.5 shrink-0"
-                              />
-                              <div className="flex-1 min-w-0 space-y-1.5">
-                                <p className={`text-xs font-medium ${cfg.included === false ? "line-through text-muted-foreground" : ""}`}>
-                                  {d.name}
-                                </p>
-                                {/* Quantidade — apenas para entregáveis do tipo numero */}
-                                {d.output_format === "numero" && cfg.included !== false && (
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <div className="flex items-center gap-1.5">
-                                      <Label className="text-[10px] text-muted-foreground whitespace-nowrap">Qtd.</Label>
-                                      <Input
-                                        type="number"
-                                        min={1}
-                                        value={cfg.number_value ?? ""}
-                                        onChange={e => updateDeliverable(svc.slug, d.id, { number_value: e.target.value ? Number(e.target.value) : null })}
-                                        placeholder="—"
-                                        className="h-6 w-16 text-xs px-1.5"
-                                      />
-                                      {d.unit && <span className="text-[10px] text-muted-foreground">{cfg.number_value === 1 ? d.unit : (d.unit_plural || d.unit)}</span>}
-                                    </div>
-                                    {/* Período — somente para recorrentes */}
-                                    {d.delivery_type === "recorrente" && (
-                                      <div className="flex items-center gap-1.5">
-                                        <Label className="text-[10px] text-muted-foreground whitespace-nowrap">por</Label>
-                                        <Select
-                                          value={cfg.period ?? ""}
-                                          onValueChange={v => updateDeliverable(svc.slug, d.id, { period: v || null })}
-                                        >
-                                          <SelectTrigger className="h-6 text-xs w-24 px-1.5">
-                                            <SelectValue placeholder="período" />
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            <SelectItem value="dia">dia</SelectItem>
-                                            <SelectItem value="semana">semana</SelectItem>
-                                            <SelectItem value="mes">mês</SelectItem>
-                                            <SelectItem value="vigencia">vigência</SelectItem>
-                                            <SelectItem value="nao_indicar">não indicar</SelectItem>
-                                          </SelectContent>
-                                        </Select>
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                                {/* Texto fixo — exibe o valor cadastrado */}
-                                {d.output_format === "texto" && d.text_value && cfg.included !== false && (
-                                  <p className="text-[10px] text-muted-foreground italic">{d.text_value}</p>
-                                )}
-                              </div>
-                              {/* Badge tipo */}
-                              <Badge variant="outline" className={`text-[9px] shrink-0 ${
-                                d.delivery_type === "recorrente" ? "text-blue-600 border-blue-300" :
-                                d.delivery_type === "unico"      ? "text-emerald-600 border-emerald-300" :
-                                "text-muted-foreground"
-                              }`}>
-                                {d.delivery_type}
-                              </Badge>
-                            </div>
-                          );
-                        })}
-                      </div>
+                    {isSelected && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={e => { e.stopPropagation(); setPrimarySlug(svc.slug); }}
+                            className={`shrink-0 p-1 rounded-full transition-colors ${
+                              isPrimary
+                                ? "text-amber-500 bg-amber-100 hover:bg-amber-200"
+                                : "text-muted-foreground/30 hover:text-amber-400 hover:bg-amber-50"
+                            }`}
+                          >
+                            <Star className={`h-3.5 w-3.5 ${isPrimary ? "fill-amber-400" : ""}`} />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs">
+                          {isPrimary ? "Serviço principal" : "Definir como serviço principal"}
+                        </TooltipContent>
+                      </Tooltip>
                     )}
                   </div>
                 );
               })}
 
               {catalogServices.length === 0 && (
-                <p className="text-sm text-muted-foreground text-center py-8">
+                <p className="text-sm text-muted-foreground text-center py-8 col-span-full">
                   Nenhum serviço cadastrado. Adicione serviços em Configurações → Serviços/Produtos.
                 </p>
               )}
             </div>
+
+            {/* ── Painel de entregáveis full-width ─────────────────────────────
+                Aparece abaixo do grid quando há serviços selecionados com entregáveis.
+                Exibe abas para cada serviço selecionado que tenha entregáveis.
+            ─────────────────────────────────────────────────────────────────── */}
+            {(() => {
+              const svcsWithDeliverables = selectedSlugs
+                .map(slug => catalogServices.find(s => s.slug === slug))
+                .filter((s): s is typeof catalogServices[0] => !!s && (s.deliverables?.length ?? 0) > 0);
+
+              if (svcsWithDeliverables.length === 0) return null;
+
+              return (
+                <div className="rounded-lg border bg-muted/20">
+                  {/* Abas de serviço */}
+                  <div className="flex items-center gap-0 border-b overflow-x-auto">
+                    {svcsWithDeliverables.map(svc => {
+                      const svcDelivCfg  = selectedDeliverables[svc.slug] ?? {};
+                      const totalD = svc.deliverables?.length ?? 0;
+                      const includedD = totalD > 0
+                        ? Object.keys(svcDelivCfg).length > 0
+                          ? Object.values(svcDelivCfg).filter(d => d.included !== false).length
+                          : totalD
+                        : 0;
+                      const isPrimaryTab = primarySlug === svc.slug;
+                      const isActive = activeSvc?.slug === svc.slug;
+
+                      return (
+                        <button
+                          key={svc.slug}
+                          type="button"
+                          onClick={() => setActiveDelivSlug(svc.slug)}
+                          className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${
+                            isActive
+                              ? "border-violet-500 text-violet-700 bg-background"
+                              : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                          }`}
+                        >
+                          {isPrimaryTab && <Star className="h-3 w-3 fill-amber-400 text-amber-400" />}
+                          {svc.name}
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
+                            includedD === totalD
+                              ? "bg-violet-100 text-violet-600"
+                              : "bg-amber-100 text-amber-600"
+                          }`}>
+                            {includedD}/{totalD}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Entregáveis do serviço ativo */}
+                  {activeSvc && (() => {
+                    const svc = activeSvc;
+                    const deliverables = svc.deliverables ?? [];
+                    const svcDelivCfg  = selectedDeliverables[svc.slug] ?? {};
+
+                    return (
+                      <div key={svc.slug} className="p-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                          {deliverables.map(d => {
+                            const cfg = svcDelivCfg[d.id] ?? { included: true };
+                            const isIncluded = cfg.included !== false;
+                            return (
+                              <div
+                                key={d.id}
+                                className={`flex items-start gap-2.5 p-2.5 rounded-md border transition-colors ${
+                                  isIncluded ? "bg-background" : "bg-muted/30 opacity-60"
+                                }`}
+                              >
+                                <Checkbox
+                                  checked={isIncluded}
+                                  onCheckedChange={v => updateDeliverable(svc.slug, d.id, { included: !!v })}
+                                  className="mt-0.5 shrink-0"
+                                />
+                                <div className="flex-1 min-w-0 space-y-1">
+                                  <p className={`text-xs font-medium leading-snug ${!isIncluded ? "line-through text-muted-foreground" : ""}`}>
+                                    {d.name}
+                                  </p>
+                                  {d.output_format === "numero" && isIncluded && (
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <div className="flex items-center gap-1.5">
+                                        <Label className="text-[10px] text-muted-foreground whitespace-nowrap">Qtd.</Label>
+                                        <Input
+                                          type="number" min={1}
+                                          value={cfg.number_value ?? ""}
+                                          onChange={e => updateDeliverable(svc.slug, d.id, { number_value: e.target.value ? Number(e.target.value) : null })}
+                                          placeholder="—"
+                                          className="h-6 w-14 text-xs px-1.5"
+                                        />
+                                        {d.unit && (
+                                          <span className="text-[10px] text-muted-foreground">
+                                            {cfg.number_value === 1 ? d.unit : (d.unit_plural || d.unit)}
+                                          </span>
+                                        )}
+                                      </div>
+                                      {d.delivery_type === "recorrente" && (
+                                        <div className="flex items-center gap-1.5">
+                                          <Label className="text-[10px] text-muted-foreground whitespace-nowrap">por</Label>
+                                          <Select
+                                            value={cfg.period ?? ""}
+                                            onValueChange={v => updateDeliverable(svc.slug, d.id, { period: v || null })}
+                                          >
+                                            <SelectTrigger className="h-6 text-xs w-24 px-1.5">
+                                              <SelectValue placeholder="período" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              <SelectItem value="dia">dia</SelectItem>
+                                              <SelectItem value="semana">semana</SelectItem>
+                                              <SelectItem value="mes">mês</SelectItem>
+                                              <SelectItem value="vigencia">vigência</SelectItem>
+                                              <SelectItem value="nao_indicar">não indicar</SelectItem>
+                                            </SelectContent>
+                                          </Select>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                  {d.output_format === "texto" && d.text_value && isIncluded && (
+                                    <p className="text-[10px] text-muted-foreground italic">{d.text_value}</p>
+                                  )}
+                                </div>
+                                <Badge variant="outline" className={`text-[9px] shrink-0 ${
+                                  d.delivery_type === "recorrente" ? "text-blue-600 border-blue-300" :
+                                  d.delivery_type === "unico"      ? "text-emerald-600 border-emerald-300" :
+                                  "text-muted-foreground"
+                                }`}>
+                                  {d.delivery_type}
+                                </Badge>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              );
+            })()}
 
             {selectedSlugs.length > 0 && !primarySlug && (
               <p className="text-xs text-amber-600 flex items-center gap-1">
@@ -1082,29 +1521,36 @@ export function ContractGenerator({
               </p>
             )}
           </div>
-        )}
+          );
+        })()}
 
         {/* ══════════════════════════════════════════════════════════════
-            Step 2 — Dados do Contrato
-            Template + Prazos/carência/setup + Variáveis do contratante
+            Step 2 — Dados Financeiros
+            Tipo de contrato, valor, desconto, setup, prazos, datas
         ══════════════════════════════════════════════════════════════ */}
-        {step === 2 && (
-          <div className="space-y-6" style={{ maxWidth: "100%" }}>
+        {step === 2 && (() => {
+          // Valor mensal efetivo: manual > blocos
+          const totalMonthlyBlocks = selectedBlocks.reduce((s, b) => s + (b.monthly_amount ?? 0), 0);
+          const effectiveMonthly   = monthlyValueManual ? Number(monthlyValueManual) : totalMonthlyBlocks;
+          const totalSetupBlocks   = selectedBlocks.reduce((s, b) => s + (b.setup_amount ?? 0) + (b.one_time_amount ?? 0), 0);
+          const effectiveSetup     = setupManual ? Number(setupManual) : totalSetupBlocks;
+          const fmt2 = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+          return (
+          <div className="space-y-6 w-full">
             <div>
-              <h2 className="text-base font-semibold">Dados do Contrato</h2>
+              <h2 className="text-base font-semibold">Dados Financeiros</h2>
               <p className="text-sm text-muted-foreground mt-0.5">
-                Defina prazos, carência e dados do contratante.
+                Configure o tipo, valores e condições financeiras do contrato.
               </p>
             </div>
 
-            {/* ── Documento ───────────────────────────────────────────── */}
-            {/* Template padrão é sempre usado automaticamente — sem seleção.
-                Proposta vinculada só aparece quando o contrato vem de uma proposta. */}
+            {/* Proposta de origem */}
             {proposalId && (
-              <div className="pb-5 border-b">
-                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">Documento</p>
+              <div className="pb-4 border-b">
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-2">Origem</p>
                 <div className="flex flex-col gap-1 max-w-xs">
-                  <Label className="text-xs text-muted-foreground">Proposta de origem</Label>
+                  <Label className="text-xs text-muted-foreground">Proposta vinculada</Label>
                   <div className="h-8 px-3 flex items-center rounded-md border bg-muted/40 text-sm font-mono text-muted-foreground select-none">
                     {proposalData?.title
                       ? <><span className="text-foreground font-medium truncate mr-2">{proposalData.title}</span><span className="text-[10px] shrink-0">{proposalId.slice(0, 8)}…</span></>
@@ -1115,131 +1561,782 @@ export function ContractGenerator({
               </div>
             )}
 
-            {/* ── Datas e Prazos — 4 colunas, alinhados pela base ─────── */}
+            {/* ── Tipo de Contrato ── */}
             <div className="space-y-3 pb-5 border-b">
-              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Datas e Prazos</p>
-              {/*
-                Cada célula usa flex-col com justify-between: label+hint crescem em cima,
-                input fica sempre colado na base — todos os inputs alinhados.
-              */}
-              <div className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-4 items-end">
-                {/* Data da Contratação */}
-                <div className="flex flex-col gap-1">
-                  <div>
-                    <Label className="text-xs">Data da Contratação <span className="text-red-500">*</span></Label>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">Data de assinatura.</p>
-                  </div>
-                  <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="h-8" />
-                </div>
-                {/* Início de vigência posterior */}
-                <div className="flex flex-col gap-1">
-                  <div>
-                    <Label className="text-xs">Início de vigência <span className="text-muted-foreground font-normal">(opcional)</span></Label>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">Deixe em branco para usar a data de contratação.</p>
-                  </div>
-                  <Input type="date" value={vigenciaInicio} onChange={e => setVigenciaInicio(e.target.value)} className="h-8" />
-                  {vigenciaInicio && vigenciaInicio > startDate && (
-                    <p className="text-[10px] text-amber-600 flex items-center gap-1 mt-0.5">
-                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
-                      Vigência em {new Date(vigenciaInicio + "T12:00:00").toLocaleDateString("pt-BR")}
-                    </p>
-                  )}
-                </div>
-                {/* Prazo de vigência */}
-                <div className="flex flex-col gap-1">
-                  <div>
-                    <Label className="text-xs">Prazo de vigência (meses)</Label>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">Duração total do contrato.</p>
-                  </div>
-                  <Input type="number" min={1}
-                    value={variables.prazo_vigencia_meses ?? ""}
-                    onChange={e => setVariables(p => ({ ...p, prazo_vigencia_meses: e.target.value, prazo_vigencia_dias: String(Number(e.target.value) * 30) }))}
-                    placeholder="12" className="h-8" />
-                </div>
-                {/* Prazo mínimo */}
-                <div className="flex flex-col gap-1">
-                  <div>
-                    <Label className="text-xs">Prazo mínimo (meses)</Label>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">Fidelidade mínima exigida.</p>
-                  </div>
-                  <Input type="number" min={1}
-                    value={prazoMinimo}
-                    onChange={e => setPrazoMinimo(e.target.value)}
-                    placeholder="Ex: 12" className="h-8" />
-                </div>
-                {/* Carência */}
-                <div className="flex flex-col gap-1">
-                  <div>
-                    <Label className="text-xs">Carência (meses)</Label>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">Sem cobrança. Não altera o prazo.</p>
-                  </div>
-                  <Input type="number" min={0}
-                    value={gracePeriodMonths}
-                    onChange={e => setGracePeriodMonths(e.target.value)}
-                    placeholder="0" className="h-8" />
-                </div>
-                {/* Setup / Implementação */}
-                <div className="flex flex-col gap-1">
-                  <div>
-                    <Label className="text-xs">Setup / Implementação</Label>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">Em branco = calculado automaticamente.</p>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Input type="number" min={0} step="0.01"
-                      value={setupManual}
-                      onChange={e => setSetupManual(e.target.value)}
-                      placeholder="R$ 0,00" className="h-8 flex-1" />
-                    {setupManual && (
-                      <button type="button" onClick={() => setSetupManual("")}
-                        className="h-8 w-7 flex items-center justify-center rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0"
-                        title="Limpar">×</button>
-                    )}
-                  </div>
-                </div>
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Tipo de Contrato</p>
+              <div className="grid grid-cols-3 gap-3">
+                {(["mensal", "eventual", "evolutivo"] as const).map(t => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => { scheduleManuallyEdited.current = false; setContractType(t); }}
+                    className={`flex flex-col gap-1 p-3 rounded-lg border text-left transition-all ${
+                      contractType === t
+                        ? "border-violet-400 bg-violet-50 text-violet-900"
+                        : "border-border hover:bg-muted/40"
+                    }`}
+                  >
+                    <span className="text-sm font-medium capitalize">
+                      {t === "mensal" ? "Recorrente (Mensal)" : t === "eventual" ? "Eventual (Único)" : "Evolutivo"}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground leading-snug">
+                      {t === "mensal"    && "Mensalidade fixa cobrada todo mês"}
+                      {t === "eventual"  && "Pagamento único, sem recorrência"}
+                      {t === "evolutivo" && "Valores crescentes ao longo do contrato"}
+                    </span>
+                  </button>
+                ))}
               </div>
             </div>
 
-            {/* ── Dados do Contratante — 4 colunas, alinhados pela base ── */}
-            {/* ── Dados do Contratante — campos manuais + representantes ── */}
-            <div className="space-y-5">
-              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Dados do Contratante</p>
+            {/* ── Valores ── */}
+            <div className="space-y-3 pb-5 border-b">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Valores</p>
+              <div className="grid grid-cols-3 gap-x-4 gap-y-2 items-start">
 
-              {/* Campos somente-leitura do cadastro + editáveis em grid 4 colunas */}
+                {/* Col 1 — Valor mensal / contrato */}
+                <div className="flex flex-col gap-1">
+                  <Label className="text-xs h-4 flex items-center">
+                    {contractType === "eventual" ? "Valor do contrato" : "Valor da mensalidade"}
+                  </Label>
+                  {totalMonthlyBlocks > 0 && (
+                    <p className="text-[10px] text-violet-600 -mt-0.5 mb-0.5">
+                      Calculado: {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(totalMonthlyBlocks)}
+                    </p>
+                  )}
+                  <div className="flex items-center gap-1.5">
+                    <CurrencyInput
+                      value={monthlyValueManual}
+                      onValueChange={setMonthlyValueManual}
+                      placeholder={totalMonthlyBlocks > 0 ? fmt2.format(totalMonthlyBlocks) : "0,00"}
+                      className="h-8 flex-1"
+                    />
+                    {monthlyValueManual && (
+                      <button type="button" onClick={() => setMonthlyValueManual("")}
+                        className="h-8 w-7 flex items-center justify-center rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                        title="Usar valor calculado automaticamente">×</button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Col 2 — Setup / Implementação */}
+                {contractType !== "eventual" ? (
+                  <div className="flex flex-col gap-1">
+                    <Label className="text-xs h-4 flex items-center">Setup / Implementação</Label>
+                    {totalSetupBlocks > 0 && (
+                      <p className="text-[10px] text-violet-600 -mt-0.5 mb-0.5">
+                        Calculado: {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(totalSetupBlocks)}
+                      </p>
+                    )}
+                    <div className="flex items-center gap-1">
+                      <CurrencyInput
+                        value={setupManual}
+                        onValueChange={setSetupManual}
+                        placeholder={totalSetupBlocks > 0 ? fmt2.format(totalSetupBlocks) : "0,00"}
+                        className="h-8 flex-1"
+                      />
+                      {setupManual && (
+                        <button type="button" onClick={() => setSetupManual("")}
+                          className="h-8 w-7 flex items-center justify-center rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                          title="Limpar">×</button>
+                      )}
+                    </div>
+                  </div>
+                ) : <div />}
+
+                {/* Col 3 — Parcelas do setup */}
+                {contractType !== "eventual" && effectiveSetup > 0 ? (
+                  <div className="flex flex-col gap-1">
+                    <Label className="text-xs h-4 flex items-center">Parcelas do setup</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number" min={1} max={24} step={1}
+                        value={setupInstallments}
+                        onChange={e => setSetupInstallments(e.target.value || "1")}
+                        className="h-8 w-24 text-xs"
+                      />
+                      {Number(setupInstallments) > 1 && (
+                        <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                          {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
+                            Math.round(effectiveSetup / Number(setupInstallments) * 100) / 100
+                          )}/parcela
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ) : <div />}
+
+                {/* Resumo visual — linha inteira */}
+                {effectiveMonthly > 0 && (
+                  <div className="col-span-3 flex items-center gap-3 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-700">
+                    <CheckCircle2 className="h-4 w-4 shrink-0" />
+                    <span>
+                      {contractType === "eventual"
+                        ? `Pagamento único de ${new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(effectiveMonthly)}`
+                        : `${new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(effectiveMonthly)}/mês`
+                      }
+                      {effectiveSetup > 0 && contractType !== "eventual" && ` + setup de ${new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(effectiveSetup)}`}
+                      {effectiveSetup > 0 && contractType !== "eventual" && Number(setupInstallments) > 1 && ` em ${setupInstallments}x`}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* ── Formato de pagamento (apenas eventual) ── */}
+            {contractType === "eventual" && (() => {
+              const totalMonthlyBlocksEv = selectedBlocks.reduce((s, b) => s + (b.monthly_amount ?? 0), 0);
+              const effectiveEv = monthlyValueManual ? Number(monthlyValueManual) : totalMonthlyBlocksEv;
+              const entryPct    = Math.min(99, Math.max(1, Number(eventualEntryPct) || 50));
+              const entryVal    = Math.round(effectiveEv * (entryPct / 100) * 100) / 100;
+              const restVal     = effectiveEv - entryVal;
+              const fmtCurEv    = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+              return (
+                <div className="space-y-3 pb-5 border-b">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Formato de Pagamento</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    {([
+                      { key: "integral",           label: "Valor integral",            desc: "100% na contratação" },
+                      { key: "meio_meio",           label: "50% / 50%",                desc: "Entrada na assinatura, restante na entrega" },
+                      { key: "entrada_parcelado",   label: "Entrada + Parcelado",      desc: "Entrada + restante em parcelas" },
+                    ] as const).map(({ key, label, desc }) => (
+                      <button key={key} type="button"
+                        onClick={() => setEventualFormat(key)}
+                        className={`flex flex-col gap-1 p-3 rounded-lg border text-left transition-all ${eventualFormat === key ? "border-violet-400 bg-violet-50 text-violet-900" : "border-border hover:bg-muted/40"}`}>
+                        <span className="text-sm font-medium">{label}</span>
+                        <span className="text-[11px] text-muted-foreground leading-snug">{desc}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Campos extras por formato */}
+                  {eventualFormat === "meio_meio" && (
+                    <div className="grid grid-cols-2 gap-4 items-end mt-2">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">% da entrada</Label>
+                        <div className="flex items-center gap-1.5">
+                          <Input type="number" min={1} max={99}
+                            value={eventualEntryPct}
+                            onChange={e => setEventualEntryPct(e.target.value)}
+                            className="h-8 w-20" />
+                          <span className="text-sm text-muted-foreground">%</span>
+                        </div>
+                      </div>
+                      {effectiveEv > 0 && (
+                        <div className="rounded-lg bg-muted/30 border p-2.5 text-xs space-y-0.5">
+                          <p className="text-muted-foreground">Entrada: <strong>{fmtCurEv.format(entryVal)}</strong></p>
+                          <p className="text-muted-foreground">Restante: <strong>{fmtCurEv.format(restVal)}</strong></p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {eventualFormat === "entrada_parcelado" && (
+                    <div className="grid grid-cols-2 gap-4 items-end mt-2">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">% da entrada</Label>
+                        <div className="flex items-center gap-1.5">
+                          <Input type="number" min={1} max={99}
+                            value={eventualEntryPct}
+                            onChange={e => setEventualEntryPct(e.target.value)}
+                            className="h-8 w-20" />
+                          <span className="text-sm text-muted-foreground">%</span>
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Parcelas do restante</Label>
+                        <Input type="number" min={1} max={60}
+                          value={eventualInstallments}
+                          onChange={e => setEventualInstallments(e.target.value)}
+                          className="h-8" />
+                      </div>
+                      {effectiveEv > 0 && (
+                        <div className="col-span-2 rounded-lg bg-muted/30 border p-2.5 text-xs space-y-0.5">
+                          <p className="text-muted-foreground">
+                            Entrada ({entryPct}%): <strong>{fmtCurEv.format(entryVal)}</strong>
+                          </p>
+                          <p className="text-muted-foreground">
+                            {Number(eventualInstallments) || 1}x de{" "}
+                            <strong>{fmtCurEv.format(Math.round(restVal / (Number(eventualInstallments) || 1) * 100) / 100)}</strong>
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+
+            {/* ── Comissão sobre Resultados ── */}
+            <div className="space-y-3 pb-5 border-b">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Comissão sobre Resultados</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    Habilite para registrar mensalmente resultados variáveis e calcular a cobrança.
+                  </p>
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={commissionEnabled}
+                    onChange={e => setCommissionEnabled(e.target.checked)}
+                    className="rounded"
+                  />
+                  <span className="text-xs text-muted-foreground">Ativar comissão</span>
+                </label>
+              </div>
+
+              {commissionEnabled && (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 items-start">
+                  {/* Tipo de base */}
+                  <div className="flex flex-col gap-1">
+                    <Label className="text-xs h-4 flex items-center">Tipo de base</Label>
+                    <div className="grid grid-cols-1 gap-1.5">
+                      {([
+                        { key: "percent_value",  label: "% sobre o valor",    desc: "Comissão = resultado × taxa%" },
+                        { key: "fixed_per_unit", label: "R$ por resultado",   desc: "Comissão = qtde × valor fixo" },
+                      ] as const).map(({ key, label, desc }) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => setCommissionType(key)}
+                          className={`flex flex-col gap-0.5 px-3 py-2 rounded-lg border text-left transition-all ${
+                            commissionType === key
+                              ? "border-violet-400 bg-violet-50 text-violet-900"
+                              : "border-border hover:bg-muted/40"
+                          }`}
+                        >
+                          <span className="text-xs font-medium">{label}</span>
+                          <span className="text-[10px] text-muted-foreground leading-snug">{desc}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Taxa */}
+                  <div className="flex flex-col gap-1">
+                    <Label className="text-xs h-4 flex items-center">
+                      {commissionType === "percent_value" ? "Taxa de comissão (%)" : "Valor por resultado (R$)"}
+                    </Label>
+                    <div className="flex items-center gap-1">
+                      {commissionType === "percent_value" ? (
+                        <>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={100}
+                            step={0.1}
+                            value={commissionRate}
+                            onChange={e => setCommissionRate(e.target.value)}
+                            placeholder="Ex: 10"
+                            className="h-8 flex-1"
+                          />
+                          <span className="text-xs text-muted-foreground shrink-0">%</span>
+                        </>
+                      ) : (
+                        <CurrencyInput
+                          value={commissionRate}
+                          onValueChange={setCommissionRate}
+                          placeholder="0,00"
+                          className="h-8"
+                        />
+                      )}
+                    </div>
+                    {commissionRate && Number(commissionRate) > 0 && (
+                      <p className="text-[10px] text-violet-600">
+                        {commissionType === "percent_value"
+                          ? `${commissionRate}% sobre o valor dos resultados`
+                          : `R$ ${commissionRate} por resultado registrado`}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Descrição */}
+                  <div className="flex flex-col gap-1">
+                    <Label className="text-xs h-4 flex items-center">O que é um resultado?</Label>
+                    <Input
+                      value={commissionDescription}
+                      onChange={e => setCommissionDescription(e.target.value)}
+                      placeholder="Ex: contrato fechado, lead convertido…"
+                      className="h-8"
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      Aparecerá no formulário de registro mensal.
+                    </p>
+                  </div>
+
+                  {/* Periodicidade de apuração */}
+                  <div className="flex flex-col gap-1">
+                    <Label className="text-xs">Periodicidade de apuração</Label>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {([
+                        { key: "semanal",    label: "Semanal" },
+                        { key: "quinzenal",  label: "Quinzenal" },
+                        { key: "mensal",     label: "Mensal" },
+                      ] as const).map(({ key, label }) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => setCommissionSettlement(key)}
+                          className={`px-2 py-1.5 rounded-lg border text-xs text-center transition-all ${
+                            commissionSettlement === key
+                              ? "border-violet-400 bg-violet-50 text-violet-900 font-semibold"
+                              : "border-border hover:bg-muted/40"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      Frequência de levantamento e cobrança da comissão.
+                    </p>
+                  </div>
+
+                  {/* Prazo de pagamento após apuração */}
+                  <div className="flex flex-col gap-1">
+                    <Label className="text-xs">Prazo de pagamento (dias úteis)</Label>
+                    <div className="flex items-center gap-1">
+                      <Input
+                        type="number"
+                        min={1}
+                        max={60}
+                        value={commissionPaymentDays}
+                        onChange={e => setCommissionPaymentDays(e.target.value)}
+                        placeholder="Ex: 5"
+                        className="h-8"
+                      />
+                      <span className="text-xs text-muted-foreground shrink-0">dias úteis</span>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      Prazo para pagar a comissão após encerrar o período de apuração.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ── Prazos e Datas ── */}
+            <div className="space-y-3 pb-5 border-b">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Prazos e Datas</p>
               <div className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-4 items-end">
+                <div className="flex flex-col gap-1">
+                  <div>
+                    <Label className="text-xs">Data da Contratação <span className="text-red-500">*</span></Label>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Data de assinatura do contrato.</p>
+                  </div>
+                  <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="h-8" />
+                </div>
+                {contractType !== "eventual" && (
+                  <>
+                    <div className="flex flex-col gap-1">
+                      <div>
+                        <Label className="text-xs">Prazo de vigência (meses)</Label>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">Duração total do contrato.</p>
+                      </div>
+                      <Input type="number" min={1}
+                        value={variables.prazo_vigencia_meses ?? ""}
+                        onChange={e => setVariables(p => ({ ...p, prazo_vigencia_meses: e.target.value, prazo_vigencia_dias: String(Number(e.target.value) * 30) }))}
+                        placeholder="12" className="h-8" />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <div>
+                        <Label className="text-xs">Prazo mínimo (meses)</Label>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">Fidelidade mínima exigida.</p>
+                      </div>
+                      <Input type="number" min={1}
+                        value={prazoMinimo}
+                        onChange={e => setPrazoMinimo(e.target.value)}
+                        placeholder="Ex: 12" className="h-8" />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <div>
+                        <Label className="text-xs">Início de vigência <span className="text-muted-foreground font-normal">(opcional)</span></Label>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">Deixe em branco para usar a data de contratação.</p>
+                      </div>
+                      <Input type="date" value={vigenciaInicio} onChange={e => setVigenciaInicio(e.target.value)} className="h-8" />
+                      {vigenciaInicio && vigenciaInicio > startDate && (
+                        <p className="text-[10px] text-amber-600 flex items-center gap-1 mt-0.5">
+                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
+                          Vigência em {new Date(vigenciaInicio + "T12:00:00").toLocaleDateString("pt-BR")}
+                        </p>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
 
-                {/* Razão Social — somente-leitura, span 2 */}
+            {/* ── Pagamento ── */}
+            <div className="space-y-3 pb-5 border-b">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Pagamento</p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-4 items-end">
+                <div className="flex flex-col gap-1">
+                  <div>
+                    <Label className="text-xs">Data do 1º pagamento <span className="text-red-500">*</span></Label>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Vencimento da primeira parcela.</p>
+                  </div>
+                  <Input type="date" value={firstPaymentDate}
+                    onChange={e => { scheduleManuallyEdited.current = false; setFirstPaymentDate(e.target.value); }}
+                    className="h-8" />
+                </div>
+                {contractType !== "eventual" && (
+                  <div className="flex flex-col gap-1">
+                    <div>
+                      <Label className="text-xs">Dia de vencimento</Label>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">Dia do mês para parcelas recorrentes.</p>
+                    </div>
+                    <Input type="number" value={dueDay} min={1} max={28}
+                      onChange={e => { scheduleManuallyEdited.current = false; setDueDay(Number(e.target.value)); }}
+                      className="h-8 w-24" />
+                  </div>
+                )}
+                <div className="flex flex-col gap-1">
+                  <div>
+                    <Label className="text-xs">Forma de pagamento</Label>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Padrão aplicado a todas as parcelas.</p>
+                  </div>
+                  <PaymentMethodSelect
+                    value={recurringPaymentMethod}
+                    onValueChange={v => { scheduleManuallyEdited.current = false; setRecurringPaymentMethod(v); }}
+                    placeholder="Selecione..."
+                  />
+                </div>
+
+                {/* Chave PIX — visível quando forma de pagamento é PIX */}
+                {recurringPaymentMethod === "pix" && (
+                  <div className="flex flex-col gap-1">
+                    <div>
+                      <Label className="text-xs">Chave PIX</Label>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">Chave que constará no contrato.</p>
+                    </div>
+                    {pixKeys.length === 0 ? (
+                      <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                        Nenhuma chave PIX cadastrada. Acesse Configurações → Contratos para adicionar.
+                      </p>
+                    ) : (
+                      <select
+                        value={selectedPixKeyId}
+                        onChange={e => setSelectedPixKeyId(e.target.value)}
+                        className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                      >
+                        <option value="">Selecione uma chave PIX…</option>
+                        {pixKeys.map(k => (
+                          <option key={k.id} value={k.id}>
+                            {k.label} — {k.key_value}{k.holder_name ? ` (${k.holder_name})` : ""}{k.is_default ? " ★ padrão" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+          );
+        })()}
+
+        {/* ══════════════════════════════════════════════════════════════
+            Step 3 — Cronograma
+            Tabela editável linha a linha
+        ══════════════════════════════════════════════════════════════ */}
+        {step === 3 && (
+            <div className="space-y-5 w-full">
+              <div>
+                <h2 className="text-base font-semibold">Cronograma de Pagamento</h2>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  Visualize o cronograma gerado e ajuste parcelas individualmente se necessário.
+                </p>
+              </div>
+
+              {/* Alerta vigência posterior */}
+              {vigenciaInicio && vigenciaInicio > startDate && (
+                <div className="flex items-start gap-2.5 px-3.5 py-3 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-700">
+                  <span className="mt-0.5 shrink-0 h-3.5 w-3.5 rounded-full bg-blue-400 inline-block" />
+                  <span><strong>Início de vigência posterior:</strong> cronograma começa a partir da data do 1º pagamento; vigência inicia em {new Date(vigenciaInicio + "T12:00:00").toLocaleDateString("pt-BR")}.</span>
+                </div>
+              )}
+
+              {/* Tabela editável */}
+              {scheduleRows.length > 0 ? (() => {
+                const fmtCurInline = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+                const setupRows       = scheduleRows.filter(r => r.tipo === "setup" || r.tipo === "setup+mensalidade");
+                const mensalidadeRows = scheduleRows.filter(r => r.tipo === "mensalidade" || r.tipo === "setup+mensalidade");
+
+                const openEdit = (idx: number) => {
+                  setEditingRowIdx(idx);
+                  setEditDraft({ ...scheduleRows[idx] });
+                };
+                const cancelEdit = () => { setEditingRowIdx(null); setEditDraft(null); };
+                const saveEdit = () => {
+                  if (editDraft === null || editingRowIdx === null) return;
+                  const pct = editDraft.desconto || 0;
+                  const valorFinal = pct > 0
+                    ? Math.round(editDraft.valorOriginal * (1 - pct / 100) * 100) / 100
+                    : editDraft.valor;
+                  setScheduleRows(prev => prev.map((r, i) => i === editingRowIdx
+                    ? { ...editDraft, valor: valorFinal }
+                    : r
+                  ));
+                  scheduleManuallyEdited.current = true;
+                  setEditingRowIdx(null);
+                  setEditDraft(null);
+                };
+
+                return (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                        Cronograma — {scheduleRows.length} parcela{scheduleRows.length !== 1 ? "s" : ""}
+                        {" "}· Total: {fmtCurInline.format(scheduleRows.reduce((s, r) => s + r.valor, 0))}
+                      </p>
+                      {scheduleManuallyEdited.current && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs gap-1"
+                          onClick={() => {
+                            scheduleManuallyEdited.current = false;
+                            generateScheduleRows();
+                          }}
+                        >
+                          Recalcular
+                        </Button>
+                      )}
+                    </div>
+                    <div className="rounded-lg border overflow-x-auto">
+                      <table className="w-full text-xs min-w-[540px]">
+                        <thead>
+                          <tr className="bg-muted/40 border-b">
+                            <th className="px-3 py-2 text-left font-medium text-muted-foreground w-8">#</th>
+                            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Tipo</th>
+                            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Vencimento</th>
+                            <th className="px-3 py-2 text-right font-medium text-muted-foreground">Valor</th>
+                            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Forma de Pgto</th>
+                            <th className="px-3 py-2 w-8" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {scheduleRows.map((row, idx) => {
+                            const setupIdx = setupRows.indexOf(row);
+                            const mensIdx  = mensalidadeRows.indexOf(row);
+                            const totalSetupN = setupRows.length;
+                            const totalMensN  = mensalidadeRows.length;
+                            const tipoLabel =
+                              row.tipo === "setup"              ? (totalSetupN > 1 ? `Setup ${setupIdx + 1}/${totalSetupN}` : "Setup") :
+                              row.tipo === "setup+mensalidade"  ? `Setup ${setupIdx + 1}/${totalSetupN} + Mensalidade ${mensIdx + 1}` :
+                              row.tipo === "entrada"            ? "Entrada"          :
+                              row.tipo === "conclusao"          ? "Saldo na entrega" :
+                              row.tipo === "unico"              ? "Pagamento único"  :
+                              row.tipo === "mensalidade" && totalMensN > 1
+                                ? `Mensalidade ${mensIdx + 1}/${totalMensN}`
+                                : "Mensalidade";
+                            const tipoColor =
+                              row.tipo === "setup"             ? "bg-amber-100 text-amber-700"    :
+                              row.tipo === "setup+mensalidade" ? "bg-orange-100 text-orange-700"  :
+                              row.tipo === "entrada"           ? "bg-emerald-100 text-emerald-700" :
+                              row.tipo === "conclusao"         ? "bg-sky-100 text-sky-700"         :
+                              row.tipo === "unico"             ? "bg-blue-100 text-blue-700"       :
+                              row.recorrente                   ? "bg-violet-100 text-violet-700"   :
+                              "bg-blue-100 text-blue-700";
+
+                            const isEditing = editingRowIdx === idx;
+                            const fmtVenc = (iso: string) => {
+                              try { return iso ? new Date(iso + "T12:00:00").toLocaleDateString("pt-BR") : "—"; }
+                              catch { return iso; }
+                            };
+                            const metodLabel: Record<string, string> = {
+                              pix: "PIX", boleto: "Boleto", cartao: "Cartão", transferencia: "Transferência",
+                            };
+
+                            return (
+                              <Fragment key={`frag-${idx}`}>
+                                <tr
+                                  onClick={() => !isEditing && openEdit(idx)}
+                                  className={`border-b cursor-pointer transition-colors
+                                    ${row.tipo === "setup" ? "bg-amber-50/30" : ""}
+                                    ${isEditing ? "bg-blue-50/40 border-blue-200" : "hover:bg-muted/30"}
+                                  `}
+                                >
+                                  <td className="px-3 py-2 text-muted-foreground">{row.mes}</td>
+                                  <td className="px-3 py-2">
+                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${tipoColor}`}>
+                                      {tipoLabel}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    {row.tipo === "conclusao" && !row.vencimento
+                                      ? <span className="text-muted-foreground italic">Na entrega</span>
+                                      : fmtVenc(row.vencimento)}
+                                  </td>
+                                  <td className="px-3 py-2 text-right font-semibold tabular-nums">
+                                    {fmtCurInline.format(row.valor)}
+                                    {row.desconto > 0 && (
+                                      <span className="ml-1 text-[10px] text-amber-600 font-normal">-{row.desconto}%</span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2 text-muted-foreground">
+                                    {metodLabel[row.metodo] ?? row.metodo.toUpperCase()}
+                                  </td>
+                                  <td className="px-3 py-2 text-muted-foreground text-right">
+                                    <span className="text-[10px] text-blue-500 hover:underline select-none">
+                                      {isEditing ? "▲" : "✎"}
+                                    </span>
+                                  </td>
+                                </tr>
+
+                                {/* Painel de edição expandível */}
+                                {isEditing && editDraft && (
+                                  <tr key={`edit-${idx}`} className="border-b bg-blue-50/40">
+                                    <td colSpan={6} className="px-3 py-3">
+                                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                                        {/* Vencimento */}
+                                        {!(editDraft.tipo === "conclusao" && !editDraft.vencimento) && (
+                                          <div className="flex flex-col gap-1">
+                                            <Label className="text-xs h-4 flex items-center">Vencimento</Label>
+                                            <Input
+                                              type="date"
+                                              value={editDraft.vencimento}
+                                              onChange={e => setEditDraft(d => d ? { ...d, vencimento: e.target.value } : d)}
+                                              className="h-8 text-xs"
+                                            />
+                                          </div>
+                                        )}
+                                        {/* Valor */}
+                                        <div className="flex flex-col gap-1">
+                                          <Label className="text-xs h-4 flex items-center">Valor (R$)</Label>
+                                          <Input
+                                            type="number"
+                                            step="0.01"
+                                            min={0}
+                                            value={editDraft.valor}
+                                            onChange={e => setEditDraft(d => d ? {
+                                              ...d,
+                                              valor: Number(e.target.value),
+                                              valorOriginal: Number(e.target.value),
+                                              desconto: 0,
+                                            } : d)}
+                                            className="h-8 text-xs text-right"
+                                          />
+                                        </div>
+                                        {/* Desconto */}
+                                        <div className="flex flex-col gap-1">
+                                          <Label className="text-xs h-4 flex items-center">Desconto (%)</Label>
+                                          <div className="flex items-center gap-1">
+                                            <Input
+                                              type="number"
+                                              step="1"
+                                              min={0}
+                                              max={100}
+                                              value={editDraft.desconto || ""}
+                                              placeholder="0"
+                                              onChange={e => {
+                                                const pct = Number(e.target.value) || 0;
+                                                setEditDraft(d => d ? { ...d, desconto: pct } : d);
+                                              }}
+                                              className="h-8 text-xs text-right flex-1"
+                                            />
+                                            <span className="text-muted-foreground text-xs">%</span>
+                                          </div>
+                                          {editDraft.desconto > 0 && (
+                                            <span className="text-[10px] text-amber-600 mt-0.5">
+                                              → {fmtCurInline.format(
+                                                Math.round(editDraft.valorOriginal * (1 - editDraft.desconto / 100) * 100) / 100
+                                              )}
+                                            </span>
+                                          )}
+                                        </div>
+                                        {/* Forma de pgto */}
+                                        <div className="flex flex-col gap-1">
+                                          <Label className="text-xs h-4 flex items-center">Forma de Pgto</Label>
+                                          <Select
+                                            value={editDraft.metodo}
+                                            onValueChange={v => setEditDraft(d => d ? { ...d, metodo: v } : d)}
+                                          >
+                                            <SelectTrigger className="h-8 text-xs">
+                                              <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              <SelectItem value="pix">PIX</SelectItem>
+                                              <SelectItem value="boleto">Boleto</SelectItem>
+                                              <SelectItem value="cartao">Cartão</SelectItem>
+                                              <SelectItem value="transferencia">Transferência</SelectItem>
+                                            </SelectContent>
+                                          </Select>
+                                        </div>
+                                      </div>
+                                      {/* Botões */}
+                                      <div className="flex items-center gap-2 mt-3">
+                                        <Button type="button" size="sm" onClick={saveEdit}>
+                                          Salvar
+                                        </Button>
+                                        <Button type="button" size="sm" variant="ghost" onClick={cancelEdit}>
+                                          Cancelar
+                                        </Button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </Fragment>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })() : (
+                <div className="text-center py-8 text-muted-foreground text-sm border rounded-lg">
+                  Selecione ao menos um serviço e defina os valores para visualizar o cronograma.
+                </div>
+              )}
+            </div>
+          )}
+
+        {/* ══════════════════════════════════════════════════════════════
+            Step 4 — Contratante
+            Dados somente-leitura + seleção de representantes
+        ══════════════════════════════════════════════════════════════ */}
+        {step === 4 && (
+          <div className="space-y-6 w-full">
+            <div>
+              <h2 className="text-base font-semibold">Dados do Contratante</h2>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Confirme os dados do cliente e selecione os representantes para assinatura.
+              </p>
+            </div>
+
+            {/* Campos somente-leitura */}
+            <div className="space-y-3 pb-5 border-b">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Dados Cadastrais</p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-4 items-end">
                 <div className="flex flex-col gap-1 col-span-2">
                   <Label className="text-xs">Razão Social / Nome</Label>
                   <div className="h-8 px-3 flex items-center rounded-md border bg-muted/40 text-sm text-muted-foreground select-none truncate">
                     {variables.contratante_razao_social || "—"}
                   </div>
                 </div>
-
-                {/* CNPJ/CPF — somente-leitura */}
                 <div className="flex flex-col gap-1 col-span-1">
                   <Label className="text-xs">CNPJ / CPF</Label>
                   <div className="h-8 px-3 flex items-center rounded-md border bg-muted/40 text-sm text-muted-foreground select-none font-mono">
-                    {variables.contratante_cnpj || "—"}
+                    {variables.contratante_cnpj ? formatCnpjCpf(variables.contratante_cnpj) : "—"}
                   </div>
                 </div>
-
-                {/* Cidade/Estado — somente-leitura, derivado do cadastro */}
                 <div className="flex flex-col gap-1 col-span-1">
                   <Label className="text-xs">Cidade/Estado</Label>
                   <div className="h-8 px-3 flex items-center rounded-md border bg-muted/40 text-sm text-muted-foreground select-none">
                     {variables.cidade_estado || "—"}
                   </div>
                 </div>
-
-                {/* Endereço Completo — somente-leitura, span 2 */}
                 <div className="flex flex-col gap-1 col-span-2">
                   <Label className="text-xs">Endereço Completo</Label>
                   <div className="h-8 px-3 flex items-center rounded-md border bg-muted/40 text-sm text-muted-foreground select-none truncate">
                     {variables.contratante_endereco || "—"}
                   </div>
                 </div>
-
-                {/* Cidade do Foro — fixo, somente-leitura */}
                 <div className="flex flex-col gap-1 col-span-1">
                   <Label className="text-xs">Cidade do Foro</Label>
                   <div className="h-8 px-3 flex items-center rounded-md border bg-muted/40 text-sm text-muted-foreground select-none">
@@ -1247,237 +2344,147 @@ export function ContractGenerator({
                   </div>
                 </div>
               </div>
+            </div>
 
-              {/* ── Representantes Legais — tabela com seleção ── */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-                    Representantes para Assinatura
-                  </p>
-                  <span className="text-[10px] text-muted-foreground">
-                    {(clientSigningType ?? "individual") === "joint"
-                      ? "Assinatura conjunta — selecione todos os obrigatórios"
-                      : "Assinatura individual — selecione um representante ou procurador"}
-                  </span>
+            {/* Representantes */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                  Representantes para Assinatura
+                </p>
+                <span className="text-[10px] text-muted-foreground">
+                  {(clientSigningType ?? "individual") === "joint"
+                    ? "Assinatura conjunta — selecione todos os obrigatórios"
+                    : "Assinatura individual — selecione um representante ou procurador"}
+                </span>
+              </div>
+
+              {representatives.length === 0 ? (
+                <p className="text-xs text-muted-foreground py-3 text-center border rounded-lg">
+                  Nenhum representante cadastrado para este cliente.
+                  Cadastre em Dados cadastrais → Representantes.
+                </p>
+              ) : (
+                <div className="rounded-lg border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-muted/40 border-b">
+                        <th className="w-10 px-3 py-2 text-left"></th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Nome</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">CPF</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Qualificação</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Tipo</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {representatives.map(rep => {
+                        const isSelecionado = selectedRepIds.includes(rep.id);
+                        const isProcurador  = rep.tipo_representacao === "procurador";
+                        const vencida       = (rep as any).procuracao_vencida === true;
+                        const qualLabel     = rep.qualificacao
+                          ? QUALIFICACAO_LABELS[rep.qualificacao as keyof typeof QUALIFICACAO_LABELS]
+                          : rep.cargo ?? "—";
+                        const podeSelecionar = !vencida;
+
+                        const handleToggle = () => {
+                          if (!podeSelecionar) return;
+                          const sigType = clientSigningType ?? "individual";
+                          if (sigType === "individual") {
+                            setSelectedRepIds(isSelecionado ? [] : [rep.id]);
+                          } else {
+                            setSelectedRepIds(prev =>
+                              isSelecionado ? prev.filter(id => id !== rep.id) : [...prev, rep.id]
+                            );
+                          }
+                          const newIds = (clientSigningType ?? "individual") === "individual"
+                            ? (isSelecionado ? [] : [rep.id])
+                            : (isSelecionado
+                                ? selectedRepIds.filter(id => id !== rep.id)
+                                : [...selectedRepIds, rep.id]);
+                          const primary = representatives.find(r => newIds[0] === r.id);
+                          setVariables(prev => ({
+                            ...prev,
+                            representante_nome: primary?.nome ?? "",
+                            representante_cpf:  primary?.cpf  ?? "",
+                          }));
+                        };
+
+                        return (
+                          <tr
+                            key={rep.id}
+                            className={`border-b last:border-0 transition-colors ${
+                              !podeSelecionar ? "opacity-50 cursor-not-allowed" :
+                              isSelecionado   ? "bg-violet-50 cursor-pointer" :
+                              "hover:bg-muted/30 cursor-pointer"
+                            }`}
+                            onClick={handleToggle}
+                          >
+                            <td className="px-3 py-2.5">
+                              <Checkbox
+                                checked={isSelecionado}
+                                onCheckedChange={handleToggle}
+                                disabled={!podeSelecionar}
+                                onClick={e => e.stopPropagation()}
+                              />
+                            </td>
+                            <td className="px-3 py-2.5 font-medium">{rep.nome}</td>
+                            <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{rep.cpf}</td>
+                            <td className="px-3 py-2.5 text-xs">{qualLabel}</td>
+                            <td className="px-3 py-2.5">
+                              <Badge variant="outline" className={`text-[10px] ${
+                                isProcurador ? "text-amber-700 border-amber-300" : "text-blue-700 border-blue-300"
+                              }`}>
+                                {isProcurador ? "Procurador" : "Legal"}
+                              </Badge>
+                            </td>
+                            <td className="px-3 py-2.5">
+                              {vencida ? (
+                                <span className="text-[10px] text-red-600 font-medium">Procuração vencida</span>
+                              ) : rep.is_legal_representative ? (
+                                <span className="text-[10px] text-emerald-600">Autorizado</span>
+                              ) : (
+                                <span className="text-[10px] text-muted-foreground">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
+              )}
 
-                {representatives.length === 0 ? (
-                  <p className="text-xs text-muted-foreground py-3 text-center border rounded-lg">
-                    Nenhum representante cadastrado para este cliente.
-                    Cadastre em Dados cadastrais → Representantes.
-                  </p>
-                ) : (
-                  <div className="rounded-lg border overflow-hidden">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="bg-muted/40 border-b">
-                          <th className="w-10 px-3 py-2 text-left"></th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Nome</th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">CPF</th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Qualificação</th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Tipo</th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {representatives.map(rep => {
-                          const isSelecionado = selectedRepIds.includes(rep.id);
-                          const isProcurador  = rep.tipo_representacao === "procurador";
-                          const vencida       = (rep as any).procuracao_vencida === true;
-                          const qualLabel     = rep.qualificacao
-                            ? QUALIFICACAO_LABELS[rep.qualificacao as keyof typeof QUALIFICACAO_LABELS]
-                            : rep.cargo ?? "—";
-
-                          // Determina se este rep pode ser selecionado:
-                          // - Individual: qualquer um (legal ou procurador válido)
-                          // - Conjunto: todos os legais obrigatórios + procuradores válidos
-                          const podeSelecionar = !vencida;
-
-                          const handleToggle = () => {
-                            if (!podeSelecionar) return;
-                            const sigType = clientSigningType ?? "individual";
-                            if (sigType === "individual") {
-                              // Apenas um por vez
-                              setSelectedRepIds(isSelecionado ? [] : [rep.id]);
-                            } else {
-                              // Conjunto: toggle livre
-                              setSelectedRepIds(prev =>
-                                isSelecionado ? prev.filter(id => id !== rep.id) : [...prev, rep.id]
-                              );
-                            }
-                            // Atualiza as variáveis de representante com o(s) selecionado(s)
-                            const newIds = (clientSigningType ?? "individual") === "individual"
-                              ? (isSelecionado ? [] : [rep.id])
-                              : (isSelecionado
-                                  ? selectedRepIds.filter(id => id !== rep.id)
-                                  : [...selectedRepIds, rep.id]);
-                            const primary = representatives.find(r => newIds[0] === r.id);
-                            if (primary) {
-                              setVariables(prev => ({
-                                ...prev,
-                                representante_nome: primary.nome,
-                                representante_cpf:  primary.cpf,
-                              }));
-                            } else {
-                              setVariables(prev => ({
-                                ...prev,
-                                representante_nome: "",
-                                representante_cpf:  "",
-                              }));
-                            }
-                          };
-
-                          return (
-                            <tr
-                              key={rep.id}
-                              className={`border-b last:border-0 transition-colors ${
-                                !podeSelecionar ? "opacity-50 cursor-not-allowed" :
-                                isSelecionado   ? "bg-violet-50 cursor-pointer" :
-                                "hover:bg-muted/30 cursor-pointer"
-                              }`}
-                              onClick={handleToggle}
-                            >
-                              <td className="px-3 py-2.5">
-                                <Checkbox
-                                  checked={isSelecionado}
-                                  onCheckedChange={handleToggle}
-                                  disabled={!podeSelecionar}
-                                  onClick={e => e.stopPropagation()}
-                                />
-                              </td>
-                              <td className="px-3 py-2.5 font-medium">{rep.nome}</td>
-                              <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{rep.cpf}</td>
-                              <td className="px-3 py-2.5 text-xs">{qualLabel}</td>
-                              <td className="px-3 py-2.5">
-                                <Badge variant="outline" className={`text-[10px] ${
-                                  isProcurador ? "text-amber-700 border-amber-300" : "text-blue-700 border-blue-300"
-                                }`}>
-                                  {isProcurador ? "Procurador" : "Legal"}
-                                </Badge>
-                              </td>
-                              <td className="px-3 py-2.5">
-                                {vencida ? (
-                                  <span className="text-[10px] text-red-600 font-medium">Procuração vencida</span>
-                                ) : rep.is_legal_representative ? (
-                                  <span className="text-[10px] text-emerald-600">Autorizado</span>
-                                ) : (
-                                  <span className="text-[10px] text-muted-foreground">—</span>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-                {/* Aviso de validação para assinatura conjunta */}
-                {(clientSigningType ?? "individual") === "joint" && (() => {
-                  const obrigatorios = representatives.filter(
-                    r => r.is_legal_representative && r.tipo_representacao === "legal"
+              {(clientSigningType ?? "individual") === "joint" && (() => {
+                const obrigatorios = representatives.filter(
+                  r => r.is_legal_representative && r.tipo_representacao === "legal"
+                );
+                const faltandoSemProcurador = obrigatorios.filter(r => {
+                  if (selectedRepIds.includes(r.id)) return false;
+                  return !representatives.some(
+                    p => p.tipo_representacao === "procurador" &&
+                         p.representa_ids?.includes(r.id) &&
+                         selectedRepIds.includes(p.id)
                   );
-                  const faltando = obrigatorios.filter(r => !selectedRepIds.includes(r.id));
-                  // Verifica se algum faltando tem procurador selecionado em seu lugar
-                  const faltandoSemProcurador = faltando.filter(r => {
-                    const temProcurador = representatives.some(
-                      p => p.tipo_representacao === "procurador" &&
-                           p.representa_ids?.includes(r.id) &&
-                           selectedRepIds.includes(p.id)
-                    );
-                    return !temProcurador;
-                  });
-                  if (faltandoSemProcurador.length > 0) {
-                    return (
-                      <p className="text-xs text-amber-700 flex items-center gap-1.5 px-3 py-2 rounded-md bg-amber-50 border border-amber-200">
-                        <span className="inline-block h-2 w-2 rounded-full bg-amber-400 shrink-0" />
-                        Assinatura conjunta incompleta — faltam: {faltandoSemProcurador.map(r => r.nome).join(", ")}
-                      </p>
-                    );
-                  }
-                  return null;
-                })()}
-              </div>
+                });
+                if (faltandoSemProcurador.length > 0) {
+                  return (
+                    <p className="text-xs text-amber-700 flex items-center gap-1.5 px-3 py-2 rounded-md bg-amber-50 border border-amber-200">
+                      <span className="inline-block h-2 w-2 rounded-full bg-amber-400 shrink-0" />
+                      Assinatura conjunta incompleta — faltam: {faltandoSemProcurador.map(r => r.nome).join(", ")}
+                    </p>
+                  );
+                }
+                return null;
+              })()}
             </div>
-
           </div>
         )}
 
         {/* ══════════════════════════════════════════════════════════════
-            Step 3 — Cronograma (era Step 4)
+            Step 5 — Garantias
         ══════════════════════════════════════════════════════════════ */}
-        {step === 3 && (
-          <div className="space-y-5">
-            <div>
-              <h2 className="text-base font-semibold">Cronograma de Pagamento</h2>
-              <p className="text-sm text-muted-foreground mt-0.5">
-                O cronograma é sugerido automaticamente com base nos serviços selecionados.
-                Edite livremente antes de gerar o contrato.
-              </p>
-            </div>
-
-            {/* Avisos contextuais: vigência posterior e/ou carência */}
-            {(vigenciaInicio && vigenciaInicio > startDate) && (
-              <div className="flex items-start gap-2.5 px-3.5 py-3 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-700">
-                <span className="mt-0.5 shrink-0 h-3.5 w-3.5 rounded-full bg-blue-400 inline-block" />
-                <span>
-                  <strong>Início de vigência posterior:</strong> o contrato é assinado em{" "}
-                  {new Date(startDate + "T12:00:00").toLocaleDateString("pt-BR")}, mas a vigência
-                  começa em {new Date(vigenciaInicio + "T12:00:00").toLocaleDateString("pt-BR")}.
-                  O cronograma de cobranças segue a <strong>data do 1º pagamento</strong> abaixo,
-                  independente da data de vigência. O prazo contratual não é alterado.
-                </span>
-              </div>
-            )}
-            {gracePeriodMonths && Number(gracePeriodMonths) > 0 && (
-              <div className="flex items-start gap-2.5 px-3.5 py-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-700">
-                <span className="mt-0.5 shrink-0 h-3.5 w-3.5 rounded-full bg-amber-400 inline-block" />
-                <span>
-                  <strong>Carência de {gracePeriodMonths} {Number(gracePeriodMonths) === 1 ? "mês" : "meses"}:</strong> nenhum valor será cobrado
-                  durante esse período. A cobrança inicia após a carência, no dia {dueDay} do mês correspondente.
-                  O prazo total do contrato permanece inalterado.
-                </span>
-              </div>
-            )}
-
-            <div className="flex flex-wrap items-end gap-4 p-4 rounded-lg border bg-muted/30">
-              <div className="space-y-1.5">
-                <Label className="text-sm">Data do 1º pagamento</Label>
-                <Input type="date" value={firstPaymentDate}
-                  onChange={e => setFirstPaymentDate(e.target.value)}
-                  className="h-8 w-44" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sm">Dia de vencimento recorrente</Label>
-                <Input type="number" value={dueDay} min={1} max={28}
-                  onChange={e => setDueDay(Number(e.target.value))}
-                  className="h-8 w-20" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sm">Forma de pagamento recorrente</Label>
-                <PaymentMethodSelect
-                  value={recurringPaymentMethod}
-                  onValueChange={setRecurringPaymentMethod}
-                  placeholder="Selecione..."
-                />
-              </div>
-              <Button type="button" size="sm" variant="outline" onClick={recalculateSchedule}>
-                Recalcular sugestão
-              </Button>
-            </div>
-
-            <ContractScheduleEditor
-              lines={scheduleLines}
-              onChange={setScheduleLines}
-              warnings={scheduleWarnings}
-            />
-          </div>
-        )}
-
-        {/* ══════════════════════════════════════════════════════════════
-            Step 4 — Garantias (era Step 5)
-        ══════════════════════════════════════════════════════════════ */}
-        {step === 4 && (
+        {step === 5 && (
           <div className="w-full">
             <ContractGuaranteesStep
               clientId={clientId}
@@ -1495,20 +2502,39 @@ export function ContractGenerator({
           <ChevronLeft className="h-4 w-4 mr-1" /> Voltar
         </Button>
 
-        {step < 4 ? (
-          <Button type="button" size="sm"
-            onClick={() => setStep(s => s + 1)} disabled={!canProceed()}>
-            Próximo <ChevronRight className="h-4 w-4 ml-1" />
-          </Button>
-        ) : (
-          <Button type="button" size="sm" onClick={handleSave}
-            disabled={isSaving} className="gap-1.5">
-            {isSaving
-              ? <Loader2 className="h-4 w-4 animate-spin" />
-              : <CheckCircle2 className="h-4 w-4" />}
-            Gerar Contrato
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {/* Salvar Rascunho — disponível a partir do Step 2 */}
+          {step >= 2 && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={handleSave}
+              disabled={isSaving || selectedSlugs.length === 0}
+              className="gap-1.5"
+            >
+              {isSaving
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <Save className="h-3.5 w-3.5" />}
+              Salvar Rascunho
+            </Button>
+          )}
+
+          {step < 5 ? (
+            <Button type="button" size="sm"
+              onClick={() => setStep(s => s + 1)} disabled={!canProceed()}>
+              Próximo <ChevronRight className="h-4 w-4 ml-1" />
+            </Button>
+          ) : (
+            <Button type="button" size="sm" onClick={handleSave}
+              disabled={isSaving} className="gap-1.5">
+              {isSaving
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : <CheckCircle2 className="h-4 w-4" />}
+              Gerar Contrato
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );

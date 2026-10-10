@@ -83,6 +83,10 @@ interface C8TenantDetailProps {
   canDelete: boolean;
   onClose: () => void;
   onEdit: () => void;
+  /** Aba principal a abrir automaticamente (ex: "configuracoes") */
+  initialTab?: string;
+  /** Sub-aba de configurações a abrir automaticamente (ex: "integracoes") */
+  initialSubTab?: string;
 }
 
 const fmtCurrency = (v: number) =>
@@ -112,11 +116,17 @@ export function C8TenantDetail({
   canDelete,
   onClose,
   onEdit,
+  initialTab,
+  initialSubTab,
 }: C8TenantDetailProps) {
   const actions = useC8TenantActions(organizationId);
   const qc = useQueryClient();
   const orgId = useOrganization();
   const n8nConfig = useN8nConfig(orgId);
+
+  // Tabs controladas para suportar abertura direta via props
+  const [activeTab,    setActiveTab]    = useState(initialTab    ?? "plano");
+  const [activeSubTab, setActiveSubTab] = useState(initialSubTab ?? "modulos");
   const { payments, legacyPayments, isLoading: paymentsLoading } = useC8Payments({
     organizationId,
     clientId: tenant.client_id,
@@ -207,33 +217,28 @@ export function C8TenantDetail({
   const [isSavingQuick, setIsSavingQuick] = useState(false);
 
   // ── Módulos config ────────────────────────────────────────────────────────
-  const mc = (tenant as any).modules_config ?? {};
+  const mc = tenant.modules_config;
   const initialModules = {
     // Dashboards
-    dashboard_geral_enabled:        mc.dashboard_geral_enabled        ?? true,
-    dashboard_performance_enabled:  mc.dashboard_performance_enabled  ?? true,
-    dashboard_atendimento_enabled:  mc.dashboard_atendimento_enabled  ?? false,
-    // Módulos principais
-    crm_enabled:           mc.crm_enabled           ?? false,
-    agenda_enabled:        mc.agenda_enabled         ?? false,
-    messaging_enabled:     mc.messaging_enabled      ?? false,
-    automation_enabled:    mc.automation_enabled     ?? false,
-    demographics_enabled:  mc.demographics_enabled   ?? false,
-    // Legado (preservados no payload mas não exibidos como toggles novos)
-    whatsapp_enabled:      mc.whatsapp_enabled       ?? false,
-    ia_enabled:            mc.ia_enabled             ?? false,
+    dashboard_geral_enabled:        mc?.dashboard_geral_enabled        ?? true,
+    dashboard_performance_enabled:  mc?.dashboard_performance_enabled  ?? true,
+    dashboard_atendimento_enabled:  mc?.dashboard_atendimento_enabled  ?? false,
+    // Módulos operacionais
+    crm_enabled:           mc?.crm_enabled           ?? false,
+    agenda_enabled:        mc?.agenda_enabled        ?? false,
+    demographics_enabled:  mc?.demographics_enabled  ?? false,
+    // Módulos de automação e mensagens (novos)
+    messaging_enabled:     mc?.messaging_enabled     ?? false,
+    automation_enabled:    mc?.automation_enabled    ?? false,
+    // Legado — mantidos para compatibilidade com clientes antigos
+    whatsapp_enabled:      mc?.whatsapp_enabled      ?? false,
+    ia_enabled:            mc?.ia_enabled            ?? false,
     // Limites
-    max_contacts:          mc.max_contacts           ?? 5000,
-    max_users:             mc.max_users              ?? (tenant.max_users ?? 10),
+    max_contacts:          mc?.max_contacts          ?? 5000,
+    max_users:             mc?.max_users             ?? (tenant.max_users ?? 10),
   };
   const [modules, setModules] = useState(initialModules);
   const [isSavingModules, setIsSavingModules] = useState(false);
-
-  // ── Credenciais Supabase — removidas (Banco B não existe mais) ───────────────
-  // estados supabaseUrl, supabaseAnonKey, credDrafts e funções relacionadas
-  // foram removidos. A aba Banco de Dados agora exibe apenas o slug do dashboard.
-  const [supabaseUrl]       = useState(tenant.client_supabase_url ?? "");
-  const [supabaseAnonKey]   = useState(tenant.client_supabase_anon_key ?? "");
 
   // ── UTM Builder (ferramenta da agência) ────────────────────────────────────
   const [utmBase, setUtmBase]         = useState("");
@@ -313,18 +318,19 @@ export function C8TenantDetail({
           dashboard_geral_enabled:       modules.dashboard_geral_enabled,
           dashboard_performance_enabled: modules.dashboard_performance_enabled,
           dashboard_atendimento_enabled: modules.dashboard_atendimento_enabled,
-          // Módulos principais
-          crm_enabled:        modules.crm_enabled,
-          agenda_enabled:     modules.agenda_enabled,
-          messaging_enabled:  modules.messaging_enabled,
-          automation_enabled: modules.automation_enabled,
+          // Módulos operacionais
+          crm_enabled:          modules.crm_enabled,
+          agenda_enabled:       modules.agenda_enabled,
           demographics_enabled: modules.demographics_enabled,
-          // Preserva valores legados existentes sem sobrescrever
-          whatsapp_enabled:   modules.whatsapp_enabled,
-          ia_enabled:         modules.ia_enabled,
+          // Módulos de automação e mensagens
+          messaging_enabled:    modules.messaging_enabled,
+          automation_enabled:   modules.automation_enabled,
+          // Legado (mantidos para clientes antigos — não exibidos na UI principal)
+          whatsapp_enabled:     modules.whatsapp_enabled,
+          ia_enabled:           modules.ia_enabled,
           // Limites
-          max_contacts: Number(modules.max_contacts),
-          max_users:    Number(modules.max_users),
+          max_contacts:         Number(modules.max_contacts),
+          max_users:            Number(modules.max_users),
         },
       };
       const { error } = await supabase
@@ -587,7 +593,7 @@ export function C8TenantDetail({
             </DialogTitle>
           </DialogHeader>
 
-          <Tabs defaultValue="plano">
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="mb-4 flex-wrap">
               <TabsTrigger value="plano">Plano</TabsTrigger>
               <TabsTrigger value="usuarios">
@@ -781,7 +787,7 @@ export function C8TenantDetail({
 
             {/* ── Configurações com sub-abas ── */}
             <TabsContent value="configuracoes" className="space-y-4">
-              <Tabs defaultValue="modulos" className="w-full">
+              <Tabs value={activeSubTab} onValueChange={setActiveSubTab} className="w-full">
                 <TabsList className="mb-4 flex-wrap">
                   <TabsTrigger value="modulos">Módulos</TabsTrigger>
                   <TabsTrigger value="bancodb">Dashboard</TabsTrigger>
@@ -796,9 +802,10 @@ export function C8TenantDetail({
                     <p className="text-xs font-black uppercase tracking-widest text-slate-500">Dashboards</p>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       {([
-                        { key: "dashboard_geral_enabled"        as const, label: "Dashboard Geral",  desc: "Página inicial" },
-                        { key: "dashboard_performance_enabled"  as const, label: "Performance",      desc: "Métricas de campanhas" },
-                        { key: "dashboard_atendimento_enabled"  as const, label: "Atendimento",      desc: "KPIs de conversas" },
+                        { key: "dashboard_geral_enabled"        as const, label: "Dashboard Geral",        desc: "Página inicial" },
+                        { key: "dashboard_performance_enabled"  as const, label: "Performance",            desc: "Métricas de campanhas" },
+                        { key: "dashboard_atendimento_enabled"  as const, label: "Atendimento",            desc: "KPIs de conversas" },
+                        { key: "demographics_enabled"           as const, label: "Audiência Demográfica",  desc: "Aba de dados demográficos no Performance" },
                       ]).map(({ key, label, desc }) => (
                         <div key={key} className="flex items-center justify-between rounded-lg border border-border bg-secondary/20 px-3 py-2.5">
                           <div>
@@ -818,11 +825,10 @@ export function C8TenantDetail({
                     <p className="text-xs font-black uppercase tracking-widest text-slate-500">Módulos</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {([
-                        { key: "crm_enabled"          as const, label: "CRM",                   desc: "Contatos, pipeline, produtos" },
-                        { key: "agenda_enabled"        as const, label: "Agenda",                desc: "Agendamentos e Google Calendar" },
-                        { key: "messaging_enabled"     as const, label: "Mensagens",             desc: "Caixa de entrada — WhatsApp/Instagram" },
-                        { key: "automation_enabled"    as const, label: "Chatbot / Automações",  desc: "Canais Meta, agente IA, base de conhecimento" },
-                        { key: "demographics_enabled"  as const, label: "Audiência Demográfica", desc: "Aba de audiência no Performance" },
+                        { key: "crm_enabled"         as const, label: "CRM",                   desc: "Contatos, pipeline e produtos" },
+                        { key: "agenda_enabled"       as const, label: "Agenda",                desc: "Agendamentos online e Google Calendar via n8n" },
+                        { key: "messaging_enabled"    as const, label: "Mensagens",             desc: "Caixa de entrada e histórico de conversas (canais Meta)" },
+                        { key: "automation_enabled"   as const, label: "Chatbot",               desc: "Canais (Instagram/WhatsApp), Meu Agente e Conhecimento" },
                       ]).map(({ key, label, desc }) => (
                         <div key={key} className="flex items-center justify-between rounded-lg border border-border bg-secondary/20 px-3 py-2.5">
                           <div>
@@ -836,6 +842,13 @@ export function C8TenantDetail({
                       ))}
                     </div>
                   </div>
+
+                  {/* Nota: Mensagens requer Chatbot ativo */}
+                  {modules.messaging_enabled && !modules.automation_enabled && (
+                    <p className="text-xs text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-md px-3 py-2">
+                      ⚠️ O módulo <strong>Mensagens</strong> exige que o módulo <strong>Chatbot</strong> também esteja ativo para funcionar corretamente.
+                    </p>
+                  )}
 
                   {/* Limites */}
                   <div className="grid grid-cols-2 gap-3">

@@ -1,0 +1,94 @@
+{
+  "name": "Maestr.IA — Criar Pasta do Cliente (Drive)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clients",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-clients",
+      "name": "Webhook — Novo Cliente",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "clients-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.item.json.body || $input.item.json;\nreturn [{ json: {\n  client_id:      body.id,\n  name:           body.name,\n  company:        body.company || body.name,\n  email:          body.email,\n  phone:          body.phone,\n  organization_id: body.organization_id\n}}];"
+      },
+      "id": "parse-client",
+      "name": "Parsear Cliente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "createFolder",
+        "name": "={{ $json.company }}",
+        "driveId": { "mode": "id", "value": "CLIENTS_FOLDER_ID" },
+        "folderId": { "mode": "id", "value": "CLIENTS_FOLDER_ID" }
+      },
+      "id": "create-client-folder",
+      "name": "Criar Pasta no Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [680, 300],
+      "credentials": { "googleDriveOAuth2Api": { "id": "GOOGLE_CRED_ID", "name": "Google Drive OAuth2" } }
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/clients?id=eq.{{ $('Parsear Cliente').item.json.client_id }}",
+        "requestMethod": "PATCH",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ folder_id: $json.id, folder_url: $json.webViewLink }) }}"
+      },
+      "id": "save-folder-id",
+      "name": "Salvar folder_id no Maestr.ia",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, folder_id: $('Criar Pasta no Drive').item.json.id }) }}"
+      },
+      "id": "respond",
+      "name": "Resposta",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    }
+  ],
+  "connections": {
+    "Webhook — Novo Cliente":  { "main": [[{ "node": "Parsear Cliente",              "type": "main", "index": 0 }]] },
+    "Parsear Cliente":          { "main": [[{ "node": "Criar Pasta no Drive",         "type": "main", "index": 0 }]] },
+    "Criar Pasta no Drive":     { "main": [[{ "node": "Salvar folder_id no Maestr.ia","type": "main", "index": 0 }]] },
+    "Salvar folder_id no Maestr.ia": { "main": [[{ "node": "Resposta",               "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "_readme": {
+    "webhook_url": "POST {N8N_URL}/webhook/clients",
+    "env_vars": ["SUPABASE_URL", "SUPABASE_SERVICE_KEY"],
+    "credentials": ["Google Drive OAuth2"],
+    "config": {
+      "CLIENTS_FOLDER_ID": "ID da pasta raiz de clientes no Google Drive"
+    },
+    "description": "Cria pasta no Google Drive para o novo cliente e salva o folder_id de volta no Maestr.ia."
+  }
+}

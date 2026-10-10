@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+﻿import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -18,7 +18,6 @@ import {
 } from "@/components/ui/table";
 import { format, parse, isValid } from "date-fns";
 import { useDynamicClient } from "@/hooks/useDynamicClient";
-import { useClientAuth } from "@/hooks/useClientAuth";
 import { PageHeader } from "./components/PageHeader";
 import { CredentialsErrorState } from "./components/CredentialsErrorState";
 import { DeleteConfirmDialog } from "./components/DeleteConfirmDialog";
@@ -155,8 +154,6 @@ function downloadEventosTemplate() {
 export function EventosPage() {
   const dc = useDynamicClient();
   const queryClient = useQueryClient();
-  const { auth } = useClientAuth();
-  const clientId = auth?.user?.client_id ?? "";
 
   const [dialogOpen, setDialogOpen]     = useState(false);
   const [editingItem, setEditingItem]   = useState<AiEvent | null>(null);
@@ -173,12 +170,12 @@ export function EventosPage() {
     mutationFn: async (rows: ImportRow[]) => {
       const valid = rows.filter(r => !r._error);
       if (valid.length === 0) throw new Error("Nenhum registro válido para importar.");
-      const payload = valid.map(({ _error: _e, ...r }) => ({ ...r, client_id: clientId }));
-      const { error } = await dc!.from("client_ai_events").insert(payload);
+      const payload = valid.map(({ _error: _e, ...r }) => r);
+      const { error } = await dc!.from("ai_events").insert(payload);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["ai_events", clientId] });
+      queryClient.invalidateQueries({ queryKey: ["ai_events"] });
       toast.success(`${importRows.filter(r => !r._error).length} evento(s) importado(s) com sucesso!`);
       closeImport();
     },
@@ -225,13 +222,11 @@ export function EventosPage() {
 
   // ── Query ─────────────────────────────────────────────────────────────────
   const { data: items = [], isLoading } = useQuery({
-    queryKey: ["ai_events", clientId],
-    enabled: !!clientId,
+    queryKey: ["ai_events"],
     queryFn: async () => {
       const { data, error } = await dc
-        .from("client_ai_events")
+        .from("ai_events")
         .select("*")
-        .eq("client_id", clientId)
         .order("date", { ascending: true });
       if (error) throw error;
       return (data ?? []) as AiEvent[];
@@ -242,28 +237,28 @@ export function EventosPage() {
   // ── Mutations ─────────────────────────────────────────────────────────────
   const createMutation = useMutation({
     mutationFn: async (payload: Omit<AiEvent, "id" | "created_at">) => {
-      const { error } = await dc.from("client_ai_events").insert({ ...payload, client_id: clientId });
+      const { error } = await dc.from("ai_events").insert(payload);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_events", clientId] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_events"] }),
     onError: (e: any) => toast.error(e.message),
   });
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, payload }: { id: string; payload: Partial<Omit<AiEvent, "id" | "created_at">> }) => {
-      const { error } = await dc.from("client_ai_events").update(payload).eq("id", id).eq("client_id", clientId);
+      const { error } = await dc.from("ai_events").update(payload).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_events", clientId] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_events"] }),
     onError: (e: any) => toast.error(e.message),
   });
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await dc.from("client_ai_events").delete().eq("id", id).eq("client_id", clientId);
+      const { error } = await dc.from("ai_events").delete().eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_events", clientId] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_events"] }),
     onError: (e: any) => toast.error(e.message),
   });
 

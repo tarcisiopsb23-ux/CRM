@@ -11,12 +11,12 @@ import {
   C8ControlSection,
   EmailTemplatesTab,
 } from "@/components/settings";
-import { MetaConnectionsSection } from "@/components/meta";
+import { AgencyMetaTokenSection } from "@/components/settings/AgencyMetaTokenSection";
 import { FiscalSettingsTab } from "@/components/settings/FiscalSettingsTab";
+import { PixKeysSection } from "@/components/settings/PixKeysSection";
 import { RecruitmentSection } from "@/components/settings/RecruitmentSection";
 import { ContractSettingsTab } from "@/components/settings/ContractSettingsTab";
 import { ServiceCatalogTab } from "@/components/contracts/settings/ServiceCatalogTab";
-import { PixKeysSection } from "@/components/settings/PixKeysSection";
 import { ProposalTemplateTab } from "@/components/propostas/ProposalTemplateTab";
 import { InviteMemberDialog } from "@/components/team/InviteMemberDialog";
 import { Button } from "@/components/ui/button";
@@ -211,6 +211,7 @@ export function SettingsPage() {
       <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="space-y-6">
         {/* ── Tabs com scroll horizontal e setas ── */}
         <div className="relative flex items-center">
+          {/* Seta esquerda */}
           <button
             onClick={() => scrollTabs("left")}
             className={`absolute left-0 z-10 h-full px-1 flex items-center bg-gradient-to-r from-background via-background/90 to-transparent transition-opacity ${canScrollLeft ? "opacity-100" : "opacity-0 pointer-events-none"}`}
@@ -219,6 +220,7 @@ export function SettingsPage() {
             <ChevronLeft className="h-4 w-4 text-muted-foreground" />
           </button>
 
+          {/* Container scrollável sem scrollbar visível */}
           <div
             ref={tabsScrollRef}
             className="overflow-x-auto w-full [&::-webkit-scrollbar]:hidden"
@@ -237,6 +239,7 @@ export function SettingsPage() {
             </TabsList>
           </div>
 
+          {/* Seta direita */}
           <button
             onClick={() => scrollTabs("right")}
             className={`absolute right-0 z-10 h-full px-1 flex items-center bg-gradient-to-l from-background via-background/90 to-transparent transition-opacity ${canScrollRight ? "opacity-100" : "opacity-0 pointer-events-none"}`}
@@ -386,9 +389,9 @@ export function SettingsPage() {
             )}
           </SettingsSection>
 
-          <MetaConnectionsSection />
           <WebhooksSection />
           <N8nSection />
+          <AgencyMetaTokenSection />
           <ResendSection />
           <GoogleCalendarSection />
           <C8ControlSection />
@@ -403,6 +406,7 @@ export function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="contracts" className="space-y-6">
+          <PixKeysSection />
           <ContractSettingsTab />
         </TabsContent>
 

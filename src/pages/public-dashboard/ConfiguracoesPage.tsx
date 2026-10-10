@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
@@ -18,7 +18,7 @@ import { useClientAuth } from "@/hooks/useClientAuth";
 import { PageHeader } from "./components/PageHeader";
 import { CredentialsErrorState } from "./components/CredentialsErrorState";
 
-// --- Types --------------------------------------------------------------------
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface TimeSlot {
   open: string;
@@ -43,15 +43,15 @@ interface AiSettings {
 
 type FormValues = Omit<AiSettings, "id" | "updated_at" | "sidebar_logo_url">;
 
-// --- Constantes ---------------------------------------------------------------
+// ─── Constantes ───────────────────────────────────────────────────────────────
 
 const DAYS_OF_WEEK = [
   { key: "seg", label: "Segunda-feira" },
-  { key: "ter", label: "Ter�a-feira" },
+  { key: "ter", label: "Terça-feira" },
   { key: "qua", label: "Quarta-feira" },
   { key: "qui", label: "Quinta-feira" },
   { key: "sex", label: "Sexta-feira" },
-  { key: "sab", label: "S�bado" },
+  { key: "sab", label: "Sábado" },
   { key: "dom", label: "Domingo" },
 ];
 
@@ -76,7 +76,7 @@ const defaultValues: FormValues = {
   google_business_url: "",
 };
 
-// --- Helpers ------------------------------------------------------------------
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function parseHours(raw: string | undefined | null): OpeningHoursStructured {
   if (!raw) return DEFAULT_HOURS;
@@ -99,18 +99,18 @@ function parseHours(raw: string | undefined | null): OpeningHoursStructured {
       return migrated;
     }
   } catch {
-    // texto livre � retorna padr�o
+    // texto livre — retorna padrão
   }
   return DEFAULT_HOURS;
 }
 
-/** Gera a URL de redirecionamento r�pido baseada na origem atual */
+/** Gera a URL de redirecionamento rápido baseada na origem atual */
 function buildRedirectUrl(destination: string): string {
   const origin = window.location.origin;
   return `${origin}/r?to=${encodeURIComponent(destination)}`;
 }
 
-// --- Componente de hor�rios ---------------------------------------------------
+// ─── Componente de horários ───────────────────────────────────────────────────
 
 interface OpeningHoursSelectorProps {
   value: OpeningHoursStructured;
@@ -169,7 +169,7 @@ function OpeningHoursSelector({ value, onChange }: OpeningHoursSelectorProps) {
                   onClick={() => addSlot(key)}
                 >
                   <Plus className="h-3 w-3" />
-                  Adicionar hor�rio
+                  Adicionar horário
                 </Button>
               )}
             </div>
@@ -187,7 +187,7 @@ function OpeningHoursSelector({ value, onChange }: OpeningHoursSelectorProps) {
                         className="h-8 w-28 text-sm"
                       />
                     </div>
-                    <span className="text-muted-foreground text-xs">at�</span>
+                    <span className="text-muted-foreground text-xs">até</span>
                     <div className="flex items-center gap-1">
                       <Label className="text-xs text-muted-foreground whitespace-nowrap">Fecha</Label>
                       <Input
@@ -204,7 +204,7 @@ function OpeningHoursSelector({ value, onChange }: OpeningHoursSelectorProps) {
                         size="icon"
                         className="h-7 w-7 text-muted-foreground hover:text-destructive"
                         onClick={() => removeSlot(key, idx)}
-                        title="Remover per�odo"
+                        title="Remover período"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
@@ -220,7 +220,7 @@ function OpeningHoursSelector({ value, onChange }: OpeningHoursSelectorProps) {
   );
 }
 
-// --- Componente de upload do logo ---------------------------------------------
+// ─── Componente de upload do logo ─────────────────────────────────────────────
 
 interface LogoUploaderProps {
   currentUrl: string | null;
@@ -244,7 +244,7 @@ function LogoUploader({ currentUrl, onUploaded, dc }: LogoUploaderProps) {
       return;
     }
     if (file.size > 2 * 1024 * 1024) {
-      toast.error("A imagem deve ter no m�ximo 2 MB.");
+      toast.error("A imagem deve ter no máximo 2 MB.");
       return;
     }
 
@@ -261,7 +261,7 @@ function LogoUploader({ currentUrl, onUploaded, dc }: LogoUploaderProps) {
       if (uploadError) {
         if (uploadError.message.includes("Bucket not found") || uploadError.statusCode === "404" || (uploadError as any).status === 400) {
           throw new Error(
-            'Bucket "branding" n�o encontrado. Execute o SQL de migration no Supabase do cliente para cri�-lo.'
+            'Bucket "branding" não encontrado. Execute o SQL de migration no Supabase do cliente para criá-lo.'
           );
         }
         throw uploadError;
@@ -271,7 +271,7 @@ function LogoUploader({ currentUrl, onUploaded, dc }: LogoUploaderProps) {
 
       setPreview(publicUrl);
       onUploaded(publicUrl);
-      toast.success("�cone carregado. Salve para confirmar.");
+      toast.success("Ícone carregado. Salve para confirmar.");
     } catch (e: any) {
       toast.error(e.message);
     } finally {
@@ -290,12 +290,12 @@ function LogoUploader({ currentUrl, onUploaded, dc }: LogoUploaderProps) {
       <div className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-border bg-secondary/40 overflow-hidden">
         {preview ? (
           <>
-            <img src={preview} alt="�cone do sidebar" className="h-full w-full object-contain p-1" />
+            <img src={preview} alt="Ícone do sidebar" className="h-full w-full object-contain p-1" />
             <button
               type="button"
               onClick={handleRemove}
               className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow"
-              title="Remover �cone"
+              title="Remover ícone"
             >
               <X className="h-3 w-3" />
             </button>
@@ -320,7 +320,7 @@ function LogoUploader({ currentUrl, onUploaded, dc }: LogoUploaderProps) {
             <><ImagePlus className="h-3.5 w-3.5 mr-2" />{preview ? "Trocar imagem" : "Enviar imagem"}</>
           )}
         </Button>
-        <p className="text-[11px] text-muted-foreground">PNG, JPG ou SVG � m�x. 2 MB</p>
+        <p className="text-[11px] text-muted-foreground">PNG, JPG ou SVG · máx. 2 MB</p>
       </div>
 
       <input
@@ -337,7 +337,7 @@ function LogoUploader({ currentUrl, onUploaded, dc }: LogoUploaderProps) {
   );
 }
 
-// --- Gerador de link de redirecionamento --------------------------------------
+// ─── Gerador de link de redirecionamento ──────────────────────────────────────
 
 function RedirectLinkGenerator() {
   const [destination, setDestination] = useState("");
@@ -371,7 +371,7 @@ function RedirectLinkGenerator() {
   return (
     <div className="grid gap-4">
       <p className="text-sm text-muted-foreground">
-        Gera um link curto que redireciona instantaneamente para qualquer URL. �til para encaminhar clientes para promo��es, card�pios ou p�ginas externas sem expor a URL final.
+        Gera um link curto que redireciona instantaneamente para qualquer URL. Útil para encaminhar clientes para promoções, cardápios ou páginas externas sem expor a URL final.
       </p>
 
       <div className="grid gap-2">
@@ -408,7 +408,7 @@ function RedirectLinkGenerator() {
             </Button>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            Este link n�o � salvo no banco de dados. Guarde-o agora se precisar reutiliz�-lo.
+            Este link não é salvo no banco de dados. Guarde-o agora se precisar reutilizá-lo.
           </p>
         </div>
       )}
@@ -416,7 +416,7 @@ function RedirectLinkGenerator() {
   );
 }
 
-// --- P�gina principal ---------------------------------------------------------
+// ─── Página principal ─────────────────────────────────────────────────────────
 
 export function ConfiguracoesPage() {
   const dc = useDynamicClient();
@@ -466,7 +466,7 @@ export function ConfiguracoesPage() {
       currentHours: OpeningHoursStructured;
       currentLogoUrl: string | null;
     }) => {
-      if (!dc) throw new Error("Cliente n�o conectado");
+      if (!dc) throw new Error("Cliente não conectado");
 
       const payload: Record<string, unknown> = {
         phone:               values.phone,
@@ -490,7 +490,7 @@ export function ConfiguracoesPage() {
       return { ...settings, ...payload } as AiSettings;
     },
     onSuccess: (saved) => {
-      toast.success("Configura��es salvas com sucesso!");
+      toast.success("Configurações salvas com sucesso!");
       queryClient.setQueryData(["ai_settings"], saved);
     },
     onError: (e: any) => toast.error("Erro ao salvar: " + e.message),
@@ -513,31 +513,31 @@ export function ConfiguracoesPage() {
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
       <PageHeader
-        title="Configura��es"
-        description="Informa��es do estabelecimento comunicadas aos clientes."
+        title="Configurações"
+        description="Informações do estabelecimento comunicadas aos clientes."
       />
 
-      {/* -- Links r�pidos para sub-configura��es (T-4.4) -- */}
+      {/* ── Links rápidos para sub-configurações (T-4.4) ── */}
       {isAdmin && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {[
             {
-              label: "Usu�rios e Permiss�es",
-              desc:  "Convidar usu�rios e gerenciar roles",
+              label: "Usuários e Permissões",
+              desc:  "Convidar usuários e gerenciar roles",
               icon:  Users,
               path:  `configuracoes/usuarios`,
               show:  true,
             },
             {
               label: "Pagamentos",
-              desc:  "Asaas e m�todos de pagamento",
+              desc:  "Asaas e métodos de pagamento",
               icon:  CreditCard,
               path:  `configuracoes/pagamentos`,
               show:  isOwner,
             },
             {
-              label: "Integra��es",
-              desc:  "Pixels, UTM Builder e contas de an�ncio",
+              label: "Integrações",
+              desc:  "Pixels, UTM Builder e contas de anúncio",
               icon:  Puzzle,
               path:  `configuracoes/integracoes`,
               show:  true,
@@ -547,7 +547,7 @@ export function ConfiguracoesPage() {
             .map(({ label, desc, icon: Icon, path }) => (
               <button
                 key={path}
-                onClick={() => navigate(`/${slug}/${path}`)}
+                onClick={() => navigate(`/public/dashboard/${slug}/${path}`)}
                 className="flex items-center gap-3 rounded-xl border border-border bg-secondary/20 px-4 py-3 text-left hover:bg-secondary/40 transition-colors"
               >
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
@@ -567,14 +567,14 @@ export function ConfiguracoesPage() {
       <form onSubmit={handleSubmit}>
         <div className="flex flex-col gap-6">
 
-          {/* -- Estabelecimento -- */}
+          {/* ── Estabelecimento ── */}
           <Card className="card-surface">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 font-display text-base">
                 <Building2 className="h-4 w-4 text-primary" />
                 Estabelecimento
               </CardTitle>
-              <CardDescription>Informa��es p�blicas comunicadas aos clientes.</CardDescription>
+              <CardDescription>Informações públicas comunicadas aos clientes.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-6">
 
@@ -583,14 +583,14 @@ export function ConfiguracoesPage() {
                 <div className="grid gap-2">
                   <Label className="flex items-center gap-1.5">
                     <Phone className="h-3.5 w-3.5 text-muted-foreground" />
-                    Telefone para liga��o
+                    Telefone para ligação
                   </Label>
                   <Input
                     {...form.register("phone")}
                     placeholder="Ex: (11) 3333-4444"
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    Usado para chamadas telef�nicas diretas.
+                    Usado para chamadas telefônicas diretas.
                   </p>
                 </div>
                 <div className="grid gap-2">
@@ -600,10 +600,10 @@ export function ConfiguracoesPage() {
                   </Label>
                   <Input
                     {...form.register("whatsapp")}
-                    placeholder="Ex: 5511999994444 (somente n�meros)"
+                    placeholder="Ex: 5511999994444 (somente números)"
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    N�mero com DDI+DDD para mensagens via WhatsApp.
+                    Número com DDI+DDD para mensagens via WhatsApp.
                   </p>
                 </div>
               </div>
@@ -614,20 +614,20 @@ export function ConfiguracoesPage() {
                 <Input {...form.register("instagram")} placeholder="Ex: @seuestablecimento" />
               </div>
 
-              {/* Endere�o */}
+              {/* Endereço */}
               <div className="grid gap-2">
-                <Label>Endere�o</Label>
+                <Label>Endereço</Label>
                 <Input
                   {...form.register("address")}
-                  placeholder="Ex: Rua das Flores, 123 � S�o Paulo, SP"
+                  placeholder="Ex: Rua das Flores, 123 — São Paulo, SP"
                 />
               </div>
 
-              {/* Google Meu Neg�cio */}
+              {/* Google Meu Negócio */}
               <div className="grid gap-2">
                 <Label className="flex items-center gap-1.5">
                   <Star className="h-3.5 w-3.5 text-yellow-500" />
-                  Link do Google Meu Neg�cio (avalia��es)
+                  Link do Google Meu Negócio (avaliações)
                 </Label>
                 <Input
                   {...form.register("google_business_url")}
@@ -638,9 +638,9 @@ export function ConfiguracoesPage() {
                 </p>
               </div>
 
-              {/* Hor�rios de funcionamento */}
+              {/* Horários de funcionamento */}
               <div className="grid gap-3">
-                <Label>Hor�rio de funcionamento</Label>
+                <Label>Horário de funcionamento</Label>
                 <OpeningHoursSelector value={hours} onChange={setHours} />
               </div>
 
@@ -655,7 +655,7 @@ export function ConfiguracoesPage() {
                   ) : (
                     <Save className="h-4 w-4 mr-2" />
                   )}
-                  Salvar altera��es
+                  Salvar alterações
                 </Button>
               </div>
             </CardContent>
@@ -664,15 +664,15 @@ export function ConfiguracoesPage() {
         </div>
       </form>
 
-      {/* -- Gerador de link de redirecionamento (sem banco) -- */}
+      {/* ── Gerador de link de redirecionamento (sem banco) ── */}
       <Card className="card-surface">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 font-display text-base">
             <Link2 className="h-4 w-4 text-primary" />
-            Link de Redirecionamento R�pido
+            Link de Redirecionamento Rápido
           </CardTitle>
           <CardDescription>
-            Crie links de redirecionamento instant�neo para qualquer URL. N�o � salvo no banco de dados.
+            Crie links de redirecionamento instantâneo para qualquer URL. Não é salvo no banco de dados.
           </CardDescription>
         </CardHeader>
         <CardContent>

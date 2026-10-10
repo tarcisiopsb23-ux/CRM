@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -184,8 +184,7 @@ function ImageUploader({ currentUrl, onChange, dc }: ImageUploaderProps) {
 export function SugestoesPage() {
   const dc = useDynamicClient();
   const queryClient = useQueryClient();
-  const { auth } = useClientAuth();
-  const clientId = auth?.user?.client_id ?? "";
+  useClientAuth();
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<AiSuggestion | null>(null);
@@ -195,10 +194,9 @@ export function SugestoesPage() {
   if (!dc) return <CredentialsErrorState />;
 
   const { data: items = [], isLoading } = useQuery({
-    queryKey: ["ai_suggestions", clientId],
-    enabled: !!clientId,
+    queryKey: ["ai_suggestions"],
     queryFn: async () => {
-      const { data, error } = await dc.from("client_ai_suggestions").select("*").eq("client_id", clientId).order("created_at", { ascending: false });
+      const { data, error } = await dc.from("ai_suggestions").select("*").order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as AiSuggestion[];
     },
@@ -207,37 +205,37 @@ export function SugestoesPage() {
 
   const createMutation = useMutation({
     mutationFn: async (payload: Omit<AiSuggestion, "id" | "created_at">) => {
-      const { error } = await dc.from("client_ai_suggestions").insert({ ...payload, client_id: clientId });
+      const { error } = await dc.from("ai_suggestions").insert(payload);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_suggestions", clientId] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_suggestions"] }),
     onError: (e: any) => toast.error(e.message),
   });
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, payload }: { id: string; payload: Partial<Omit<AiSuggestion, "id" | "created_at">> }) => {
-      const { error } = await dc.from("client_ai_suggestions").update(payload).eq("id", id).eq("client_id", clientId);
+      const { error } = await dc.from("ai_suggestions").update(payload).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_suggestions", clientId] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_suggestions"] }),
     onError: (e: any) => toast.error(e.message),
   });
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await dc.from("client_ai_suggestions").delete().eq("id", id).eq("client_id", clientId);
+      const { error } = await dc.from("ai_suggestions").delete().eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_suggestions", clientId] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_suggestions"] }),
     onError: (e: any) => toast.error(e.message),
   });
 
   const toggleStatusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: "active" | "inactive" }) => {
-      const { error } = await dc.from("client_ai_suggestions").update({ status }).eq("id", id).eq("client_id", clientId);
+      const { error } = await dc.from("ai_suggestions").update({ status }).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_suggestions", clientId] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_suggestions"] }),
     onError: (e: any) => toast.error(e.message),
   });
 

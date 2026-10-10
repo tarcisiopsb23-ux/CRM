@@ -5,6 +5,7 @@
  * Exibe preview do que será impresso no contrato.
  */
 import { useState } from "react";
+import React from "react";
 import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
@@ -130,9 +131,8 @@ export function ContractScheduleEditor({ lines, onChange, warnings = [] }: Props
           </thead>
           <tbody>
             {lines.map((line, idx) => (
-              <>
+              <React.Fragment key={line.id ?? `line-${idx}`}>
                 <tr
-                  key={idx}
                   className={`border-t cursor-pointer hover:bg-muted/30 transition-colors ${editingIdx === idx ? "bg-violet-50" : ""}`}
                   onClick={() => setEditingIdx(editingIdx === idx ? null : idx)}
                 >
@@ -234,7 +234,7 @@ export function ContractScheduleEditor({ lines, onChange, warnings = [] }: Props
                     </td>
                   </tr>
                 )}
-              </>
+              </React.Fragment>
             ))}
           </tbody>
         </table>

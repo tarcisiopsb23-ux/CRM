@@ -59,6 +59,7 @@ interface FormState {
   descricao_servico: string;
   competencia: string;
   aliquota_iss: string;
+  observacao: string;
 }
 
 interface FormErrors {
@@ -107,6 +108,7 @@ export function InvoiceEmitModal({
     descricao_servico: notaasConfig.descricao_servico_padrao ?? "",
     competencia: currentCompetencia(),
     aliquota_iss: notaasConfig.aliquota_iss_padrao != null ? String(notaasConfig.aliquota_iss_padrao) : "",
+    observacao: "Dados para pagamento: PIX — Chave: 62.659.676/0001-49 (Agência C8 LTDA)",
   });
 
   const [errors, setErrors] = useState<FormErrors>({});
@@ -133,6 +135,7 @@ export function InvoiceEmitModal({
       descricao_servico: notaasConfig.descricao_servico_padrao ?? "",
       competencia: currentCompetencia(),
       aliquota_iss: notaasConfig.aliquota_iss_padrao != null ? String(notaasConfig.aliquota_iss_padrao) : "",
+      observacao: "Dados para pagamento: PIX — Chave: 62.659.676/0001-49 (Agência C8 LTDA)",
     });
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -277,6 +280,7 @@ export function InvoiceEmitModal({
           descricao_servico: form.descricao_servico.trim(),
           competencia: form.competencia,
           aliquota_iss: parseFloat(form.aliquota_iss),
+          observacao: form.observacao.trim() || undefined,
         },
         client: selectedClient as Client,
         notaasConfig,
@@ -500,6 +504,22 @@ export function InvoiceEmitModal({
             {errors.aliquota_iss && (
               <p className="text-xs text-red-500">{errors.aliquota_iss}</p>
             )}
+          </div>
+
+          {/* ── Observação ── */}
+          <div className="space-y-1.5">
+            <Label htmlFor="emit-observacao">Observação</Label>
+            <p className="text-[11px] text-muted-foreground">
+              Texto incluído na nota fiscal. Editável se necessário.
+            </p>
+            <Textarea
+              id="emit-observacao"
+              placeholder="Ex: Dados para pagamento via PIX"
+              value={form.observacao}
+              onChange={(e) => setField("observacao", e.target.value)}
+              disabled={isSubmitting}
+              rows={2}
+            />
           </div>
         </div>
 

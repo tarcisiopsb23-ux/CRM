@@ -193,10 +193,9 @@ export interface ServiceCatalogItem {
  * Novos (migration 00205):
  *   service              — serviço por slug: condition_value = {"slugs": [...]}
  *   has_multiple_representatives — assinatura conjunta (signing_type = 'joint')
- *   signing_type         — tipo de assinatura: condition_value = {"type": "joint"|"individual"}
  *   has_schedule         — contrato possui cronograma de pagamento
  *   service_count        — nº de serviços >= min: condition_value = {"min": N}
- *   has_grace_period     — contrato tem meses de carência > 0
+ * @deprecated has_grace_period — removido (carência não é mais suportada)
  */
 export type ContractClauseConditionType =
   // Legados
@@ -211,7 +210,7 @@ export type ContractClauseConditionType =
   | 'signing_type'
   | 'has_schedule'
   | 'service_count'
-  | 'has_grace_period'
+  // 'has_grace_period' foi removido — carência não é mais suportada
   // ── Pessoa física / jurídica ──────────────────────────────────────────────
   /** Inclui somente quando o contratante é pessoa física (CPF, 11 dígitos) */
   | 'is_pf'

@@ -1,0 +1,305 @@
+{
+  "name": "Google Calendar → Maestr.ia + ClickUp (Sync Bidirecional)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gcal-push",
+        "responseMode": "responseNode",
+        "options": { "allowedOrigins": "*" }
+      },
+      "id": "webhook-gcal-push",
+      "name": "Webhook — GCal Push Notification",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "gcal-push",
+      "_comment": "Recebe notificações push do Google Calendar. Configurar via API: POST /calendars/{calendarId}/events/watch"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gcal-sync-manual",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-manual-sync",
+      "name": "Webhook — Sync Manual (abrir agenda)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 500],
+      "webhookId": "gcal-sync-manual",
+      "_comment": "Chamado pelo frontend ao abrir o módulo de agenda. Body: { organization_id, sync_from? (ISO date) }"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Determina o ponto de partida da sync\n// Para push: busca eventos atualizados nos últimos 30 min\n// Para manual: usa sync_from do body ou últimas 24h\nconst body = $input.item.json.body || $input.item.json;\nconst source = body.source || 'push'; // 'push' | 'manual'\nconst orgId = body.organization_id || $env.DEFAULT_ORG_ID;\n\nconst now = new Date();\nlet syncFrom;\n\nif (source === 'manual' && body.sync_from) {\n  syncFrom = body.sync_from;\n} else if (source === 'manual') {\n  // Últimas 24h para sync manual\n  syncFrom = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();\n} else {\n  // Push: últimos 30 min para garantir que pegamos o evento\n  syncFrom = new Date(now.getTime() - 30 * 60 * 1000).toISOString();\n}\n\nreturn [{ json: { source, orgId, syncFrom, calendarId: $env.GCAL_CALENDAR_ID } }];"
+      },
+      "id": "prepare-sync",
+      "name": "Preparar Parâmetros de Sync",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 400]
+    },
+    {
+      "parameters": {
+        "url": "=https://www.googleapis.com/calendar/v3/calendars/{{ $json.calendarId }}/events",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "updatedMin", "value": "={{ $json.syncFrom }}" },
+            { "name": "singleEvents", "value": "true" },
+            { "name": "orderBy", "value": "updated" },
+            { "name": "maxResults", "value": "250" },
+            { "name": "fields", "value": "items(id,summary,description,location,start,end,status,updated,extendedProperties)" }
+          ]
+        }
+      },
+      "id": "gcal-list-events",
+      "name": "GCal — Buscar Eventos Atualizados",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [720, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normaliza eventos do GCal para o formato do Maestr.ia\nconst items = $input.item.json.items || [];\nconst orgId = $('Preparar Parâmetros de Sync').item.json.orgId;\n\nif (items.length === 0) return [{ json: { skip: true, count: 0 } }];\n\nreturn items.map(ev => {\n  const gcalId = ev.id;\n  const isDeleted = ev.status === 'cancelled';\n  const extProps = ev.extendedProperties?.private || {};\n  const maestriaId = extProps.maestria_event_id || null;\n  const clickupTaskId = extProps.clickup_task_id || null;\n\n  const startAt = ev.start?.dateTime || (ev.start?.date ? ev.start.date + 'T00:00:00' : null);\n  const endAt = ev.end?.dateTime || (ev.end?.date ? ev.end.date + 'T23:59:59' : null);\n\n  return { json: {\n    gcal_event_id: gcalId,\n    maestria_id: maestriaId,\n    clickup_task_id: clickupTaskId,\n    is_deleted: isDeleted,\n    title: ev.summary || '(sem título)',\n    description: ev.description || '',\n    location: ev.location || '',\n    start_at: startAt,\n    end_at: endAt,\n    updated: ev.updated,\n    organization_id: orgId\n  }};\n});"
+      },
+      "id": "normalize-gcal-events",
+      "name": "Normalizar Eventos GCal",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [940, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{ $json.skip }}", "value2": true }]
+        }
+      },
+      "id": "skip-check",
+      "name": "Sem eventos?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1160, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{ $json.is_deleted }}", "value2": true }]
+        }
+      },
+      "id": "route-deleted",
+      "name": "Evento cancelado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1380, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [{ "value1": "={{ $json.maestria_id }}", "value2": "", "operation": "isNotEmpty" }]
+        }
+      },
+      "id": "has-maestria-id",
+      "name": "Tem ID no Maestr.ia?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1380, 500]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/events?gcal_event_id=eq.{{ $json.gcal_event_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "requestMethod": "DELETE"
+      },
+      "id": "delete-from-maestria",
+      "name": "Maestr.ia — Deletar Evento",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1600, 200]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/events?id=eq.{{ $json.maestria_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ title: $json.title, description: $json.description, location: $json.location, start_at: $json.start_at, end_at: $json.end_at, gcal_synced_at: new Date().toISOString() }) }}",
+        "requestMethod": "PATCH"
+      },
+      "id": "update-maestria",
+      "name": "Maestr.ia — Atualizar Evento",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1600, 460]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/events",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ organization_id: $json.organization_id, title: $json.title, description: $json.description, location: $json.location, start_at: $json.start_at, end_at: $json.end_at, gcal_event_id: $json.gcal_event_id, gcal_synced_at: new Date().toISOString(), source: 'gcal' }) }}"
+      },
+      "id": "create-in-maestria",
+      "name": "Maestr.ia — Criar Evento",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1600, 620]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Após criar/atualizar no Maestr.ia, sincroniza para ClickUp\n// APENAS se o evento for de terceirizado (tag 'terceirizado' ou campo is_freelancer)\nconst event = $input.item.json;\nconst clickupTaskId = $('Normalizar Eventos GCal').item.json.clickup_task_id;\nconst tags = $('Normalizar Eventos GCal').item.json.tags || [];\n\n// Verifica se é evento de terceirizado\nconst isFreelancer = tags.includes('terceirizado') || event.is_freelancer === true;\n\nif (!isFreelancer) {\n  // Evento interno — não sincroniza com ClickUp\n  return [{ json: { skip_clickup: true, ...event } }];\n}\n\nif (clickupTaskId) {\n  return [{ json: { action: 'update', clickup_task_id: clickupTaskId, ...event } }];\n} else {\n  return [{ json: { action: 'create', ...event } }];\n}"
+      },
+      "id": "prepare-clickup-sync",
+      "name": "Preparar Sync ClickUp",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1820, 540]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [{ "value1": "={{ $json.action }}", "value2": "create" }]
+        }
+      },
+      "id": "route-clickup-action",
+      "name": "Criar ou Atualizar no ClickUp?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2040, 540]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.clickup.com/api/v2/list/{{ $env.CLICKUP_AGENDA_LIST_ID }}/task",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "={{ $env.CLICKUP_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $json.title, description: $json.description, due_date: new Date($json.end_at).getTime(), start_date: new Date($json.start_at).getTime(), tags: ['agenda', 'gcal'] }) }}"
+      },
+      "id": "clickup-create",
+      "name": "ClickUp — Criar Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2260, 460]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.clickup.com/api/v2/task/{{ $json.clickup_task_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "={{ $env.CLICKUP_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $json.title, description: $json.description, due_date: new Date($json.end_at).getTime() }) }}"
+      },
+      "id": "clickup-update",
+      "name": "ClickUp — Atualizar Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2260, 620]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, synced: $input.all().length }) }}"
+      },
+      "id": "respond",
+      "name": "Resposta",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2480, 400]
+    }
+  ],
+  "connections": {
+    "Webhook — GCal Push Notification": { "main": [[{ "node": "Preparar Parâmetros de Sync", "type": "main", "index": 0 }]] },
+    "Webhook — Sync Manual (abrir agenda)": { "main": [[{ "node": "Preparar Parâmetros de Sync", "type": "main", "index": 0 }]] },
+    "Preparar Parâmetros de Sync": { "main": [[{ "node": "GCal — Buscar Eventos Atualizados", "type": "main", "index": 0 }]] },
+    "GCal — Buscar Eventos Atualizados": { "main": [[{ "node": "Normalizar Eventos GCal", "type": "main", "index": 0 }]] },
+    "Normalizar Eventos GCal": { "main": [[{ "node": "Sem eventos?", "type": "main", "index": 0 }]] },
+    "Sem eventos?": {
+      "main": [
+        [{ "node": "Resposta", "type": "main", "index": 0 }],
+        [{ "node": "Evento cancelado?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Evento cancelado?": {
+      "main": [
+        [{ "node": "Maestr.ia — Deletar Evento", "type": "main", "index": 0 }],
+        [{ "node": "Tem ID no Maestr.ia?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Tem ID no Maestr.ia?": {
+      "main": [
+        [{ "node": "Maestr.ia — Atualizar Evento", "type": "main", "index": 0 }],
+        [{ "node": "Maestr.ia — Criar Evento", "type": "main", "index": 0 }]
+      ]
+    },
+    "Maestr.ia — Deletar Evento": { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] },
+    "Maestr.ia — Atualizar Evento": { "main": [[{ "node": "Preparar Sync ClickUp", "type": "main", "index": 0 }]] },
+    "Maestr.ia — Criar Evento": { "main": [[{ "node": "Preparar Sync ClickUp", "type": "main", "index": 0 }]] },
+    "Preparar Sync ClickUp": { "main": [[{ "node": "Criar ou Atualizar no ClickUp?", "type": "main", "index": 0 }]] },
+    "Criar ou Atualizar no ClickUp?": {
+      "main": [
+        [{ "node": "ClickUp — Criar Task", "type": "main", "index": 0 }],
+        [{ "node": "ClickUp — Atualizar Task", "type": "main", "index": 0 }]
+      ]
+    },
+    "ClickUp — Criar Task": { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] },
+    "ClickUp — Atualizar Task": { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "_readme": {
+    "description": "Sincroniza eventos do Google Calendar para o Maestr.ia e ClickUp. Suporta dois modos de trigger: push notification do GCal (tempo real) e sync manual (ao abrir a agenda).",
+    "env_vars": [
+      "GCAL_CALENDAR_ID — ID do calendário Google",
+      "CLICKUP_API_KEY — Personal token do ClickUp",
+      "CLICKUP_AGENDA_LIST_ID — ID da lista de agenda no ClickUp",
+      "SUPABASE_URL", "SUPABASE_SERVICE_KEY",
+      "DEFAULT_ORG_ID — ID da organização padrão (para push notifications sem org_id)"
+    ],
+    "webhook_urls": {
+      "push": "{N8N_URL}/webhook/gcal-push",
+      "manual": "{N8N_URL}/webhook/gcal-sync-manual"
+    },
+    "gcal_push_setup": "Para ativar push notifications do GCal, execute uma vez: POST https://www.googleapis.com/calendar/v3/calendars/{calendarId}/events/watch com body: { id: 'unique-channel-id', type: 'web_hook', address: '{N8N_URL}/webhook/gcal-push' }. O canal expira em 7 dias e precisa ser renovado.",
+    "manual_sync_call": "O frontend deve chamar POST {N8N_URL}/webhook/gcal-sync-manual com { organization_id, sync_from? } ao montar o componente de agenda.",
+    "loop_prevention": "Eventos criados pelo Maestr.ia têm maestria_event_id nos extendedProperties do GCal. Eventos criados pelo ClickUp têm clickup_task_id. O workflow usa esses campos para evitar loops de sync."
+  }
+}

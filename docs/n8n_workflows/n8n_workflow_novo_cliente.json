@@ -1,0 +1,215 @@
+{
+  "name": "Maestr.IA — Onboarding Novo Cliente",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "novo-cliente",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-in",
+      "name": "Webhook — Novo Cliente",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 400],
+      "webhookId": "novo-cliente"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.item.json.body || $input.item.json;\nif (!body.id || !body.name) return [{ json: { skip: true, reason: 'missing id or name' } }];\n\nreturn [{ json: {\n  client_id:       body.id,\n  name:            body.name,\n  company:         body.company || body.name,\n  email:           body.email   || null,\n  phone:           body.phone   || null,\n  document:        body.document || null,\n  organization_id: body.organization_id,\n  has_email:       !!body.email,\n  skip:            false\n}}];"
+      },
+      "id": "parse",
+      "name": "Parsear Dados",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{ $json.skip }}", "value2": true }]
+        }
+      },
+      "id": "skip-check",
+      "name": "Dados válidos?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, reason: $json.reason }) }}"
+      },
+      "id": "respond-skip",
+      "name": "Resposta — Skip",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 240]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.item.json;\n\n// Monta o JSON completo como string para enviar ao proxy\n// Evita problemas de serialização do n8n com objetos aninhados\nconst proxyBody = JSON.stringify({\n  method: 'POST',\n  path: '/v3/customers',\n  payload: {\n    name:              d.company,\n    cpfCnpj:           d.document,\n    email:             d.email,\n    phone:             d.phone,\n    externalReference: d.client_id\n  }\n});\n\nreturn [{ json: {\n  client_id:       d.client_id,\n  company:         d.company,\n  email:           d.email,\n  phone:           d.phone,\n  document:        d.document,\n  organization_id: d.organization_id,\n  has_email:       d.has_email,\n  proxy_body:      proxyBody\n}}];"
+      },
+      "id": "build-asaas-payload",
+      "name": "Montar Payload Asaas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.item.json;\n\nconst supabaseUrl = $env.SUPABASE_URL;\nconst supabaseKey = $env.SUPABASE_SERVICE_KEY;\n\nif (!supabaseUrl || !supabaseKey) {\n  throw new Error('SUPABASE_URL ou SUPABASE_SERVICE_KEY não configurados nas env vars do n8n');\n}\n\nconst proxyBody = {\n  method: 'POST',\n  path: '/v3/customers',\n  payload: {\n    name:              d.company,\n    cpfCnpj:           d.document,\n    email:             d.email,\n    phone:             d.phone,\n    externalReference: d.client_id\n  }\n};\n\nconst res = await $http.request({\n  method: 'POST',\n  url: `${supabaseUrl}/functions/v1/asaas-proxy`,\n  headers: {\n    'Authorization': `Bearer ${supabaseKey}`,\n    'Content-Type': 'application/json'\n  },\n  body: proxyBody,\n  json: true\n});\n\nreturn [{ json: {\n  ...d,\n  asaas_response: res,\n  asaas_id:  res?.id   || null,\n  asaas_ok:  !!res?.id\n}}];"
+      },
+      "id": "create-asaas-customer",
+      "name": "Criar Cliente no Asaas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 400],
+      "_comment": "Usa $http.request() do n8n para chamar o proxy Supabase → Asaas. fetch() não está disponível no sandbox do Code node."
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.item.json;\n\nreturn [{ json: {\n  client_id:       d.client_id,\n  company:         d.company,\n  email:           d.email,\n  phone:           d.phone,\n  organization_id: d.organization_id,\n  has_email:       d.has_email,\n  asaas_id:        d.asaas_id,\n  asaas_ok:        d.asaas_ok\n}}];"
+      },
+      "id": "extract-asaas-id",
+      "name": "Extrair ID Asaas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 400]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/clients?id=eq.{{ $json.client_id }}",
+        "requestMethod": "PATCH",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ asaas_id: $json.asaas_id }) }}"
+      },
+      "id": "save-asaas-id",
+      "name": "Salvar asaas_id no Maestr.ia",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1560, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{ $('Extrair ID Asaas').item.json.has_email }}", "value2": true }]
+        }
+      },
+      "id": "check-email",
+      "name": "Tem e-mail?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1780, 400]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.resend.com/emails",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.RESEND_API_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({\n  from: $env.RESEND_FROM_EMAIL || 'contato@suaagencia.com.br',\n  to: [$('Extrair ID Asaas').item.json.email],\n  subject: 'Bem-vindo(a) à ' + ($env.AGENCY_NAME || 'nossa agência') + '!',\n  html: '<div style=\"font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px\"><h2>Olá, ' + $('Extrair ID Asaas').item.json.company + '!</h2><p>É um prazer tê-lo(a) como cliente. Nossa equipe entrará em contato em breve para dar início ao seu projeto.</p><p>Qualquer dúvida, estamos à disposição.</p><br><p>Atenciosamente,<br><strong>' + ($env.AGENCY_NAME || 'Nossa Agência') + '</strong></p></div>'\n}) }}"
+      },
+      "id": "send-welcome-email",
+      "name": "E-mail de Boas-vindas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2000, 280]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.WHATSAPP_NOTIFY_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({\n  message: '🎉 Novo cliente cadastrado!\\n\\n*' + $('Extrair ID Asaas').item.json.company + '*\\n📧 ' + ($('Extrair ID Asaas').item.json.email || 'sem e-mail') + '\\n📱 ' + ($('Extrair ID Asaas').item.json.phone || 'sem telefone') + '\\n\\nAsaas: ' + ($('Extrair ID Asaas').item.json.asaas_ok ? '✅ criado' : '⚠️ falhou')\n}) }}"
+      },
+      "id": "notify-team-whatsapp",
+      "name": "Notificar Time (WhatsApp/n8n)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2000, 520]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, client_id: $('Extrair ID Asaas').item.json.client_id, asaas_id: $('Extrair ID Asaas').item.json.asaas_id }) }}"
+      },
+      "id": "respond-ok",
+      "name": "Resposta — OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2220, 400]
+    }
+  ],
+  "connections": {
+    "Webhook — Novo Cliente":        { "main": [[{ "node": "Parsear Dados",           "type": "main", "index": 0 }]] },
+    "Parsear Dados":                 { "main": [[{ "node": "Dados válidos?",           "type": "main", "index": 0 }]] },
+    "Dados válidos?": {
+      "main": [
+        [{ "node": "Resposta — Skip",        "type": "main", "index": 0 }],
+        [{ "node": "Criar Cliente no Asaas",  "type": "main", "index": 0 }]
+      ]
+    },
+    "Criar Cliente no Asaas":        { "main": [[{ "node": "Extrair ID Asaas",                "type": "main", "index": 0 }]] },
+    "Extrair ID Asaas":              { "main": [[{ "node": "Salvar asaas_id no Maestr.ia",    "type": "main", "index": 0 }]] },
+    "Salvar asaas_id no Maestr.ia":  { "main": [[{ "node": "Tem e-mail?",                     "type": "main", "index": 0 }]] },
+    "Tem e-mail?": {
+      "main": [
+        [{ "node": "Notificar Time (WhatsApp/n8n)", "type": "main", "index": 0 }],
+        [
+          { "node": "E-mail de Boas-vindas",         "type": "main", "index": 0 },
+          { "node": "Notificar Time (WhatsApp/n8n)", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "E-mail de Boas-vindas":         { "main": [[{ "node": "Resposta — OK", "type": "main", "index": 0 }]] },
+    "Notificar Time (WhatsApp/n8n)": { "main": [[{ "node": "Resposta — OK", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "_readme": {
+    "webhook_url": "POST {N8N_URL}/webhook/novo-cliente",
+    "env_vars": [
+      "SUPABASE_URL           — URL do Supabase do Maestr.ia",
+      "SUPABASE_SERVICE_KEY   — Service role key do Maestr.ia (também usada como Bearer para Edge Functions)",
+      "RESEND_API_KEY         — Chave do Resend para e-mail",
+      "RESEND_FROM_EMAIL      — E-mail remetente verificado no Resend",
+      "AGENCY_NAME            — Nome da agência (ex: Agência C8)",
+      "WHATSAPP_NOTIFY_URL    — URL do webhook WhatsApp para notificação interna"
+    ],
+    "supabase_secrets": [
+      "ASAAS_API_KEY — Configurar nos secrets da Edge Function asaas-proxy (supabase secrets set ASAAS_API_KEY=...)"
+    ],
+    "fluxo": {
+      "1": "Recebe dados do novo cliente do Maestr.ia",
+      "2": "Monta payload e chama proxy Supabase → Asaas (IP do n8n bloqueado pelo CloudFront WAF do Asaas)",
+      "3": "Salva asaas_id no metadata do cliente no Maestr.ia",
+      "4": "Se tiver e-mail: envia e-mail de boas-vindas via Resend",
+      "5": "Notifica o time interno via WhatsApp com resumo do novo cliente"
+    }
+  }
+}

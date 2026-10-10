@@ -1,0 +1,1438 @@
+{
+  "name": "Maestr.ia - ClickUp (Terceirizados)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "maestria-to-clickup",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "935fb181-ac2c-42f9-8f50-611e1eae88ba",
+      "name": "Webhook — Maestr.ia",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        400,
+        2752
+      ],
+      "webhookId": "maestria-to-clickup"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "620818d0-f1b3-4159-9c7a-756ee87ac5e0",
+              "leftValue": "={{ $json.table }}",
+              "rightValue": "projects",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        4272,
+        2112
+      ],
+      "id": "965dc14e-bbdb-40b1-af96-10400ccf33b4",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "projects",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.item_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "clickup_list_id",
+              "fieldValue": "={{ $json.clickup_task_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        4528,
+        2032
+      ],
+      "id": "ff6f8b4e-c970-4624-b411-a6eeb50cd4f0",
+      "name": "Atualizar Projetos",
+      "credentials": {
+        "supabaseApi": {
+          "id": "yDtu96eQqnPXpyAM",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "tasks",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.item_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "clickup_task_id",
+              "fieldValue": "={{ $json.clickup_task_id }}"
+            },
+            {
+              "fieldId": "clickup_list_id",
+              "fieldValue": "={{ $json.parent_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        4528,
+        2224
+      ],
+      "id": "74de803e-eaf7-4618-868c-61a98dd8d445",
+      "name": "Atualizar Tarefas",
+      "credentials": {
+        "supabaseApi": {
+          "id": "yDtu96eQqnPXpyAM",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "create",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "19e55196-7865-4ca6-b828-a9c347845e92"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "create"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "update",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "c4ada344-4618-49ef-b262-46007e8e3ab3"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "update"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "delete",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "aca3e589-3809-4483-a8fd-51182bc9c827"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "delete"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3e5bf517-e71b-458e-aa14-1c83d2567ccf",
+      "name": "Roteador de Acao",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        1056,
+        2800
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.table }}",
+                    "rightValue": "projects",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "70aca5fc-a582-4e85-9785-59cbb64d20c2"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "project"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.table }}",
+                    "rightValue": "tasks",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "3d7fcb35-744c-496d-b368-76013ab43b44"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "task"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "35309dc4-eb83-49bf-959b-a6fdcb153838",
+      "name": "Projeto ou Tarefa criar",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        1424,
+        2304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const listResp = $input.item.json;\nconst prev = $('Normalizar Payload').first().json;\n\nconst newListId = listResp?.id || null;\nif (!newListId) {\n  return [{ json: { skip: true, reason: 'Falha ao criar Lista no ClickUp para o projeto pai' } }];\n}\n\nreturn [{ json: {\n  save_project_id: prev.parent_project_id,\n  save_list_id: newListId,\n  ...prev,\n  list_id_for_task: newListId\n}}];"
+      },
+      "id": "849fd7db-272e-486e-9194-5f4f906f68f7",
+      "name": "Extrair Lista ID e Preparar Task",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2944,
+        2448
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.table }}",
+                    "rightValue": "projects",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "41fe7069-3321-43c1-b8b9-f182a9a4d9c0"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "project"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.table }}",
+                    "rightValue": "tasks",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "6066f9ab-d116-44e6-b1d1-d8dddfd9bc60"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "task"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ba7504a1-b321-47f5-bd57-68a7a156c2a6",
+      "name": "Projeto ou Tarefa atualizar",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        2192,
+        2816
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.clickup_task_id }}",
+              "operation": "isNotEmpty"
+            },
+            {
+              "value1": "={{ $json.clickup_list_id }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        },
+        "combineOperation": "any"
+      },
+      "id": "5e70a6b5-72d2-4459-ac6e-22544658fba7",
+      "name": "Tem ID para excluir",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        2304,
+        3280
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extrai o ID da task criada/atualizada e prepara para salvar no Maestr.ia\nconst result = $input.item.json;\nconst prev = $('Normalizar Payload').item.json;\n\nconst newId = result?.id || null;\nif (!newId) return [{ json: { skip: true, reason: 'no id returned' } }];\n\nreturn [{ json: {\n  parent_id: result.list.id,\n  parent_name: result.list.name,\n  table: prev.table,\n  item_id: prev.item_id,\n  clickup_task_id: newId\n}}];"
+      },
+      "id": "618666bf-2d5b-405d-9512-b0cc1451e721",
+      "name": "Extrair ID do ClickUp",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4048,
+        2112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Normalizar Payload').first().json;\nconsole.log('[skip] item_id=' + prev.item_id + ' sem clickup_task_id');\nreturn [{ json: { skipped: true } }];"
+      },
+      "id": "30c086ba-8c42-4c39-935b-f0ec805501c1",
+      "name": "Sem ID Pular",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2768,
+        3488
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true }) }}",
+        "options": {}
+      },
+      "id": "ac83eb1b-7d0e-453b-b755-44969465477c",
+      "name": "Resposta",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        6352,
+        2720
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.skip }}",
+              "value2": "true"
+            }
+          ]
+        }
+      },
+      "id": "c1be3bc7-2216-475d-894f-4dc65b8b1038",
+      "name": "Verificar Skip1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        848,
+        2752
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "list",
+        "operation": "create",
+        "team": "90171128896",
+        "space": "90175185199",
+        "folder": "90178483896",
+        "name": "={{ $json.name }}",
+        "additionalFields": {
+          "content": "={{ $json.description }}",
+          "dueDate": "={{ $json.end_date }}"
+        }
+      },
+      "type": "n8n-nodes-base.clickUp",
+      "typeVersion": 1,
+      "position": [
+        2720,
+        2448
+      ],
+      "id": "a124091e-e6fd-4d3e-915b-488a377c3839",
+      "name": "ClickUp Criar Lista para Projeto auto",
+      "credentials": {
+        "clickUpApi": {
+          "id": "2lZWLciGS64rwk9B",
+          "name": "ClickUp Agência C8"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "list",
+        "operation": "create",
+        "team": "90171128896",
+        "space": "90175185199",
+        "folder": "90178483896",
+        "name": "={{ $json.title }}",
+        "additionalFields": {
+          "content": "={{ $json.description }}",
+          "dueDate": "={{ $json.due_date }}",
+          "priority": "={{ $json.priority }}"
+        }
+      },
+      "type": "n8n-nodes-base.clickUp",
+      "typeVersion": 1,
+      "position": [
+        3520,
+        2112
+      ],
+      "id": "8a50b37d-c144-40d8-9871-a51de0307e8a",
+      "name": "ClickUp Criar Lista Projeto",
+      "credentials": {
+        "clickUpApi": {
+          "id": "2lZWLciGS64rwk9B",
+          "name": "ClickUp Agência C8"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "projects",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "keyValue": "={{ $json.project_id }}"
+            },
+            {
+              "keyName": "organization_id",
+              "keyValue": "={{ $json.organization_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2208,
+        2304
+      ],
+      "id": "ca09ab0a-6945-445e-9b44-845e223feadb",
+      "name": "Selecionar Projeto",
+      "credentials": {
+        "supabaseApi": {
+          "id": "yDtu96eQqnPXpyAM",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "team": "90171128896",
+        "space": "90175185199",
+        "folder": "90178483896",
+        "list": "={{ $json.parent_id }}",
+        "name": "={{ $json.title }}",
+        "additionalFields": {
+          "content": "={{ $json.description }}",
+          "dueDate": "={{ $json.due_date }}",
+          "priority": "={{ $json.priority }}",
+          "timeEstimate": "={{ $json.estimated_hours }}"
+        }
+      },
+      "type": "n8n-nodes-base.clickUp",
+      "typeVersion": 1,
+      "position": [
+        3712,
+        2288
+      ],
+      "id": "9766499c-ef00-43ff-a585-7223641d4617",
+      "name": "ClickUp Criar Task Tarefa",
+      "credentials": {
+        "clickUpApi": {
+          "id": "2lZWLciGS64rwk9B",
+          "name": "ClickUp Agência C8"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.item.json.body || $input.item.json;\nconst action = body.action;\nconst table  = body.table;\n\n// Suporta múltiplos formatos de entrada:\n// 1. body.item.task (novo formato do fireClickupWebhook)\n// 2. body.item diretamente (formato padrão)\n// 3. body.record (formato legado)\nconst rawItem = body.record || body.item;\nconst item = rawItem?.task || rawItem;\n\n// parent_project pode vir em body.item.parent_project ou body.item diretamente\nconst parentProject = body.item?.parent_project || body.parent_project || null;\n\nif (!item || !action || !table) {\n  return [{ json: { skip: true, reason: 'missing fields' } }];\n}\n\nconst statusMap = {\n  backlog: 'pendente', em_andamento: 'em andamento', em_revisao: 'em revisão',\n  concluida: 'concluida', parada: 'parada', ativo: 'em andamento',\n  parado: 'parado', concluido: 'concluido',\n};\nconst priorityMap = { urgente: 1, alta: 2, media: 3, baixa: 4 };\n\n// list_id para a task: vem do parent_project ou do item diretamente\nconst listIdForTask =\n  parentProject?.clickup_task_id ||\n  parentProject?.clickup_list_id ||\n  body.item?.clickup_list_id ||\n  item.clickup_list_id ||\n  item.metadata?.clickup_list_id ||\n  null;\n\nreturn [{ json: {\n  action,\n  table,\n  item_id: item.id,\n  clickup_task_id: item.clickup_task_id || null,\n  clickup_list_id: listIdForTask,\n  organization_id: item.organization_id,\n  project_id: item.project_id,\n  title: item.title || item.name,\n  description: item.description || '',\n  status: statusMap[item.status] || 'to do',\n  priority: priorityMap[item.priority] || 3,\n  estimated_hours: item.estimated_hours || null,\n  due_date: item.end_date ? new Date(item.end_date).getTime() : null,\n  start_date: item.start_date ? new Date(item.start_date).getTime() : null,\n  tags: ['terceirizado', table],\n  parent_project: parentProject\n}}];\n"
+      },
+      "id": "474dd3ed-b494-4681-8288-3ac5a15f5c52",
+      "name": "Normalizar Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        2752
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "projects",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.project_id }}"
+            },
+            {
+              "keyName": "organization_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.organization_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "clickup_list_id",
+              "fieldValue": "={{ $json.save_list_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        3168,
+        2448
+      ],
+      "id": "342bccb4-a5cb-4b2d-8557-035abe8a6d03",
+      "name": "Clickup Projeto Automático",
+      "credentials": {
+        "supabaseApi": {
+          "id": "yDtu96eQqnPXpyAM",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "list",
+        "operation": "update",
+        "team": "90171128896",
+        "space": "90175185199",
+        "folder": "90178483896",
+        "list": "={{ $json.clickup_list_id }}",
+        "updateFields": {
+          "content": "={{ $json.description }}",
+          "dueDate": "={{ $json.due_date }}",
+          "name": "={{ $json.title }}",
+          "priority": "={{ $json.priority }}"
+        }
+      },
+      "type": "n8n-nodes-base.clickUp",
+      "typeVersion": 1,
+      "position": [
+        4272,
+        1888
+      ],
+      "id": "df15bacd-f310-4e5c-a650-0d50dd43a106",
+      "name": "ClickUp Atualizar Lista Projeto",
+      "credentials": {
+        "clickUpApi": {
+          "id": "2lZWLciGS64rwk9B",
+          "name": "ClickUp Agência C8"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const listResp = $input.item.json;\nconst prev = $('Normalizar Payload').first().json;\n\nconst newListId = listResp?.id || null;\nif (!newListId) {\n  return [{ json: { skip: true, reason: 'Falha ao criar Lista no ClickUp para o projeto pai' } }];\n}\n\nreturn [{ json: {\n  parent_id: $input.first().json.clickup_list_id,\n  save_list_id: newListId,\n  ...prev,\n  list_id_for_task: newListId\n}}];"
+      },
+      "id": "4df737ab-a343-4189-9bb7-5678c77dead7",
+      "name": "Extrair Lista ID e Preparar Task1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3520,
+        2288
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "08cdac33-8fc3-4a6f-942c-e474db209f23",
+              "leftValue": "={{ $json.clickup_task_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "88f3b39d-66d1-4c58-941e-30b2290866fc",
+              "leftValue": "={{ $json.clickup_list_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1872,
+        2320
+      ],
+      "id": "694df1f4-2c1b-44a1-86b8-5d0c1aee1600",
+      "name": "Possui id?"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "id": "={{ $json.clickup_task_id }}",
+        "updateFields": {
+          "content": "={{ $json.description }}",
+          "dueDate": "={{ $json.due_date }}",
+          "name": "={{ $json.title }}",
+          "priority": "={{ $json.priority }}",
+          "status": "={{ $json.status }}",
+          "timeEstimate": "={{ $json.estimated_hours }}"
+        }
+      },
+      "type": "n8n-nodes-base.clickUp",
+      "typeVersion": 1,
+      "position": [
+        3008,
+        2816
+      ],
+      "id": "c40a0c3e-6625-4cc5-8386-181344ab0997",
+      "name": "Atualizar Tarefa",
+      "credentials": {
+        "clickUpApi": {
+          "id": "2lZWLciGS64rwk9B",
+          "name": "ClickUp Agência C8"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "cfeec9ff-1c0e-4d4b-bfb6-129ae32510f2",
+              "leftValue": "={{ $json.clickup_task_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2688,
+        2832
+      ],
+      "id": "d9235f64-5e63-4fba-b7e1-8621e00118d9",
+      "name": "Tarefa Tem Id?"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"skipped\": true,\n  \"reason\": \"already_exists\",\n  \"clickup_task_id\": \"{{ $json.clickup_task_id }}\",\n    \"clickup_task_id\": \"{{ $json.clickup_list_id }}\",\n  \"item_id\": \"{{ $json.item_id }}\",\n  \"table\": \"{{ $json.table }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2208,
+        2528
+      ],
+      "id": "e5d70702-fc4a-4474-953a-857dcd72260d",
+      "name": "Clickup id Cadastrado"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.table }}",
+                    "rightValue": "projects",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "b6bf1b31-5671-44fd-8331-d20b06d83ca9"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "project"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.table }}",
+                    "rightValue": "tasks",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "36b9fe3f-9375-4e6c-b7ef-11c50809aff9"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "task"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "14381c2a-3be0-4a3d-8e01-6fceae9e6e18",
+      "name": "Projeto ou Tarefa Excluir",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        2576,
+        3168
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "list",
+        "operation": "delete",
+        "team": "90171128896",
+        "space": "90175185199",
+        "folder": "90178483896",
+        "list": "={{ $json.clickup_list_id }}"
+      },
+      "type": "n8n-nodes-base.clickUp",
+      "typeVersion": 1,
+      "position": [
+        3008,
+        3072
+      ],
+      "id": "6ecec208-1ae8-47d1-9cf0-6bee140f10e9",
+      "name": "Deletar Projeto",
+      "credentials": {
+        "clickUpApi": {
+          "id": "2lZWLciGS64rwk9B",
+          "name": "ClickUp Agência C8"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "id": "={{ $json.clickup_task_id }}"
+      },
+      "type": "n8n-nodes-base.clickUp",
+      "typeVersion": 1,
+      "position": [
+        3008,
+        3280
+      ],
+      "id": "ae848aec-ddf3-448d-b63e-6714a2cd9f3a",
+      "name": "Deletar Tarefa",
+      "credentials": {
+        "clickUpApi": {
+          "id": "2lZWLciGS64rwk9B",
+          "name": "ClickUp Agência C8"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.clickup_task_id }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "2d5660a8-c163-4ea4-9c52-ed56dd8e5cd3",
+      "name": "Projeto Já Tem ID ClickUp",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        3152,
+        1904
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "595b699a-61b1-43fe-a6ac-ec81306f0396",
+              "leftValue": "={{ $json.clickup_list_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2416,
+        2304
+      ],
+      "id": "5b4bfc91-a4be-4b46-8f76-92c5dcfbb2b2",
+      "name": "Projeto pai tem Lista no ClickUp"
+    }
+  ],
+  "pinData": {
+    "Webhook — Maestr.ia": [
+      {
+        "json": {
+          "headers": {
+            "host": "ia-n8n.whlwlh.easypanel.host",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0",
+            "content-length": "885",
+            "accept": "*/*",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "pt-BR,pt;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6,pt-PT;q=0.5",
+            "content-type": "application/json",
+            "dnt": "1",
+            "origin": "http://localhost:8080",
+            "priority": "u=1, i",
+            "referer": "http://localhost:8080/",
+            "sec-ch-ua": "\"Microsoft Edge\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\"",
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "cross-site",
+            "x-forwarded-for": "132.255.153.173",
+            "x-forwarded-host": "ia-n8n.whlwlh.easypanel.host",
+            "x-forwarded-port": "443",
+            "x-forwarded-proto": "https",
+            "x-forwarded-server": "da5e0aed687a",
+            "x-real-ip": "132.255.153.173"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "action": "create",
+            "table": "tasks",
+            "item": {
+              "id": "af007a78-8dcd-44ff-b6f1-132f9fbbddb4",
+              "organization_id": "5fb8e8ee-81a6-402b-ab7b-315d1cca6407",
+              "project_id": "e21ff31c-6ba4-4857-8d2e-693ac08a1050",
+              "parent_id": null,
+              "assigned_to": "9067fdae-79bc-486b-b651-0c0171391c7a",
+              "title": "regu",
+              "description": "",
+              "status": "backlog",
+              "priority": "media",
+              "start_date": null,
+              "end_date": null,
+              "estimated_hours": null,
+              "actual_hours": null,
+              "progress": 0,
+              "position": 0,
+              "dependencies": [],
+              "metadata": {
+                "notes": ""
+              },
+              "created_at": "2026-04-30T05:22:04.747385+00:00",
+              "updated_at": "2026-04-30T05:22:04.747385+00:00",
+              "team_id": null,
+              "clickup_task_id": null,
+              "is_freelancer": true,
+              "clickup_synced_at": null,
+              "supplier_id": "50c5bea1-40d4-4cab-a377-92513e8aa58d",
+              "clickup_list_id": "901713393157",
+              "parent_project": {
+                "id": "e21ff31c-6ba4-4857-8d2e-693ac08a1050",
+                "title": "TEste 123",
+                "clickup_list_id": "901713393157",
+                "is_freelancer": true
+              }
+            }
+          },
+          "webhookUrl": "https://ia-n8n.whlwlh.easypanel.host/webhook/maestria-to-clickup",
+          "executionMode": "production"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Webhook — Maestr.ia": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Atualizar Projetos",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Atualizar Tarefas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Atualizar Projetos": {
+      "main": [
+        [
+          {
+            "node": "Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Atualizar Tarefas": {
+      "main": [
+        [
+          {
+            "node": "Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Roteador de Acao": {
+      "main": [
+        [
+          {
+            "node": "Projeto ou Tarefa criar",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Projeto ou Tarefa atualizar",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Tem ID para excluir",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Projeto ou Tarefa criar": {
+      "main": [
+        [
+          {
+            "node": "Projeto Já Tem ID ClickUp",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Possui id?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extrair Lista ID e Preparar Task": {
+      "main": [
+        [
+          {
+            "node": "Clickup Projeto Automático",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extrair ID do ClickUp": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Projeto ou Tarefa atualizar": {
+      "main": [
+        [
+          {
+            "node": "Projeto Já Tem ID ClickUp",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Tarefa Tem Id?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tem ID para excluir": {
+      "main": [
+        [
+          {
+            "node": "Projeto ou Tarefa Excluir",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sem ID Pular",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sem ID Pular": {
+      "main": [
+        [
+          {
+            "node": "Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar Skip1": {
+      "main": [
+        [
+          {
+            "node": "Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Roteador de Acao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ClickUp Criar Lista para Projeto auto": {
+      "main": [
+        [
+          {
+            "node": "Extrair Lista ID e Preparar Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ClickUp Criar Lista Projeto": {
+      "main": [
+        [
+          {
+            "node": "Extrair ID do ClickUp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Selecionar Projeto": {
+      "main": [
+        [
+          {
+            "node": "Projeto pai tem Lista no ClickUp",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "ClickUp Criar Task Tarefa": {
+      "main": [
+        [
+          {
+            "node": "Extrair ID do ClickUp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar Payload": {
+      "main": [
+        [
+          {
+            "node": "Verificar Skip1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clickup Projeto Automático": {
+      "main": [
+        [
+          {
+            "node": "Extrair Lista ID e Preparar Task1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ClickUp Atualizar Lista Projeto": {
+      "main": [
+        [
+          {
+            "node": "Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extrair Lista ID e Preparar Task1": {
+      "main": [
+        [
+          {
+            "node": "ClickUp Criar Task Tarefa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Possui id?": {
+      "main": [
+        [
+          {
+            "node": "Selecionar Projeto",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Clickup id Cadastrado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Atualizar Tarefa": {
+      "main": [
+        [
+          {
+            "node": "Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tarefa Tem Id?": {
+      "main": [
+        [
+          {
+            "node": "Atualizar Tarefa",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Selecionar Projeto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Projeto ou Tarefa Excluir": {
+      "main": [
+        [
+          {
+            "node": "Deletar Projeto",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Deletar Tarefa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deletar Projeto": {
+      "main": [
+        [
+          {
+            "node": "Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deletar Tarefa": {
+      "main": [
+        [
+          {
+            "node": "Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Projeto Já Tem ID ClickUp": {
+      "main": [
+        [
+          {
+            "node": "ClickUp Atualizar Lista Projeto",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "ClickUp Criar Lista Projeto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Projeto pai tem Lista no ClickUp": {
+      "main": [
+        [
+          {
+            "node": "Extrair Lista ID e Preparar Task1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "ClickUp Criar Lista para Projeto auto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "f093ece5-a77c-4c43-9621-46eb1597d0e6",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "2578bc35b6bdc499db10723a4b7f8f3a18d5bc2bb18bff2484fc584b5c1bf2ee"
+  },
+  "id": "6dYiPsYheEqyYkqjtl-AH",
+  "tags": []
+}

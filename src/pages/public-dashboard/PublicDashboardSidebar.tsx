@@ -1,23 +1,23 @@
 /**
- * PublicDashboardSidebar
+ * PublicDashboardSidebar — Fase 1/2 (T-2.12)
  *
- * Todos os grupos têm accordion expansível (clica no label, expande/recolhe).
- * CRM, Agenda, IA e Configurações começam abertos.
- * Resultados começa aberto e tem toggle.
+ * Novos grupos:
+ * - CRM: Clientes, Pipeline, Produtos (condicional: modules_config.crm_enabled)
+ * - WhatsApp (condicional: modules_config.whatsapp_enabled)
+ * - Bot toggle no footer (condicional: show_ia_content)
  */
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
-  LayoutDashboard, BarChart3, MessageCircle, MessageSquare,
-  Settings, Users, GitMerge, Package,
-  Bot, ChevronDown, ChevronRight, Link2, CreditCard,
-  ShieldCheck, CalendarCheck, ListChecks, Link as LinkIcon,
-  Inbox, BookOpen, Instagram, Wifi, WifiOff, ImagePlay, FileText,
+  LayoutDashboard, BarChart3, MessageCircle, Tag, UtensilsCrossed,
+  CalendarDays, Megaphone, Settings, Users, GitMerge, Package,
+  Wifi, WifiOff, Bot, ChevronDown, ChevronRight, Link2, CreditCard, ShieldCheck,
+  CalendarCheck, ListChecks, Link as LinkIcon,
 } from "lucide-react";
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup,
-  SidebarGroupContent, SidebarHeader,
+  SidebarGroupContent, SidebarGroupLabel, SidebarHeader,
   SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar,
 } from "@/components/ui/sidebar";
 import { useClientAuth } from "@/hooks/useClientAuth";
@@ -30,97 +30,81 @@ import { cn } from "@/lib/utils";
 const RESULTADOS_NAV = [
   { title: "Dashboard Geral",      url: "",            icon: LayoutDashboard },
   { title: "Performance",          url: "performance", icon: BarChart3 },
-  { title: "Conversas",            url: "atendimento", icon: MessageCircle },
+  { title: "Atendimento",          url: "atendimento", icon: MessageCircle },
 ];
 
 const CRM_NAV = [
-  { title: "Clientes",          url: "crm/clientes",              icon: Users },
-  { title: "Funis de Vendas",   url: "crm/pipeline",              icon: GitMerge },
-  { title: "Produtos/Serviços", url: "crm/produtos",              icon: Package },
-  { title: "Campos",            url: "crm/campos",                icon: Settings },
+  { title: "Clientes",          url: "crm/clientes",          icon: Users },
+  { title: "Pipeline",          url: "crm/pipeline",          icon: GitMerge },
+  { title: "Produtos/Serviços", url: "crm/produtos",          icon: Package },
   { title: "Formulários",       url: "configuracoes/formularios", icon: ListChecks },
 ];
 
 const AGENDA_NAV = [
-  { title: "Agendamentos", url: "agenda",               icon: CalendarCheck },
-  { title: "Configurar",   url: "agenda/configuracoes", icon: ListChecks },
-  { title: "Link Público", url: "agenda/link",          icon: LinkIcon },
+  { title: "Agendamentos",  url: "agenda",                icon: CalendarCheck },
+  { title: "Configurar",    url: "agenda/configuracoes",  icon: ListChecks },
+  { title: "Link Público",  url: "agenda/link",           icon: LinkIcon },
 ];
 
-const MENSAGENS_NAV = [
-  { title: "Caixa de Entrada",      url: "mensagens",           icon: Inbox },
-  { title: "Histórico",             url: "mensagens/historico", icon: MessageSquare },
-  { title: "Templates WhatsApp",    url: "mensagens/templates", icon: MessageCircle },
-];
-
-const CHATBOT_NAV = [
-  { title: "Canais",       url: "chatbot/canais",       icon: Instagram },
-  { title: "Meu Agente",   url: "chatbot/agente",       icon: Bot },
-  { title: "Conhecimento", url: "chatbot/conhecimento", icon: BookOpen },
-];
-
-const CONTENT_OPS_NAV = [
-  { title: "Visão Geral",   url: "conteudo",              icon: ImagePlay },
-  { title: "Aprovações",    url: "conteudo/aprovacoes",   icon: ShieldCheck },
-  { title: "Calendário",    url: "conteudo/calendario",   icon: CalendarCheck },
-  { title: "Briefings",     url: "conteudo/briefings",    icon: FileText },
-  { title: "Entregáveis",   url: "conteudo/entregaveis",  icon: Package },
+const IA_NAV = [
+  { title: "Eventos",             url: "eventos",      icon: CalendarDays },
+  { title: "Promoções",           url: "promocoes",    icon: Tag },
+  { title: "Sugestões da Semana", url: "sugestoes",    icon: UtensilsCrossed },
+  { title: "Avisos",              url: "avisos",       icon: Megaphone },
 ];
 
 const CONFIG_NAV = [
-  { title: "Configurações",     url: "configuracoes",                       icon: Settings },
-  { title: "Usuários",          url: "configuracoes/usuarios",              icon: Users },
-  { title: "Pagamentos",        url: "configuracoes/pagamentos",            icon: CreditCard },
-  { title: "Integrações",       url: "configuracoes/integracoes",           icon: Link2 },
-  { title: "Meta App Review",   url: "meta-review",                         icon: ShieldCheck },
+  { title: "Configurações",  url: "configuracoes",              icon: Settings },
+  { title: "Usuários",       url: "configuracoes/usuarios",     icon: Users },
+  { title: "Pagamentos",     url: "configuracoes/pagamentos",   icon: CreditCard },
+  { title: "Integrações",    url: "configuracoes/integracoes",  icon: Link2 },
 ];
 
-// ─── Bot Toggle (footer rápido) ───────────────────────────────────────────────
-// Toggle compacto no footer da sidebar — lê/escreve bot_active em client_ai_settings.
-// Mantido para acesso rápido sem entrar em Chatbot → Meu Agente.
+// ─── Bot Toggle ───────────────────────────────────────────────────────────────
 
-function BotToggle({ slug: _slug }: { slug: string }) {
+function BotToggle({ slug }: { slug: string }) {
   const dc = useDynamicClient();
-  const { auth } = useClientAuth();
-  const clientId = auth?.user?.client_id ?? auth?.id ?? "";
-
-  const TABLE  = "client_ai_settings";
-  const FILTER = { col: "client_id", val: clientId };
-
   const [active, setActive] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (!dc || !clientId) return;
-    if (clientId === "00000000-0000-0000-0000-000000000099" ||
-        clientId === "00000000-0000-0000-0000-000000000000") {
-      setActive(true);
-      return;
-    }
-    dc.from(TABLE).select("bot_active").eq(FILTER.col, FILTER.val).limit(1)
+  // Carrega estado atual
+  useState(() => {
+    if (!dc) return;
+    dc.from("ai_settings")
+      .select("bot_active")
+      .limit(1)
       .maybeSingle()
-      .then(({ data }) => setActive(data?.bot_active ?? true))
-      .catch(() => setActive(true));
-  }, [dc, clientId]); // eslint-disable-line react-hooks/exhaustive-deps
+      .then(({ data }) => {
+        setActive(data?.bot_active ?? true);
+      });
+  });
 
   const toggle = useCallback(async () => {
-    if (!dc || loading || active === null || !clientId) return;
-    if (clientId === "00000000-0000-0000-0000-000000000099" ||
-        clientId === "00000000-0000-0000-0000-000000000000") return;
+    if (!dc || loading || active === null) return;
     setLoading(true);
     const next = !active;
     try {
-      const { data: existing } = await dc.from(TABLE).select("id").eq(FILTER.col, FILTER.val).limit(1).maybeSingle();
+      // Atualiza no banco B
+      const { data: existing } = await dc
+        .from("ai_settings")
+        .select("id")
+        .limit(1)
+        .maybeSingle();
+
       if (existing?.id) {
-        await dc.from(TABLE).update({ bot_active: next }).eq("id", existing.id);
+        await dc.from("ai_settings").update({ bot_active: next }).eq("id", existing.id);
       } else {
-        await dc.from(TABLE).insert({ client_id: clientId, bot_active: next });
+        await dc.from("ai_settings").insert({ bot_active: next });
       }
+
       setActive(next);
-      toast.success(next ? "Bot ativado" : "Bot offline");
-    } catch { toast.error("Erro ao alterar estado do bot."); }
-    finally { setLoading(false); }
-  }, [dc, active, loading, clientId]); // eslint-disable-line react-hooks/exhaustive-deps
+      toast.success(next ? "Bot ativado — atendimento automático" : "Bot offline — atendimento manual via Chatwoot");
+    } catch {
+      toast.error("Erro ao alterar estado do bot.");
+    } finally {
+      setLoading(false);
+    }
+  }, [dc, active, loading]);
 
   if (active === null) return null;
 
@@ -130,62 +114,26 @@ function BotToggle({ slug: _slug }: { slug: string }) {
       disabled={loading}
       className={cn(
         "flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-xs font-semibold transition-colors",
-        active ? "bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25"
-               : "bg-red-500/15 text-red-400 hover:bg-red-500/25"
+        active
+          ? "bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25"
+          : "bg-red-500/15 text-red-400 hover:bg-red-500/25"
       )}
       title={active ? "Bot ativo — clique para colocar offline" : "Bot offline — clique para ativar"}
     >
       <span className="relative flex h-2 w-2 shrink-0">
-        <span className={cn("absolute inline-flex h-full w-full animate-ping rounded-full opacity-75",
-          active ? "bg-emerald-500" : "bg-red-500")} />
-        <span className={cn("relative inline-flex h-2 w-2 rounded-full",
-          active ? "bg-emerald-500" : "bg-red-500")} />
+        <span className={cn(
+          "absolute inline-flex h-full w-full animate-ping rounded-full opacity-75",
+          active ? "bg-emerald-500" : "bg-red-500"
+        )} />
+        <span className={cn(
+          "relative inline-flex h-2 w-2 rounded-full",
+          active ? "bg-emerald-500" : "bg-red-500"
+        )} />
       </span>
       <Bot className={cn("h-3.5 w-3.5 shrink-0", loading && "animate-pulse")} />
       <span className="truncate">{active ? "Bot Online" : "Bot Offline"}</span>
-      {active
-        ? <Wifi className="h-3 w-3 ml-auto shrink-0" />
-        : <WifiOff className="h-3 w-3 ml-auto shrink-0" />}
+      {active ? <Wifi className="h-3 w-3 ml-auto shrink-0" /> : <WifiOff className="h-3 w-3 ml-auto shrink-0" />}
     </button>
-  );
-}
-
-// ─── AccordionGroup ───────────────────────────────────────────────────────────
-// Grupo reutilizável com toggle accordion. Quando a sidebar está colapsada
-// (modo ícone), sempre mostra os itens sem label.
-
-interface AccordionGroupProps {
-  label: string;
-  collapsed: boolean;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}
-
-function AccordionGroup({ label, collapsed, defaultOpen = true, children }: AccordionGroupProps) {
-  const [open, setOpen] = useState(defaultOpen);
-
-  return (
-    <SidebarGroup>
-      {!collapsed && (
-        <button
-          onClick={() => setOpen(o => !o)}
-          className="flex items-center justify-between w-full px-2 py-1 group"
-        >
-          <span className="text-xs font-semibold uppercase tracking-widest text-sidebar-foreground/50 group-hover:text-sidebar-foreground/80 transition-colors">
-            {label}
-          </span>
-          {open
-            ? <ChevronDown className="h-3 w-3 text-sidebar-foreground/40 group-hover:text-sidebar-foreground/60 transition-colors" />
-            : <ChevronRight className="h-3 w-3 text-sidebar-foreground/40 group-hover:text-sidebar-foreground/60 transition-colors" />
-          }
-        </button>
-      )}
-      {(open || collapsed) && (
-        <SidebarGroupContent>
-          {children}
-        </SidebarGroupContent>
-      )}
-    </SidebarGroup>
   );
 }
 
@@ -195,36 +143,29 @@ export function PublicDashboardSidebar() {
   const { auth, slug } = useClientAuth();
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
-  const location  = useLocation();
+  const location = useLocation();
+  const [crmOpen, setCrmOpen] = useState(true);
 
-  const modules       = auth?.modules_config;
-  const crmEnabled       = modules?.crm_enabled    === true;
-  const agendaEnabled    = modules?.agenda_enabled  === true;
+  const modules    = auth?.modules_config;
+  const crmEnabled    = modules?.crm_enabled    === true;
   const demographicsEnabled = modules?.demographics_enabled === true;
-  const messagingEnabled = modules?.messaging_enabled === true;
-  const chatbotEnabled   = modules?.automation_enabled === true;
-  // Legado: mostrar Conteúdo IA apenas se show_ia_content=true E chatbot não estiver ativo
-  const contentOpsEnabled  = modules?.content_ops_enabled  === true;
-  const iaLegacyEnabled  = auth?.show_ia_content === true && !chatbotEnabled;
+  const agendaEnabled = modules?.agenda_enabled   === true;
+  const userRole   = auth?.user?.role ?? "viewer";
 
-  const userRole      = auth?.user?.role ?? "viewer";
-
-  const isSupportUser = !!(auth?.user?.email?.match(/^[a-z0-9]{10}@[a-z0-9.-]+\.[a-z]{2,}$/));
+  // Detecta usuário de suporte pelo padrão de email {10chars}@dominio
+  const isSupportUser = !!(
+    auth?.user?.email?.match(/^[a-z0-9]{10}@[a-z0-9.-]+\.[a-z]{2,}$/)
+  );
 
   const isActive = (url: string) => {
-    const full = `/${slug}${url ? `/${url}` : ""}`;
-    if (url === "") return location.pathname === `/${slug}`;
+    const full = `/public/dashboard/${slug}${url ? `/${url}` : ""}`;
+    if (url === "") return location.pathname === `/public/dashboard/${slug}`;
     return location.pathname === full || location.pathname.startsWith(full + "/");
   };
 
-  // Detecta qual grupo tem a rota ativa para abrir automaticamente
-  const isInGroup = (urls: string[]) =>
-    urls.some(url => isActive(url) || location.pathname.startsWith(`/${slug}/${url}`));
-
   return (
     <Sidebar collapsible="icon" className="border-r border-sidebar-border">
-
-      {/* ── Header ── */}
+      {/* Header */}
       <SidebarHeader className="border-b border-sidebar-border">
         <div className="flex items-center gap-3 px-2 py-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-700 overflow-hidden">
@@ -243,219 +184,171 @@ export function PublicDashboardSidebar() {
             </div>
           )}
         </div>
+        {/* Banner de acesso de suporte no cabeçalho */}
         {isSupportUser && !collapsed && (
           <div className="mx-2 mb-2 flex items-center gap-2 rounded-md bg-violet-600/40 border border-violet-400/70 px-3 py-2">
             <ShieldCheck className="h-4 w-4 shrink-0 text-violet-200" />
-            <p className="text-sm font-bold text-white tracking-wide">Acesso de Suporte</p>
+            <p className="text-sm font-bold text-white tracking-wide">
+              Acesso de Suporte
+            </p>
           </div>
         )}
       </SidebarHeader>
 
       <SidebarContent>
-
         {/* ── Resultados ── */}
-        <AccordionGroup label="Resultados" collapsed={collapsed} defaultOpen={true}>
-          <SidebarMenu>
-            {RESULTADOS_NAV.map(item => (
-              <SidebarMenuItem key={item.title}>
-                <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
-                  <Link to={`/${slug}${item.url ? `/${item.url}` : ""}`} className="flex items-center gap-3">
-                    <item.icon className="h-4 w-4" />
-                    <span>{item.title}</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
-            {demographicsEnabled && (
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={isActive("performance/audiencia")} tooltip="Audiência Demográfica">
-                  <Link to={`/${slug}/performance?tab=audiencia`} className="flex items-center gap-3">
-                    <BarChart3 className="h-4 w-4" />
-                    <span>Audiência Demográfica</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            )}
-          </SidebarMenu>
-        </AccordionGroup>
+        <SidebarGroup>
+          {!collapsed && <SidebarGroupLabel>Resultados</SidebarGroupLabel>}
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {RESULTADOS_NAV.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
+                    <Link
+                      to={`/public/dashboard/${slug}${item.url ? `/${item.url}` : ""}`}
+                      className="flex items-center gap-3"
+                    >
+                      <item.icon className="h-4 w-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+              {demographicsEnabled && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={isActive("performance?tab=audiencia")} tooltip="Audiência Demográfica">
+                    <Link to={`/public/dashboard/${slug}/performance?tab=audiencia`} className="flex items-center gap-3">
+                      <BarChart3 className="h-4 w-4" />
+                      <span>Audiência Demográfica</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
 
-        {/* ── CRM ── */}
+        {/* ── CRM (condicional) ── */}
         {crmEnabled && (
-          <AccordionGroup
-            label="CRM"
-            collapsed={collapsed}
-            defaultOpen={isInGroup(CRM_NAV.map(i => i.url))}
-          >
-            <SidebarMenu>
-              {CRM_NAV.map(item => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
-                    <Link to={`/${slug}/${item.url}`} className="flex items-center gap-3">
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </AccordionGroup>
+          <SidebarGroup>
+            {!collapsed && (
+              <button
+                onClick={() => setCrmOpen(o => !o)}
+                className="flex items-center justify-between w-full px-2 py-1"
+              >
+                <SidebarGroupLabel className="pointer-events-none">CRM</SidebarGroupLabel>
+                {crmOpen
+                  ? <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                  : <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                }
+              </button>
+            )}
+            {(crmOpen || collapsed) && (
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {CRM_NAV.map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
+                        <Link
+                          to={`/public/dashboard/${slug}/${item.url}`}
+                          className="flex items-center gap-3"
+                        >
+                          <item.icon className="h-4 w-4" />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            )}
+          </SidebarGroup>
         )}
 
-        {/* ── Agenda ── */}
+        {/* ── Agenda (condicional) ── */}
         {agendaEnabled && (
-          <AccordionGroup
-            label="Agenda"
-            collapsed={collapsed}
-            defaultOpen={isInGroup(AGENDA_NAV.map(i => i.url))}
-          >
-            <SidebarMenu>
-              {AGENDA_NAV.map(item => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
-                    <Link to={`/${slug}/${item.url}`} className="flex items-center gap-3">
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </AccordionGroup>
+          <SidebarGroup>
+            {!collapsed && <SidebarGroupLabel>Agenda</SidebarGroupLabel>}
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {AGENDA_NAV.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
+                      <Link
+                        to={`/public/dashboard/${slug}/${item.url}`}
+                        className="flex items-center gap-3"
+                      >
+                        <item.icon className="h-4 w-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
         )}
 
-        {/* ── Mensagens (novo) ── */}
-        {messagingEnabled && (
-          <AccordionGroup
-            label="Mensagens"
-            collapsed={collapsed}
-            defaultOpen={isInGroup(MENSAGENS_NAV.map(i => i.url))}
-          >
-            <SidebarMenu>
-              {MENSAGENS_NAV.map(item => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
-                    <Link to={`/${slug}/${item.url}`} className="flex items-center gap-3">
-                      <item.icon className="h-4 w-4 text-emerald-400" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </AccordionGroup>
-        )}
-
-        {/* ── Chatbot (novo) ── */}
-        {chatbotEnabled && (
-          <AccordionGroup
-            label="Chatbot"
-            collapsed={collapsed}
-            defaultOpen={isInGroup(CHATBOT_NAV.map(i => i.url))}
-          >
-            <SidebarMenu>
-              {CHATBOT_NAV.map(item => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
-                    <Link to={`/${slug}/${item.url}`} className="flex items-center gap-3">
-                      <item.icon className="h-4 w-4 text-violet-400" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </AccordionGroup>
-        )}
-
-        {/* ── Conteúdo (Content Operations) ── */}
-        {contentOpsEnabled && (
-          <AccordionGroup
-            label="Conteúdo"
-            collapsed={collapsed}
-            defaultOpen={isInGroup(CONTENT_OPS_NAV.map(i => i.url))}
-          >
-            <SidebarMenu>
-              {CONTENT_OPS_NAV.map(item => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
-                    <Link to={`/${slug}/${item.url}`} className="flex items-center gap-3">
-                      <item.icon className="h-4 w-4 text-violet-400" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </AccordionGroup>
-        )}
-
-        {/* ── Conteúdo IA (legado — exibido apenas quando chatbot não está ativo) ── */}
-        {iaLegacyEnabled && (
-          <AccordionGroup
-            label="Conteúdo IA"
-            collapsed={collapsed}
-            defaultOpen={false}
-          >
-            <SidebarMenu>
-              {[
-                { title: "Eventos",    url: "eventos",   icon: LayoutDashboard },
-                { title: "Promoções",  url: "promocoes", icon: LayoutDashboard },
-                { title: "Sugestões",  url: "sugestoes", icon: LayoutDashboard },
-                { title: "Avisos",     url: "avisos",    icon: LayoutDashboard },
-              ].map(item => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
-                    <Link to={`/${slug}/${item.url}`} className="flex items-center gap-3">
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </AccordionGroup>
+        {/* ── Conteúdo IA (condicional) ── */}
+        {auth?.show_ia_content === true && (
+          <SidebarGroup>
+            {!collapsed && <SidebarGroupLabel>Conteúdo IA</SidebarGroupLabel>}
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {IA_NAV.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
+                      <Link
+                        to={`/public/dashboard/${slug}/${item.url}`}
+                        className="flex items-center gap-3"
+                      >
+                        <item.icon className="h-4 w-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
         )}
 
         {/* ── Configurações ── */}
-        <AccordionGroup
-          label="Configurações"
-          collapsed={collapsed}
-          defaultOpen={isInGroup(CONFIG_NAV.map(i => i.url))}
-        >
-          <SidebarMenu>
-            {CONFIG_NAV.filter(item => {
-              // Usuários e Pagamentos: apenas owner/admin
-              if (item.url === "configuracoes/usuarios" || item.url === "configuracoes/pagamentos") {
-                return ["owner", "admin"].includes(userRole);
-              }
-              // Meta App Review: apenas admin/owner
-              if (item.url === "meta-review") {
-                return ["owner", "admin"].includes(userRole);
-              }
-              return true;
-            }).map(item => (
-              <SidebarMenuItem key={item.title}>
-                <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
-                  <Link to={`/${slug}/${item.url}`} className="flex items-center gap-3">
-                    <item.icon className="h-4 w-4" />
-                    <span>{item.title}</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        </AccordionGroup>
-
+        <SidebarGroup>
+          {!collapsed && <SidebarGroupLabel>Configurações</SidebarGroupLabel>}
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {CONFIG_NAV.filter(item =>
+                // Usuários e Pagamentos: só owner/admin
+                (item.url !== "configuracoes/usuarios" && item.url !== "configuracoes/pagamentos")
+                || ["owner","admin"].includes(userRole)
+              ).map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
+                    <Link
+                      to={`/public/dashboard/${slug}/${item.url}`}
+                      className="flex items-center gap-3"
+                    >
+                      <item.icon className="h-4 w-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
       </SidebarContent>
 
-      {/* ── Footer ── */}
+      {/* Footer: bot toggle + indicador de sessão */}
       <SidebarFooter className="border-t border-sidebar-border space-y-2 py-3">
-        {/* Bot toggle rápido — visível quando chatbot ativo OU Conteúdo IA legado */}
-        {(chatbotEnabled || iaLegacyEnabled) && !collapsed && (
+        {auth?.show_ia_content && !collapsed && (
           <div className="px-2">
             <BotToggle slug={slug} />
           </div>
         )}
+
+        {/* Banner de suporte — mesmo estilo do BotToggle */}
         {isSupportUser ? (
           !collapsed ? (
             <div className="px-2">
@@ -471,6 +364,7 @@ export function PublicDashboardSidebar() {
             </div>
           )
         ) : (
+          /* Usuário normal — indicador de online */
           !collapsed ? (
             <div className="flex items-center gap-2 px-4">
               <span className="relative flex h-2 w-2 shrink-0">

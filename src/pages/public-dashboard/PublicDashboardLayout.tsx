@@ -1,9 +1,19 @@
-// PublicDashboardLayout
+/**
+ * PublicDashboardLayout — Fase 1 (T-1.7)
+ *
+ * Mudanças vs versão anterior:
+ * - Auth guard lê sessionStorage (formato v2 com JWT) em vez de localStorage
+ * - Anon key do Banco B é injetada em memória no contexto após verificação
+ * - Guards de role por rota (viewer não acessa configurações, etc.)
+ * - Mantém tema dark forçado e auto-logout por inatividade
+ */
+
 import { useEffect, useMemo, useRef } from "react";
 import { Navigate, Outlet, useLocation, useParams } from "react-router-dom";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { ClientAuthProvider } from "@/contexts/ClientAuthContext";
 import { useClientAuth } from "@/hooks/useClientAuth";
+import { useDynamicClient } from "@/hooks/useDynamicClient";
 import { supabase } from "@/lib/supabase";
 import { PublicDashboardSidebar } from "./PublicDashboardSidebar";
 import { PublicDashboardHeader } from "./PublicDashboardHeader";
@@ -14,31 +24,18 @@ type Role = "owner" | "admin" | "manager" | "member" | "viewer";
 
 /** Rotas que exigem pelo menos o role indicado */
 const ROUTE_ROLE_MAP: Record<string, Role> = {
-  "/configuracoes/usuarios":              "admin",
-  "/configuracoes/pagamentos":            "owner",
-  "/configuracoes/integracoes/testes":    "admin",
-  "/configuracoes/integracoes":           "admin",
-  "/configuracoes/formularios":           "admin",
-  "/configuracoes":                       "manager",
-  "/mensagens":                           "member",
-  "/mensagens/historico":                 "member",
-  "/chatbot/canais":                      "admin",
-  "/chatbot/agente":                      "manager",
-  "/chatbot/conhecimento":                "member",
-  "/meta-review":                         "admin",
-  "/whatsapp":                            "member",
-  "/crm":                                 "member",
-  "/crm/clientes":                        "member",
-  "/crm/pipeline":                        "member",
-  "/crm/produtos":                        "member",
-  "/agenda":                              "member",
-  "/agenda/configuracoes":                "manager",
-  "/agenda/link":                         "member",
-  "/conteudo":                            "member",
-  "/conteudo/aprovacoes":                 "member",
-  "/conteudo/calendario":                 "member",
-  "/conteudo/briefings":                  "member",
-  "/conteudo/entregaveis":                "member",
+  "/configuracoes/usuarios":     "admin",
+  "/configuracoes/pagamentos":   "owner",
+  "/configuracoes/integracoes":  "admin",
+  "/configuracoes":              "manager",
+  "/whatsapp":                   "member",
+  "/crm":                        "member",
+  "/crm/clientes":               "member",
+  "/crm/pipeline":               "member",
+  "/crm/produtos":               "member",
+  "/agenda":                     "member",
+  "/agenda/configuracoes":       "manager",
+  "/agenda/link":                "member",
 };
 
 const ROLE_ORDER: Role[] = ["viewer", "member", "manager", "admin", "owner"];
@@ -47,16 +44,15 @@ function hasRole(userRole: Role, requiredRole: Role): boolean {
   return ROLE_ORDER.indexOf(userRole) >= ROLE_ORDER.indexOf(requiredRole);
 }
 
-// --- Rotas que exigem show_ia_content OU automation_enabled ------------------
-// Quando automation_enabled = true, o conteúdo IA está dentro de Chatbot → Conhecimento.
-// Quando show_ia_content = true (legado), ainda acessível pelas rotas diretas.
-// Nos dois casos as rotas diretas continuam funcionando como fallback.
+// ─── Rotas que exigem show_ia_content ─────────────────────────────────────────
+// Agenda é um módulo separado (agenda_enabled) — não depende de show_ia_content
 const IA_ROUTES = ["/promocoes", "/sugestoes", "/avisos", "/eventos"];
 
-// --- Inner Layout -------------------------------------------------------------
+// ─── Inner Layout ─────────────────────────────────────────────────────────────
 
 function PublicDashboardLayoutInner({ slug }: { slug: string }) {
   const { auth, setAuth, logout } = useClientAuth();
+  const dc = useDynamicClient();
   const location = useLocation();
 
   // Força tema dark permanentemente
@@ -68,52 +64,48 @@ function PublicDashboardLayoutInner({ slug }: { slug: string }) {
   }, []);
 
   // Re-fetch de dados frescos ao montar (atualiza modules_config e flags)
-  // get_client_by_slug é SECURITY DEFINER com GRANT TO anon — usa sempre supabase
-  // (anon key) para evitar 401 causado pelo JWT do cliente sem o claim esperado.
-  // Após busca bem-sucedida, atualiza o contexto com modules_config e flags frescos.
-  const fetchedRef = useRef(false);
   useEffect(() => {
-    if (!auth || fetchedRef.current) return;
-    if (!slug) return;
-    fetchedRef.current = true;
+    if (!auth) return;
+    supabase.rpc("get_client_by_slug", { p_slug: slug }).then(({ data }) => {
+      if (data && data.length > 0) {
+        const fresh = data[0];
 
-    supabase.rpc("get_client_by_slug", { p_slug: slug })
-      .then(({ data }) => {
-        if (data && data.length > 0) {
-          const fresh = data[0];
-          if (fresh.subscription_status === "cancelado" || fresh.subscription_status === "bloqueado") {
-            logout();
-            return;
-          }
-          setAuth({
-            ...auth,
-            show_ia_content: fresh.show_ia_content ?? false,
-            client_supabase_url: fresh.client_supabase_url ?? null,
-            client_supabase_anon_key: null,
-            favicon_url: fresh.favicon_url ?? auth.favicon_url,
-            modules_config: (fresh.modules_config as ModulesConfig) ?? auth.modules_config,
-            metadata: {
-              dashboard_performance: fresh.dashboard_performance ?? true,
-              dashboard_atendimento: fresh.dashboard_atendimento ?? false,
-              ...(fresh.conversion_metrics && Object.keys(fresh.conversion_metrics).length > 0
-                ? { conversion_metrics: fresh.conversion_metrics }
-                : auth.metadata?.conversion_metrics
-                  ? { conversion_metrics: auth.metadata.conversion_metrics }
-                  : {}),
-              ...(Array.isArray(fresh.dashboard_kpis) && fresh.dashboard_kpis.length > 0
-                ? { dashboard_kpis: fresh.dashboard_kpis }
-                : auth.metadata?.dashboard_kpis?.length
-                  ? { dashboard_kpis: auth.metadata.dashboard_kpis }
-                  : {}),
-              ...(Array.isArray(fresh.geral_dashboard_cards) && fresh.geral_dashboard_cards.length > 0
-                ? { geral_dashboard_cards: fresh.geral_dashboard_cards }
-                : auth.metadata?.geral_dashboard_cards?.length
-                  ? { geral_dashboard_cards: auth.metadata.geral_dashboard_cards }
-                  : {}),
-            },
-          });
+        // Verifica se o acesso expirou (contrato encerrado ou cliente bloqueado)
+        if (fresh.subscription_status === "cancelado" || fresh.subscription_status === "bloqueado") {
+          logout();
+          return;
         }
-      }).catch(() => { /* silencioso — usa dados do sessionStorage */ });
+
+        setAuth({
+          ...auth,
+          show_ia_content: fresh.show_ia_content ?? false,
+          client_supabase_url: fresh.client_supabase_url ?? null,
+          // Mantém anon_key null no contexto — fica só em sessionStorage temporário
+          client_supabase_anon_key: null,
+          favicon_url: fresh.favicon_url ?? auth.favicon_url,
+          modules_config: (fresh.modules_config as ModulesConfig) ?? auth.modules_config,
+          metadata: {
+            dashboard_performance: fresh.dashboard_performance ?? true,
+            dashboard_atendimento: fresh.dashboard_atendimento ?? false,
+            ...(fresh.conversion_metrics && Object.keys(fresh.conversion_metrics).length > 0
+              ? { conversion_metrics: fresh.conversion_metrics }
+              : auth.metadata?.conversion_metrics
+                ? { conversion_metrics: auth.metadata.conversion_metrics }
+                : {}),
+            ...(Array.isArray(fresh.dashboard_kpis) && fresh.dashboard_kpis.length > 0
+              ? { dashboard_kpis: fresh.dashboard_kpis }
+              : auth.metadata?.dashboard_kpis?.length
+                ? { dashboard_kpis: auth.metadata.dashboard_kpis }
+                : {}),
+            ...(Array.isArray(fresh.geral_dashboard_cards) && fresh.geral_dashboard_cards.length > 0
+              ? { geral_dashboard_cards: fresh.geral_dashboard_cards }
+              : auth.metadata?.geral_dashboard_cards?.length
+                ? { geral_dashboard_cards: auth.metadata.geral_dashboard_cards }
+                : {}),
+          },
+        });
+      }
+    });
   }, [slug]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-logout por inatividade — 5 min para suporte, 30 min para usuários normais
@@ -137,36 +129,17 @@ function PublicDashboardLayoutInner({ slug }: { slug: string }) {
 
   // Guards de rota — todos os hooks já foram chamados, safe para retornar aqui
   const userRole    = (auth?.user?.role ?? "viewer") as Role;
-  const routeSuffix = location.pathname.replace(`/${slug}`, "") || "/";
+  const routeSuffix = location.pathname.replace(`/public/dashboard/${slug}`, "") || "/";
 
   const isIaRoute = IA_ROUTES.some((r) => location.pathname.endsWith(r));
-  // Permite acesso se show_ia_content (legado) OU automation_enabled (novo módulo Chatbot)
-  if (isIaRoute && !auth?.show_ia_content && !auth?.modules_config?.automation_enabled) {
-    return <Navigate to={`/${slug}`} replace />;
+  if (isIaRoute && !auth?.show_ia_content) {
+    return <Navigate to={`/public/dashboard/${slug}`} replace />;
   }
 
-  // Guard do módulo Agenda — redireciona se explicitamente desabilitado
+  // Guard do módulo Agenda — redireciona se não habilitado
   const isAgendaRoute = routeSuffix === "/agenda" || routeSuffix.startsWith("/agenda/");
-  if (isAgendaRoute && auth?.modules_config?.agenda_enabled === false) {
-    return <Navigate to={`/${slug}`} replace />;
-  }
-
-  // Guard do módulo Mensagens
-  const isMensagensRoute = routeSuffix === "/mensagens" || routeSuffix.startsWith("/mensagens/");
-  if (isMensagensRoute && auth?.modules_config?.messaging_enabled !== true) {
-    return <Navigate to={`/${slug}`} replace />;
-  }
-
-  // Guard do módulo Chatbot
-  const isChatbotRoute = routeSuffix.startsWith("/chatbot/");
-  if (isChatbotRoute && auth?.modules_config?.automation_enabled !== true) {
-    return <Navigate to={`/${slug}`} replace />;
-  }
-
-  // Guard do módulo Conteúdo (Content Operations)
-  const isConteudoRoute = routeSuffix === "/conteudo" || routeSuffix.startsWith("/conteudo/");
-  if (isConteudoRoute && auth?.modules_config?.content_ops_enabled !== true) {
-    return <Navigate to={`/${slug}`} replace />;
+  if (isAgendaRoute && !auth?.modules_config?.agenda_enabled) {
+    return <Navigate to={`/public/dashboard/${slug}`} replace />;
   }
 
   const requiredRole = Object.entries(ROUTE_ROLE_MAP).find(([route]) =>
@@ -174,7 +147,7 @@ function PublicDashboardLayoutInner({ slug }: { slug: string }) {
   )?.[1] as Role | undefined;
 
   if (requiredRole && !hasRole(userRole, requiredRole)) {
-    return <Navigate to={`/${slug}`} replace />;
+    return <Navigate to={`/public/dashboard/${slug}`} replace />;
   }
 
   return (
@@ -192,7 +165,7 @@ function PublicDashboardLayoutInner({ slug }: { slug: string }) {
   );
 }
 
-// --- Outer Layout -------------------------------------------------------------
+// ─── Outer Layout ─────────────────────────────────────────────────────────────
 
 export function PublicDashboardLayout() {
   const { slug } = useParams<{ slug: string }>();
@@ -217,7 +190,7 @@ export function PublicDashboardLayout() {
   }, [slug]);
 
   if (!isAuthenticated) {
-    return <Navigate to={`/${slug}/login`} replace />;
+    return <Navigate to={`/public/dashboard/${slug}/login`} replace />;
   }
 
   // Se o usuário ainda precisa definir senha permanente, bloqueia o dashboard
@@ -230,7 +203,7 @@ export function PublicDashboardLayout() {
   })();
 
   if (hasForcedChange) {
-    return <Navigate to={`/${slug}/set-password`} replace />;
+    return <Navigate to={`/public/dashboard/${slug}/set-password`} replace />;
   }
 
   return (
@@ -250,11 +223,11 @@ function AuthGuardInner({ slug }: { slug: string }) {
   const { auth } = useClientAuth();
 
   if (!auth) {
-    return <Navigate to={`/${slug}/login`} replace />;
+    return <Navigate to={`/public/dashboard/${slug}/login`} replace />;
   }
 
   if ((auth as any).force_password_change === true) {
-    return <Navigate to={`/${slug}/set-password`} replace />;
+    return <Navigate to={`/public/dashboard/${slug}/set-password`} replace />;
   }
 
   return <PublicDashboardLayoutInner slug={slug} />;

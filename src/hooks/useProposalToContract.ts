@@ -49,10 +49,10 @@ function extractScheduleFields(schedule: ScheduleConfig | null): Pick<
   | "due_day"
   | "payment_method"
   | "first_payment_date"
-  | "grace_period_months"
-  | "setup_amount"
   | "monthly_amount"
+  | "setup_amount"
   | "prazo_meses"
+  | "vigencia_inicio"
 > {
   if (!schedule) return {};
 
@@ -73,17 +73,9 @@ function extractScheduleFields(schedule: ScheduleConfig | null): Pick<
     result.first_payment_date = schedule.firstDate;
   }
 
-  // Carência (campo direto no schedule)
-  if (schedule.graceMonths && schedule.graceMonths > 0) {
-    result.grace_period_months = schedule.graceMonths;
-  }
-
-  // Carência via modo 'carencia' com slices
-  if (schedule.mode === "carencia" && schedule.slices?.length) {
-    const graceSlice = schedule.slices[0];
-    if (graceSlice?.installments && graceSlice.installments > 0) {
-      result.grace_period_months = graceSlice.installments;
-    }
+  // Início de vigência posterior
+  if (schedule.vigenciaInicio) {
+    result.vigencia_inicio = schedule.vigenciaInicio;
   }
 
   // Setup
@@ -100,7 +92,7 @@ function extractScheduleFields(schedule: ScheduleConfig | null): Pick<
     result.monthly_amount = schedule.firstValue;
   }
 
-  // Prazo em meses (número de parcelas recorrentes)
+  // Prazo em meses
   if (schedule.installments && schedule.installments > 0) {
     result.prazo_meses = schedule.installments;
   }

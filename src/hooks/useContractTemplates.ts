@@ -81,7 +81,8 @@ export interface ServiceBlock {
   setup_amount: number | null;
   has_monthly: boolean;
   monthly_amount: number | null;
-  grace_months: number;
+  /** @deprecated grace_months removido — carência não é mais suportada. Ignorado na geração. */
+  grace_months?: number;
   is_one_time: boolean;
   one_time_amount: number | null;
   display_order: number;
@@ -304,7 +305,7 @@ export function useServiceBlocks() {
         setup_amount:     block.setup_amount ?? null,
         has_monthly:      block.has_monthly ?? false,
         monthly_amount:   block.monthly_amount ?? null,
-        grace_months:     block.grace_months ?? 0,
+        grace_months:     block.grace_months ?? 0, // legado — ignorado
         is_one_time:      block.is_one_time ?? false,
         one_time_amount:  block.one_time_amount ?? null,
         display_order:    block.display_order ?? 99,

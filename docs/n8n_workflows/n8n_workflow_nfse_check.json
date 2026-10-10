@@ -1,0 +1,275 @@
+{
+  "name": "Maestr.IA — Fiscal NFS-e Verificação Automática",
+  "_readme": {
+    "description": "Verifica notas em status processando/aguardando há mais de 10 minutos. Para cada nota com notaas_id consulta a Notaas e atualiza o status. Sem notaas_id tenta reemitir. Pode ser acionado pelo Schedule (a cada 15 min) ou manualmente via Webhook.",
+    "webhook_path": "nfse-check",
+    "schedule": "A cada 15 minutos",
+    "env_vars_required": ["SUPABASE_URL", "SUPABASE_SERVICE_KEY"],
+    "credentials_required": ["supabaseApi"],
+    "setup": [
+      "1. Importe este arquivo no n8n",
+      "2. Configure as credenciais Supabase no nó nativo",
+      "3. Ative o workflow — roda automaticamente a cada 15 min",
+      "4. Para disparo manual: POST {N8N_URL}/webhook/nfse-check com body { organization_id: '...' } (opcional)"
+    ]
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "minutes", "minutesInterval": 15 }]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "A cada 15 minutos",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 200]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "nfse-check",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook — Verificar Agora",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 400],
+      "webhookId": "nfse-check-webhook"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "a1", "name": "supabase_url",     "value": "={{ $env.SUPABASE_URL }}",         "type": "string" },
+            { "id": "a2", "name": "supabase_api_key", "value": "={{ $env.SUPABASE_SERVICE_KEY }}", "type": "string" },
+            { "id": "a3", "name": "triggered_by",     "value": "schedule",                         "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "creds-schedule",
+      "name": "Credenciais — Schedule",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 200]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "b1", "name": "supabase_url",     "value": "={{ $env.SUPABASE_URL }}",         "type": "string" },
+            { "id": "b2", "name": "supabase_api_key", "value": "={{ $env.SUPABASE_SERVICE_KEY }}", "type": "string" },
+            { "id": "b3", "name": "triggered_by",     "value": "webhook",                          "type": "string" }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "creds-webhook",
+      "name": "Credenciais — Webhook",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "mode": "chooseBranch",
+        "output": "input1",
+        "options": {}
+      },
+      "id": "merge-triggers",
+      "name": "Merge Triggers",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "invoices",
+        "returnAll": true,
+        "filters": {
+          "conditions": [
+            { "keyName": "status", "keyValue": "processando" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "buscar-processando",
+      "name": "Buscar Notas Processando",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [900, 180],
+      "credentials": {
+        "supabaseApi": { "id": "yDtu96eQqnPXpyAM", "name": "Supabase account" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "invoices",
+        "returnAll": true,
+        "filters": {
+          "conditions": [
+            { "keyName": "status", "keyValue": "aguardando" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "buscar-aguardando",
+      "name": "Buscar Notas Aguardando",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [900, 380],
+      "credentials": {
+        "supabaseApi": { "id": "yDtu96eQqnPXpyAM", "name": "Supabase account" }
+      }
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "invoices_processando",
+        "options": {}
+      },
+      "id": "agg-processando",
+      "name": "Agrupar Processando",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [1120, 180]
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "invoices_aguardando",
+        "options": {}
+      },
+      "id": "agg-aguardando",
+      "name": "Agrupar Aguardando",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [1120, 380]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "organization_integrations",
+        "returnAll": true,
+        "filters": {
+          "conditions": [
+            { "keyName": "integration_type", "keyValue": "notaas" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "buscar-configs",
+      "name": "Buscar Configs Notaas",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [900, 580],
+      "credentials": {
+        "supabaseApi": { "id": "yDtu96eQqnPXpyAM", "name": "Supabase account" }
+      }
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "configs",
+        "options": {}
+      },
+      "id": "agg-configs",
+      "name": "Agrupar Configs",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [1120, 580]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "clients",
+        "returnAll": true,
+        "options": {
+          "select": "id,organization_id,name,company,document,email,address_street,address_number,address_complement,address_neighborhood,address_city,address_state,address_zip"
+        }
+      },
+      "id": "buscar-clientes",
+      "name": "Buscar Clientes",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [900, 760],
+      "credentials": {
+        "supabaseApi": { "id": "yDtu96eQqnPXpyAM", "name": "Supabase account" }
+      }
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "clients",
+        "options": {}
+      },
+      "id": "agg-clientes",
+      "name": "Agrupar Clientes",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [1120, 760]
+    },
+    {
+      "parameters": { "numberInputs": 4 },
+      "id": "merge-dados",
+      "name": "Merge Dados",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [1340, 460]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst creds = $('Merge Triggers').item.json;\n\nlet invoicesProcessando = [];\nlet invoicesAguardando  = [];\nlet configs  = [];\nlet clients  = [];\n\nfor (const item of items) {\n  const j = item?.json;\n  if (!j) continue;\n  if (Array.isArray(j.invoices_processando)) invoicesProcessando = j.invoices_processando;\n  if (Array.isArray(j.invoices_aguardando))  invoicesAguardando  = j.invoices_aguardando;\n  if (Array.isArray(j.configs))  configs  = j.configs;\n  if (Array.isArray(j.clients))  clients  = j.clients;\n}\n\n// Junta processando + aguardando e filtra os que têm mais de 10 min sem atualização\nconst cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();\nconst allInvoices = invoicesProcessando.concat(invoicesAguardando)\n  .filter(function(inv) { return inv.updated_at < cutoff; });\n\nif (allInvoices.length === 0) {\n  return [{ json: { checked: 0, message: 'Nenhuma nota em processamento para verificar' } }];\n}\n\n// Mapas para lookup rápido\nconst configMap = {};\nconfigs.forEach(function(c) {\n  if (c.organization_id && c.config) configMap[c.organization_id] = c.config;\n});\n\nconst clientMap = {};\nclients.forEach(function(c) { clientMap[c.id] = c; });\n\nconst results    = [];\nconst patches    = []; // { id, patch } para atualizar no Supabase\nconst byOrg      = {};\n\nfor (const invoice of allInvoices) {\n  const orgId = invoice.organization_id;\n  const config = configMap[orgId] || {};\n\n  if (!byOrg[orgId]) byOrg[orgId] = { checked: 0, autorizada: 0, rejeitada: 0, skip: 0 };\n  byOrg[orgId].checked++;\n\n  if (!config.api_key) {\n    results.push({ id: invoice.id, result: 'skip', reason: 'no_api_key' });\n    byOrg[orgId].skip++;\n    continue;\n  }\n\n  const baseUrl = config.sandbox_mode === true\n    ? 'https://sandbox.notaas.com.br'\n    : 'https://platform.notaas.com.br';\n\n  if (invoice.notaas_id) {\n    // Tem notaas_id — agenda consulta à Notaas\n    results.push({\n      id:        invoice.id,\n      org_id:    orgId,\n      action:    'check',\n      notaas_id: invoice.notaas_id,\n      api_key:   config.api_key,\n      base_url:  baseUrl\n    });\n  } else {\n    // Sem notaas_id — agenda reemissão\n    const client = clientMap[invoice.client_id];\n    if (!client) {\n      results.push({ id: invoice.id, result: 'skip', reason: 'client_not_found' });\n      byOrg[orgId].skip++;\n      continue;\n    }\n\n    const codigoServico = (invoice.codigo_servico || config.codigo_servico_padrao || '').replace(/\\D/g, '');\n    if (!codigoServico) {\n      patches.push({ id: invoice.id, patch: { status: 'rejeitada', erro_mensagem: 'Código de serviço não configurado' } });\n      results.push({ id: invoice.id, result: 'rejeitada', reason: 'no_codigo_servico' });\n      byOrg[orgId].rejeitada++;\n      continue;\n    }\n\n    const docDigits = (client.document || '').replace(/\\D/g, '');\n    const tomador = {};\n    if (docDigits.length === 11) tomador.cpf  = docDigits;\n    else                         tomador.cnpj = docDigits;\n    tomador.nome  = client.company || client.name;\n    tomador.email = client.email || null;\n    tomador.endereco = {\n      logradouro:  client.address_street       || '',\n      numero:      client.address_number       || '',\n      complemento: client.address_complement   || '',\n      bairro:      client.address_neighborhood || '',\n      cidade:      client.address_city         || '',\n      uf:          client.address_state        || '',\n      cep:         client.address_zip          || ''\n    };\n\n    results.push({\n      id:       invoice.id,\n      org_id:   orgId,\n      action:   'emit',\n      api_key:  config.api_key,\n      base_url: baseUrl,\n      notaas_payload: {\n        tomador,\n        servico:    { codigo: codigoServico, descricao: invoice.descricao_servico || config.descricao_servico_padrao || 'Prestação de serviços' },\n        valores:    { total: invoice.valor_servico, aliquotaIss: invoice.aliquota_iss != null ? invoice.aliquota_iss : (config.aliquota_iss_padrao || 5) },\n        competencia: invoice.competencia\n      }\n    });\n  }\n}\n\nreturn [{ json: {\n  results,\n  patches,\n  byOrg,\n  supabase_url:     creds.supabase_url,\n  supabase_api_key: creds.supabase_api_key,\n  total:            allInvoices.length\n}}];"
+      },
+      "id": "preparar-verificacao",
+      "name": "Preparar Verificação",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 460]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Executa as consultas/emissões na Notaas e coleta os patches para o Supabase\nconst d = $input.first().json;\nconst sbUrl = d.supabase_url;\nconst sbKey = d.supabase_api_key;\nconst sbH   = { 'apikey': sbKey, 'Authorization': 'Bearer ' + sbKey, 'Content-Type': 'application/json' };\n\nconst finalPatches = [...(d.patches || [])];\nconst finalResults = [];\nconst byOrg = JSON.parse(JSON.stringify(d.byOrg || {}));\n\nfor (const item of (d.results || [])) {\n  if (!item.action) {\n    finalResults.push(item);\n    continue;\n  }\n\n  if (!byOrg[item.org_id]) byOrg[item.org_id] = { checked: 0, autorizada: 0, rejeitada: 0, skip: 0 };\n\n  if (item.action === 'check') {\n    try {\n      const res = await fetch(item.base_url + '/api/v1/notas/' + item.notaas_id, {\n        headers: { 'x-api-key': item.api_key, 'Content-Type': 'application/json' },\n        signal: AbortSignal.timeout(15000)\n      });\n\n      if (res.ok) {\n        const nota = await res.json();\n        if (nota && (nota.id || nota.numero)) {\n          finalPatches.push({ id: item.id, patch: {\n            status: 'emitida',\n            notaas_id: nota.id || item.notaas_id,\n            notaas_protocol: nota.protocol || null,\n            numero: nota.numero || null,\n            pdf_url: nota.pdf_url || null,\n            xml_url: nota.xml_url || null,\n            emitida_em: nota.emitida_em || new Date().toISOString(),\n            erro_mensagem: null\n          }});\n          finalResults.push({ id: item.id, result: 'autorizada', numero: nota.numero });\n          byOrg[item.org_id].autorizada++;\n        } else {\n          finalResults.push({ id: item.id, result: 'skip', reason: 'still_processing' });\n          byOrg[item.org_id].skip++;\n        }\n      } else if (res.status === 404) {\n        finalPatches.push({ id: item.id, patch: { status: 'rejeitada', erro_mensagem: 'Nota não encontrada na Notaas' } });\n        finalResults.push({ id: item.id, result: 'rejeitada', reason: 'not_found' });\n        byOrg[item.org_id].rejeitada++;\n      } else {\n        const errBody = await res.json().catch(function() { return {}; });\n        const errMsg = errBody.message || errBody.error || ('HTTP ' + res.status);\n        finalPatches.push({ id: item.id, patch: { status: 'rejeitada', erro_mensagem: errMsg } });\n        finalResults.push({ id: item.id, result: 'rejeitada', reason: errMsg });\n        byOrg[item.org_id].rejeitada++;\n      }\n    } catch (e) {\n      finalResults.push({ id: item.id, result: 'skip', reason: 'network_error: ' + e.message });\n      byOrg[item.org_id].skip++;\n    }\n\n  } else if (item.action === 'emit') {\n    try {\n      const res = await fetch(item.base_url + '/api/v1/emitir', {\n        method: 'POST',\n        headers: { 'x-api-key': item.api_key, 'Content-Type': 'application/json', 'User-Agent': 'MaestrIA-n8n-check/1.0' },\n        body: JSON.stringify(item.notaas_payload),\n        signal: AbortSignal.timeout(30000)\n      });\n      const body = await res.json().catch(function() { return {}; });\n      const externalId = body.id || body.notaas_id || body.nota_id || null;\n      const numero = body.numero || body.number || null;\n\n      if (res.ok && (externalId || numero)) {\n        finalPatches.push({ id: item.id, patch: {\n          status: 'emitida',\n          notaas_id: externalId,\n          notaas_protocol: body.protocol || null,\n          numero,\n          pdf_url: body.pdf_url || body.pdfUrl || null,\n          xml_url: body.xml_url || body.xmlUrl || null,\n          emitida_em: body.emitida_em || new Date().toISOString(),\n          erro_mensagem: null\n        }});\n        finalResults.push({ id: item.id, result: 'autorizada', numero });\n        byOrg[item.org_id].autorizada++;\n      } else {\n        const msg = body.message || body.error || body.msg || ('HTTP ' + res.status);\n        finalPatches.push({ id: item.id, patch: { status: 'rejeitada', erro_mensagem: typeof msg === 'string' ? msg : JSON.stringify(msg) } });\n        finalResults.push({ id: item.id, result: 'rejeitada', reason: msg });\n        byOrg[item.org_id].rejeitada++;\n      }\n    } catch (e) {\n      finalResults.push({ id: item.id, result: 'skip', reason: 'emit_error: ' + e.message });\n      byOrg[item.org_id].skip++;\n    }\n  }\n}\n\n// Aplica os patches no Supabase\nfor (const p of finalPatches) {\n  try {\n    await fetch(sbUrl + '/rest/v1/invoices?id=eq.' + p.id, {\n      method: 'PATCH',\n      headers: Object.assign({}, sbH, { 'Prefer': 'return=minimal' }),\n      body: JSON.stringify(p.patch)\n    });\n  } catch (e) { /* best-effort */ }\n}\n\n// Registra resultado da checagem por organização\nfor (const orgId of Object.keys(byOrg)) {\n  try {\n    await fetch(sbUrl + '/rest/v1/rpc/update_fiscal_check_status', {\n      method: 'POST',\n      headers: sbH,\n      body: JSON.stringify({\n        p_organization_id: orgId,\n        p_status: 'success',\n        p_results: Object.assign({ checked_at: new Date().toISOString() }, byOrg[orgId])\n      })\n    });\n  } catch (e) { /* best-effort */ }\n}\n\nreturn [{ json: { checked: d.total, results: finalResults } }];"
+      },
+      "id": "executar-verificacao",
+      "name": "Executar Verificação",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 460]
+    }
+  ],
+  "connections": {
+    "A cada 15 minutos":    { "main": [[{ "node": "Credenciais — Schedule", "type": "main", "index": 0 }]] },
+    "Webhook — Verificar Agora": { "main": [[{ "node": "Credenciais — Webhook", "type": "main", "index": 0 }]] },
+    "Credenciais — Schedule": { "main": [[{ "node": "Merge Triggers", "type": "main", "index": 0 }]] },
+    "Credenciais — Webhook":  { "main": [[{ "node": "Merge Triggers", "type": "main", "index": 1 }]] },
+    "Merge Triggers": {
+      "main": [[
+        { "node": "Buscar Notas Processando", "type": "main", "index": 0 },
+        { "node": "Buscar Notas Aguardando",  "type": "main", "index": 0 },
+        { "node": "Buscar Configs Notaas",    "type": "main", "index": 0 },
+        { "node": "Buscar Clientes",          "type": "main", "index": 0 }
+      ]]
+    },
+    "Buscar Notas Processando": { "main": [[{ "node": "Agrupar Processando", "type": "main", "index": 0 }]] },
+    "Buscar Notas Aguardando":  { "main": [[{ "node": "Agrupar Aguardando",  "type": "main", "index": 0 }]] },
+    "Buscar Configs Notaas":    { "main": [[{ "node": "Agrupar Configs",     "type": "main", "index": 0 }]] },
+    "Buscar Clientes":          { "main": [[{ "node": "Agrupar Clientes",    "type": "main", "index": 0 }]] },
+    "Agrupar Processando": { "main": [[{ "node": "Merge Dados", "type": "main", "index": 0 }]] },
+    "Agrupar Aguardando":  { "main": [[{ "node": "Merge Dados", "type": "main", "index": 1 }]] },
+    "Agrupar Configs":     { "main": [[{ "node": "Merge Dados", "type": "main", "index": 2 }]] },
+    "Agrupar Clientes":    { "main": [[{ "node": "Merge Dados", "type": "main", "index": 3 }]] },
+    "Merge Dados":           { "main": [[{ "node": "Preparar Verificação",  "type": "main", "index": 0 }]] },
+    "Preparar Verificação":  { "main": [[{ "node": "Executar Verificação",  "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "versionId": "2.0.0"
+}

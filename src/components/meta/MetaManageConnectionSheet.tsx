@@ -180,6 +180,7 @@ export function MetaManageConnectionSheet({ connection, open, onOpenChange, orga
     try {
       const result = await validate.mutateAsync({
         access_token:         "__use_stored__", // sinaliza para o backend usar o token armazenado
+        connection_id:        connection.id,    // necessário para buscar o token correto no banco
         provider:             connection.provider,
         facebook_page_id:     connection.facebook_page_id    ?? undefined,
         instagram_account_id: connection.instagram_account_id ?? undefined,
@@ -509,19 +510,25 @@ export function MetaManageConnectionSheet({ connection, open, onOpenChange, orga
                       </p>
                     </div>
                     <AlertDialogFooter className="flex-col sm:flex-row gap-2">
-                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                      <AlertDialogAction
+                      <AlertDialogCancel disabled={isDisconnecting}>Cancelar</AlertDialogCancel>
+                      {/* Usamos Button em vez de AlertDialogAction para evitar que o Radix
+                          feche o dialog imediatamente antes do async completar */}
+                      <Button
                         onClick={() => handleDisconnect("deactivate")}
+                        disabled={isDisconnecting}
                         className="bg-amber-600 hover:bg-amber-700"
                       >
+                        {isDisconnecting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-2" /> : null}
                         Desativar
-                      </AlertDialogAction>
-                      <AlertDialogAction
+                      </Button>
+                      <Button
                         onClick={() => handleDisconnect("remove_credentials")}
+                        disabled={isDisconnecting}
                         className="bg-destructive hover:bg-destructive/90"
                       >
+                        {isDisconnecting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-2" /> : null}
                         Remover credenciais
-                      </AlertDialogAction>
+                      </Button>
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>

@@ -1,0 +1,130 @@
+{
+  "name": "C8 Control — Operações no Banco do Cliente",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "c8-client-ops",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "c8-client-ops"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body ?? $input.first().json;\nconst action = body.action ?? '';\nconst clientId = body.client_id ?? '';\nconst orgId = body.org_id ?? '';\nconst valid = ['test_connection','apply_schema','create_user','reset_password','invite_user'];\nif (!valid.includes(action)) throw new Error(`Ação inválida: ${action}`);\nif (!clientId) throw new Error('client_id é obrigatório');\nreturn [{ json: { action, client_id: clientId, org_id: orgId, payload: body } }];"
+      },
+      "id": "validate",
+      "name": "Validar Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/get_client_supabase_credentials",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "p_client_id", "value": "={{ $json.client_id }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-creds",
+      "name": "Buscar Credenciais do Cliente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const creds = $input.first().json;\nconst prev = $('Validar Payload').first().json;\nif (!creds.success) throw new Error(creds.error ?? 'Credenciais não encontradas para este cliente');\nif (!creds.supabase_url) throw new Error('URL do banco de dados do cliente não configurada');\nconst needsServiceKey = ['apply_schema','create_user','reset_password','invite_user'];\nif (needsServiceKey.includes(prev.action) && !creds.service_key) {\n  throw new Error('Service Key do cliente não configurada — preencha na aba Banco de Dados do cliente no C8 Control');\n}\nreturn [{ json: { action: prev.action, client_id: prev.client_id, payload: prev.payload, supabase_url: creds.supabase_url, anon_key: creds.anon_key, service_key: creds.service_key } }];"
+      },
+      "id": "merge-creds",
+      "name": "Validar e Combinar Credenciais",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.C8_SCHEMA_RAW_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.GITHUB_TOKEN }}" },
+            { "name": "Accept",        "value": "application/vnd.github.v3.raw" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "responseFormat": "text" } }
+        }
+      },
+      "id": "fetch-schema",
+      "name": "Buscar Schema do Repositório",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Validar e Combinar Credenciais').first().json;\nconst schemaText = $input.first().json?.data ?? $input.first().json ?? '';\nreturn [{ json: { ...prev, schema_sql: String(schemaText) } }];"
+      },
+      "id": "merge-schema",
+      "name": "Combinar Schema",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const { action, supabase_url, anon_key, service_key, payload, schema_sql } = $input.first().json;\nconst base = supabase_url.replace(/\\/$/, '');\nlet result;\n\n// Geração de senha segura — mesmo algoritmo das Edge Functions c8-provision-tenant e c8-reset-password.\n// Usa crypto.getRandomValues (disponível no n8n) para evitar Math.random() (inseguro e inconsistente).\n// Formato: xxxx-xxxx-xxxx (sem caracteres ambíguos 0/O, 1/l/I)\nfunction generateTempPassword() {\n  const chars = 'abcdefghjkmnpqrstuvwxyz23456789';\n  const groups = 3, groupLen = 4;\n  let pwd = '';\n  const bytes = new Uint8Array(groups * groupLen);\n  crypto.getRandomValues(bytes);\n  for (let g = 0; g < groups; g++) {\n    if (g > 0) pwd += '-';\n    for (let i = 0; i < groupLen; i++) pwd += chars[bytes[g * groupLen + i] % chars.length];\n  }\n  return pwd;\n}\n\nif (action === 'test_connection') {\n  const res = await fetch(`${base}/rest/v1/schema_migrations?select=version&limit=1`, {\n    headers: { apikey: anon_key, Authorization: `Bearer ${anon_key}` },\n  });\n  if (res.ok) result = { success: true, schema_applied: true, message: 'Banco conectado e schema aplicado.' };\n  else if (res.status === 404) result = { success: true, schema_applied: false, message: 'Banco conectado, schema ainda não aplicado.' };\n  else if (res.status === 401) result = { success: false, error: 'Anon Key inválida.' };\n  else result = { success: false, error: `HTTP ${res.status}` };\n\n} else if (action === 'apply_schema') {\n  // Delega para a Edge Function provision-client-db, que:\n  //   1. Faz bootstrap do exec_sql via /pg/query se banco zerado\n  //   2. Aplica o schema completo (BANK_B_FULL_SCHEMA inline na Edge Function)\n  //   3. Faz seed dos estágios do pipeline\n  // Não depende mais de buscar o schema do GitHub.\n  const supabaseAUrl = $env.SUPABASE_URL.replace(/\\/$/, '');\n  const serviceKey   = $env.SUPABASE_SERVICE_KEY;\n  const res = await fetch(`${supabaseAUrl}/functions/v1/provision-client-db`, {\n    method: 'POST',\n    headers: {\n      'Content-Type':  'application/json',\n      'apikey':        serviceKey,\n      'Authorization': `Bearer ${serviceKey}`,\n    },\n    body: JSON.stringify({ client_id: payload.client_id }),\n  });\n  const data = await res.json().catch(() => ({}));\n  if (res.ok && data.success) {\n    // Grava timestamp no Banco A — silencia erros para não bloquear o resultado\n    try {\n      await fetch(`${supabaseAUrl}/rest/v1/rpc/update_c8_schema_timestamp`, {\n        method: 'POST',\n        headers: {\n          'Content-Type':  'application/json',\n          'apikey':        serviceKey,\n          'Authorization': `Bearer ${serviceKey}`,\n        },\n        body: JSON.stringify({ p_client_id: payload.client_id }),\n      });\n    } catch (_) {}\n    result = { success: true,  message: data.message ?? 'Schema aplicado com sucesso.' };\n  } else {\n    result = { success: false, error: data.error ?? `HTTP ${res.status}` };\n  }\n\n} else if (action === 'create_user') {\n  // Usa generateTempPassword — mesmo algoritmo das Edge Functions.\n  // A senha gerada aqui É a senha registrada no Banco B — sem discrepância.\n  const email = payload.email;\n  if (!email?.includes('@')) throw new Error('E-mail inválido para create_user');\n  const tempPass = generateTempPassword();\n  const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();\n  const res = await fetch(`${base}/auth/v1/admin/users`, {\n    method: 'POST',\n    headers: { apikey: service_key, Authorization: `Bearer ${service_key}`, 'Content-Type': 'application/json' },\n    body: JSON.stringify({\n      email,\n      password: tempPass,\n      email_confirm: true,\n      user_metadata: {\n        client_id: payload.client_id,\n        role: 'owner',\n        full_name: payload.client_name ?? '',\n        force_password_change: true,\n        temp_password_expires_at: expiresAt,\n      },\n    }),\n  });\n  const data = await res.json().catch(() => ({}));\n  result = res.ok\n    ? { success: true, user_id: data.id, temp_password: tempPass,\n        message: `Usuário criado: ${email}. Senha válida por 72h.` }\n    : { success: false, error: data.message ?? data.error_description ?? `HTTP ${res.status}` };\n\n} else if (action === 'reset_password') {\n  // Gera nova senha temporária com o mesmo algoritmo das Edge Functions.\n  // Localiza o usuário no Banco B e atualiza a senha diretamente — sem link de recovery.\n  // Retorna temp_password para o frontend exibir/enviar ao cliente.\n  const email = payload.email;\n  if (!email?.includes('@')) throw new Error('E-mail inválido para reset_password');\n  const tempPass = generateTempPassword();\n  const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();\n\n  // Localiza o usuário pelo e-mail\n  const listRes = await fetch(`${base}/auth/v1/admin/users?per_page=1000`, {\n    headers: { apikey: service_key, Authorization: `Bearer ${service_key}` },\n  });\n  const listData = await listRes.json().catch(() => ({ users: [] }));\n  const existing = (listData.users ?? []).find(\n    (u) => u.email?.toLowerCase() === email.toLowerCase()\n  );\n\n  if (existing) {\n    // Usuário existe — atualiza senha e renova prazo de 72h\n    const updateRes = await fetch(`${base}/auth/v1/admin/users/${existing.id}`, {\n      method: 'PUT',\n      headers: { apikey: service_key, Authorization: `Bearer ${service_key}`, 'Content-Type': 'application/json' },\n      body: JSON.stringify({\n        password: tempPass,\n        ban_duration: 'none',\n        user_metadata: {\n          ...existing.user_metadata,\n          force_password_change: true,\n          temp_password_expires_at: expiresAt,\n        },\n      }),\n    });\n    result = updateRes.ok\n      ? { success: true, is_new_user: false, temp_password: tempPass,\n          message: `Senha redefinida para ${email}. Válida por 72h.` }\n      : { success: false, error: `Erro ao atualizar senha: HTTP ${updateRes.status}` };\n  } else {\n    // Usuário não existe — cria novo\n    const createRes = await fetch(`${base}/auth/v1/admin/users`, {\n      method: 'POST',\n      headers: { apikey: service_key, Authorization: `Bearer ${service_key}`, 'Content-Type': 'application/json' },\n      body: JSON.stringify({\n        email,\n        password: tempPass,\n        email_confirm: true,\n        user_metadata: {\n          client_id: payload.client_id,\n          role: 'owner',\n          force_password_change: true,\n          temp_password_expires_at: expiresAt,\n        },\n      }),\n    });\n    const createData = await createRes.json().catch(() => ({}));\n    result = createRes.ok\n      ? { success: true, is_new_user: true, temp_password: tempPass,\n          message: `Usuário criado e senha gerada para ${email}. Válida por 72h.` }\n      : { success: false, error: createData.message ?? `HTTP ${createRes.status}` };\n  }\n\n} else if (action === 'invite_user') {\n  const email = payload.email;\n  const role = payload.role ?? 'member';\n  const res = await fetch(`${base}/auth/v1/admin/invite`, {\n    method: 'POST',\n    headers: { apikey: service_key, Authorization: `Bearer ${service_key}`, 'Content-Type': 'application/json' },\n    body: JSON.stringify({ email, data: { client_id: payload.client_id, role } }),\n  });\n  const data = await res.json().catch(() => ({}));\n  result = res.ok\n    ? { success: true, message: `Convite enviado para ${email} com role ${role}` }\n    : { success: false, error: data.message ?? data.error_description ?? `HTTP ${res.status}` };\n}\n\nreturn [{ json: { ...result, action } }];"
+      },
+      "id": "execute-action",
+      "name": "Executar Ação",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "respond",
+      "name": "Responder",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1780, 300]
+    }
+  ],
+  "connections": {
+    "Webhook":                          { "main": [[{ "node": "Validar Payload",                  "type": "main", "index": 0 }]] },
+    "Validar Payload":                  { "main": [[{ "node": "Buscar Credenciais do Cliente",    "type": "main", "index": 0 }]] },
+    "Buscar Credenciais do Cliente":    { "main": [[{ "node": "Validar e Combinar Credenciais",   "type": "main", "index": 0 }]] },
+    "Validar e Combinar Credenciais":   { "main": [[{ "node": "Buscar Schema do Repositório",     "type": "main", "index": 0 }]] },
+    "Buscar Schema do Repositório":     { "main": [[{ "node": "Combinar Schema",                  "type": "main", "index": 0 }]] },
+    "Combinar Schema":                  { "main": [[{ "node": "Executar Ação",                    "type": "main", "index": 0 }]] },
+    "Executar Ação":                    { "main": [[{ "node": "Responder",                        "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": { "templateId": "c8-client-ops-v3" },
+  "notes": "## C8 Control — Operações no Banco do Cliente (v3)\n\n### O que mudou na v3:\n- CORRIGIDO: create_user — senha gerada com crypto.getRandomValues (mesmo algoritmo das Edge Functions)\n  Antes: Math.random().toString(36) — inseguro e formato diferente das Edge Functions\n- CORRIGIDO: reset_password — gera senha temporária com crypto.getRandomValues e aplica diretamente\n  no auth.users via PUT /admin/users/:id. Retorna temp_password para o frontend.\n  Antes: tentava gerar link de recovery via /admin/generate_link (API depreciada no Supabase Auth)\n- Ambas as ações gravam force_password_change=true e temp_password_expires_at (+72h) no user_metadata\n\n### Formato da senha temporária: xxxx-xxxx-xxxx\n### Caracteres: abcdefghjkmnpqrstuvwxyz23456789 (sem 0/O, 1/l/I para evitar ambiguidade)\n\n### Variáveis de ambiente necessárias no n8n:\n- SUPABASE_URL         — URL do Supabase da agência (Banco A)\n- SUPABASE_SERVICE_KEY — Service Role Key do Banco A\n- C8_SCHEMA_RAW_URL    — URL da API do GitHub para o bank_b_full_schema.sql\n- GITHUB_TOKEN         — Personal Access Token (read:repo)"
+}

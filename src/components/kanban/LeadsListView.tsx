@@ -180,7 +180,16 @@ export function LeadsListView({ leads, onDetalhes, onEdit, onDelete, onEtapaChan
                   <TableCell className="text-xs capitalize bg-background group-hover:bg-muted">
                     {lead.product_service?.replace(/_/g, " ") || "-"}
                   </TableCell>
-                  <TableCell className="text-xs capitalize bg-background group-hover:bg-muted">{lead.contact_origin?.replace("_", " ") || "-"}</TableCell>
+                  <TableCell className="text-xs capitalize bg-background group-hover:bg-muted">
+                    {lead.contact_origin === "c8_form" ? (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-500/15 text-violet-500 border border-violet-500/20">
+                        <span className="h-1.5 w-1.5 rounded-full bg-violet-500 inline-block" />
+                        Via C8 Form
+                      </span>
+                    ) : (
+                      lead.contact_origin?.replace(/_/g, " ") || "-"
+                    )}
+                  </TableCell>
                   <TableCell className="text-xs bg-background group-hover:bg-muted">{lead.decision_maker ? "Sim" : "Não"}</TableCell>
                   <TableCell className="text-xs truncate w-[130px] bg-background group-hover:bg-muted" title={lead.decision_maker_name || "-"}>{lead.decision_maker_name || "-"}</TableCell>
                   <TableCell className="text-xs bg-background group-hover:bg-muted">{lead.decision_maker_phone ? formatPhoneBR(lead.decision_maker_phone) : "-"}</TableCell>

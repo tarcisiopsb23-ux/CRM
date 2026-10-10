@@ -1,0 +1,129 @@
+{
+  "name": "Maestr.IA — Google Calendar",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "calendar",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-calendar",
+      "name": "Webhook Calendar",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "calendar-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.item.json.body || $input.item.json;\nconst event = body.event || {};\n\n// Normaliza all_day: aceita true/false, 'yes'/'no', 1/0\nconst rawAllDay = event.all_day ?? event.allDay ?? false;\nconst allDay = rawAllDay === true || rawAllDay === 'yes' || rawAllDay === 1;\n\n// Converte UTC para horário local de Brasília (UTC-3) sem sufixo Z\nconst toLocal = (utcStr) => {\n  if (!utcStr) return null;\n  const d = new Date(utcStr);\n  const local = new Date(d.getTime() - 3 * 60 * 60 * 1000);\n  return local.toISOString().replace('Z', '').slice(0, 19);\n};\n\nconst startLocal = toLocal(event.start_at);\nconst endLocal   = toLocal(event.end_at);\n\n// Monta start/end conforme all_day\nconst startField = allDay\n  ? { date: (startLocal || '').slice(0, 10) }\n  : { dateTime: startLocal, timeZone: 'America/Sao_Paulo' };\n\nconst endField = allDay\n  ? { date: (endLocal || '').slice(0, 10) }\n  : { dateTime: endLocal, timeZone: 'America/Sao_Paulo' };\n\n// Monta descrição com meeting_url se existir\nconst descParts = [];\nif (event.description) descParts.push(event.description);\nif (event.meeting_url) descParts.push('🔗 Reunião: ' + event.meeting_url);\nconst description = descParts.join('\\n\\n');\n\n// Payload completo — todos os campos sempre presentes (null quando vazio)\nconst payload = {\n  summary:     event.title       || null,\n  description: description       || null,\n  location:    event.location    || null,\n  colorId:     event.color_id    || event.gcal_color_id || null,\n  start:       startField,\n  end:         endField,\n  extendedProperties: {\n    private: {\n      maestria_event_id: event.id ? String(event.id) : null\n    }\n  }\n};\n\n// Remove chaves com valor null do nível raiz (Google rejeita alguns campos nulos)\nObject.keys(payload).forEach(k => {\n  if (payload[k] === null) delete payload[k];\n});\n\nreturn [{ json: {\n  action:        body.action,\n  gcal_event_id: event.gcal_event_id || event.google_event_id || event.id || null,\n  payload\n}}];"
+      },
+      "id": "prepare-payload",
+      "name": "Preparar Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "create", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "create"
+            },
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "update", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "update"
+            },
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "delete", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "delete"
+            }
+          ]
+        }
+      },
+      "id": "switch-calendar",
+      "name": "Switch Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://www.googleapis.com/calendar/v3/calendars/{{ $env.GCAL_CALENDAR_ID }}/events",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}"
+      },
+      "id": "calendar-create",
+      "name": "Create Event",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 160],
+      "credentials": { "oAuth2Api": { "id": "GOOGLE_CRED_ID", "name": "Google Calendar OAuth2" } }
+    },
+    {
+      "parameters": {
+        "url": "=https://www.googleapis.com/calendar/v3/calendars/{{ $env.GCAL_CALENDAR_ID }}/events/{{ $json.gcal_event_id }}",
+        "requestMethod": "PUT",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}"
+      },
+      "id": "calendar-update",
+      "name": "Update Event",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 300],
+      "credentials": { "oAuth2Api": { "id": "GOOGLE_CRED_ID", "name": "Google Calendar OAuth2" } }
+    },
+    {
+      "parameters": {
+        "url": "=https://www.googleapis.com/calendar/v3/calendars/{{ $env.GCAL_CALENDAR_ID }}/events/{{ $json.gcal_event_id }}",
+        "requestMethod": "DELETE",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api"
+      },
+      "id": "calendar-delete",
+      "name": "Delete Event",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 440],
+      "credentials": { "oAuth2Api": { "id": "GOOGLE_CRED_ID", "name": "Google Calendar OAuth2" } }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"success\": true, \"action\": \"{{ $('Webhook Calendar').first().json.body.action }}\"}"
+      },
+      "id": "respond-calendar",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Calendar": { "main": [[{ "node": "Preparar Payload", "type": "main", "index": 0 }]] },
+    "Preparar Payload": { "main": [[{ "node": "Switch Action", "type": "main", "index": 0 }]] },
+    "Switch Action": {
+      "main": [
+        [{ "node": "Create Event", "type": "main", "index": 0 }],
+        [{ "node": "Update Event", "type": "main", "index": 0 }],
+        [{ "node": "Delete Event", "type": "main", "index": 0 }]
+      ]
+    },
+    "Create Event":  { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] },
+    "Update Event":  { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] },
+    "Delete Event":  { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "versionId": "1.1.0"
+}

@@ -1,7 +1,7 @@
 // src/components/contracts/GenerateContractButton.tsx
 // Requirements: 4.5, 4.6, 9.1, 9.8
 
-import { FileText } from "lucide-react";
+import { FileText, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,8 @@ import { ReviewModal } from "@/components/contracts/ReviewModal";
 interface GenerateContractButtonProps {
   contractId: string;
   organizationId: string;
+  /** Chamado após geração bem-sucedida — ex: navegar para o viewer */
+  onGenerated?: () => void;
 }
 
 /**
@@ -25,6 +27,7 @@ export function GenerateContractButton({
   // organizationId is available for future use (e.g. fetching org-scoped data)
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   organizationId: _organizationId,
+  onGenerated,
 }: GenerateContractButtonProps) {
   const {
     isReviewOpen,
@@ -35,17 +38,27 @@ export function GenerateContractButton({
     editClause,
     confirmGenerate,
     openReview,
+    isAssembling,
+    template,
   } = useContractAssembly(contractId);
 
   const handleClick = () => {
+    if (!contractId) return;
     openReview();
+  };
+
+  const handleConfirmGenerate = async () => {
+    await confirmGenerate();
+    onGenerated?.();
   };
 
   return (
     <>
-      <Button onClick={handleClick}>
-        <FileText className="h-4 w-4 mr-2" />
-        Gerar Contrato
+      <Button onClick={handleClick} disabled={isAssembling} className="gap-2">
+        {isAssembling
+          ? <><Loader2 className="h-4 w-4 animate-spin" /> Montando...</>
+          : <><FileText className="h-4 w-4" /> Gerar Contrato</>
+        }
       </Button>
 
       {/* Req 9.3: ReviewModal is rendered conditionally when isReviewOpen */}
@@ -55,7 +68,8 @@ export function GenerateContractButton({
         assembledResult={assembledResult}
         clauseEdits={clauseEdits}
         onEditClause={editClause}
-        onConfirmGenerate={confirmGenerate}
+        onConfirmGenerate={handleConfirmGenerate}
+        template={template}
       />
     </>
   );

@@ -1,8 +1,12 @@
 /**
  * ClientAuthContext — Banco A unificado
  *
- * Todos os clientes operam no Banco A.
+ * Todos os clientes operam no Banco A. Não existe mais Banco B.
  * A sessão JWT é sempre do Banco A.
+ *
+ * O que NÃO é armazenado nunca:
+ *   • Senhas
+ *   • anon_key do Banco A
  */
 
 import { createContext, ReactNode, useState, useCallback } from "react";
@@ -21,11 +25,6 @@ export interface ConversionMetricsConfig {
 
 export interface ModulesConfig {
   crm_enabled?: boolean;
-  /**
-   * @deprecated Substituído por automation_enabled.
-   * Mantido para compatibilidade com clientes antigos — quando
-   * automation_enabled for true, whatsapp_enabled é ignorado na sidebar.
-   */
   whatsapp_enabled?: boolean;
   demographics_enabled?: boolean;
   ia_enabled?: boolean;
@@ -45,23 +44,6 @@ export interface ModulesConfig {
   c8_included?: boolean;
   free_access_until?: string | null;
   free_access_reason?: string | null;
-  /**
-   * Módulo Mensagens — Caixa de Entrada e Histórico de conversas com
-   * clientes finais via WhatsApp/Instagram (canal oficial Meta).
-   */
-  messaging_enabled?: boolean;
-  /**
-   * Módulo Chatbot — Canais (conexão Instagram/WhatsApp via Meta),
-   * Meu Agente (configuração do agente IA), Conhecimento (base de
-   * conhecimento estruturada) e futuras Automações e Integrações.
-   * Quando true, substitui whatsapp_enabled e show_ia_content na sidebar.
-   */
-  automation_enabled?: boolean;
-  /**
-   * Módulo Gestão de Conteúdo (Content Operations) — Calendário editorial,
-   * aprovação de conteúdos, briefings e entregáveis.
-   */
-  content_ops_enabled?: boolean;
 }
 
 /** Dados do cliente vindos do Banco A (imutáveis durante a sessão) */
@@ -169,7 +151,7 @@ export function ClientAuthProvider({
   const logout = useCallback(() => {
     clearStorage(slug);
     setAuthState(null);
-    navigate(`/${slug}/login`);
+    navigate(`/public/dashboard/${slug}/login`);
   }, [slug, navigate]);
 
   return (

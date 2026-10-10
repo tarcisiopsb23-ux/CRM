@@ -23,62 +23,29 @@ const fmtCurrency = (v: number) =>
 
 interface ProductFormProps {
   initial?: Partial<CrmProduct>;
-  onSave: (d: {
-    name: string; description: string | null; price: number; unit: string;
-    sku: string | null; product_type: "product" | "service"; category: string | null;
-  }) => void;
+  onSave: (d: { name: string; description: string | null; price: number; unit: string }) => void;
   onCancel: () => void;
   saving: boolean;
 }
 
 function ProductForm({ initial, onSave, onCancel, saving }: ProductFormProps) {
-  const [name,        setName]        = useState(initial?.name         ?? "");
-  const [desc,        setDesc]        = useState(initial?.description  ?? "");
-  const [price,       setPrice]       = useState(String(initial?.price ?? ""));
-  const [unit,        setUnit]        = useState(initial?.unit         ?? "unidade");
-  const [sku,         setSku]         = useState(initial?.sku          ?? "");
-  const [productType, setProductType] = useState<"product"|"service">(initial?.product_type ?? "service");
-  const [category,    setCategory]    = useState(initial?.category     ?? "");
+  const [name, setName]       = useState(initial?.name ?? "");
+  const [desc, setDesc]       = useState(initial?.description ?? "");
+  const [price, setPrice]     = useState(String(initial?.price ?? ""));
+  const [unit, setUnit]       = useState(initial?.unit ?? "unidade");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) { toast.error("Nome obrigatório."); return; }
-    onSave({
-      name: name.trim(), description: desc.trim() || null,
-      price: parseFloat(price) || 0, unit: unit.trim() || "unidade",
-      sku: sku.trim() || null, product_type: productType,
-      category: category.trim() || null,
-    });
+    onSave({ name: name.trim(), description: desc.trim() || null,
+      price: parseFloat(price) || 0, unit: unit.trim() || "unidade" });
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4 py-2">
-      {/* Tipo */}
-      <div className="flex gap-2">
-        {(["service","product"] as const).map(t => (
-          <button key={t} type="button" onClick={() => setProductType(t)}
-            className={`flex-1 py-2.5 rounded-lg border text-sm font-bold transition-all ${
-              productType === t
-                ? "border-violet-500 bg-violet-600 text-white shadow-md"
-                : "border-slate-600 bg-slate-700 text-slate-300 hover:bg-slate-600 hover:text-white"
-            }`}>
-            {t === "service" ? "Serviço" : "Produto"}
-          </button>
-        ))}
-      </div>
       <div className="grid gap-2">
         <Label>Nome <span className="text-destructive">*</span></Label>
-        <Input value={name} onChange={e => setName(e.target.value)} placeholder="Ex: Gestão de Tráfego" />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="grid gap-2">
-          <Label>SKU / Código</Label>
-          <Input value={sku} onChange={e => setSku(e.target.value)} placeholder="GTF-001" />
-        </div>
-        <div className="grid gap-2">
-          <Label>Categoria</Label>
-          <Input value={category} onChange={e => setCategory(e.target.value)} placeholder="Marketing, Assessoria..." />
-        </div>
+        <Input value={name} onChange={e => setName(e.target.value)} placeholder="Ex: Hambúrguer Artesanal" />
       </div>
       <div className="grid gap-2">
         <Label>Descrição</Label>
@@ -86,13 +53,13 @@ function ProductForm({ initial, onSave, onCancel, saving }: ProductFormProps) {
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div className="grid gap-2">
-          <Label>Preço padrão (R$)</Label>
+          <Label>Preço (R$)</Label>
           <Input type="number" min="0" step="0.01" value={price}
             onChange={e => setPrice(e.target.value)} placeholder="0,00" />
         </div>
         <div className="grid gap-2">
           <Label>Unidade</Label>
-          <Input value={unit} onChange={e => setUnit(e.target.value)} placeholder="unidade, hora, mês..." />
+          <Input value={unit} onChange={e => setUnit(e.target.value)} placeholder="unidade, kg, hora..." />
         </div>
       </div>
       <div className="flex justify-end gap-2 pt-2">
@@ -135,10 +102,7 @@ export function CrmProdutosPage() {
     !search || p.name.toLowerCase().includes(search.toLowerCase())
   );
 
-  const handleSave = async (d: {
-    name: string; description: string | null; price: number; unit: string;
-    sku: string | null; product_type: "product" | "service"; category: string | null;
-  }) => {
+  const handleSave = async (d: { name: string; description: string | null; price: number; unit: string }) => {
     if (!clientId) return;
     try {
       if (editing) {
@@ -191,18 +155,11 @@ export function CrmProdutosPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map(p => (
-            <Card key={p.id} className="card-surface border border-border/60 hover:border-border transition-colors bg-card/80"  >
+            <Card key={p.id} className="card-surface">
               <CardContent className="p-4 space-y-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <p className="font-semibold text-foreground truncate">{p.name}</p>
-                      <Badge variant="outline" className="text-[10px] shrink-0">
-                        {p.product_type === "product" ? "Produto" : "Serviço"}
-                      </Badge>
-                    </div>
-                    {p.category && <p className="text-[10px] text-muted-foreground/70 mt-0.5">{p.category}</p>}
-                    {p.sku && <p className="text-[10px] text-muted-foreground/50 font-mono">SKU: {p.sku}</p>}
+                    <p className="font-semibold text-foreground truncate">{p.name}</p>
                     {p.description && (
                       <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{p.description}</p>
                     )}

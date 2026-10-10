@@ -10,11 +10,14 @@ import { useLeadsKanban } from "@/hooks/useLeadsKanban";
 import { usePayments } from "@/hooks/useFinancial";
 import { useContractsByClient, useContractsWithC8, useCreateContract, useDeleteContract, useEndContract, useReactivateContract, useSuspendContract, useUpdateContract, useSetDashboardReference, useGenerateContract, useSignContract } from "@/hooks/useContracts";
 import type { ContractRow } from "@/hooks/useContracts";
+import { useContractsPendingSignature, useContractsWorkList } from "@/hooks/useContractSecurity";
+import { useContractSecurity } from "@/hooks/useContractSecurity";
 import { useContractMetrics } from "@/hooks/useContractMetrics";
 import { useModulePermission } from "@/hooks/usePermissions";
 import { getDriveFoldersFromOrganizationSettings, useOrganizationSettings } from "@/hooks/useSettings";
 import { useAuth } from "@/contexts/AuthContext";
 import { RepresentativesEditor } from "@/components/clients/RepresentativesEditor";
+import { NacionalidadeCombobox } from "@/components/ui/nacionalidade-combobox";
 import { useClientRepresentatives, QUALIFICACAO_LABELS } from "@/hooks/useClientRepresentatives";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -49,6 +52,7 @@ import {
 } from "@/components/ui/table";
 import { Eye, Pencil, Plus, UserCheck, Loader2, Trash2, PauseCircle, RotateCw, Search, Check, FileText, FileSignature } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { fetchAddressByCep } from "@/lib/viacep";
 import { toast } from "sonner";
 import { logger } from "@/lib/logger";
@@ -152,7 +156,7 @@ export default function ClientsPage() {
   const [isReceiving, setIsReceiving] = useState(false);
   const [leadEditOpen, setLeadEditOpen] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
-  const [listTab, setListTab] = useState<"clientes" | "pendentes">("clientes");
+  const [listTab, setListTab] = useState<"clientes" | "pendentes" | "contratos-pendentes">("clientes");
   const [leadDraft, setLeadDraft] = useState<{ name: string; company: string; email: string; phone: string }>({
     name: "",
     company: "",
@@ -419,6 +423,15 @@ export default function ClientsPage() {
   });
 
   const clientContractsQuery = useContractsWithC8(organizationId, viewing?.id ?? undefined);
+  const pendingContracts = useContractsPendingSignature();
+  const contractsWorkList = useContractsWorkList();
+  const { confirmSignature: confirmSig } = useContractSecurity();
+  const [isConfirmingId, setIsConfirmingId] = useState<string | null>(null);
+
+  // ── Filtros da aba Contratos Pendentes ────────────────────────────────────
+  const [filterWorkStatus, setFilterWorkStatus] = useState<"todos" | "rascunho" | "emitido" | "aguardando">("todos");
+  const [filterWorkSearch, setFilterWorkSearch] = useState("");
+  const isManagerOrAbove = profile?.role === "manager" || profile?.role === "admin" || profile?.role === "owner";
   const createContract = useCreateContract(organizationId);
   const updateContract = useUpdateContract(organizationId);
   const endContract = useEndContract(organizationId, profile?.id);
@@ -589,7 +602,7 @@ export default function ClientsPage() {
       decision_maker_name: migrated.decision_maker_name ?? "",
       decision_maker_phone: migrated.decision_maker_phone ?? "",
       portfolio_team_id: c.portfolio_team_id ?? "",
-      ...(({ estado_civil: (c as any).estado_civil ?? "", nacionalidade: (c as any).nacionalidade ?? "" } as any)),
+      ...(({ estado_civil: (c as any).estado_civil ?? "", nacionalidade: (c as any).nacionalidade ?? "", sexo: (c as any).sexo ?? "" } as any)),
       inscricao_estadual: (c as any).inscricao_estadual ?? "",
       inscricao_municipal: (c as any).inscricao_municipal ?? "",
       revenue: c.revenue ?? undefined,
@@ -650,7 +663,7 @@ export default function ClientsPage() {
       // Monta payload removendo apenas campos de state local que não existem na tabela
       const cleanedForm = { ...form } as Record<string, unknown>;
       // Converte strings vazias em null para campos com constraints (evita violação de CHECK)
-      const NULL_IF_EMPTY = ["nacionalidade", "niche", "origin",
+      const NULL_IF_EMPTY = ["nacionalidade", "niche", "origin", "sexo",
                              "registration_type", "priority", "signing_type"];
       for (const field of NULL_IF_EMPTY) {
         if (cleanedForm[field] === "") cleanedForm[field] = null;
@@ -951,7 +964,7 @@ export default function ClientsPage() {
       )}
 
       {!clientId && (
-        <Tabs value={listTab} onValueChange={(v) => setListTab(v as "clientes" | "pendentes")}>
+        <Tabs value={listTab} onValueChange={(v) => setListTab(v as "clientes" | "pendentes" | "contratos-pendentes")}>
           <TabsList className="mb-4">
             <TabsTrigger value="clientes">Clientes</TabsTrigger>
             <TabsTrigger value="pendentes" className="gap-2">
@@ -962,6 +975,17 @@ export default function ClientsPage() {
                 </Badge>
               )}
             </TabsTrigger>
+            {/* Aba visível apenas para manager, admin e owner */}
+            {isManagerOrAbove && (
+              <TabsTrigger value="contratos-pendentes" className="gap-2">
+                Contratos Pendentes
+                {(contractsWorkList.data?.length ?? 0) > 0 && (
+                  <Badge className="h-5 min-w-5 px-1.5 text-xs bg-amber-500 hover:bg-amber-500 text-white">
+                    {contractsWorkList.data!.length}
+                  </Badge>
+                )}
+              </TabsTrigger>
+            )}
           </TabsList>
 
           {/* ── ABA: PENDENTES DE REGISTRO ── */}
@@ -1038,8 +1062,153 @@ export default function ClientsPage() {
             </Card>
           </TabsContent>
 
-          {/* ── ABA: CLIENTES ── */}
-          <TabsContent value="clientes">
+          {/* ── ABA: CONTRATOS PENDENTES ── visível só para manager/admin/owner */}
+          {isManagerOrAbove && (
+            <TabsContent value="contratos-pendentes">
+              <div className="space-y-4" style={{ minHeight: "calc(100vh - 360px)" }}>
+                {/* Filtros */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative flex-1 min-w-[200px]">
+                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <input
+                      className="w-full h-9 pl-8 pr-3 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                      placeholder="Buscar por nº, cliente ou título…"
+                      value={filterWorkSearch}
+                      onChange={e => setFilterWorkSearch(e.target.value)}
+                    />
+                  </div>
+                  <select
+                    className="h-9 rounded-md border border-input bg-background px-2.5 text-sm focus:outline-none"
+                    value={filterWorkStatus}
+                    onChange={e => setFilterWorkStatus(e.target.value as typeof filterWorkStatus)}
+                  >
+                    <option value="todos">Todos os status</option>
+                    <option value="rascunho">Rascunho</option>
+                    <option value="emitido">Emitido</option>
+                    <option value="aguardando">Aguardando confirmação</option>
+                  </select>
+                </div>
+
+                {/* Tabela */}
+                {contractsWorkList.isLoading ? (
+                  <div className="flex items-center gap-2 text-muted-foreground py-10 justify-center">
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-muted border-t-primary" />
+                    Carregando…
+                  </div>
+                ) : contractsWorkList.isError ? (
+                  <div className="text-sm text-red-600 py-6 text-center">
+                    Erro ao carregar contratos. Verifique se a migration 111 foi executada.<br />
+                    <span className="text-xs text-muted-foreground">{String((contractsWorkList.error as Error)?.message ?? "")}</span>
+                  </div>
+                ) : (() => {
+                  const items = (contractsWorkList.data ?? []).filter(c => {
+                    if (filterWorkStatus === "rascunho"   && c.status !== "rascunho") return false;
+                    if (filterWorkStatus === "emitido"    && c.status !== "emitido") return false;
+                    if (filterWorkStatus === "aguardando" && !c.awaiting_confirmation) return false;
+                    if (filterWorkSearch) {
+                      const q = filterWorkSearch.toLowerCase();
+                      return (c.contract_number ?? "").toLowerCase().includes(q)
+                        || c.title.toLowerCase().includes(q)
+                        || (c.client_company ?? "").toLowerCase().includes(q)
+                        || (c.client_name ?? "").toLowerCase().includes(q);
+                    }
+                    return true;
+                  });
+                  if (items.length === 0) return (
+                    <p className="text-sm text-muted-foreground text-center py-10">
+                      Nenhum contrato encontrado com os filtros aplicados.
+                    </p>
+                  );
+                  return (
+                    <div className="rounded-md border overflow-auto" style={{ minHeight: "300px" }}>
+                      <table className="w-full text-sm min-w-[600px]">
+                        <thead>
+                          <tr className="bg-muted/40 border-b">
+                            <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Nº</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Cliente</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Contrato</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Status</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Início</th>
+                            <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">Ações</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {items.map(c => {
+                            const statusCfg: Record<string, { label: string; cls: string }> = {
+                              rascunho: { label: "Rascunho",  cls: "bg-slate-100 text-slate-600" },
+                              emitido:  { label: c.awaiting_confirmation ? "Aguard. confirmação" : "Emitido", cls: c.awaiting_confirmation ? "bg-amber-100 text-amber-700" : "bg-blue-100 text-blue-700" },
+                            };
+                            const { label: sLabel, cls: sCls } = statusCfg[c.status] ?? { label: c.status, cls: "bg-muted text-muted-foreground" };
+                            return (
+                              <tr key={c.id} className="border-b last:border-0 hover:bg-muted/20 transition-colors">
+                                <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground whitespace-nowrap">
+                                  {c.signed_contract_number ?? c.contract_number ?? "—"}
+                                </td>
+                                <td className="px-3 py-2.5 text-xs">
+                                  {c.client_company || c.client_name || "—"}
+                                </td>
+                                <td className="px-3 py-2.5 text-sm font-medium max-w-[220px] truncate">
+                                  {c.title}
+                                </td>
+                                <td className="px-3 py-2.5">
+                                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${sCls}`}>
+                                    {sLabel}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
+                                  {c.start_date ? format(new Date(c.start_date + "T00:00:00"), "dd/MM/yyyy", { locale: ptBR }) : "—"}
+                                </td>
+                                <td className="px-3 py-2.5">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    {/* Confirmar assinatura — owners podem confirmar sempre; outros: quatro olhos */}
+                                    {c.awaiting_confirmation && (
+                                      <Button
+                                        size="sm"
+                                        className="text-[11px] gap-1 bg-emerald-600 hover:bg-emerald-700 h-7 px-2"
+                                        disabled={isConfirmingId === c.id}
+                                        onClick={async () => {
+                                          setIsConfirmingId(c.id);
+                                          try {
+                                            const res = await confirmSig(c.id, c.client_id);
+                                            if (res.success) {
+                                              toast.success("Assinatura confirmada! Lançamentos ativados.");
+                                              contractsWorkList.refetch?.();
+                                            } else {
+                                              toast.error(res.error ?? "Erro ao confirmar assinatura.");
+                                            }
+                                          } finally {
+                                            setIsConfirmingId(null);
+                                          }
+                                        }}
+                                      >
+                                        {isConfirmingId === c.id
+                                          ? <div className="h-3 w-3 animate-spin rounded-full border border-white border-t-transparent" />
+                                          : <Check className="h-3 w-3" />}
+                                        Confirmar
+                                      </Button>
+                                    )}
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="text-[11px] gap-1 h-7 px-2"
+                                      onClick={() => navigate(`/clients/${c.client_id}?tab=contratos`)}
+                                    >
+                                      <Eye className="h-3 w-3" /> Ver
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+              </div>
+            </TabsContent>
+          )}
+        <TabsContent value="clientes">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-base">Lista de clientes</CardTitle>
@@ -1136,7 +1305,7 @@ export default function ClientsPage() {
             )}
           </CardContent>
         </Card>
-          </TabsContent>
+        </TabsContent>
         </Tabs>
       )}
 
@@ -1242,25 +1411,46 @@ export default function ClientsPage() {
                 />
               </div>
 
-              {/* Estado civil e nacionalidade — apenas para PF (CPF, 11 dígitos) */}
+              {/* Sexo, Estado civil e nacionalidade — apenas para PF (CPF, 11 dígitos) */}
               {(form.document ?? "").replace(/\D/g, "").length <= 11 &&
                (form.document ?? "").replace(/\D/g, "").length >= 9 && (
                 <>
                   <div>
+                    <Label>Sexo</Label>
+                    <p className="text-[11px] text-muted-foreground mb-1">Usado para gênero gramatical no contrato.</p>
+                    <Select
+                      value={(form as any).sexo ?? ""}
+                      onValueChange={(v) => setForm({ ...form, ...({ sexo: v } as any) })}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="masculino">Masculino</SelectItem>
+                        <SelectItem value="feminino">Feminino</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
                     <Label>Estado Civil</Label>
                     <p className="text-[11px] text-muted-foreground mb-1">Usado na qualificação do contrato.</p>
-                    <Input
+                    <Select
                       value={(form as any).estado_civil ?? ""}
-                      onChange={(e) => setForm({ ...form, ...({ estado_civil: e.target.value } as any) })}
-                      placeholder="Ex: Casado(a)"
-                    />
+                      onValueChange={(v) => setForm({ ...form, ...({ estado_civil: v } as any) })}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="solteiro">Solteiro(a)</SelectItem>
+                        <SelectItem value="casado">Casado(a)</SelectItem>
+                        <SelectItem value="divorciado">Divorciado(a)</SelectItem>
+                        <SelectItem value="viuvo">Viúvo(a)</SelectItem>
+                        <SelectItem value="uniao_estavel">União Estável</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div>
                     <Label>Nacionalidade</Label>
-                    <Input
+                    <NacionalidadeCombobox
                       value={(form as any).nacionalidade ?? ""}
-                      onChange={(e) => setForm({ ...form, ...({ nacionalidade: e.target.value } as any) })}
-                      placeholder="Ex: Brasileiro(a)"
+                      onChange={(v) => setForm({ ...form, ...({ nacionalidade: v } as any) })}
                     />
                   </div>
                 </>
@@ -1268,17 +1458,30 @@ export default function ClientsPage() {
 
               <div>
                 <Label>Inscrição Estadual (IE)</Label>
+                <div className="flex items-center gap-2 mt-1 mb-1">
+                  <Checkbox
+                    id="ie-isenta"
+                    checked={(form as any).inscricao_estadual === "ISENTO"}
+                    onCheckedChange={(checked) =>
+                      setForm({ ...form, ...({ inscricao_estadual: checked ? "ISENTO" : "" } as any) })
+                    }
+                  />
+                  <label htmlFor="ie-isenta" className="text-sm text-muted-foreground cursor-pointer select-none">
+                    Isenta
+                  </label>
+                </div>
                 <Input
-                  value={form.inscricao_estadual ?? ""}
-                  onChange={(e) => setForm({ ...form, inscricao_estadual: e.target.value })}
+                  value={(form as any).inscricao_estadual === "ISENTO" ? "" : ((form as any).inscricao_estadual ?? "")}
+                  onChange={(e) => setForm({ ...form, ...({ inscricao_estadual: e.target.value } as any) })}
                   placeholder="Ex: 123.456.789.000"
+                  disabled={(form as any).inscricao_estadual === "ISENTO"}
                 />
               </div>
               <div>
                 <Label>Inscrição Municipal (IM)</Label>
                 <Input
-                  value={form.inscricao_municipal ?? ""}
-                  onChange={(e) => setForm({ ...form, inscricao_municipal: e.target.value })}
+                  value={(form as any).inscricao_municipal ?? ""}
+                  onChange={(e) => setForm({ ...form, ...({ inscricao_municipal: e.target.value } as any) })}
                   placeholder="Ex: 00123456"
                 />
               </div>

@@ -1,32 +1,17 @@
-/**
- * useCrmProducts
- *
- * Hook para gestão de produtos/serviços do CRM.
- * Usa a view crm_products (aponta para client_crm_products no Banco A).
- * Interface expandida com migration 094: sku, product_type, category.
- */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDynamicClient } from "@/hooks/useDynamicClient";
 
 export interface CrmProduct {
-  id:           string;
-  client_id:    string;
-  name:         string;
-  description:  string | null;
-  price:        number;
-  unit:         string;
-  active:       boolean;
-  // Novos campos (migration 094)
-  sku:          string | null;
-  product_type: "product" | "service";
-  category:     string | null;
-  image_url:    string | null;
-  created_at:   string;
-  updated_at:   string;
+  id: string;
+  client_id: string;
+  name: string;
+  description: string | null;
+  price: number;
+  unit: string;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
 }
-
-export type CrmProductInput = Pick<CrmProduct, "name"> &
-  Partial<Omit<CrmProduct, "id" | "client_id" | "created_at" | "updated_at">>;
 
 export function useCrmProducts(clientId: string | undefined) {
   const dc = useDynamicClient();
@@ -40,7 +25,6 @@ export function useCrmProducts(clientId: string | undefined) {
       const { data, error } = await dc
         .from("crm_products")
         .select("*")
-        .eq("client_id", clientId)
         .order("name", { ascending: true });
       if (error) throw error;
       return (data ?? []) as CrmProduct[];
@@ -50,22 +34,17 @@ export function useCrmProducts(clientId: string | undefined) {
   });
 
   const create = useMutation({
-    mutationFn: async (input: CrmProductInput & { client_id: string }) => {
+    mutationFn: async (input: {
+      client_id: string;
+      name: string;
+      description?: string | null;
+      price?: number;
+      unit?: string;
+    }) => {
       if (!dc) throw new Error("Banco não conectado");
       const { data, error } = await dc
         .from("crm_products")
-        .insert({
-          client_id:    input.client_id,
-          name:         input.name,
-          description:  input.description  ?? null,
-          price:        input.price        ?? 0,
-          unit:         input.unit         ?? "unidade",
-          active:       input.active       ?? true,
-          sku:          input.sku          ?? null,
-          product_type: input.product_type ?? "service",
-          category:     input.category     ?? null,
-          image_url:    input.image_url    ?? null,
-        })
+        .insert({ ...input, price: input.price ?? 0, unit: input.unit ?? "unidade", active: true })
         .select()
         .single();
       if (error) throw error;

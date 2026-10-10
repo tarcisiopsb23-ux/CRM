@@ -1,0 +1,309 @@
+{
+  "name": "Maestr.IA — Fiscal NFS-e Emissão em Lote",
+  "_readme": {
+    "description": "Busca todas as notas pendentes sem notaas_id da competência atual, monta o payload de batch e envia para a Notaas via POST /emitir/batch. Pode ser acionado manualmente ou por agendamento.",
+    "trigger": "Manual ou Schedule (ex: todo dia 1 do mês)",
+    "env_vars_required": ["SUPABASE_URL", "SUPABASE_SERVICE_KEY"],
+    "credentials_required": ["supabaseApi"],
+    "flow": [
+      "1. Trigger (manual ou agendado)",
+      "2. Edit Fields — injeta credenciais e organization_id",
+      "3. Supabase — busca invoices pendentes da competência atual",
+      "4. Aggregate — agrupa todos os invoices num array",
+      "5. Supabase — busca config Notaas da organização",
+      "6. Supabase — busca clientes únicos dos invoices",
+      "7. Aggregate — agrupa clientes num array",
+      "8. Merge (3 entradas) — une invoices + config + clientes em 1 item",
+      "9. Code — monta o batch payload",
+      "10. IF skipped — se não há itens válidos, encerra",
+      "11. HTTP Request — POST /emitir/batch na Notaas",
+      "12. Code — atualiza status dos invoices para 'processando' no Supabase",
+      "13. Supabase — PATCH em lote via HTTP Request"
+    ]
+  },
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger-manual",
+      "name": "Trigger Manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "a1", "name": "supabase_url",     "value": "={{ $env.SUPABASE_URL }}",         "type": "string" },
+            { "id": "a2", "name": "supabase_api_key", "value": "={{ $env.SUPABASE_SERVICE_KEY }}", "type": "string" },
+            { "id": "a3", "name": "organization_id",  "value": "COLE_O_UUID_DA_ORGANIZACAO_AQUI",  "type": "string" },
+            { "id": "a4", "name": "base_url",         "value": "https://platform.notaas.com.br",   "type": "string" },
+            { "id": "a5", "name": "api_key",          "value": "COLE_A_API_KEY_DA_NOTAAS_AQUI",    "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "edit-fields-credenciais",
+      "name": "Credenciais",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Deriva competência YYYY-MM do mês atual\nconst now = new Date();\nconst competencia = now.getUTCFullYear() + '-' + String(now.getUTCMonth() + 1).padStart(2, '0');\nconst d = $input.first().json;\nreturn [{ json: { ...d, competencia } }];"
+      },
+      "id": "set-competencia",
+      "name": "Definir Competência",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "invoices",
+        "returnAll": true,
+        "filters": {
+          "conditions": [
+            { "keyName": "organization_id", "keyValue": "={{ $json.organization_id }}" },
+            { "keyName": "status",          "keyValue": "pendente" },
+            { "keyName": "notaas_id",       "keyValue": "null", "condition": "is" },
+            { "keyName": "competencia",     "keyValue": "={{ $json.competencia }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "buscar-invoices",
+      "name": "Buscar Invoices Pendentes",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [900, 180],
+      "credentials": {
+        "supabaseApi": { "id": "yDtu96eQqnPXpyAM", "name": "Supabase account" }
+      }
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "invoices",
+        "options": {}
+      },
+      "id": "aggregate-invoices",
+      "name": "Agrupar Invoices",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [1120, 180]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "organization_integrations",
+        "filters": {
+          "conditions": [
+            { "keyName": "organization_id", "keyValue": "={{ $('Definir Competência').item.json.organization_id }}" },
+            { "keyName": "integration_type", "keyValue": "notaas" }
+          ]
+        }
+      },
+      "id": "buscar-config",
+      "name": "Buscar Config Notaas",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [900, 420],
+      "credentials": {
+        "supabaseApi": { "id": "yDtu96eQqnPXpyAM", "name": "Supabase account" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extrai apenas o objeto config e passa adiante\nconst j = $input.first().json;\nreturn [{ json: { config: j.config ?? {} } }];"
+      },
+      "id": "extrair-config",
+      "name": "Extrair Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 420]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "clients",
+        "returnAll": true,
+        "filters": {
+          "conditions": [
+            { "keyName": "organization_id", "keyValue": "={{ $('Definir Competência').item.json.organization_id }}" }
+          ]
+        },
+        "options": {
+          "select": "id,name,company,document,email,address_street,address_number,address_complement,address_neighborhood,address_city,address_state,address_zip"
+        }
+      },
+      "id": "buscar-clientes",
+      "name": "Buscar Clientes",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [900, 600],
+      "credentials": {
+        "supabaseApi": { "id": "yDtu96eQqnPXpyAM", "name": "Supabase account" }
+      }
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "clients",
+        "options": {}
+      },
+      "id": "aggregate-clientes",
+      "name": "Agrupar Clientes",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [1120, 600]
+    },
+    {
+      "parameters": { "numberInputs": 3 },
+      "id": "merge-tudo",
+      "name": "Merge Tudo",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [1340, 380]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst creds = $('Definir Competência').item.json;\n\nlet invoices = [];\nlet clients  = [];\nlet config   = {};\n\nfor (const item of items) {\n  const j = item?.json;\n  if (!j) continue;\n  if (Array.isArray(j.invoices)) invoices = j.invoices;\n  if (Array.isArray(j.clients))  clients  = j.clients;\n  if (j.config && typeof j.config === 'object') config = j.config;\n}\n\nif (invoices.length === 0) {\n  return [{ json: { skipped: true, reason: 'Nenhuma nota pendente para ' + creds.competencia } }];\n}\n\nconst clientMap = {};\nclients.forEach(function(c) { clientMap[c.id] = c; });\n\nconst notaasApiKey = creds.api_key || config.api_key;\nif (!notaasApiKey) throw new Error('API Key da Notaas não configurada');\n\nconst batchItems = [];\nconst invoiceIds = [];\nconst skippedIds = [];\n\nfor (const inv of invoices) {\n  const client = clientMap[inv.client_id];\n  if (!client) {\n    skippedIds.push({ id: inv.id, reason: 'cliente não encontrado' });\n    continue;\n  }\n\n  const docDigits = (client.document || '').replace(/\\D/g, '');\n  const codigoServico = (inv.codigo_servico || config.codigo_servico_padrao || '').replace(/\\D/g, '');\n  if (!codigoServico) {\n    skippedIds.push({ id: inv.id, reason: 'código de serviço não configurado' });\n    continue;\n  }\n\n  const tomador = {};\n  if (docDigits.length === 11) tomador.cpf  = docDigits;\n  else                         tomador.cnpj = docDigits;\n  tomador.nome  = client.company || client.name;\n  tomador.email = client.email || null;\n  tomador.endereco = {\n    logradouro:  client.address_street       || '',\n    numero:      client.address_number       || '',\n    complemento: client.address_complement   || '',\n    bairro:      client.address_neighborhood || '',\n    cidade:      client.address_city         || '',\n    uf:          client.address_state        || '',\n    cep:         client.address_zip          || ''\n  };\n\n  batchItems.push({\n    referencia:  inv.id,\n    tomador,\n    servico:     { codigo: codigoServico, descricao: inv.descricao_servico || config.descricao_servico_padrao || 'Prestação de serviços' },\n    valores:     { total: inv.valor_servico, aliquotaIss: inv.aliquota_iss != null ? inv.aliquota_iss : (config.aliquota_iss_padrao || 5) },\n    competencia: inv.competencia\n  });\n  invoiceIds.push(inv.id);\n}\n\nif (batchItems.length === 0) {\n  return [{ json: { skipped: true, reason: 'Nenhum item válido para emitir', skippedIds } }];\n}\n\nreturn [{ json: {\n  skipped:         false,\n  batch_body:      { items: batchItems },\n  invoice_ids:     invoiceIds,\n  skipped_ids:     skippedIds,\n  total:           batchItems.length,\n  competencia:     creds.competencia,\n  organization_id: creds.organization_id,\n  api_key:         notaasApiKey,\n  base_url:        creds.base_url\n}}];"
+      },
+      "id": "montar-batch",
+      "name": "Montar Batch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 380]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict", "version": 1 },
+          "conditions": [
+            {
+              "id": "not-skipped",
+              "leftValue": "={{ $json.skipped }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notEquals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-tem-itens",
+      "name": "Tem itens para emitir?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1780, 380]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.base_url }}/api/v1/emitir/batch",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key",    "value": "={{ $json.api_key }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "User-Agent",   "value": "MaestrIA-n8n/1.0" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.batch_body) }}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "chamar-batch-notaas",
+      "name": "POST /emitir/batch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2000, 260]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Recebe o batchId da Notaas e atualiza os invoices para 'processando'\nconst batchResp = $input.first().json;\nconst prev      = $('Montar Batch').item.json;\n\nconst batchId   = batchResp.batchId || batchResp.batch_id || batchResp.id || null;\nconst invoiceIds = prev.invoice_ids || [];\n\n// Retorna um item por invoice para o nó Supabase de update em seguida\nreturn invoiceIds.map(function(id) {\n  return { json: {\n    invoice_id:  id,\n    batch_id:    batchId,\n    organization_id: prev.organization_id\n  }};\n});"
+      },
+      "id": "preparar-update-status",
+      "name": "Preparar Update Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 260]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "invoices",
+        "filters": {
+          "conditions": [
+            { "keyName": "id", "keyValue": "={{ $json.invoice_id }}" }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            { "fieldId": "status",      "fieldValue": "processando" },
+            { "fieldId": "erro_mensagem", "fieldValue": null },
+            { "fieldId": "metadata",    "fieldValue": "={{ JSON.stringify({ batch_id: $json.batch_id }) }}" }
+          ]
+        }
+      },
+      "id": "atualizar-status-processando",
+      "name": "Atualizar Status — Processando",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [2440, 260],
+      "credentials": {
+        "supabaseApi": { "id": "yDtu96eQqnPXpyAM", "name": "Supabase account" }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ skipped: true, reason: $json.reason }) }}",
+        "options": {}
+      },
+      "id": "resposta-sem-itens",
+      "name": "Sem itens — encerrar",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [2000, 500]
+    }
+  ],
+  "connections": {
+    "Trigger Manual": {
+      "main": [[{ "node": "Credenciais", "type": "main", "index": 0 }]]
+    },
+    "Credenciais": {
+      "main": [[{ "node": "Definir Competência", "type": "main", "index": 0 }]]
+    },
+    "Definir Competência": {
+      "main": [[
+        { "node": "Buscar Invoices Pendentes", "type": "main", "index": 0 },
+        { "node": "Buscar Config Notaas",      "type": "main", "index": 0 },
+        { "node": "Buscar Clientes",           "type": "main", "index": 0 }
+      ]]
+    },
+    "Buscar Invoices Pendentes": { "main": [[{ "node": "Agrupar Invoices", "type": "main", "index": 0 }]] },
+    "Agrupar Invoices":          { "main": [[{ "node": "Merge Tudo",       "type": "main", "index": 0 }]] },
+    "Buscar Config Notaas":      { "main": [[{ "node": "Extrair Config",   "type": "main", "index": 0 }]] },
+    "Extrair Config":            { "main": [[{ "node": "Merge Tudo",       "type": "main", "index": 1 }]] },
+    "Buscar Clientes":           { "main": [[{ "node": "Agrupar Clientes", "type": "main", "index": 0 }]] },
+    "Agrupar Clientes":          { "main": [[{ "node": "Merge Tudo",       "type": "main", "index": 2 }]] },
+    "Merge Tudo":                { "main": [[{ "node": "Montar Batch",     "type": "main", "index": 0 }]] },
+    "Montar Batch":              { "main": [[{ "node": "Tem itens para emitir?", "type": "main", "index": 0 }]] },
+    "Tem itens para emitir?": {
+      "main": [
+        [{ "node": "POST /emitir/batch",  "type": "main", "index": 0 }],
+        [{ "node": "Sem itens — encerrar","type": "main", "index": 0 }]
+      ]
+    },
+    "POST /emitir/batch":        { "main": [[{ "node": "Preparar Update Status",        "type": "main", "index": 0 }]] },
+    "Preparar Update Status":    { "main": [[{ "node": "Atualizar Status — Processando","type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "versionId": "1.0.0"
+}

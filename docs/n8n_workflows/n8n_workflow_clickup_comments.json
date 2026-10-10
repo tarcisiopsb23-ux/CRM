@@ -1,0 +1,274 @@
+{
+  "name": "Maestr.ia - ClickUp Comments (Bidirecional)",
+  "nodes": [
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "cred-clickup-key",   "name": "clickup_api_key",      "value": "pk_SEU_TOKEN_AQUI",                                                          "type": "string" },
+            { "id": "cred-supabase-url",  "name": "supabase_url",         "value": "https://SEU_PROJETO.supabase.co",                                            "type": "string" },
+            { "id": "cred-supabase-key",  "name": "supabase_service_key", "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.SEU_SERVICE_KEY",                      "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "credentials",
+      "name": "Credenciais e Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [240, 300]
+    },
+
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clickup-comment-from-maestria",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-from-maestria",
+      "name": "Webhook - Maestr.ia para ClickUp",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 100],
+      "webhookId": "clickup-comment-from-maestria",
+      "_comment": "Recebe comentário do Maestr.ia e posta no ClickUp"
+    },
+
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clickup-comment-webhook",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-from-clickup",
+      "name": "Webhook - ClickUp para Maestr.ia",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 500],
+      "webhookId": "clickup-comment-webhook",
+      "_comment": "Recebe webhook do ClickUp quando comentário é criado"
+    },
+
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true }) }}"
+      },
+      "id": "respond-maestria",
+      "name": "Resposta Maestr.ia",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [460, 100]
+    },
+
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true }) }}"
+      },
+      "id": "respond-clickup",
+      "name": "Resposta ClickUp",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [460, 500]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "// Normaliza payload do Maestr.ia\nconst body = $input.item.json.body || $input.item.json;\nconst creds = $('Credenciais e Config').first().json;\n\nreturn [{ json: {\n  clickup_api_key:      creds.clickup_api_key,\n  supabase_url:         creds.supabase_url,\n  supabase_service_key: creds.supabase_service_key,\n  clickup_task_id:      body.clickup_task_id,\n  task_id:              body.task_id,\n  comment_id:           body.comment_id,\n  author_name:          body.author_name || 'Maestr.ia',\n  content:              body.content || ''\n}}];"
+      },
+      "id": "normalize-maestria",
+      "name": "Normalizar - Maestr.ia",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 100]
+    },
+
+    {
+      "parameters": {
+        "url": "=https://api.clickup.com/api/v2/task/{{ $json.clickup_task_id }}/comment",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "={{ $json.clickup_api_key }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ comment_text: $json.content, notify_all: false }) }}",
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "post-comment-clickup",
+      "name": "Postar Comentario no ClickUp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 100]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "// Normaliza webhook do ClickUp\n// O ClickUp envia: { event: 'taskCommentPosted', task_id, comment: { id, text_content, user: { username, email } } }\nconst body = $input.item.json.body || $input.item.json;\nconst creds = $('Credenciais e Config').first().json;\n\nconst event = body.event || '';\nif (event !== 'taskCommentPosted') {\n  return [{ json: { skip: true, reason: 'not a comment event: ' + event } }];\n}\n\nconst clickupTaskId = body.task_id || null;\nconst comment = body.comment || {};\nconst commentId = String(comment.id || '');\nconst content = comment.text_content || comment.comment_text || '';\nconst user = comment.user || {};\nconst authorName = user.username || user.email || 'ClickUp User';\nconst authorEmail = user.email || null;\n\nif (!clickupTaskId || !commentId || !content) {\n  return [{ json: { skip: true, reason: 'missing required fields' } }];\n}\n\nreturn [{ json: {\n  clickup_api_key:      creds.clickup_api_key,\n  supabase_url:         creds.supabase_url,\n  supabase_service_key: creds.supabase_service_key,\n  clickup_task_id:      clickupTaskId,\n  clickup_comment_id:   commentId,\n  author_name:          authorName,\n  author_email:         authorEmail,\n  content\n}}];"
+      },
+      "id": "normalize-clickup",
+      "name": "Normalizar - ClickUp",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 500]
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "string": [{ "value1": "={{ $json.skip }}", "value2": "true" }]
+        }
+      },
+      "id": "check-skip",
+      "name": "Verificar Skip",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [900, 500]
+    },
+
+    {
+      "parameters": {
+        "url": "={{ $json.supabase_url }}/rest/v1/tasks",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "select",          "value": "id, organization_id" },
+            { "name": "clickup_task_id", "value": "=eq.{{ $json.clickup_task_id }}" },
+            { "name": "limit",           "value": "1" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $json.supabase_service_key }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $json.supabase_service_key }}" }
+          ]
+        },
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "buscar-task",
+      "name": "Buscar Task no Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 500]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const tasks = $input.item.json;\nconst prev = $('Normalizar - ClickUp').first().json;\n\nconst task = Array.isArray(tasks) ? tasks[0] : null;\nif (!task?.id) {\n  return [{ json: { skip: true, reason: 'task not found for clickup_task_id: ' + prev.clickup_task_id } }];\n}\n\nreturn [{ json: {\n  ...prev,\n  task_id:         task.id,\n  organization_id: task.organization_id\n}}];"
+      },
+      "id": "extract-task",
+      "name": "Extrair Task ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 500]
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "string": [{ "value1": "={{ $json.skip }}", "value2": "true" }]
+        }
+      },
+      "id": "check-skip-2",
+      "name": "Task Encontrada?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1560, 500]
+    },
+
+    {
+      "parameters": {
+        "url": "={{ $json.supabase_url }}/rest/v1/rpc/insert_clickup_comment",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $json.supabase_service_key }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $json.supabase_service_key }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ p_organization_id: $json.organization_id, p_task_id: $json.task_id, p_clickup_comment_id: $json.clickup_comment_id, p_author_name: $json.author_name, p_author_email: $json.author_email, p_content: $json.content }) }}",
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "insert-comment",
+      "name": "Inserir Comentario no Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 400]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Normalizar - ClickUp').first().json;\nconsole.log('[skip] ' + (prev.reason || 'unknown'));\nreturn [{ json: { skipped: true } }];"
+      },
+      "id": "skip-node",
+      "name": "Pular",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 600]
+    }
+  ],
+
+  "connections": {
+    "Webhook - Maestr.ia para ClickUp": {
+      "main": [[
+        { "node": "Resposta Maestr.ia",    "type": "main", "index": 0 },
+        { "node": "Credenciais e Config",  "type": "main", "index": 0 }
+      ]]
+    },
+    "Credenciais e Config": {
+      "main": [[
+        { "node": "Normalizar - Maestr.ia", "type": "main", "index": 0 }
+      ]]
+    },
+    "Normalizar - Maestr.ia": {
+      "main": [[{ "node": "Postar Comentario no ClickUp", "type": "main", "index": 0 }]]
+    },
+    "Webhook - ClickUp para Maestr.ia": {
+      "main": [[
+        { "node": "Resposta ClickUp",      "type": "main", "index": 0 },
+        { "node": "Credenciais e Config",  "type": "main", "index": 0 }
+      ]]
+    },
+    "Normalizar - ClickUp": {
+      "main": [[{ "node": "Verificar Skip", "type": "main", "index": 0 }]]
+    },
+    "Verificar Skip": {
+      "main": [
+        [{ "node": "Pular", "type": "main", "index": 0 }],
+        [{ "node": "Buscar Task no Supabase", "type": "main", "index": 0 }]
+      ]
+    },
+    "Buscar Task no Supabase": {
+      "main": [[{ "node": "Extrair Task ID", "type": "main", "index": 0 }]]
+    },
+    "Extrair Task ID": {
+      "main": [[{ "node": "Task Encontrada?", "type": "main", "index": 0 }]]
+    },
+    "Task Encontrada?": {
+      "main": [
+        [{ "node": "Pular", "type": "main", "index": 0 }],
+        [{ "node": "Inserir Comentario no Supabase", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "_readme": {
+    "setup": [
+      "1. Edite o no 'Credenciais e Config' com clickup_api_key, supabase_url e supabase_service_key",
+      "2. Configure webhook no ClickUp: POST {N8N_URL}/webhook/clickup-comment-webhook para o evento taskCommentPosted",
+      "3. No Maestr.ia Settings -> n8n, configure 'Webhook URL: Comentarios ClickUp' com {N8N_URL}/webhook/clickup-comment-from-maestria"
+    ],
+    "fluxo_maestria_para_clickup": "Maestr.ia envia comentario -> Webhook -> Normalizar -> POST /task/{id}/comment na API do ClickUp",
+    "fluxo_clickup_para_maestria": "ClickUp dispara webhook taskCommentPosted -> Normalizar -> Busca task pelo clickup_task_id -> Insere via RPC insert_clickup_comment -> Supabase Realtime notifica o frontend"
+  }
+}

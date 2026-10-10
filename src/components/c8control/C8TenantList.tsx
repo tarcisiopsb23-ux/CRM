@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { format, parseISO, subDays, startOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
@@ -55,6 +55,12 @@ interface C8TenantListProps {
   canCreate: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  /** Quando fornecido, abre o detalhe deste cliente automaticamente */
+  initialClientId?: string;
+  /** Aba inicial a abrir no detalhe (ex: "configuracoes") */
+  initialTab?: string;
+  /** Sub-aba inicial a abrir no detalhe (ex: "integracoes") */
+  initialSubTab?: string;
 }
 
 const fmtCurrency = (v: number) =>
@@ -82,6 +88,9 @@ export function C8TenantList({
   canCreate,
   canEdit,
   canDelete,
+  initialClientId,
+  initialTab,
+  initialSubTab,
 }: C8TenantListProps) {
   const { data: tenants, isLoading } = useC8Tenants(organizationId);
   const actions = useC8TenantActions(organizationId);
@@ -93,6 +102,22 @@ export function C8TenantList({
   const [formOpen, setFormOpen] = useState(false);
   const [editingTenant, setEditingTenant] = useState<C8Tenant | null>(null);
   const [detailTenant, setDetailTenant] = useState<C8Tenant | null>(null);
+  // Controla qual tab/subtab o detalhe deve abrir
+  const [detailInitialTab,    setDetailInitialTab]    = useState<string | undefined>(undefined);
+  const [detailInitialSubTab, setDetailInitialSubTab] = useState<string | undefined>(undefined);
+
+  // Abre automaticamente o cliente passado via prop
+  const [didAutoOpen, setDidAutoOpen] = useState(false);
+  useEffect(() => {
+    if (!initialClientId || !tenants || didAutoOpen) return;
+    const found = tenants.find(t => t.client_id === initialClientId);
+    if (found) {
+      setDidAutoOpen(true);
+      setDetailInitialTab(initialTab);
+      setDetailInitialSubTab(initialSubTab);
+      setDetailTenant(found);
+    }
+  }, [initialClientId, tenants]);
 
   // Quick-action dialogs
   const [suspendTarget, setSuspendTarget] = useState<C8Tenant | null>(null);
@@ -131,6 +156,7 @@ export function C8TenantList({
   const overdueThreshold = subDays(today, 5);
 
   const overdueTenants = (tenants ?? []).filter((t) => {
+    if (t.c8_free_access || t.c8_included || t.plan_value === 0) return false;
     if (t.active_users_count === 0) return false;
     if (!t.contract_end) return false;
     const nextDue = parseISO(t.contract_end);
@@ -377,8 +403,10 @@ export function C8TenantList({
           organizationId={organizationId}
           canEdit={canEdit}
           canDelete={canDelete}
-          onClose={() => setDetailTenant(null)}
+          onClose={() => { setDetailTenant(null); setDetailInitialTab(undefined); setDetailInitialSubTab(undefined); }}
           onEdit={() => handleOpenEdit(detailTenant)}
+          initialTab={detailInitialTab}
+          initialSubTab={detailInitialSubTab}
         />
       )}
 

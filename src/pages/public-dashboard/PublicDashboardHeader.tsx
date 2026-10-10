@@ -20,11 +20,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Calendar, Lock, LogOut, User, Loader2, Eye, EyeOff, CheckCircle2, XCircle } from "lucide-react";
+import { Calendar, Lock, LogOut, User, Loader2 } from "lucide-react";
 import { format, subDays, startOfMonth, endOfMonth, subMonths } from "date-fns";
+import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { useClientAuth } from "@/hooks/useClientAuth";
-import { cn } from "@/lib/utils";
 
 // ─── PeriodDropdown ────────────────────────────────────────────────────────────
 
@@ -131,240 +131,102 @@ function PeriodDropdown() {
   );
 }
 
-// ─── PasswordInput (módulo) ───────────────────────────────────────────────────
-// Definido fora de qualquer componente para que o React não recrie o elemento
-// DOM a cada re-render do pai — evita perda de foco ao digitar.
-
-interface PwdInputProps {
-  id: string;
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  show: boolean;
-  onToggleShow: () => void;
-  placeholder: string;
-}
-
-function PasswordInputField({ id, label, value, onChange, show, onToggleShow, placeholder }: PwdInputProps) {
-  return (
-    <div className="space-y-1.5">
-      <Label htmlFor={id} className="text-sm text-foreground">{label}</Label>
-      <div className="relative">
-        <Input
-          id={id}
-          type={show ? "text" : "password"}
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          placeholder={placeholder}
-          className="bg-background border-border pr-10"
-          autoComplete="off"
-        />
-        <button
-          type="button"
-          onClick={onToggleShow}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-          tabIndex={-1}
-        >
-          {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 // ─── ChangePasswordDialog ──────────────────────────────────────────────────────
 
 interface ChangePasswordDialogProps {
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  slug: string;
 }
 
-function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialogProps) {
-  const { auth } = useClientAuth();
-
-  const [currentPassword,  setCurrentPassword]  = useState("");
-  const [newPassword,      setNewPassword]      = useState("");
-  const [confirmPassword,  setConfirmPassword]  = useState("");
-  const [showCurrent,      setShowCurrent]      = useState(false);
-  const [showNew,          setShowNew]          = useState(false);
-  const [showConfirm,      setShowConfirm]      = useState(false);
-  const [saving,           setSaving]           = useState(false);
-  const [error,            setError]            = useState<string | null>(null);
-
-  // Regras de senha forte (mesmo padrão exigido pelo Supabase auth)
-  const rules = [
-    { label: "Mínimo 8 caracteres",    ok: newPassword.length >= 8 },
-    { label: "Letra maiúscula (A-Z)",   ok: /[A-Z]/.test(newPassword) },
-    { label: "Letra minúscula (a-z)",   ok: /[a-z]/.test(newPassword) },
-    { label: "Número (0-9)",            ok: /[0-9]/.test(newPassword) },
-    { label: "Caractere especial (!@#…)", ok: /[!@#$%^&*()\-_+=[\]{};':"\\|<>?,./`~]/.test(newPassword) },
-  ];
-  const allRulesOk  = rules.every(r => r.ok);
-  const passwordsMatch = newPassword === confirmPassword && confirmPassword.length > 0;
-
-  const reset = () => {
-    setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
-    setShowCurrent(false);  setShowNew(false);  setShowConfirm(false);
-    setError(null);
-  };
-
-  const handleOpenChange = (v: boolean) => {
-    if (!v) reset();
-    onOpenChange(v);
-  };
+function ChangePasswordDialog({ open, onOpenChange, slug }: ChangePasswordDialogProps) {
+  const [newPassword, setNewPassword] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
-    setError(null);
-
-    if (!currentPassword.trim()) { setError("Informe a senha atual."); return; }
-    if (!allRulesOk)              { setError("A nova senha não atende todos os requisitos."); return; }
-    if (!passwordsMatch)          { setError("A confirmação não coincide com a nova senha."); return; }
-    if (currentPassword === newPassword) { setError("A nova senha deve ser diferente da senha atual."); return; }
-
-    const session = auth?.session;
-    if (!session?.access_token) {
-      setError("Sessão expirada. Faça login novamente.");
+    const trimmed = newPassword.trim();
+    if (!trimmed) {
+      toast.error("A nova senha não pode estar vazia.");
       return;
     }
 
     setSaving(true);
     try {
-      const SUPA_URL = import.meta.env.VITE_SUPABASE_URL as string;
-      const ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+      // Busca o cliente pelo slug para obter id e metadata existente
+      const { data: client, error: fetchError } = await supabase
+        .from("clients")
+        .select("id, metadata")
+        .eq("dashboard_slug", slug)
+        .single();
 
-      // 1. Verifica a senha atual tentando re-autenticar
-      //    Usa o mesmo fluxo da Edge Function client-dashboard-auth (sem expor login_key)
-      const verifyResp = await fetch(`${SUPA_URL}/functions/v1/change-my-password`, {
-        method: "POST",
-        headers: {
-          "Content-Type":  "application/json",
-          "apikey":         ANON_KEY,
-          "Authorization": `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          current_password: currentPassword,
-          password:         newPassword,
-        }),
-      });
+      if (fetchError || !client) {
+        toast.error("Não foi possível encontrar o cliente.");
+        return;
+      }
 
-      const result = await verifyResp.json() as { success?: boolean; error?: string };
+      const existingMetadata = (client.metadata as Record<string, unknown>) ?? {};
 
-      if (!verifyResp.ok) {
-        setError(result.error ?? "Erro ao alterar senha. Tente novamente.");
+      const { error: updateError } = await supabase
+        .from("clients")
+        .update({
+          metadata: {
+            ...existingMetadata,
+            dashboard_password: trimmed,
+          },
+        })
+        .eq("id", client.id);
+
+      if (updateError) {
+        toast.error("Erro ao salvar a senha: " + updateError.message);
         return;
       }
 
       toast.success("Senha alterada com sucesso!");
-      handleOpenChange(false);
-
-    } catch {
-      setError("Erro de conexão. Verifique sua internet e tente novamente.");
+      setNewPassword("");
+      onOpenChange(false);
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleOpenChange = (v: boolean) => {
+    if (!v) setNewPassword("");
+    onOpenChange(v);
   };
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="border-border bg-card sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="font-display flex items-center gap-2">
-            <Lock className="h-4 w-4 text-primary" />
-            Alterar Senha
-          </DialogTitle>
+          <DialogTitle className="font-display">Alterar Senha</DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            Informe sua senha atual e defina a nova senha de acesso.
+            Digite a nova senha de acesso ao dashboard.
           </DialogDescription>
         </DialogHeader>
-
-        <div className="space-y-4 py-2">
-          {/* Senha atual */}
-          <PasswordInputField
-            id="current-password"
-            label="Senha Atual"
-            value={currentPassword}
-            onChange={setCurrentPassword}
-            show={showCurrent}
-            onToggleShow={() => setShowCurrent(v => !v)}
-            placeholder="Digite sua senha atual"
-          />
-
-          <div className="border-t border-border/40" />
-
-          {/* Nova senha */}
-          <PasswordInputField
-            id="new-password"
-            label="Nova Senha"
-            value={newPassword}
-            onChange={v => { setNewPassword(v); setError(null); }}
-            show={showNew}
-            onToggleShow={() => setShowNew(v => !v)}
-            placeholder="Mínimo 8 caracteres"
-          />
-
-          {/* Requisitos de senha */}
-          {newPassword.length > 0 && (
-            <div className="rounded-lg bg-muted/20 border border-border/40 p-3 space-y-1.5">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
-                Requisitos da senha
-              </p>
-              {rules.map(r => (
-                <div key={r.label} className="flex items-center gap-2">
-                  {r.ok
-                    ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                    : <XCircle     className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
-                  }
-                  <span className={cn("text-xs", r.ok ? "text-emerald-400" : "text-muted-foreground/60")}>
-                    {r.label}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Confirmação da nova senha */}
-          <PasswordInputField
-            id="confirm-password"
-            label="Confirmar Nova Senha"
-            value={confirmPassword}
-            onChange={v => { setConfirmPassword(v); setError(null); }}
-            show={showConfirm}
-            onToggleShow={() => setShowConfirm(v => !v)}
-            placeholder="Digite a nova senha novamente"
-          />
-
-          {/* Indicador match */}
-          {confirmPassword.length > 0 && (
-            <div className={cn(
-              "flex items-center gap-2 text-xs",
-              passwordsMatch ? "text-emerald-400" : "text-red-400"
-            )}>
-              {passwordsMatch
-                ? <><CheckCircle2 className="h-3.5 w-3.5" /> As senhas coincidem</>
-                : <><XCircle      className="h-3.5 w-3.5" /> As senhas não coincidem</>
-              }
-            </div>
-          )}
-
-          {/* Erro */}
-          {error && (
-            <p className="text-sm text-red-400 font-medium">{error}</p>
-          )}
+        <div className="space-y-3 py-2">
+          <div className="grid gap-2">
+            <Label htmlFor="new-password">Nova Senha</Label>
+            <Input
+              id="new-password"
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="Digite a nova senha..."
+              className="bg-background border-border"
+              onKeyDown={(e) => { if (e.key === "Enter") handleSave(); }}
+            />
+          </div>
         </div>
-
         <DialogFooter className="gap-2">
           <Button variant="ghost" onClick={() => handleOpenChange(false)} disabled={saving}>
             Cancelar
           </Button>
           <Button
             onClick={handleSave}
-            disabled={saving || !currentPassword.trim() || !allRulesOk || !passwordsMatch}
+            disabled={saving || !newPassword.trim()}
             className="bg-gradient-ember text-primary-foreground"
           >
-            {saving
-              ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Salvando...</>
-              : "Salvar Nova Senha"
-            }
+            {saving ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Salvando...</> : "Salvar Nova Senha"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -381,9 +243,9 @@ export function PublicDashboardHeader() {
 
   // PeriodDropdown só aparece nas 3 rotas de Resultados
   const resultadosRoutes = [
-    `/${slug}`,
-    `/${slug}/performance`,
-    `/${slug}/atendimento`,
+    `/public/dashboard/${slug}`,
+    `/public/dashboard/${slug}/performance`,
+    `/public/dashboard/${slug}/atendimento`,
   ];
   const showPeriodDropdown = resultadosRoutes.includes(location.pathname);
 
@@ -427,7 +289,7 @@ export function PublicDashboardHeader() {
         </DropdownMenu>
       </div>
 
-      <ChangePasswordDialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog} />
+      <ChangePasswordDialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog} slug={slug} />
     </header>
   );
 }

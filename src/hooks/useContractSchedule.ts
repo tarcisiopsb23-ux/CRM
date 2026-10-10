@@ -1,14 +1,13 @@
 /**
  * useContractSchedule
  *
- * Lógica de cálculo automático do cronograma de pagamento.
+ * Lógica de cálculo automático do cronograma de pagamento de contratos.
  *
- * Regras implementadas:
+ * Regras:
  * - Se há setup/pagamento único: mensalidade começa no mês seguinte
- * - O vencimento da 2ª parcela (ou 1ª mensalidade) deve ter
- *   prazo superior a 25 dias da parcela anterior
- * - Suporte a cronograma evolutivo livre (linha a linha)
- * - Cronograma simplificado quando todas as parcelas recorrentes são iguais
+ * - O vencimento da 2ª parcela deve ter prazo > 25 dias da anterior
+ * - Suporte a cronograma evolutivo personalizado (linha a linha)
+ * - Carência removida: grace_months dos blocos é ignorado
  */
 
 import { addMonths, differenceInDays, setDate, startOfMonth } from "date-fns";
@@ -33,19 +32,11 @@ export interface ContractPaymentLine {
 }
 
 export interface ScheduleInput {
-  blocks: ServiceBlock[];            // blocos selecionados
-  firstPaymentDate: Date;            // data do primeiro pagamento
-  dueDay: number;                    // dia do vencimento recorrente (1-28)
-  // Sobrescritas opcionais (usuário ajustou os valores sugeridos)
+  blocks: ServiceBlock[];
+  firstPaymentDate: Date;
+  dueDay: number;
   setupAmount?: number;
   monthlyAmounts?: { monthFrom: number; monthTo: number | null; amount: number }[];
-  /**
-   * Meses de carência definidos manualmente no contrato.
-   * Durante a carência, nenhuma mensalidade é cobrada (valor = 0).
-   * O prazo do contrato NÃO é alterado — a carência apenas adia o início da cobrança.
-   * Sobrepõe o grace_months vindo dos blocos de serviço quando informado.
-   */
-  gracePeriodMonths?: number;
 }
 
 export interface ScheduleResult {
@@ -94,30 +85,22 @@ function nextDueDate(referenceDate: Date, dueDay: number, minGapDays = 25): Date
 // ── Função principal de cálculo ───────────────────────────────────────────────
 
 export function calculateSchedule(input: ScheduleInput): ScheduleResult {
-  const { blocks, firstPaymentDate, dueDay, setupAmount, monthlyAmounts, gracePeriodMonths } = input;
+  const { blocks, firstPaymentDate, dueDay, setupAmount, monthlyAmounts } = input;
   const safeDay = Math.min(dueDay, 28);
   const warnings: string[] = [];
   const lines: ContractPaymentLine[] = [];
 
-  // Agrega valores financeiros dos blocos
-  let totalSetup    = 0;
-  let totalMonthly  = 0;
-  let totalGrace    = 0;  // máximo de meses de carência entre os blocos
-  let hasOneTime    = false;
+  // Agrega valores financeiros dos blocos (grace_months ignorado)
+  let totalSetup   = 0;
+  let totalMonthly = 0;
+  let hasOneTime   = false;
 
   for (const b of blocks) {
-    if (b.has_setup && b.setup_amount)        totalSetup   += b.setup_amount;
-    if (b.has_monthly && b.monthly_amount)    totalMonthly += b.monthly_amount;
-    if (b.grace_months > totalGrace)          totalGrace    = b.grace_months;
-    if (b.is_one_time && b.one_time_amount)   { totalSetup += b.one_time_amount; hasOneTime = true; }
+    if (b.has_setup && b.setup_amount)     totalSetup   += b.setup_amount;
+    if (b.has_monthly && b.monthly_amount) totalMonthly += b.monthly_amount;
+    if (b.is_one_time && b.one_time_amount) { totalSetup += b.one_time_amount; hasOneTime = true; }
   }
 
-  // Carência manual sobrepõe a carência dos blocos quando informada
-  if (gracePeriodMonths !== undefined && gracePeriodMonths > 0) {
-    totalGrace = gracePeriodMonths;
-  }
-
-  // Permite sobrescrever setup com valor do usuário
   if (setupAmount !== undefined) totalSetup = setupAmount;
 
   const hasSetupOrOneTime = totalSetup > 0;
@@ -179,7 +162,7 @@ export function calculateSchedule(input: ScheduleInput): ScheduleResult {
   const customAmounts = monthlyAmounts ?? [];
 
   if (customAmounts.length > 0) {
-    // Cronograma personalizado (evolutivo ou flexível)
+    // Cronograma personalizado (evolutivo)
     let currentDate = firstMonthlyDate;
     for (const seg of customAmounts) {
       lines.push({
@@ -199,68 +182,8 @@ export function calculateSchedule(input: ScheduleInput): ScheduleResult {
         currentDate = setDate(addMonths(currentDate, months), safeDay);
       }
     }
-  } else if (totalGrace > 0) {
-    // Carência: verifica se é manual (sem cobrança) ou automática dos blocos (valor reduzido)
-    const isManualGrace = gracePeriodMonths !== undefined && gracePeriodMonths > 0;
-
-    if (isManualGrace) {
-      // Carência manual: período sem cobrança, depois mensalidade plena
-      warnings.push(
-        `Carência de ${totalGrace} ${totalGrace === 1 ? "mês" : "meses"} aplicada — sem cobrança nesse período. O prazo do contrato não é alterado.`
-      );
-      lines.push({
-        line_order:     lineOrder++,
-        month_from:     month,
-        month_to:       month + totalGrace - 1,
-        period_label:   periodLabel(month, month + totalGrace - 1),
-        due_date:       toIso(firstMonthlyDate),
-        is_recurring:   false,
-        amount:         0,
-        payment_method: "pix",
-        line_type:      "mensalidade",
-        notes:          `Carência — sem cobrança neste período`,
-      });
-      month += totalGrace;
-    } else {
-      // Carência automática dos blocos: primeiros meses sem o serviço com carência
-      const reducedMonthly = totalMonthly - blocks
-        .filter(b => b.grace_months > 0 && b.has_monthly && b.monthly_amount)
-        .reduce((sum, b) => sum + (b.monthly_amount ?? 0), 0);
-
-      if (reducedMonthly > 0 && reducedMonthly < totalMonthly) {
-        // Período de carência com valor reduzido
-        lines.push({
-          line_order:     lineOrder++,
-          month_from:     month,
-          month_to:       month + totalGrace - 1,
-          period_label:   periodLabel(month, month + totalGrace - 1),
-          due_date:       toIso(firstMonthlyDate),
-          is_recurring:   false,
-          amount:         reducedMonthly,
-          payment_method: "pix",
-          line_type:      "mensalidade",
-          notes:          null,
-        });
-        month += totalGrace;
-      }
-    }
-
-    // Mensalidade plena a partir do fim da carência
-    const fullDate = setDate(addMonths(firstMonthlyDate, totalGrace), safeDay);
-    lines.push({
-      line_order:     lineOrder++,
-      month_from:     month,
-      month_to:       null,
-      period_label:   `A partir do mês ${month}`,
-      due_date:       toIso(fullDate),
-      is_recurring:   true,
-      amount:         totalMonthly,
-      payment_method: "pix",
-      line_type:      "mensalidade",
-      notes:          null,
-    });
   } else {
-    // Mensalidade fixa sem carência
+    // Mensalidade fixa recorrente
     lines.push({
       line_order:     lineOrder++,
       month_from:     month,

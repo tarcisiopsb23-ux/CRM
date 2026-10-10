@@ -1,0 +1,198 @@
+{
+  "name": "ClickUp — Gerenciar Participantes",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clickup-members",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-in",
+      "name": "Webhook — Participantes",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 400],
+      "webhookId": "clickup-members"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.item.json.body || $input.item.json;\n\nconst action      = body.action;       // 'invite' | 'remove'\nconst clickupType = body.clickup_type; // 'project' (lista) | 'task'\nconst clickupId   = body.clickup_id;   // list_id ou task_id no ClickUp\nconst participant = body.participant;   // { profile_id, name, email, avatar_url }\n\nif (!action || !clickupId || !participant?.email) {\n  return [{ json: { skip: true, reason: 'missing fields' } }];\n}\n\nreturn [{ json: {\n  action,\n  clickup_type: clickupType,\n  clickup_id: clickupId,\n  email: participant.email,\n  name: participant.name,\n  profile_id: participant.profile_id,\n  // Endpoint base para membros\n  endpoint_base: clickupType === 'project'\n    ? `https://api.clickup.com/api/v2/list/${clickupId}/member`\n    : `https://api.clickup.com/api/v2/task/${clickupId}/member`\n}}];"
+      },
+      "id": "parse",
+      "name": "Parsear Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{ $json.skip }}", "value2": true }]
+        }
+      },
+      "id": "skip-check",
+      "name": "Verificar Skip",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 400]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "invite", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "invite"
+            },
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "remove", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "remove"
+            }
+          ]
+        }
+      },
+      "id": "route-action",
+      "name": "Roteador de Ação",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.clickup.com/api/v2/user?email={{ $json.email }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "={{ $env.CLICKUP_API_KEY }}" }
+          ]
+        },
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "find-user",
+      "name": "Buscar Usuário no ClickUp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1120, 240],
+      "_comment": "Busca o usuário pelo e-mail para obter o clickup_user_id"
+    },
+    {
+      "parameters": {
+        "jsCode": "const userResult = $input.item.json;\nconst prev = $('Parsear Payload').item.json;\n\n// A API do ClickUp retorna { user: { id, username, email } } ou erro\nconst clickupUserId = userResult?.user?.id || null;\n\nif (!clickupUserId) {\n  return [{ json: { ...prev, skip: true, reason: `User not found in ClickUp for email: ${prev.email}` } }];\n}\n\nreturn [{ json: { ...prev, clickup_user_id: clickupUserId } }];"
+      },
+      "id": "extract-user-id",
+      "name": "Extrair User ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 240]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{ $json.skip }}", "value2": true }]
+        }
+      },
+      "id": "user-found",
+      "name": "Usuário encontrado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1560, 240]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.endpoint_base }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "={{ $env.CLICKUP_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ ids: [$json.clickup_user_id] }) }}"
+      },
+      "id": "add-member",
+      "name": "Adicionar Membro no ClickUp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1780, 160]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Parsear Payload').item.json;\nconsole.log(`[clickup-members] Usuário não encontrado no ClickUp: ${prev.email}`);\nreturn [{ json: { skipped: true, email: prev.email, reason: 'user not found in ClickUp' } }];"
+      },
+      "id": "user-not-found",
+      "name": "Usuário não encontrado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 320]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.endpoint_base }}/{{ $json.clickup_user_id }}",
+        "requestMethod": "DELETE",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "={{ $env.CLICKUP_API_KEY }}" }
+          ]
+        }
+      },
+      "id": "remove-member",
+      "name": "Remover Membro do ClickUp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1120, 560],
+      "_comment": "Para remover, também precisa do clickup_user_id. Idealmente armazenar no Maestria após o convite."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, action: $('Parsear Payload').item.json.action }) }}"
+      },
+      "id": "respond",
+      "name": "Resposta",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2000, 400]
+    }
+  ],
+  "connections": {
+    "Webhook — Participantes": { "main": [[{ "node": "Parsear Payload", "type": "main", "index": 0 }]] },
+    "Parsear Payload": { "main": [[{ "node": "Verificar Skip", "type": "main", "index": 0 }]] },
+    "Verificar Skip": {
+      "main": [
+        [{ "node": "Resposta", "type": "main", "index": 0 }],
+        [{ "node": "Roteador de Ação", "type": "main", "index": 0 }]
+      ]
+    },
+    "Roteador de Ação": {
+      "main": [
+        [{ "node": "Buscar Usuário no ClickUp", "type": "main", "index": 0 }],
+        [{ "node": "Buscar Usuário no ClickUp", "type": "main", "index": 0 }]
+      ]
+    },
+    "Buscar Usuário no ClickUp": { "main": [[{ "node": "Extrair User ID", "type": "main", "index": 0 }]] },
+    "Extrair User ID": { "main": [[{ "node": "Usuário encontrado?", "type": "main", "index": 0 }]] },
+    "Usuário encontrado?": {
+      "main": [
+        [{ "node": "Usuário não encontrado", "type": "main", "index": 0 }],
+        [{ "node": "Adicionar Membro no ClickUp", "type": "main", "index": 0 }]
+      ]
+    },
+    "Adicionar Membro no ClickUp": { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] },
+    "Usuário não encontrado": { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] },
+    "Remover Membro do ClickUp": { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "_readme": {
+    "env_vars": ["CLICKUP_API_KEY — Personal token do ClickUp (pk_...)"],
+    "webhook_url": "POST {N8N_URL}/webhook/clickup-members",
+    "logic": {
+      "invite": "Busca o usuário no ClickUp pelo e-mail via GET /user?email=. Se encontrado, adiciona como membro via POST /list/{id}/member ou /task/{id}/member.",
+      "remove": "Busca o usuário pelo e-mail, depois remove via DELETE /list/{id}/member/{user_id} ou /task/{id}/member/{user_id}.",
+      "note": "O ClickUp só permite convidar usuários que já têm conta. Se o usuário não tiver conta, o convite não é possível via API — considere enviar um e-mail de convite manualmente."
+    }
+  }
+}

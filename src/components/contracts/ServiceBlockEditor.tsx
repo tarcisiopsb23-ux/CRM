@@ -20,27 +20,63 @@ import { toast } from "sonner";
 import type { ServiceBlock } from "@/hooks/useContractTemplates";
 
 // Variáveis disponíveis dentro de um bloco de serviço
-// Todas vêm do contrato cadastrado no módulo Clientes
+// Todas vêm do contrato cadastrado no módulo Clientes — mapeadas 1:1 com assembleContract.ts
 const BLOCK_VARIABLES = [
-  // ── Numeração automática ──────────────────────────────────────────────────
-  { key: "num",                     label: "Número da cláusula (automático)",       group: "Estrutura" },
-  // ── Dados das partes ──────────────────────────────────────────────────────
-  { key: "contratante_razao_social", label: "Razão Social / Nome do Contratante",   group: "Partes" },
-  { key: "contratante_cnpj",         label: "CNPJ / CPF do Contratante",            group: "Partes" },
-  { key: "contratante_endereco",     label: "Endereço do Contratante",              group: "Partes" },
-  { key: "representante_nome",       label: "Nome do Representante",               group: "Partes" },
-  { key: "representante_cpf",        label: "CPF do Representante",                group: "Partes" },
+  // ── Contratante ──────────────────────────────────────────────────────────
+  { key: "cliente",                  label: "Nome / nome fantasia do cliente",               group: "Contratante" },
+  { key: "empresa",                  label: "Razão social da empresa",                       group: "Contratante" },
+  { key: "contratante_razao_social", label: "Razão social / nome completo (PF/PJ)",          group: "Contratante" },
+  { key: "cnpj",                     label: "CNPJ do contratante",                           group: "Contratante" },
+  { key: "cpf",                      label: "CPF do contratante (PF)",                       group: "Contratante" },
+  { key: "contratante_cnpj",         label: "CNPJ (alias explícito)",                        group: "Contratante" },
+  { key: "contratante_endereco",     label: "Endereço formatado do contratante",             group: "Contratante" },
+  { key: "qualificacao_contratante", label: "Bloco completo de qualificação (PJ/PF + representantes)", group: "Contratante" },
+  { key: "representante_nome",       label: "Nome do 1º representante legal",                group: "Contratante" },
+  { key: "representante_cpf",        label: "CPF do 1º representante legal",                 group: "Contratante" },
+  // ── Serviços ─────────────────────────────────────────────────────────────
+  { key: "servicos",                 label: "Lista de serviços com entregáveis (HTML)",      group: "Serviços" },
+  { key: "escopo",                   label: "Alias de servicos",                             group: "Serviços" },
+  { key: "lista_servicos",           label: "Alias de servicos",                             group: "Serviços" },
+  // ── Financeiro — recorrente ───────────────────────────────────────────────
+  { key: "valor",                    label: "Valor mensal formatado (R$)",                   group: "Financeiro" },
+  { key: "valor_mensalidade",        label: "Alias de valor",                                group: "Financeiro" },
+  { key: "forma_pagamento",          label: "Forma de pagamento recorrente (PIX, boleto…)",  group: "Financeiro" },
+  { key: "dia_vencimento",           label: "Dia do mês do vencimento (ex: 20)",             group: "Financeiro" },
+  { key: "vencimento",               label: "Data do 1º vencimento (dd/mm/aaaa)",            group: "Financeiro" },
+  { key: "chave_pix",                label: "Chave PIX da agência",                          group: "Financeiro" },
+  { key: "cronograma_pagamento",     label: "Tabela completa do cronograma de pagamentos",   group: "Financeiro" },
+  { key: "texto_pagamento",          label: "Frase completa de pagamento (forma + chave PIX + datas)", group: "Financeiro" },
+  // ── Comissão variável ────────────────────────────────────────────────────
+  { key: "comissao_tipo",            label: "'Percentual sobre o valor' ou 'Valor fixo por resultado'", group: "Comissão" },
+  { key: "comissao_taxa",            label: "Valor da taxa (ex: 10% ou R$ 500,00)",         group: "Comissão" },
+  { key: "comissao_descricao",       label: "O que é um resultado",                          group: "Comissão" },
+  { key: "comissao_periodicidade",   label: "'Semanal', 'Quinzenal' ou 'Mensal'",           group: "Comissão" },
+  { key: "comissao_periodicidade_extenso", label: "'semanalmente', 'quinzenalmente' ou 'mensalmente'", group: "Comissão" },
+  // ── Financeiro — setup ────────────────────────────────────────────────────
+  { key: "valor_setup",              label: "Valor total do setup (R$)",                     group: "Setup" },
+  { key: "parcelas_setup",           label: "Número de parcelas do setup",                   group: "Setup" },
+  { key: "parcela_setup",            label: "Valor de cada parcela do setup (R$)",           group: "Setup" },
+  { key: "taxa_setup",               label: "Percentual de taxas do setup",                  group: "Setup" },
+  { key: "vencimento_setup",         label: "Vencimento da 1ª parcela do setup",             group: "Setup" },
+  { key: "forma_pagamento_setup",    label: "Forma de pagamento do setup",                   group: "Setup" },
   // ── Vigência e prazos ─────────────────────────────────────────────────────
-  { key: "prazo_vigencia_meses",     label: "Prazo de vigência (número em meses)", group: "Vigência" },
-  { key: "prazo_vigencia_dias",      label: "Prazo de vigência (número em dias)",  group: "Vigência" },
-  { key: "prazo_vigencia_extenso",   label: "Prazo por extenso (ex: doze meses)",  group: "Vigência" },
-  { key: "data_inicio",              label: "Data de início do contrato",          group: "Vigência" },
-  { key: "data_assinatura",          label: "Data de assinatura",                  group: "Vigência" },
-  // ── Remuneração ───────────────────────────────────────────────────────────
-  { key: "cronograma_pagamento",     label: "Bloco completo do cronograma",        group: "Remuneração" },
+  { key: "vigencia_inicio",          label: "Data de início da vigência (dd/mm/aaaa)",       group: "Vigência" },
+  { key: "vigencia_fim",             label: "Data de término da vigência (dd/mm/aaaa)",      group: "Vigência" },
+  { key: "prazo_minimo",             label: "Prazo mínimo em meses (número)",                group: "Vigência" },
+  { key: "prazo_minimo_extenso",     label: "Prazo mínimo por extenso (ex: doze (12) meses)", group: "Vigência" },
+  { key: "prazo_vigencia_meses",     label: "Duração total em meses (número)",               group: "Vigência" },
+  { key: "prazo_vigencia_extenso",   label: "Duração total por extenso",                     group: "Vigência" },
+  { key: "duracao_meses",            label: "Alias de prazo_vigencia_meses",                 group: "Vigência" },
+  { key: "carencia_meses",           label: "Carência em meses (número)",                    group: "Vigência" },
+  { key: "carencia_extenso",         label: "Carência por extenso",                          group: "Vigência" },
+  // ── Datas ─────────────────────────────────────────────────────────────────
+  { key: "data",                     label: "Data atual (dd/mm/aaaa)",                       group: "Datas" },
+  { key: "data_assinatura",          label: "Data da contratação por extenso",               group: "Datas" },
   // ── Local e foro ─────────────────────────────────────────────────────────
-  { key: "cidade_estado",            label: "Cidade e Estado",                     group: "Local" },
-  { key: "foro_cidade",              label: "Cidade do Foro",                      group: "Local" },
+  { key: "cidade_estado",            label: "Cidade/Estado do contratante",                  group: "Local" },
+  { key: "foro_cidade",              label: "Cidade do foro",                                group: "Local" },
+  // ── Assinaturas ──────────────────────────────────────────────────────────
+  { key: "bloco_assinaturas",        label: "Tabela de assinaturas CONTRATADA + CONTRATANTE", group: "Assinaturas" },
 ];
 
 const GROUPS = [...new Set(BLOCK_VARIABLES.map(v => v.group))];

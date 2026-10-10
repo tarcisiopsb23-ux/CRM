@@ -4,35 +4,35 @@ import { parseISO, subDays, startOfDay, format, isAfter, isBefore, addDays } fro
 import { ptBR } from "date-fns/locale";
 import {
   Package, Users, DollarSign, AlertTriangle, TrendingUp,
-  ShieldOff, PauseCircle, XCircle, CalendarClock, UserCheck, ClipboardList, Zap,
-  Database, RefreshCcw, CheckCircle2, XCircle as XCircleIcon, Loader2, AlertCircle,
+  ShieldOff, PauseCircle, XCircle, CalendarClock, UserCheck, ClipboardList,
+  CheckCircle2, XCircle as XCircleIcon, Search,
 } from "lucide-react";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useModulePermission } from "@/hooks/usePermissions";
 import { useC8Tenants } from "@/hooks/useC8Tenants";
 import { useC8Payments } from "@/hooks/useC8Payments";
 import { useC8Plans } from "@/hooks/useC8Plans";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
-import { useN8nConfig } from "@/hooks/useN8nConfig";
+import { useAllClientIntegrations } from "@/hooks/useHubPerformance";
+import { useC8AuditLogs } from "@/hooks/useC8AuditLogs";
 import { C8TenantList } from "@/components/c8control/C8TenantList";
 import { C8PaymentsView } from "@/components/c8control/C8PaymentsView";
 import { C8PlansManager } from "@/components/c8control/C8PlansManager";
 import { C8SupportTab } from "@/components/c8control/C8SupportTab";
-import { C8AdIntegrationsTab } from "@/components/c8control/C8AdIntegrationsTab";
-import { C8PendingActivationTab } from "@/components/c8control/C8PendingActivationTab";
-import { useAllClientIntegrations } from "@/hooks/useHubPerformance";
-import { useC8PendingActivation, type C8PendingClient } from "@/hooks/useC8PendingActivation";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
-} from "@/components/ui/dialog";
-import type { N8nConfig } from "@/types/settings";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { C8Tenant } from "@/hooks/useC8Tenants";
 
 const fmtCurrency = (v: number) =>
@@ -41,7 +41,7 @@ const fmtCurrency = (v: number) =>
 const fmtDate = (d: string | null) =>
   d ? format(parseISO(d), "dd/MM/yyyy", { locale: ptBR }) : "—";
 
-const VALID_TABS = ["dashboard", "tenants", "payments", "plans", "support", "integrations", "pending", "audit"] as const;
+const VALID_TABS = ["dashboard", "tenants", "payments", "plans", "support", "integrations", "audit"] as const;
 type TabValue = (typeof VALID_TABS)[number];
 
 const STATUS_BADGE: Record<string, string> = {
@@ -51,15 +51,16 @@ const STATUS_BADGE: Record<string, string> = {
   cancelado: "bg-slate-100 text-slate-600",
 };
 
-// ── Componente: visão geral de integrações por cliente ────────────────────────
+// ── Helpers de status de integração ─────────────────────────────────────────
 
 function StatusDot({ ok, label }: { ok: boolean | null; label: string }) {
-  if (ok === null) return (
-    <span className="flex items-center gap-1 text-xs text-slate-400">
-      <span className="h-2 w-2 rounded-full bg-slate-300 shrink-0" />
-      {label}
-    </span>
-  );
+  if (ok === null)
+    return (
+      <span className="flex items-center gap-1 text-xs text-slate-400">
+        <span className="h-2 w-2 rounded-full bg-slate-300 shrink-0" />
+        {label}
+      </span>
+    );
   return ok ? (
     <span className="flex items-center gap-1 text-xs text-emerald-600">
       <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
@@ -73,207 +74,190 @@ function StatusDot({ ok, label }: { ok: boolean | null; label: string }) {
   );
 }
 
-const ACTIVATION_STATUS_BADGE: Record<string, { label: string; className: string }> = {
-  ativo:        { label: "Ativo",        className: "bg-emerald-100 text-emerald-700" },
-  pendente:     { label: "Pendente",     className: "bg-amber-100 text-amber-700" },
-  em_andamento: { label: "Ativando…",    className: "bg-blue-100 text-blue-700" },
-  falhou:       { label: "Falhou",       className: "bg-red-100 text-red-700" },
-};
+// ── Componente: visão geral de integrações por cliente ───────────────────────
+
+type ColFilter = "all" | "connected" | "disconnected";
+
+const COLUMNS = [
+  { key: "facebook",     label: "Facebook" },
+  { key: "instagram",    label: "Instagram" },
+  { key: "whatsapp",     label: "WhatsApp" },
+  { key: "meta_ads",     label: "Meta Ads" },
+  { key: "google",       label: "Google Ads" },
+  { key: "google_calendar", label: "Google Agenda" },
+] as const;
+
+type ColKey = (typeof COLUMNS)[number]["key"];
 
 function C8IntegrationsOverview({
   organizationId,
   tenants,
-  n8nConfig,
   onSelectTenant,
-  onUpdateAllSchemas,
-  isUpdatingAllSchemas,
-  schemaUpdateResult,
-  onClearSchemaResult,
-  schemaErrorDialogOpen,
-  onSchemaErrorDialogOpen,
 }: {
   organizationId: string;
   tenants: C8Tenant[];
-  n8nConfig: N8nConfig | null;
   onSelectTenant: (clientId: string) => void;
-  onUpdateAllSchemas?: () => void;
-  isUpdatingAllSchemas?: boolean;
-  schemaUpdateResult?: {
-    total: number;
-    success: number;
-    failed: number;
-    failures: Array<{ client_id: string; client_name?: string; error: string }>;
-    updated_at: string;
-  } | null;
-  onClearSchemaResult?: () => void;
-  schemaErrorDialogOpen?: boolean;
-  onSchemaErrorDialogOpen?: () => void;
 }) {
   const navigate = useNavigate();
   const { data: allIntegrations = [] } = useAllClientIntegrations(organizationId);
-  const { data: pendingClients = [] } = useC8PendingActivation(organizationId);
 
-  const metaByClient   = new Map(allIntegrations.filter(i => i.platform === "meta").map(i => [i.client_id, i]));
-  const googleByClient = new Map(allIntegrations.filter(i => i.platform === "google").map(i => [i.client_id, i]));
+  const [search,     setSearch]     = useState("");
+  const [colFilters, setColFilters] = useState<Partial<Record<ColKey, ColFilter>>>({});
 
-  // Mapa de tenants ativos por client_id
-  const tenantById = new Map(tenants.map(t => [t.client_id, t]));
+  // Mapas por plataforma — chave: client_id
+  const byPlatform = (platform: string) =>
+    new Map(allIntegrations.filter(i => i.platform === platform).map(i => [i.client_id, i]));
 
-  // Mapa de pendentes por client_id (inclui TODOS — pendente, em_andamento, ativo, falhou)
-  const pendingById = new Map(pendingClients.map(p => [p.client_id, p]));
+  const maps: Record<ColKey, Map<string, unknown>> = {
+    facebook:        byPlatform("facebook"),
+    instagram:       byPlatform("instagram"),
+    whatsapp:        byPlatform("whatsapp"),
+    meta_ads:        byPlatform("meta_ads"),
+    google:          byPlatform("google"),
+    google_calendar: byPlatform("google_calendar"),
+  };
+  // "meta" legado para Meta Ads
+  const metaLegacy = byPlatform("meta");
 
-  // União: começa com todos os tenants ativos + adiciona pendentes que não estão nos tenants
-  const allClientIds = new Set([
-    ...tenants.map(t => t.client_id),
-    ...pendingClients.map(p => p.client_id),
-  ]);
-
-  type Row = {
-    clientId: string;
-    clientName: string;
-    planLabel: string;
-    activationStatus: string;
-    hasBankB: boolean;
-    lastUpdate: string | null;
-    isTenantActive: boolean;
+  const intOk = (
+    clientId: string,
+    map: Map<string, unknown>,
+    legacy?: Map<string, { sync_status?: string | null; is_connected?: boolean }>
+  ) => {
+    const entry = (map.get(clientId) ?? legacy?.get(clientId)) as
+      { sync_status?: string | null; is_connected?: boolean } | undefined;
+    if (!entry) return null;
+    if (entry.is_connected === false) return false;
+    return entry.sync_status !== "error";
   };
 
-  const rows: Row[] = Array.from(allClientIds).map(clientId => {
-    const tenant  = tenantById.get(clientId);
-    const pending = pendingById.get(clientId);
+  const setColFilter = (col: ColKey, val: ColFilter) =>
+    setColFilters(prev => ({ ...prev, [col]: val }));
 
-    // Status real de ativação: usa pending (mais preciso) se disponível
-    const activationStatus = pending?.c8_activation_status
-      ?? (tenant ? "ativo" : "pendente");
+  const hasColFilters = Object.values(colFilters).some(v => v && v !== "all");
 
-    const clientName = tenant?.client_name ?? pending?.client_name ?? clientId;
-    const planLabel  = tenant?.plan_name
-      ?? pending?.contract_service
-      ?? "Habilitado por contrato";
-
-    const hasBankB = !!(tenant as any)?.client_supabase_url
-      || !!pending?.supabase_url;
-
-    // Última atualização: c8_schema_updated_at (data real da última aplicação do schema).
-    // Deixa em branco se ainda não foi aplicado.
-    const lastUpdate = (tenant as any)?.c8_schema_updated_at ?? null;
-
-    return {
-      clientId,
-      clientName,
-      planLabel,
-      activationStatus,
-      hasBankB,
-      lastUpdate,
-      isTenantActive: !!tenant,
-    };
-  }).sort((a, b) => a.clientName.localeCompare(b.clientName));
-
-  const hasUpdateWebhook = !!n8nConfig?.c8UpdateSchemaWebhookUrl;
+  const rows = [...tenants]
+    .sort((a, b) => a.client_name.localeCompare(b.client_name))
+    .filter(row => {
+      // Filtro por nome
+      if (search.trim() && !row.client_name.toLowerCase().includes(search.toLowerCase())) return false;
+      // Filtro por coluna
+      for (const [col, filter] of Object.entries(colFilters) as [ColKey, ColFilter][]) {
+        if (!filter || filter === "all") continue;
+        const map = maps[col];
+        const legacy = col === "meta_ads" ? metaLegacy : undefined;
+        const ok = intOk(row.client_id, map, legacy as any);
+        if (filter === "connected"    && ok !== true)  return false;
+        if (filter === "disconnected" && ok === true)  return false;
+      }
+      return true;
+    });
 
   return (
-    <div className="space-y-5">
-      {/* Barra de ações */}
-      <div className="flex justify-end">
-        {onUpdateAllSchemas && (
-          <div className="relative shrink-0">
-            <Button
-              size="sm"
-              variant="outline"
-              className="gap-2 h-9 text-sm px-4 border-primary/40 text-primary hover:bg-primary/5 hover:border-primary"
-              disabled={isUpdatingAllSchemas || !hasUpdateWebhook}
-              onClick={onUpdateAllSchemas}
-              title={!hasUpdateWebhook ? "Configure o webhook em Configurações → n8n → C8 Control — Atualizar schema" : undefined}
-            >
-              {isUpdatingAllSchemas
-                ? <Loader2 className="h-4 w-4 animate-spin" />
-                : <RefreshCcw className="h-4 w-4" />}
-              Atualizar todos os schemas
-            </Button>
-            {schemaUpdateResult && schemaUpdateResult.failed > 0 && (
-              <button
-                onClick={() => onSchemaErrorDialogOpen?.()}
-                className="absolute -top-2 -right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-none flex items-center justify-center hover:bg-red-600 transition-colors"
-                title={`${schemaUpdateResult.failed} falha(s) — clique para ver detalhes`}
-              >
-                {schemaUpdateResult.failed}
-              </button>
-            )}
-          </div>
+    <div className="space-y-3">
+      {/* ── Filtros ────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Busca por nome */}
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Buscar cliente..."
+            className="pl-8 h-8 text-xs w-48"
+          />
+        </div>
+
+        {/* Filtro por coluna */}
+        {COLUMNS.map(col => (
+          <Select
+            key={col.key}
+            value={colFilters[col.key] ?? "all"}
+            onValueChange={v => setColFilter(col.key, v as ColFilter)}
+          >
+            <SelectTrigger className={`h-8 text-xs w-auto gap-1 ${colFilters[col.key] && colFilters[col.key] !== "all" ? "border-primary text-primary" : ""}`}>
+              <SelectValue placeholder={col.label} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{col.label}: Todos</SelectItem>
+              <SelectItem value="connected">{col.label}: Conectado</SelectItem>
+              <SelectItem value="disconnected">{col.label}: Não conectado</SelectItem>
+            </SelectContent>
+          </Select>
+        ))}
+
+        {/* Limpar filtros */}
+        {(search || hasColFilters) && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 text-xs text-muted-foreground"
+            onClick={() => { setSearch(""); setColFilters({}); }}
+          >
+            <XCircleIcon className="h-3.5 w-3.5 mr-1" /> Limpar
+          </Button>
         )}
       </div>
 
-      {/* Tabela por cliente */}
+      {/* ── Tabela ────────────────────────────────────────────────── */}
       {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground text-center py-8">Nenhum cliente com C8 Control habilitado.</p>
+        <p className="text-sm text-muted-foreground text-center py-8">
+          Nenhum cliente encontrado com esses filtros.
+        </p>
       ) : (
-        <div className="rounded-lg border overflow-hidden">
+        <div className="rounded-lg border overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b">
               <tr>
                 <th className="text-left px-4 py-2.5 font-semibold text-xs text-slate-600 uppercase tracking-wider">Cliente</th>
                 <th className="text-center px-4 py-2.5 font-semibold text-xs text-slate-600 uppercase tracking-wider">Status</th>
-                <th className="text-center px-4 py-2.5 font-semibold text-xs text-slate-600 uppercase tracking-wider">Banco B</th>
-                <th className="text-center px-4 py-2.5 font-semibold text-xs text-slate-600 uppercase tracking-wider">Meta Ads</th>
-                <th className="text-center px-4 py-2.5 font-semibold text-xs text-slate-600 uppercase tracking-wider">Google Ads</th>
-                <th className="text-center px-4 py-2.5 font-semibold text-xs text-slate-600 uppercase tracking-wider">Última Atualização</th>
+                {COLUMNS.map(col => (
+                  <th key={col.key} className="text-center px-4 py-2.5 font-semibold text-xs text-slate-600 uppercase tracking-wider">
+                    {col.label}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y bg-white">
               {rows.map(row => {
-                const metaInt   = metaByClient.get(row.clientId);
-                const googleInt = googleByClient.get(row.clientId);
-                const metaOk    = !!metaInt && metaInt.sync_status !== "error";
-                const googleOk  = !!googleInt && googleInt.sync_status !== "error";
-                const badge     = ACTIVATION_STATUS_BADGE[row.activationStatus] ?? ACTIVATION_STATUS_BADGE.pendente;
-
-                const lastUpdateLabel = (() => {
-                  if (!row.lastUpdate) return "—";
-                  try {
-                    return format(parseISO(row.lastUpdate), "dd/MM/yyyy HH:mm", { locale: ptBR });
-                  } catch { return "—"; }
-                })();
-
+                const statusBadge = STATUS_BADGE[row.subscription_status] ?? "bg-muted text-muted-foreground";
+                const statusLabel: Record<string, string> = {
+                  ativo: "Ativo", bloqueado: "Bloqueado",
+                  suspenso: "Suspenso", cancelado: "Cancelado",
+                };
                 return (
                   <tr
-                    key={row.clientId}
+                    key={row.client_id}
                     className="hover:bg-slate-50 cursor-pointer transition-colors"
-                    onClick={() => navigate(
-                      row.isTenantActive
-                        ? `/c8control?tab=tenants&client=${row.clientId}&subtab=integracoes`
-                        : `/c8control?tab=pending`
-                    )}
-                    title="Clique para gerenciar este cliente"
+                    onClick={() => {
+                      onSelectTenant(row.client_id);
+                      navigate(`/c8control?tab=tenants&client=${row.client_id}&subtab=integracoes`);
+                    }}
+                    title="Clique para abrir integrações deste cliente"
                   >
                     <td className="px-4 py-3">
-                      <p className="font-medium text-slate-800">{row.clientName}</p>
-                      <p className="text-xs text-muted-foreground">{row.planLabel}</p>
+                      <p className="font-medium text-slate-800">{row.client_name}</p>
+                      <p className="text-xs text-muted-foreground">{row.plan_name}</p>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <Badge className={`text-xs ${badge.className}`}>{badge.label}</Badge>
+                      <Badge className={`text-xs ${statusBadge}`}>
+                        {statusLabel[row.subscription_status] ?? row.subscription_status}
+                      </Badge>
                     </td>
-                    <td className="px-4 py-3 text-center">
-                      <div className="flex justify-center">
-                        <StatusDot ok={row.hasBankB} label={row.hasBankB ? "OK" : "Não configurado"} />
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <div className="flex justify-center">
-                        {metaInt
-                          ? <StatusDot ok={metaOk} label={metaOk ? `ID: ${metaInt.account_id}` : "Erro na sync"} />
-                          : <StatusDot ok={false} label="Não conectado" />}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <div className="flex justify-center">
-                        {googleInt
-                          ? <StatusDot ok={googleOk} label={googleOk ? `ID: ${googleInt.account_id}` : "Erro na sync"} />
-                          : <StatusDot ok={false} label="Não conectado" />}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <span className="text-xs text-muted-foreground">{lastUpdateLabel}</span>
-                    </td>
+                    {COLUMNS.map(col => {
+                      const ok = intOk(
+                        row.client_id,
+                        maps[col.key],
+                        col.key === "meta_ads" ? metaLegacy as any : undefined
+                      );
+                      return (
+                        <td key={col.key} className="px-4 py-3 text-center">
+                          <div className="flex justify-center">
+                            <StatusDot ok={ok} label={ok === true ? "Conectado" : "Não conectado"} />
+                          </div>
+                        </td>
+                      );
+                    })}
                   </tr>
                 );
               })}
@@ -281,113 +265,41 @@ function C8IntegrationsOverview({
           </table>
         </div>
       )}
-
-      {/* Dialog de falhas — abre ao clicar na badge */}
-      <Dialog open={!!schemaErrorDialogOpen} onOpenChange={open => { if (!open) onClearSchemaResult?.(); }}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-red-500" />
-              {schemaUpdateResult?.failed} cliente(s) com falha na atualização
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-2 max-h-72 overflow-y-auto">
-            {schemaUpdateResult?.failures.map((f, i) => (
-              <div key={f.client_id ?? i} className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 space-y-0.5">
-                <p className="text-sm font-semibold text-red-800">{f.client_name ?? f.client_id}</p>
-                <p className="text-xs text-red-600 font-mono break-all">{f.error}</p>
-              </div>
-            ))}
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
 
-export function C8ControlPage() {
-  const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
+// ── Componente: Audit Log do C8 Control ─────────────────────────────────────
 
-  const { canView, canCreate, canEdit, canDelete } = useModulePermission("c8control" as any);
-  const organizationId = useOrganization();
-  const { data: tenants } = useC8Tenants(organizationId);
-  const { data: plans = [] } = useC8Plans(organizationId);
-  const { pendingCount } = useC8PendingActivation(organizationId);
-  const n8nConfig = useN8nConfig(organizationId);
-  const qc = useQueryClient();
+const ACTION_LABELS: Record<string, string> = {
+  create_client:     "Cliente criado",
+  update_client:     "Cliente atualizado",
+  block_client:      "Cliente bloqueado",
+  unblock_client:    "Cliente desbloqueado",
+  suspend_client:    "Cliente suspenso",
+  cancel_client:     "Cliente cancelado",
+  delete_client:     "Cliente removido",
+  renew_contract:    "Contrato renovado",
+  grant_free_access: "Acesso gratuito liberado",
+  revoke_free_access:"Acesso gratuito revogado",
+  reset_password:    "Senha redefinida",
+};
 
-  // ── Atualização de schema em todos os clientes ────────────────────────────
-  const [isUpdatingAllSchemas, setIsUpdatingAllSchemas] = useState(false);
+function C8AuditLogTab({
+  organizationId,
+  tenants,
+}: {
+  organizationId: string;
+  tenants: C8Tenant[];
+}) {
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [clientFilter, setClientFilter] = useState<string>("all");
+  const [actionFilter, setActionFilter] = useState<string>("all");
+  const [userFilter, setUserFilter] = useState("");
 
-  type SchemaUpdateResult = {
-    total: number;
-    success: number;
-    failed: number;
-    failures: Array<{ client_id: string; client_name?: string; error: string }>;
-    updated_at: string;
-  };
-  const [schemaUpdateResult, setSchemaUpdateResult] = useState<SchemaUpdateResult | null>(null);
-  const [schemaErrorDialogOpen, setSchemaErrorDialogOpen] = useState(false);
-
-  const handleUpdateAllSchemas = async () => {
-    const n8nWebhookUrl = (import.meta as any).env?.VITE_N8N_C8_UPDATE_SCHEMA_WEBHOOK
-      ?? null;
-
-    // Busca URL do webhook via n8n config no banco
-    const { data: integration } = await supabase
-      .from("organization_integrations")
-      .select("config")
-      .eq("organization_id", organizationId)
-      .eq("integration_type", "n8n")
-      .maybeSingle();
-
-    const webhookUrl = (integration?.config as any)?.c8ProvisionWebhookUrl?.replace(
-      "c8-provision-client", "c8-update-schemas"
-    ) ?? (integration?.config as any)?.c8UpdateSchemaWebhookUrl ?? n8nWebhookUrl;
-
-    if (!webhookUrl) {
-      toast.error("Webhook de atualização não configurado.", {
-        description: "Acesse Configurações → n8n → C8 Control — Provisionar cliente e ajuste a URL para c8-update-schemas.",
-      });
-      return;
-    }
-
-    setIsUpdatingAllSchemas(true);
-    try {
-      const res = await fetch(webhookUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
-      const result: SchemaUpdateResult = {
-        total:      data.total    ?? 0,
-        success:    data.success  ?? 0,
-        failed:     data.failed   ?? 0,
-        failures:   data.failures ?? [],
-        updated_at: data.updated_at ?? new Date().toISOString(),
-      };
-      setSchemaUpdateResult(result);
-      if (result.failed === 0) {
-        toast.success(`Schema atualizado em ${result.success} cliente(s).`);
-      } else {
-        toast.warning(
-          `Schema atualizado em ${result.success} de ${result.total} cliente(s).`,
-          { description: `${result.failed} falha(s) — veja os detalhes no relatório.` }
-        );
-      }
-      // Refresca a tabela de Integrações para exibir as novas datas
-      qc.invalidateQueries({ queryKey: ["c8_tenants", organizationId] });
-    } catch (e: any) {
-      toast.error(`Erro: ${e.message}`);
-    } finally {
-      setIsUpdatingAllSchemas(false);
-    }
-  };
-
-  // Audit log — sessões dos tenants (últimas 200)
+  // Sessões (sub-seção)
+  const [showSessions, setShowSessions] = useState(false);
   const { data: sessions = [], isLoading: sessionsLoading } = useQuery({
     queryKey: ["crm_sessions_audit", organizationId],
     queryFn: async () => {
@@ -404,8 +316,212 @@ export function C8ControlPage() {
         revoked: boolean; clients: { name: string } | null;
       }>;
     },
-    enabled: !!organizationId,
+    enabled: !!organizationId && showSessions,
   });
+
+  const { logs, isLoading } = useC8AuditLogs({
+    organizationId,
+    clientId: clientFilter !== "all" ? clientFilter : undefined,
+    action: actionFilter !== "all" ? actionFilter : undefined,
+    userSearch: userFilter.trim() || undefined,
+    dateFrom: dateFrom || undefined,
+    dateTo: dateTo || undefined,
+  });
+
+  return (
+    <div className="space-y-5">
+      {/* Filtros */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <ClipboardList className="h-4 w-4 text-primary" />
+            Audit Log — C8 Control
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-muted-foreground font-medium">De</label>
+              <Input
+                type="date"
+                value={dateFrom}
+                onChange={e => setDateFrom(e.target.value)}
+                className="h-8 text-xs"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-muted-foreground font-medium">Até</label>
+              <Input
+                type="date"
+                value={dateTo}
+                onChange={e => setDateTo(e.target.value)}
+                className="h-8 text-xs"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-muted-foreground font-medium">Cliente</label>
+              <Select value={clientFilter} onValueChange={setClientFilter}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos os clientes</SelectItem>
+                  {tenants.map(t => (
+                    <SelectItem key={t.client_id} value={t.client_id}>{t.client_name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-muted-foreground font-medium">Ação</label>
+              <Select value={actionFilter} onValueChange={setActionFilter}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Todas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas as ações</SelectItem>
+                  {Object.entries(ACTION_LABELS).map(([k, v]) => (
+                    <SelectItem key={k} value={k}>{v}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-muted-foreground font-medium">Usuário</label>
+              <Input
+                placeholder="Nome ou e-mail"
+                value={userFilter}
+                onChange={e => setUserFilter(e.target.value)}
+                className="h-8 text-xs"
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Tabela de logs */}
+      <div className="rounded-lg border overflow-hidden">
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground p-4 text-center">Carregando logs...</p>
+        ) : logs.length === 0 ? (
+          <p className="text-sm text-muted-foreground p-4 text-center">
+            Nenhum registro encontrado para os filtros aplicados.
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-36">Data/Hora</TableHead>
+                <TableHead>Usuário</TableHead>
+                <TableHead>Cliente</TableHead>
+                <TableHead>Ação</TableHead>
+                <TableHead>Descrição</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {logs.map((log) => (
+                <TableRow key={log.id}>
+                  <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                    {format(parseISO(log.created_at), "dd/MM/yy HH:mm", { locale: ptBR })}
+                  </TableCell>
+                  <TableCell>
+                    <p className="text-xs font-medium">{log.user_name ?? "—"}</p>
+                    {log.user_role && (
+                      <p className="text-[10px] text-muted-foreground">{log.user_role}</p>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-xs">{log.client_name ?? "—"}</TableCell>
+                  <TableCell>
+                    <Badge className="text-xs bg-slate-100 text-slate-700">
+                      {ACTION_LABELS[log.action] ?? log.action}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground max-w-xs truncate">
+                    {log.description ?? "—"}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </div>
+
+      {/* Sub-seção: Sessões dos tenants */}
+      <div>
+        <button
+          className="text-xs text-primary underline underline-offset-2 hover:text-primary/80 transition-colors"
+          onClick={() => setShowSessions(v => !v)}
+        >
+          {showSessions ? "Ocultar" : "Ver"} sessões de acesso ao C8 Control
+        </button>
+        {showSessions && (
+          <div className="mt-3 rounded-lg border overflow-hidden">
+            {sessionsLoading ? (
+              <p className="text-sm text-muted-foreground p-4">Carregando sessões...</p>
+            ) : sessions.length === 0 ? (
+              <p className="text-sm text-muted-foreground p-4 text-center">Nenhuma sessão registrada.</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Cliente</TableHead>
+                    <TableHead>Usuário ID</TableHead>
+                    <TableHead>Início</TableHead>
+                    <TableHead>Última atividade</TableHead>
+                    <TableHead>Expira em</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sessions.map((s) => {
+                    const isExpired = new Date(s.expires_at) < new Date();
+                    return (
+                      <TableRow key={s.id}>
+                        <TableCell className="font-medium text-sm">
+                          {s.clients?.name ?? s.client_id.slice(0, 8)}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {s.user_id.slice(0, 8)}…
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {format(parseISO(s.created_at), "dd/MM/yy HH:mm", { locale: ptBR })}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {format(parseISO(s.last_activity_at), "dd/MM/yy HH:mm", { locale: ptBR })}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {format(parseISO(s.expires_at), "dd/MM/yy HH:mm", { locale: ptBR })}
+                        </TableCell>
+                        <TableCell>
+                          {s.revoked ? (
+                            <Badge className="bg-red-100 text-red-700 text-xs">Revogada</Badge>
+                          ) : isExpired ? (
+                            <Badge className="bg-slate-100 text-slate-500 text-xs">Expirada</Badge>
+                          ) : (
+                            <Badge className="bg-emerald-100 text-emerald-700 text-xs">Ativa</Badge>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function C8ControlPage() {
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const { canView, canCreate, canEdit, canDelete } = useModulePermission("c8control" as any);
+  const organizationId = useOrganization();
+  const { data: tenants } = useC8Tenants(organizationId);
+  const { data: plans = [] } = useC8Plans(organizationId);
 
   // Payments for the current month
   const now = new Date();
@@ -457,8 +573,9 @@ export function C8ControlPage() {
     .filter((p) => p.status === "pendente" || p.status === "atrasado")
     .reduce((sum, p) => sum + p.value, 0);
 
-  // Overdue (contract_end passed > 5 days ago)
+  // Overdue (contract_end passed > 5 days ago) — exclui acesso gratuito e incluído
   const overdueTenants = allTenants.filter((t) => {
+    if (t.c8_free_access || t.c8_included || t.plan_value === 0) return false;
     if (!t.contract_end) return false;
     return isBefore(parseISO(t.contract_end), overdueThreshold);
   });
@@ -515,14 +632,6 @@ export function C8ControlPage() {
           <TabsTrigger value="plans">Planos</TabsTrigger>
           <TabsTrigger value="support">Suporte</TabsTrigger>
           <TabsTrigger value="integrations">Integrações</TabsTrigger>
-          <TabsTrigger value="pending" className="relative">
-            Ativação Pendente
-            {pendingCount > 0 && (
-              <span className="ml-1.5 bg-amber-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none">
-                {pendingCount}
-              </span>
-            )}
-          </TabsTrigger>
           <TabsTrigger value="audit">
             <ClipboardList className="h-3.5 w-3.5 mr-1" />
             Audit Log
@@ -545,33 +654,16 @@ export function C8ControlPage() {
               </CardContent>
             </Card>
 
-            {/* Card ativação pendente — substitui Receita Mensal quando há pendências */}
-            {pendingCount > 0 ? (
-              <Card
-                className="border-amber-300 bg-amber-50 cursor-pointer hover:bg-amber-100 transition-colors"
-                onClick={() => setTab("pending")}
-              >
-                <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-                  <CardTitle className="text-sm font-medium text-amber-700">Ativação Pendente</CardTitle>
-                  <Zap className="h-4 w-4 text-amber-500" />
-                </CardHeader>
-                <CardContent>
-                  <p className="text-2xl font-bold text-amber-600">{pendingCount}</p>
-                  <p className="text-xs text-amber-600 mt-1">cliente(s) aguardando</p>
-                </CardContent>
-              </Card>
-            ) : (
-              <Card>
-                <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">Receita Mensal</CardTitle>
-                  <DollarSign className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <p className="text-2xl font-bold text-emerald-600">{fmtCurrency(expectedMonthly)}</p>
-                  <p className="text-xs text-muted-foreground mt-1">esperada este mês</p>
-                </CardContent>
-              </Card>
-            )}
+            <Card>
+              <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Receita Mensal</CardTitle>
+                <DollarSign className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold text-emerald-600">{fmtCurrency(expectedMonthly)}</p>
+                <p className="text-xs text-muted-foreground mt-1">esperada este mês</p>
+              </CardContent>
+            </Card>
 
             <Card>
               <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
@@ -824,6 +916,9 @@ export function C8ControlPage() {
               canCreate={canCreate}
               canEdit={canEdit}
               canDelete={canDelete}
+              initialClientId={clientParam}
+              initialTab={searchParams.get("subtab") ? "configuracoes" : undefined}
+              initialSubTab={searchParams.get("subtab") ?? undefined}
             />
           )}
         </TabsContent>
@@ -855,72 +950,24 @@ export function C8ControlPage() {
 
         {/* ── Integrações ── */}
         <TabsContent value="integrations" className="mt-4">
-          {organizationId && <C8IntegrationsOverview organizationId={organizationId} tenants={tenants ?? []} n8nConfig={n8nConfig} onSelectTenant={(clientId) => { const next = new URLSearchParams(searchParams); next.set("tab", "tenants"); setSearchParams(next, { replace: true }); }} onUpdateAllSchemas={handleUpdateAllSchemas} isUpdatingAllSchemas={isUpdatingAllSchemas} schemaUpdateResult={schemaUpdateResult} onClearSchemaResult={() => { setSchemaUpdateResult(null); setSchemaErrorDialogOpen(false); }} schemaErrorDialogOpen={schemaErrorDialogOpen} onSchemaErrorDialogOpen={() => setSchemaErrorDialogOpen(true)} />}
-        </TabsContent>
-
-        {/* ── Ativação Pendente ── */}
-        <TabsContent value="pending" className="mt-4">
           {organizationId && (
-            <C8PendingActivationTab organizationId={organizationId} canEdit={canEdit} />
+            <C8IntegrationsOverview
+              organizationId={organizationId}
+              tenants={tenants ?? []}
+              onSelectTenant={(clientId) => {
+                const next = new URLSearchParams(searchParams);
+                next.set("tab", "tenants");
+                next.set("client", clientId);
+                next.set("subtab", "integracoes");
+                setSearchParams(next, { replace: true });
+              }}
+            />
           )}
         </TabsContent>
 
         {/* ── Audit Log ── */}
         <TabsContent value="audit" className="mt-4">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <ClipboardList className="h-4 w-4 text-primary" />
-                Sessões dos Tenants (últimas 200)
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              {sessionsLoading ? (
-                <p className="text-sm text-muted-foreground p-4">Carregando...</p>
-              ) : sessions.length === 0 ? (
-                <p className="text-sm text-muted-foreground p-4 text-center">Nenhuma sessão registrada.</p>
-              ) : (
-                <div className="overflow-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Cliente</TableHead>
-                        <TableHead>Usuário ID</TableHead>
-                        <TableHead>Início</TableHead>
-                        <TableHead>Última atividade</TableHead>
-                        <TableHead>Expira em</TableHead>
-                        <TableHead>Status</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {sessions.map((s) => {
-                        const isExpired = new Date(s.expires_at) < new Date();
-                        const isActive = !s.revoked && !isExpired;
-                        return (
-                          <TableRow key={s.id}>
-                            <TableCell className="font-medium">{s.clients?.name ?? s.client_id.slice(0, 8)}</TableCell>
-                            <TableCell className="font-mono text-xs text-muted-foreground">{s.user_id.slice(0, 8)}…</TableCell>
-                            <TableCell className="text-xs">{format(parseISO(s.created_at), "dd/MM/yy HH:mm", { locale: ptBR })}</TableCell>
-                            <TableCell className="text-xs">{format(parseISO(s.last_activity_at), "dd/MM/yy HH:mm", { locale: ptBR })}</TableCell>
-                            <TableCell className="text-xs">{format(parseISO(s.expires_at), "dd/MM/yy HH:mm", { locale: ptBR })}</TableCell>
-                            <TableCell>
-                              {s.revoked ? (
-                                <Badge className="bg-red-100 text-red-700 text-xs">Revogada</Badge>
-                              ) : isExpired ? (
-                                <Badge className="bg-slate-100 text-slate-500 text-xs">Expirada</Badge>
-                              ) : (
-                                <Badge className="bg-emerald-100 text-emerald-700 text-xs">Ativa</Badge>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          {organizationId && <C8AuditLogTab organizationId={organizationId} tenants={tenants ?? []} />}
         </TabsContent>
       </Tabs>
     </div>

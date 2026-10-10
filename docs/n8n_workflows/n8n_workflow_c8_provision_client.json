@@ -1,0 +1,220 @@
+{
+  "name": "C8 Control — Provisionamento de Cliente",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "c8-provision-client",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook_trigger",
+      "name": "Webhook — Provisionar Cliente C8",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "notes": "Recebe payload do useC8PendingActivation após a Edge Function c8-provision-tenant já ter:\n  - Gerado a senha temporária\n  - Criado/atualizado o usuário no auth.users do Banco B\n  - Enviado o e-mail com credenciais via Resend\n\nEste workflow só aplica o schema do Banco B e registra o resultado.\nNÃO gera senha. NÃO envia e-mail.\n\nPayload esperado:\n  action        : 'provision_c8_client'\n  client_id     : UUID do cliente (Banco A)\n  client_name   : nome do cliente\n  supabase_url  : URL do Banco B\n  anon_key      : Anon Key do Banco B\n  service_key   : Service Role Key do Banco B\n  org_id        : UUID da organização (Banco A)\n  contract_start: data início do contrato (opcional)\n  contract_end  : data fim do contrato (opcional)\n  max_users     : número máximo de usuários\n  plan_name     : nome do plano\n\nConfigurar em Maestr.ia → Configurações → n8n → C8 Control Provision Webhook\ncom a URL de produção deste webhook."
+    },
+
+    {
+      "parameters": {
+        "jsCode": "// Valida o payload recebido e extrai os campos necessários\nconst body = $json;\n\nif (!body.client_id) {\n  return [{ json: { valid: false, error: 'client_id ausente no payload' } }];\n}\n\nif (!body.supabase_url || !body.service_key) {\n  return [{ json: {\n    valid: false,\n    client_id: body.client_id,\n    error: 'supabase_url ou service_key ausente — Banco B não configurado'\n  } }];\n}\n\nreturn [{ json: {\n  valid: true,\n  client_id:    body.client_id,\n  client_name:  body.client_name || body.client_id,\n  supabase_url: body.supabase_url,\n  anon_key:     body.anon_key,\n  service_key:  body.service_key,\n  org_id:       body.org_id,\n  max_users:    body.max_users || 3,\n  plan_name:    body.plan_name || 'Incluído'\n} }];"
+      },
+      "id": "validate_payload",
+      "name": "Validar payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true },
+          "conditions": [
+            {
+              "id": "valid_check",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check_valid",
+      "name": "Payload válido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+
+    {
+      "parameters": {
+        "url": "={{ $vars.SUPABASE_URL }}/functions/v1/provision-client-db",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_ANON_KEY }}" },
+            { "name": "Authorization", "value": "Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ client_id: $json.client_id }) }}",
+        "options": {
+          "timeout": 60000,
+          "retry": {
+            "enabled": true,
+            "maxTries": 2,
+            "waitBetweenTries": 3000
+          }
+        }
+      },
+      "id": "apply_schema",
+      "name": "Aplicar schema do Banco B",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 200],
+      "continueOnFail": true,
+      "notes": "Chama provision-client-db para criar/atualizar as tabelas no Banco B do cliente.\nNÃO cria usuário. NÃO envia e-mail. Apenas aplica o schema SQL."
+    },
+
+    {
+      "parameters": {
+        "jsCode": "// Avalia resultado do provision-client-db\nconst schemaResult = $json;\nconst clientId = $('validate_payload').first().json.client_id;\n\nconst schemaOk = schemaResult.success === true || schemaResult.applied === true;\nconst schemaError = schemaResult.error || null;\n\nreturn [{ json: {\n  client_id:    clientId,\n  schema_ok:    schemaOk,\n  schema_error: schemaError,\n  schema_result: schemaResult\n} }];"
+      },
+      "id": "check_schema_result",
+      "name": "Verificar resultado do schema",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 200]
+    },
+
+    {
+      "parameters": {
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/rpc/update_c8_activation_result",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_ANON_KEY }}" },
+            { "name": "Authorization", "value": "Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Prefer",        "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  p_client_id: $json.client_id,\n  p_success: $json.schema_ok,\n  p_error: $json.schema_ok ? null : ($json.schema_error || 'Falha ao aplicar schema do Banco B')\n}) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "update_activation_result",
+      "name": "Atualizar resultado da ativação",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 200],
+      "continueOnFail": true,
+      "notes": "Chama update_c8_activation_result (service_role) para marcar o cliente\ncomo 'ativo' ou 'falhou' no crm_client_plans do Banco A.\n\nA Edge Function c8-provision-tenant já marcou 'confirmed' no provisionamento\ndo usuário — esta chamada finaliza o status de ativação do workflow."
+    },
+
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({\n  success: true,\n  client_id: $('validate_payload').first().json.client_id,\n  client_name: $('validate_payload').first().json.client_name,\n  schema_applied: $('check_schema_result').first().json.schema_ok,\n  message: 'Schema aplicado. Usuário e e-mail já foram processados pela Edge Function c8-provision-tenant.'\n}) }}",
+        "options": {}
+      },
+      "id": "respond_success",
+      "name": "Responder: sucesso",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1560, 200]
+    },
+
+    {
+      "parameters": {
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/rpc/update_c8_activation_result",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_ANON_KEY }}" },
+            { "name": "Authorization", "value": "Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  p_client_id: $json.client_id,\n  p_success: false,\n  p_error: $json.error || 'Payload inválido'\n}) }}",
+        "options": {}
+      },
+      "id": "update_failed_invalid",
+      "name": "Registrar falha (payload inválido)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 440],
+      "continueOnFail": true
+    },
+
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: $('validate_payload').first().json.error }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "respond_invalid",
+      "name": "Responder: payload inválido",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 440]
+    }
+  ],
+
+  "connections": {
+    "Webhook — Provisionar Cliente C8": {
+      "main": [[ { "node": "Validar payload", "type": "main", "index": 0 } ]]
+    },
+    "Validar payload": {
+      "main": [[ { "node": "Payload válido?", "type": "main", "index": 0 } ]]
+    },
+    "Payload válido?": {
+      "main": [
+        [ { "node": "Aplicar schema do Banco B",       "type": "main", "index": 0 } ],
+        [ { "node": "Registrar falha (payload inválido)", "type": "main", "index": 0 } ]
+      ]
+    },
+    "Aplicar schema do Banco B": {
+      "main": [[ { "node": "Verificar resultado do schema", "type": "main", "index": 0 } ]]
+    },
+    "Verificar resultado do schema": {
+      "main": [[ { "node": "Atualizar resultado da ativação", "type": "main", "index": 0 } ]]
+    },
+    "Atualizar resultado da ativação": {
+      "main": [[ { "node": "Responder: sucesso", "type": "main", "index": 0 } ]]
+    },
+    "Registrar falha (payload inválido)": {
+      "main": [[ { "node": "Responder: payload inválido", "type": "main", "index": 0 } ]]
+    }
+  },
+
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+
+  "staticData": null,
+  "tags": ["c8-control", "provisioning", "banco-b", "schema"],
+  "pinData": {},
+  "versionId": "2.0.0",
+  "meta": {
+    "instanceId": "c8-provision-client",
+    "templateId": "c8-provision-client-v2",
+    "description": "v2 — Geração de senha e envio de e-mail removidos deste workflow. Responsabilidade transferida para a Edge Function c8-provision-tenant, que é a única fonte de verdade para credenciais do usuário. Este workflow aplica apenas o schema do Banco B."
+  }
+}

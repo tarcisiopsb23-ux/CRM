@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AdIntegrationDialog } from "@/components/integrations/AdIntegrationDialog";
 import { useClientIntegrations } from "@/hooks/useHubPerformance";
+import { useMetaConnections } from "@/hooks/useMetaConnections";
 import { supabase } from "@/lib/supabase";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -61,9 +62,37 @@ export function C8AdIntegrationsTab({ organizationId, initialClientId }: C8AdInt
   const [selectedClientId, setSelectedClientId] = useState<string | null>(initialClientId ?? null);
   const [modalOpen, setModalOpen] = useState(false);
   const [platform, setPlatform] = useState<"meta" | "google" | null>(null);
+  const [isMigratingMeta, setIsMigratingMeta] = useState(false);
 
-  const { data: integrations = [], isLoading, remove, triggerSync } =
+  const { data: integrations = [], isLoading, remove, triggerSync, upsert } =
     useClientIntegrations(organizationId, selectedClientId ?? undefined);
+
+  // Fallback: se não há client_integrations para Meta Ads, verifica se existe
+  // uma meta_connection com ad_account_id para este cliente (ou global da org).
+  const { connections: metaConnections } = useMetaConnections(organizationId, selectedClientId);
+
+  /**
+   * Quando o usuário aciona Sync ou Editar via fallback (Meta Connection),
+   * cria automaticamente uma entrada em client_integrations com o ad_account_id
+   * e retorna a integração criada para continuar o fluxo normal.
+   */
+  const migrateMetaConnectionToIntegration = async () => {
+    if (!metaConnectionWithAds || !selectedClientId) return null;
+    setIsMigratingMeta(true);
+    try {
+      const result = await upsert.mutateAsync({
+        platform:   "meta_ads",
+        account_id: metaConnectionWithAds.ad_account_id!,
+        client_id:  selectedClientId,
+      });
+      return (result as any[])?.[0] ?? null;
+    } catch {
+      toast.error("Erro ao registrar integração Meta Ads.");
+      return null;
+    } finally {
+      setIsMigratingMeta(false);
+    }
+  };
 
   // Carrega clientes com C8 Control habilitado
   useEffect(() => {
@@ -107,8 +136,13 @@ export function C8AdIntegrationsTab({ organizationId, initialClientId }: C8AdInt
   );
 
   const selectedClient = clients.find(c => c.id === selectedClientId);
-  const metaIntegration   = (integrations as any[]).find(i => i.platform === "meta");
-  const googleIntegration = (integrations as any[]).find(i => i.platform === "google");
+  const metaIntegration   = (integrations as any[]).find(i => i.platform === "meta" || i.platform === "meta_ads");
+  const googleIntegration = (integrations as any[]).find(i => i.platform === "google" || i.platform === "google_ads");
+
+  // Fallback: conexão Meta com ad_account_id quando não há client_integrations de Meta Ads
+  const metaConnectionWithAds = !metaIntegration
+    ? metaConnections.find(c => c.ad_account_id && c.status === "active")
+    : null;
 
   return (
     <div className="space-y-6">
@@ -175,18 +209,34 @@ export function C8AdIntegrationsTab({ organizationId, initialClientId }: C8AdInt
                   <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-lg shrink-0">M</div>
                   <div>
                     <p className="font-bold text-slate-800">Meta Ads (Facebook/Instagram)</p>
-                    <p className="text-sm text-slate-500">{metaIntegration ? `ID: ${metaIntegration.account_id}` : "Não conectado"}</p>
-                    {metaIntegration && (
-                      <div className="mt-1">
-                        <SyncStatusBadge status={metaIntegration.sync_status} lastSyncAt={metaIntegration.last_sync_at} records={metaIntegration.last_sync_records} error={metaIntegration.sync_error} />
-                      </div>
+                    {metaIntegration ? (
+                      <>
+                        <p className="text-sm text-slate-500">ID: {metaIntegration.account_id}</p>
+                        <div className="mt-1">
+                          <SyncStatusBadge
+                            status={metaIntegration.sync_status}
+                            lastSyncAt={metaIntegration.last_sync_at}
+                            records={metaIntegration.last_sync_records}
+                            error={metaIntegration.sync_error}
+                          />
+                        </div>
+                      </>
+                    ) : metaConnectionWithAds ? (
+                      <>
+                        <p className="text-sm text-emerald-600 font-medium">Conectado via Meta Connection</p>
+                        <p className="text-xs text-slate-400">Ad Account: {metaConnectionWithAds.ad_account_id}</p>
+                      </>
+                    ) : (
+                      <p className="text-sm text-slate-500">Não conectado</p>
                     )}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  {/* Botões quando conectado via client_integrations */}
                   {metaIntegration && (
                     <>
-                      <Button variant="ghost" size="sm" className="text-blue-600 hover:text-blue-700 gap-1"
+                      <Button
+                        variant="ghost" size="sm" className="text-blue-600 hover:text-blue-700 gap-1"
                         disabled={triggerSync.isPending || metaIntegration.sync_status === "syncing"}
                         onClick={() => triggerSync.mutate(metaIntegration.id, {
                           onSuccess: () => toast.success("Sincronização iniciada!"),
@@ -201,9 +251,34 @@ export function C8AdIntegrationsTab({ organizationId, initialClientId }: C8AdInt
                       </Button>
                     </>
                   )}
-                  <Button variant={metaIntegration ? "outline" : "default"} size="sm"
-                    onClick={() => handleOpenConnect("meta")}>
-                    {metaIntegration ? "Editar" : "Conectar Conta"}
+                  {/* Botões quando conectado via Meta Connection (fallback) */}
+                  {!metaIntegration && metaConnectionWithAds && (
+                    <>
+                      <Button
+                        variant="ghost" size="sm" className="text-blue-600 hover:text-blue-700 gap-1"
+                        disabled={isMigratingMeta || triggerSync.isPending}
+                        onClick={async () => {
+                          // Cria a entrada em client_integrations e aciona o sync
+                          const created = await migrateMetaConnectionToIntegration();
+                          if (created?.id) {
+                            triggerSync.mutate(created.id, {
+                              onSuccess: () => toast.success("Sincronização iniciada!"),
+                              onError: e => toast.error(`Erro: ${(e as Error).message}`),
+                            });
+                          }
+                        }}
+                      >
+                        {isMigratingMeta ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5" />}
+                        Sync
+                      </Button>
+                    </>
+                  )}
+                  <Button
+                    variant={metaIntegration || metaConnectionWithAds ? "outline" : "default"}
+                    size="sm"
+                    onClick={() => handleOpenConnect("meta")}
+                  >
+                    {metaIntegration ? "Editar" : metaConnectionWithAds ? "Conectar Conta" : "Conectar Conta"}
                   </Button>
                 </div>
               </div>

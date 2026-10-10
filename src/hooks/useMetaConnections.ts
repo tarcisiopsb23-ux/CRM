@@ -24,11 +24,32 @@ export type ConnectionStatus =
 export type HealthStatus = "healthy" | "warning" | "failed" | "unknown";
 export type ConnectionEnvironment = "production" | "development" | "review";
 
+// ── Token da agência ─────────────────────────────────────────────────────────
+
+export interface AgencyMetaCredential {
+  id: string;
+  organization_id: string;
+  display_name: string;
+  token_type: "system_user" | "user" | "page" | "app";
+  token_is_set: boolean;
+  meta_user_id: string | null;
+  business_id: string | null;
+  token_expires_at: string | null;
+  token_last_validated_at: string | null;
+  token_preview: string | null;
+  health_status: "healthy" | "warning" | "failed" | "unknown";
+  last_health_check_at: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface MetaConnectionSafe {
   id: string;
   organization_id: string;
   client_id: string | null;
   created_by: string | null;
+  use_agency_token: boolean;
   provider: MetaProvider;
   connection_method: ConnectionMethod;
   connection_environment: ConnectionEnvironment;
@@ -145,22 +166,25 @@ async function callEdgeFunction<T>(
 // ── Hook principal ────────────────────────────────────────────────────────────
 
 export function useMetaConnections(externalOrganizationId?: string, clientId?: string | null) {
+  const externalClientId = clientId;
   const hookOrganizationId = useOrganization();
   const organizationId = externalOrganizationId ?? hookOrganizationId;
   const qc = useQueryClient();
 
   // ── Lista de conexões (view segura) ──────────────────────────────────────
   const query = useQuery<MetaConnectionSafe[]>({
-    queryKey: ["meta_connections", organizationId, clientId ?? "all"],
+    queryKey: ["meta_connections", organizationId, externalClientId ?? "all"],
     queryFn: async () => {
       if (!organizationId) return [];
       let q = supabase
         .from("meta_connections_safe")
         .select("*")
         .eq("organization_id", organizationId)
+        .not("status", "in", '("disconnected","revoked")')
         .order("created_at", { ascending: false });
-      if (clientId) {
-        q = q.or(`client_id.eq.${clientId},client_id.is.null`);
+      // Quando clientId é fornecido, mostra conexões deste cliente OU conexões globais (client_id IS NULL)
+      if (externalClientId) {
+        q = q.or(`client_id.eq.${externalClientId},client_id.is.null`);
       }
       const { data, error } = await q;
       if (error) throw error;
@@ -198,12 +222,106 @@ export function useMetaConnections(externalOrganizationId?: string, clientId?: s
     enabled: !!organizationId,
   });
 
-  // ── Validar token + ativos (não persiste) ─────────────────────────────────
+  // ── Token da agência ─────────────────────────────────────────────────────
+  const agencyCredQuery = useQuery<AgencyMetaCredential | null>({
+    queryKey: ["agency_meta_credential", organizationId],
+    queryFn: async () => {
+      if (!organizationId) return null;
+      const { data, error } = await supabase
+        .from("organization_meta_credentials_safe")
+        .select("*")
+        .eq("organization_id", organizationId)
+        .eq("is_active", true)
+        .maybeSingle();
+      if (error) throw error;
+      return (data ?? null) as AgencyMetaCredential | null;
+    },
+    enabled: !!organizationId,
+  });
+
+  const saveAgencyToken = useMutation<
+    { success: boolean; credential_id: string },
+    Error,
+    {
+      access_token: string;
+      display_name?: string;
+      token_type?: "system_user" | "user" | "page" | "app";
+      meta_user_id?: string;
+      business_id?: string;
+      token_expires_at?: string;
+    }
+  >({
+    mutationFn: async (params) => {
+      if (!organizationId) throw new Error("organization_id não disponível");
+      return callEdgeFunction("meta-manual-connect", {
+        action: "set_agency_token",
+        organization_id: organizationId,
+        ...params,
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["agency_meta_credential", organizationId] });
+      qc.invalidateQueries({ queryKey: ["meta_connections", organizationId], exact: false });
+    },
+  });
+
+  const removeAgencyToken = useMutation<{ success: boolean }, Error, void>({
+    mutationFn: async () => {
+      if (!organizationId) throw new Error("organization_id não disponível");
+      return callEdgeFunction("meta-manual-connect", {
+        action: "remove_agency_token",
+        organization_id: organizationId,
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["agency_meta_credential", organizationId] });
+      qc.invalidateQueries({ queryKey: ["meta_connections", organizationId], exact: false });
+    },
+  });
+
+  const switchToAgencyToken = useMutation<{ success: boolean }, Error, { connection_id: string }>({
+    mutationFn: async (params) => {
+      if (!organizationId) throw new Error("organization_id não disponível");
+      return callEdgeFunction("meta-manual-connect", {
+        action: "switch_to_agency_token",
+        organization_id: organizationId,
+        ...params,
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["meta_connections", organizationId], exact: false });
+    },
+  });
+
+  const validateAgencyToken = useMutation<
+    ValidationResult,
+    Error,
+    {
+      provider: MetaProvider;
+      facebook_page_id?: string;
+      instagram_account_id?: string;
+      waba_id?: string;
+      phone_number_id?: string;
+      business_id?: string;
+      ad_account_id?: string;
+    }
+  >({
+    mutationFn: async (params) => {
+      if (!organizationId) throw new Error("organization_id não disponível");
+      return callEdgeFunction<ValidationResult>("meta-manual-validate", {
+        organization_id: organizationId,
+        use_agency_token: true,
+        ...params,
+      });
+    },
+  });
   const validate = useMutation<
     ValidationResult,
     Error,
     {
-      access_token: string;
+      access_token?: string;
+      use_agency_token?: boolean;
+      connection_id?: string;
       provider: MetaProvider;
       facebook_page_id?: string;
       instagram_account_id?: string;
@@ -230,7 +348,9 @@ export function useMetaConnections(externalOrganizationId?: string, clientId?: s
       provider: MetaProvider;
       connection_environment?: ConnectionEnvironment;
       display_name?: string;
-      access_token: string;
+      access_token?: string;
+      use_agency_token?: boolean;
+      client_id?: string;
       meta_user_id?: string;
       business_id?: string;
       facebook_page_id?: string;
@@ -294,6 +414,7 @@ export function useMetaConnections(externalOrganizationId?: string, clientId?: s
       });
     },
     onSuccess: () => {
+      // exact: false garante que invalida todas as variações da queryKey (com e sem clientId)
       qc.invalidateQueries({ queryKey: ["meta_connections", organizationId], exact: false });
     },
   });
@@ -343,17 +464,25 @@ export function useMetaConnections(externalOrganizationId?: string, clientId?: s
   };
 
   return {
-    connections:     query.data ?? [],
-    isLoading:       query.isLoading,
-    error:           query.error,
-    flags:           flagsQuery.data,
-    flagsLoading:    flagsQuery.isLoading,
+    connections:          query.data ?? [],
+    isLoading:            query.isLoading,
+    error:                query.error,
+    flags:                flagsQuery.data,
+    flagsLoading:         flagsQuery.isLoading,
+    // Token da agência
+    agencyCredential:     agencyCredQuery.data ?? null,
+    agencyCredLoading:    agencyCredQuery.isLoading,
+    saveAgencyToken,
+    removeAgencyToken,
+    switchToAgencyToken,
+    validateAgencyToken,
+    // Conexões individuais
     validate,
     create,
     replaceToken,
     disconnect,
     migrateToOAuth,
     checkDuplicate,
-    refetch:         query.refetch,
+    refetch:              query.refetch,
   };
 }

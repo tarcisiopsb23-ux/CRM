@@ -176,68 +176,9 @@ Criar uma seção `/admin/c8control` acessível apenas para usuários com role d
 - Busca por nome
 
 #### 4.2 Cadastro de novo tenant
-
-Campos obrigatórios:
-- Nome do cliente (`tenant_name`)
-- E-mail do usuário admin principal (`admin_email`)
-
-Campos opcionais:
-- Senha inicial (`admin_password`) — se omitida, o C8 Control envia um magic link para o e-mail
-- Nome da empresa (`company`)
-- Slug do dashboard (`slug`) — gerado automaticamente a partir do nome se omitido
-- Plano, limite de usuários, valor mensal, data de início (salvos em `crm_tenant_config`)
-
-**Ao salvar, o Maestr.ia deve:**
-
-1. Chamar a Edge Function `provision-tenant` do C8 Control:
-
-```typescript
-const res = await fetch(`${CRM_URL}/functions/v1/provision-tenant`, {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    "x-crm-api-key": CRM_API_KEY,
-  },
-  body: JSON.stringify({
-    tenant_name:    formData.tenant_name,
-    admin_email:    formData.admin_email,
-    admin_password: formData.admin_password ?? undefined,
-    company:        formData.company ?? undefined,
-    slug:           formData.slug ?? undefined,
-  }),
-});
-
-const { tenant_id, user_id, email, slug } = await res.json();
-// Se res.status === 409: slug ou e-mail já existe — exibir erro ao usuário
-// Se res.status !== 201: exibir mensagem de erro retornada
-```
-
-2. Com o `tenant_id` retornado, criar o registro em `crm_tenant_config`:
-
-```typescript
-await supabase.from("crm_tenant_config").insert({
-  tenant_id,
-  client_name:    formData.tenant_name,
-  plan_name:      formData.plan_name,
-  max_users:      formData.max_users,
-  monthly_value:  formData.monthly_value,
-  contract_start: formData.contract_start,
-  status:         "ativo",
-});
-```
-
-**Secrets necessários no Maestr.ia (Edge Functions):**
-```
-CRM_URL=https://xcymhcqbyyuozkzhpxgi.supabase.co
-CRM_API_KEY=<mesma chave configurada no C8 Control>
-```
-
-**O que acontece no C8 Control após o provisionamento:**
-- Registro criado em `clients` com `tenant_id = clients.id`
-- Usuário criado em `auth.users` com `user_metadata.tenant_id` e `user_metadata.role = 'admin'`
-- Registro criado em `tenant_users` com `role = 'admin'`
-- Se senha fornecida: usuário pode fazer login imediatamente
-- Se senha omitida: magic link enviado para o e-mail do admin (usuário define a senha no primeiro acesso)
+- Formulário: Nome do cliente, Plano, Limite de usuários, Valor mensal, Data de início
+- Ao salvar: cria registro em `crm_tenant_config` com o `tenant_id` informado
+- O `tenant_id` deve ser o UUID do `clients.id` no banco do C8 Control (informado manualmente ou via integração futura)
 
 #### 4.3 Gestão individual do tenant
 - Alterar status (ativo → bloqueado, com motivo obrigatório)
@@ -255,16 +196,11 @@ CRM_API_KEY=<mesma chave configurada no C8 Control>
 #### 4.5 Proteção de rota
 ```typescript
 // Verificar que o usuário tem role de agência antes de renderizar
-// Roles com acesso ao módulo gerencial: owner, admin, manager, member
-// Role SEM acesso: viewer
-const AGENCY_ROLES_WITH_ACCESS = ["owner", "admin", "manager", "member"];
-if (!AGENCY_ROLES_WITH_ACCESS.includes(user?.user_metadata?.role)) {
+// Usuários normais do Maestr.ia não devem ver esta seção
+if (!user?.user_metadata?.is_agency_admin) {
   redirect('/dashboard');
 }
 ```
-
-**Nota sobre acesso ao CRM:**
-Os roles `owner`, `admin`, `manager` e `member` do Maestr.ia também têm acesso ao C8 Control como usuários da agência (equivalente ao suporte técnico). Eles veem todos os tenants via TenantSelector, sem vínculo com nenhum tenant específico. O role `viewer` não tem acesso ao C8 Control.
 
 ---
 

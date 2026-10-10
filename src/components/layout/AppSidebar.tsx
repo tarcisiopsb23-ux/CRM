@@ -24,6 +24,7 @@ import {
   FileText,
   ShieldCheck,
   TrendingUp,
+  ImagePlay,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -59,6 +60,18 @@ const navItems: (
   { type: "item", title: "Conversas", url: "/whatsapp", icon: MessageCircle, module: "whatsapp" },
   // { type: "item", title: "Reuniões IA", url: "/meetings", icon: Sparkles, module: "meetings" }, // módulo desativado
   { type: "item", title: "Gestão de Pessoas", url: "/team", icon: UsersRound, module: "team" },
+  {
+    type: "collapsible",
+    label: "Conteúdo",
+    icon: ImagePlay,
+    children: [
+      { title: "Itens",        url: "/content/itens",        icon: ImagePlay, module: "content_ops" },
+      { title: "Calendário",   url: "/content/planejamento", icon: Calendar,  module: "content_ops" },
+      { title: "Campanhas",    url: "/content/campanhas",    icon: Megaphone, module: "content_ops" },
+      { title: "Briefings",    url: "/content/briefing",     icon: FileText,  module: "content_ops" },
+      { title: "Entregáveis",  url: "/content/entregaveis",  icon: Share2,    module: "content_ops" },
+    ],
+  },
   { type: "item", title: "Campanhas", url: "/campaign-reports", icon: Megaphone, module: "campaigns" },
   { type: "item", title: "Relatórios", url: "/reports", icon: FileBarChart, module: "reports" },
   { type: "item", title: "Auditoria", url: "/audit", icon: History, module: "audit" },
@@ -95,6 +108,7 @@ export function AppSidebar() {
   const { canView: canViewC8Control } = useModulePermission("c8control" as any);
   const { canView: canViewFiscal } = useModulePermission("fiscal" as any);
   const { canView: canViewComercial } = useModulePermission("comercial");
+  const { canView: canViewContentOps } = useModulePermission("content_ops" as any);
 
   const canViewByModule: Record<string, boolean> = {
     dashboard: canViewDashboard,
@@ -116,6 +130,7 @@ export function AppSidebar() {
     c8control: canViewC8Control,
     fiscal: canViewFiscal,
     comercial: canViewComercial,
+    content_ops: canViewContentOps,
   };
 
   const visibleItems = navItems.filter((item) => {

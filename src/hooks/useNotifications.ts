@@ -8,6 +8,7 @@ export type NotificationType =
   | "lead_quente"
   | "lead_morno"
   | "lead_frio"
+  | "contrato_pendente"   // contrato emitido aguardando confirmação de assinatura
   | "sistema";
 
 export interface Notification {
@@ -107,4 +108,44 @@ export function useNotifications() {
     markAllRead,
     refetch: fetchNotifications,
   };
+}
+
+// ── Função utilitária: notificar gestores sobre contrato pendente ─────────────
+/**
+ * Emite uma notificação do tipo "contrato_pendente" para todos os usuários
+ * com role manager, admin ou owner da organização.
+ *
+ * Chamada pelo useContractSecurity.emitContract após mudar o status para "emitido".
+ */
+export async function notifyContractPending(
+  organizationId: string,
+  contractNumber: string | null,
+  contractTitle: string,
+  emittedByName: string | null
+): Promise<void> {
+  try {
+    // Busca todos os managers/admins/owners da organização
+    const { data: managers } = await supabase
+      .from("profiles")
+      .select("id, role")
+      .eq("organization_id", organizationId)
+      .in("role", ["manager", "admin", "owner"]);
+
+    if (!managers?.length) return;
+
+    // Insere uma notificação por usuário elegível
+    const rows = managers.map((m: { id: string; role: string }) => ({
+      organization_id: organizationId,
+      user_id:         m.id,
+      type:            "contrato_pendente" as NotificationType,
+      title:           `Contrato ${contractNumber ?? ""} aguarda confirmação de assinatura`,
+      body:            `"${contractTitle}" foi emitido por ${emittedByName ?? "um usuário"} e aguarda confirmação da assinatura.`,
+      action_url:      "/clients?tab=contratos-pendentes",
+      metadata:        { contract_number: contractNumber, emitted_by_name: emittedByName },
+    }));
+
+    await supabase.from("notifications").insert(rows);
+  } catch {
+    // Notificação é best-effort — não bloqueia o fluxo principal
+  }
 }

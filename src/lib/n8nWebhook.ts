@@ -1,60 +1,97 @@
 /**
  * n8nWebhook.ts
  *
- * Dispara eventos do C8 Control para o workflow n8n configurado pelo tenant.
- * Chamado quando um lead muda de status (drag-and-drop ou edição manual).
+ * Utilitário centralizado para disparar webhooks do n8n.
+ * Fire-and-forget — nunca bloqueia o fluxo principal.
  *
- * O webhook URL e a chave de API são lidos do metadata do tenant (clients.metadata).
- * A chave é enviada no header x-api-key para autenticação no n8n.
- *
- * Falhas são silenciosas — não interrompem o fluxo do CRM.
+ * Envia o registro completo + action + table para a URL configurada.
  */
 
-export interface N8nLeadEvent {
-  event:      "lead.status_changed" | "lead.created" | "lead.closed" | "lead.deleted";
-  lead_id:    string;
-  lead_name:  string;
-  status:     string;
-  prev_status?: string;
-  phone?:     string | null;
-  origin?:    string | null;
-  tenant_id:  string;
-  timestamp:  string;
-}
+import { supabase } from "@/lib/supabase";
+import type { N8nConfig } from "@/types/settings";
 
-/**
- * Dispara um evento para o webhook n8n do tenant.
- * Fire-and-forget — erros são logados mas não propagados.
- */
-export async function fireN8nWebhook(
-  webhookUrl: string,
-  apiKey: string,
-  event: N8nLeadEvent
-): Promise<void> {
-  if (!webhookUrl?.trim()) return;
+// Cache simples em memória para evitar buscar a config a cada disparo
+const configCache = new Map<string, { config: N8nConfig; fetchedAt: number }>();
+const CACHE_TTL_MS = 60_000;
 
+async function getN8nConfig(organizationId: string): Promise<N8nConfig | null> {
+  const cached = configCache.get(organizationId);
+  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) return cached.config;
   try {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    if (apiKey?.trim()) {
-      headers["x-api-key"] = apiKey.trim();
-    }
-
-    await fetch(webhookUrl.trim(), {
-      method:  "POST",
-      headers,
-      body:    JSON.stringify(event),
-    });
-  } catch (err) {
-    // Falha silenciosa — não interrompe o CRM
-    console.warn("[n8n] Falha ao disparar webhook:", err);
+    const { data } = await supabase
+      .from("organization_integrations")
+      .select("config")
+      .eq("organization_id", organizationId)
+      .eq("integration_type", "n8n")
+      .maybeSingle();
+    const config = (data?.config ?? null) as N8nConfig | null;
+    if (config) configCache.set(organizationId, { config, fetchedAt: Date.now() });
+    return config;
+  } catch {
+    return null;
   }
 }
 
-/** Gera uma chave de API aleatória segura (32 bytes hex) */
-export function generateApiKey(): string {
-  const array = new Uint8Array(32);
-  crypto.getRandomValues(array);
-  return Array.from(array).map(b => b.toString(16).padStart(2, "0")).join("");
+export type N8nWebhookTable = "clients" | "suppliers" | "projects" | "tasks";
+export type N8nWebhookAction = "create" | "update" | "delete";
+
+/**
+ * Dispara um webhook n8n com o registro completo.
+ * Usa a URL configurada por tabela nas settings da organização.
+ *
+ * Mapeamento de URLs por tabela:
+ *   clients   → clientWebhookUrl
+ *   suppliers → (financialWebhookUrl como fallback, ou leadWebhookUrl — configurável)
+ *   projects  → clickupWebhookUrl (projetos vão para ClickUp/n8n)
+ *   tasks     → clickupWebhookUrl
+ */
+export async function fireN8nWebhook(
+  organizationId: string,
+  table: N8nWebhookTable,
+  action: N8nWebhookAction,
+  record: Record<string, unknown>
+): Promise<void> {
+  const config = await getN8nConfig(organizationId);
+  if (!config) return;
+
+  // Regras de disparo para projetos e tarefas:
+  // - delete: sempre dispara (independente de is_freelancer) — precisa remover do ClickUp se existir
+  // - create/update de tarefas terceirizadas: bloqueado aqui, feito pelo ProjectDetailsPage com parent_project
+  // - create/update de projetos não-terceirizados: bloqueado (sem ClickUp)
+  if (action !== "delete") {
+    if (table === "tasks" && record.is_freelancer) return;
+    if ((table === "projects" || table === "tasks") && !record.is_freelancer) return;
+  }
+
+  // Resolve a URL correta por tabela
+  const urlMap: Record<N8nWebhookTable, string | undefined> = {
+    clients:   config.clientWebhookUrl,
+    suppliers: config.financialWebhookUrl,
+    projects:  config.clickupWebhookUrl,
+    tasks:     config.clickupWebhookUrl,
+  };
+
+  const url = urlMap[table]?.trim();
+  if (!url) return;
+
+  try {
+    await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action,
+        table,
+        organization_id: organizationId,
+        record,
+        timestamp: new Date().toISOString(),
+      }),
+    });
+  } catch {
+    // fire-and-forget
+  }
+}
+
+/** Invalida o cache de config de uma organização */
+export function invalidateN8nConfigCache(organizationId: string): void {
+  configCache.delete(organizationId);
 }

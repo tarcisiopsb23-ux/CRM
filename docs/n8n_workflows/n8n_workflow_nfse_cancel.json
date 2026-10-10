@@ -1,0 +1,395 @@
+{
+  "name": "Maestr.IA — Fiscal NFS-e Cancelamento",
+  "_readme": {
+    "description": "Recebe solicitação de cancelamento de NFS-e, consulta dados no Supabase via nó nativo, chama a API Notaas via HTTP Request, faz upload do comprovante de cancelamento no Google Drive (pasta do cliente) e atualiza o invoice no Supabase.",
+    "webhook_path": "nfse-cancel",
+    "env_vars_required": ["SUPABASE_URL", "SUPABASE_SERVICE_KEY"],
+    "payload": {
+      "_action": "cancelar",
+      "invoice_id": "UUID do invoice no Supabase",
+      "organization_id": "UUID da organização",
+      "notaas_id": "ID externo na Notaas",
+      "numero": "Número da nota (opcional, para log)",
+      "motivo": "Motivo do cancelamento (obrigatório)"
+    },
+    "setup": [
+      "1. Importe este arquivo no n8n",
+      "2. Configure as credenciais: Supabase (nó nativo) e Google Drive OAuth2",
+      "3. Ative o workflow e copie a URL do webhook",
+      "4. Cole a URL em Configurações → Notaas → Webhook Cancelamento (cancel_webhook_url)"
+    ]
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "nfse-cancel",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-cancel",
+      "name": "Webhook — Cancelar NFS-e",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "nfse-cancel-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.item.json.body || $input.item.json;\n\nconst invoiceId = body.invoice_id || null;\nconst orgId     = body.organization_id || null;\nconst notaasId  = body.notaas_id || null;\nconst numero    = body.numero || null;\nconst motivo    = (body.motivo || '').trim();\n\nif (!invoiceId)  throw new Error('invoice_id é obrigatório');\nif (!orgId)      throw new Error('organization_id é obrigatório');\nif (!notaasId)   throw new Error('notaas_id é obrigatório para cancelamento');\nif (!motivo)     throw new Error('motivo é obrigatório para cancelamento');\n\nreturn [{ json: { invoice_id: invoiceId, organization_id: orgId, notaas_id: notaasId, numero, motivo } }];"
+      },
+      "id": "parsear-payload",
+      "name": "Parsear Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "invoices",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "keyValue": "={{ $json.invoice_id }}"
+            }
+          ]
+        }
+      },
+      "id": "buscar-invoice",
+      "name": "Buscar Invoice",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [680, 180],
+      "credentials": {
+        "supabaseApi": {
+          "id": "yDtu96eQqnPXpyAM",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "organization_integrations",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "organization_id",
+              "keyValue": "={{ $('Parsear Payload').item.json.organization_id }}"
+            },
+            {
+              "keyName": "integration_type",
+              "keyValue": "notaas"
+            }
+          ]
+        }
+      },
+      "id": "buscar-config-notaas",
+      "name": "Buscar Config Notaas",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [680, 420],
+      "credentials": {
+        "supabaseApi": {
+          "id": "yDtu96eQqnPXpyAM",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "numberInputs": 2
+      },
+      "id": "merge-dados",
+      "name": "Merge Dados",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst parsed = $('Parsear Payload').item.json;\n\nlet invoice = null;\nlet config  = {};\n\nfor (const item of items) {\n  const j = item?.json;\n  if (!j) continue;\n  if (j.integration_type === 'notaas' || (j.config && j.config.api_key !== undefined)) {\n    config = j.config ?? {};\n  } else if (j.valor_servico !== undefined || j.type === 'nfse') {\n    invoice = j;\n  }\n}\n\nif (!invoice?.id)    throw new Error('Invoice não encontrado: ' + parsed.invoice_id);\nif (!config.api_key) throw new Error('API Key da Notaas não configurada');\n\nconst allowedStatuses = ['emitida', 'processando', 'aguardando'];\nif (!allowedStatuses.includes(invoice.status)) {\n  throw new Error('Invoice com status \"' + invoice.status + '\" não pode ser cancelado');\n}\n\nconst baseUrl = config.sandbox_mode === true\n  ? 'https://sandbox.notaas.com.br'\n  : 'https://platform.notaas.com.br';\n\nreturn [{ json: {\n  invoice_id:      invoice.id,\n  organization_id: invoice.organization_id,\n  client_id:       invoice.client_id,\n  notaas_id:       parsed.notaas_id || invoice.notaas_id,\n  numero:          parsed.numero    || invoice.numero || null,\n  motivo:          parsed.motivo,\n  competencia:     invoice.competencia || null,\n  valor_servico:   invoice.valor_servico,\n  api_key:         config.api_key,\n  base_url:        baseUrl\n}}];"
+      },
+      "id": "preparar-cancelamento",
+      "name": "Preparar Cancelamento",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.base_url }}/api/v1/cancelar/{{ $json.notaas_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key",    "value": "={{ $json.api_key }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "User-Agent",   "value": "MaestrIA-n8n/1.0" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ motivo: $json.motivo }) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "chamar-api-cancelar",
+      "name": "Chamar API Notaas — Cancelar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict", "version": 1 },
+          "conditions": [
+            {
+              "id": "check-ok",
+              "leftValue": "={{ $json.statusCode }}",
+              "rightValue": 300,
+              "operator": { "type": "number", "operation": "lt" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "verificar-resposta-notaas",
+      "name": "Cancelamento OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "clients",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "keyValue": "={{ $('Preparar Cancelamento').item.json.client_id }}"
+            }
+          ]
+        }
+      },
+      "id": "buscar-cliente",
+      "name": "Buscar Cliente",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [1780, 180],
+      "credentials": {
+        "supabaseApi": {
+          "id": "yDtu96eQqnPXpyAM",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const cancelData  = $('Preparar Cancelamento').item.json;\nconst clientData  = $('Buscar Cliente').item.json;\n// Com fullResponse=true, a resposta da Notaas fica em .body\nconst httpResp    = $('Chamar API Notaas — Cancelar').item.json;\nconst notaasResp  = httpResp.body || httpResp;\n\nconst folderId = clientData?.folder_id || null;\nconst clientName = ((clientData?.company || clientData?.name) || 'cliente')\n  .replace(/[^a-zA-Z0-9 ]/g, '').trim().slice(0, 40);\n\nconst numero = cancelData.numero || cancelData.notaas_id;\nconst competencia = (cancelData.competencia || '').replace('-', '_');\nconst fileName = 'NFS-e_CANCELADA_' + numero + (competencia ? '_' + competencia : '') + '_' + clientName + '.json';\n\nconst comprovante = JSON.stringify({\n  invoice_id:      cancelData.invoice_id,\n  notaas_id:       cancelData.notaas_id,\n  numero:          cancelData.numero,\n  motivo:          cancelData.motivo,\n  cancelada_em:    new Date().toISOString(),\n  notaas_response: notaasResp\n}, null, 2);\n\nreturn [{ json: {\n  invoice_id:      cancelData.invoice_id,\n  organization_id: cancelData.organization_id,\n  notaas_id:       cancelData.notaas_id,\n  motivo:          cancelData.motivo,\n  folder_id:       folderId,\n  file_name:       fileName,\n  comprovante_b64: Buffer.from(comprovante).toString('base64'),\n  has_folder:      !!folderId\n}}];"
+      },
+      "id": "preparar-comprovante",
+      "name": "Preparar Comprovante",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 180]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict", "version": 1 },
+          "conditions": [
+            {
+              "id": "has-folder",
+              "leftValue": "={{ $json.has_folder }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "tem-pasta-drive",
+      "name": "Tem pasta no Drive?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2220, 180]
+    },
+    {
+      "parameters": {
+        "name": "={{ $json.file_name }}",
+        "driveId": { "__rl": true, "mode": "list", "value": "My Drive" },
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.folder_id }}"
+        },
+        "binaryPropertyName": "data",
+        "options": {
+          "simplifyOutput": true
+        }
+      },
+      "id": "upload-drive",
+      "name": "Upload Comprovante no Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [2440, 60],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "google-drive-oauth",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const prep = $('Preparar Comprovante').item.json;\nconst b64  = prep.comprovante_b64;\n\n// Converte base64 para binário e injeta como campo binário para o nó Google Drive\nconst buf = Buffer.from(b64, 'base64');\n\nreturn [{\n  json: { ...prep },\n  binary: {\n    data: {\n      data: b64,\n      mimeType: 'application/json',\n      fileName: prep.file_name\n    }\n  }\n}];"
+      },
+      "id": "preparar-binario",
+      "name": "Preparar Binário",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2440, 180]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "invoices",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "keyValue": "={{ $('Preparar Comprovante').item.json.invoice_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            { "fieldId": "status",              "fieldValue": "cancelada" },
+            { "fieldId": "cancelada_em",        "fieldValue": "={{ new Date().toISOString() }}" },
+            { "fieldId": "motivo_cancelamento", "fieldValue": "={{ $('Preparar Comprovante').item.json.motivo }}" }
+          ]
+        }
+      },
+      "id": "atualizar-invoice-cancelado",
+      "name": "Atualizar Invoice — Cancelado",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [2660, 180],
+      "credentials": {
+        "supabaseApi": {
+          "id": "yDtu96eQqnPXpyAM",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, invoice_id: $('Preparar Comprovante').item.json.invoice_id, status: 'cancelada', notaas_id: $('Preparar Comprovante').item.json.notaas_id }) }}",
+        "options": {}
+      },
+      "id": "resposta-sucesso",
+      "name": "Resposta — Cancelado",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2880, 180]
+    },
+    {
+      "parameters": {
+        "jsCode": "// $input.item.json é a resposta HTTP completa (fullResponse=true)\nconst resp = $input.item.json;\nconst body = resp.body || resp;\nconst statusCode = resp.statusCode || 0;\nconst msg = body?.message || body?.error || body?.msg || body?.detail\n  || ('HTTP ' + statusCode + ': cancelamento recusado pela Notaas');\n\nreturn [{ json: {\n  success:    false,\n  statusCode,\n  error:      msg,\n  raw:        typeof body === 'string' ? body : JSON.stringify(body)\n}}];"
+      },
+      "id": "erro-notaas",
+      "name": "Erro — Notaas Recusou",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 420]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: $json.error || 'Erro no cancelamento', statusCode: $json.statusCode }) }}",
+        "options": {
+          "responseCode": 422
+        }
+      },
+      "id": "resposta-erro",
+      "name": "Resposta — Erro",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2000, 420]
+    }
+  ],
+  "connections": {
+    "Webhook — Cancelar NFS-e": {
+      "main": [[{ "node": "Parsear Payload", "type": "main", "index": 0 }]]
+    },
+    "Parsear Payload": {
+      "main": [[
+        { "node": "Buscar Invoice",       "type": "main", "index": 0 },
+        { "node": "Buscar Config Notaas", "type": "main", "index": 0 }
+      ]]
+    },
+    "Buscar Invoice": {
+      "main": [[{ "node": "Merge Dados", "type": "main", "index": 0 }]]
+    },
+    "Buscar Config Notaas": {
+      "main": [[{ "node": "Merge Dados", "type": "main", "index": 1 }]]
+    },
+    "Merge Dados": {
+      "main": [[{ "node": "Preparar Cancelamento", "type": "main", "index": 0 }]]
+    },
+    "Preparar Cancelamento": {
+      "main": [[{ "node": "Chamar API Notaas — Cancelar", "type": "main", "index": 0 }]]
+    },
+    "Chamar API Notaas — Cancelar": {
+      "main": [[{ "node": "Cancelamento OK?", "type": "main", "index": 0 }]]
+    },
+    "Cancelamento OK?": {
+      "main": [
+        [{ "node": "Buscar Cliente",       "type": "main", "index": 0 }],
+        [{ "node": "Erro — Notaas Recusou","type": "main", "index": 0 }]
+      ]
+    },
+    "Buscar Cliente": {
+      "main": [[{ "node": "Preparar Comprovante", "type": "main", "index": 0 }]]
+    },
+    "Preparar Comprovante": {
+      "main": [[{ "node": "Tem pasta no Drive?", "type": "main", "index": 0 }]]
+    },
+    "Tem pasta no Drive?": {
+      "main": [
+        [{ "node": "Preparar Binário", "type": "main", "index": 0 }],
+        [{ "node": "Atualizar Invoice — Cancelado", "type": "main", "index": 0 }]
+      ]
+    },
+    "Preparar Binário": {
+      "main": [[{ "node": "Upload Comprovante no Drive", "type": "main", "index": 0 }]]
+    },
+    "Upload Comprovante no Drive": {
+      "main": [[{ "node": "Atualizar Invoice — Cancelado", "type": "main", "index": 0 }]]
+    },
+    "Atualizar Invoice — Cancelado": {
+      "main": [[{ "node": "Resposta — Cancelado", "type": "main", "index": 0 }]]
+    },
+    "Erro — Notaas Recusou": {
+      "main": [[{ "node": "Resposta — Erro", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "versionId": "1.0.0"
+}

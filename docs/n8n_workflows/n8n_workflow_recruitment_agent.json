@@ -1,0 +1,156 @@
+{
+  "name": "Maestr.IA — Agente de Recrutamento (WhatsApp)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "recruitment-agent",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-in",
+      "name": "Webhook — Mensagem do Candidato",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 400],
+      "webhookId": "recruitment-agent"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst sessionId = body.sessionId || body.from || body.phone || null;\nconst message = body.message || body.text || body.body || '';\nconst jobOpeningId = body.jobOpeningId || body.job_opening_id || null;\nconst step = body.step || 'start';\nconst answers = body.answers || {};\nconst candidateData = body.candidateData || {};\nreturn [{ json: { sessionId, message, jobOpeningId, step, answers, candidateData } }];"
+      },
+      "id": "parse-message",
+      "name": "Parsear Mensagem",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/job_openings?id=eq.{{ $json.jobOpeningId }}&status=eq.aberta&select=id,title,organization_id",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
+          ]
+        }
+      },
+      "id": "get-job",
+      "name": "Buscar Vaga",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/job_form_questions?job_opening_id=eq.{{ $('Parsear Mensagem').first().json.jobOpeningId }}&order=sort_order.asc",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
+          ]
+        }
+      },
+      "id": "get-questions",
+      "name": "Buscar Perguntas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [680, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "const parsed = $('Parsear Mensagem').first().json;\nconst job = ($('Buscar Vaga').first().json || [])[0];\nconst questions = $('Buscar Perguntas').first().json || [];\n\nif (!job) {\n  return [{ json: { action: 'reply', message: '❌ Vaga não encontrada ou encerrada.', done: true } }];\n}\n\nconst step = parsed.step;\nconst answers = parsed.answers || {};\nconst candidateData = parsed.candidateData || {};\n\n// Fluxo de coleta de dados pessoais\nif (step === 'start') {\n  return [{ json: { action: 'reply', message: `Olá! 👋 Você está se candidatando para a vaga *${job.title}*.\\n\\nPrimeiro, me diga seu *nome completo*:`, nextStep: 'collect_name', jobOpeningId: job.id, organizationId: job.organization_id, answers, candidateData } }];\n}\nif (step === 'collect_name') {\n  return [{ json: { action: 'reply', message: 'Ótimo! Agora me informe seu *e-mail*:', nextStep: 'collect_email', jobOpeningId: job.id, organizationId: job.organization_id, answers, candidateData: { ...candidateData, full_name: parsed.message } } }];\n}\nif (step === 'collect_email') {\n  const email = parsed.message.trim().toLowerCase();\n  if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) {\n    return [{ json: { action: 'reply', message: '⚠️ E-mail inválido. Por favor, informe um e-mail válido:', nextStep: 'collect_email', jobOpeningId: job.id, organizationId: job.organization_id, answers, candidateData } }];\n  }\n  return [{ json: { action: 'reply', message: 'E agora seu *telefone* (com DDD):', nextStep: 'collect_phone', jobOpeningId: job.id, organizationId: job.organization_id, answers, candidateData: { ...candidateData, email } } }];\n}\nif (step === 'collect_phone') {\n  const updatedCandidate = { ...candidateData, phone: parsed.message.trim() };\n  if (questions.length === 0) {\n    return [{ json: { action: 'submit', jobOpeningId: job.id, organizationId: job.organization_id, answers, candidateData: updatedCandidate } }];\n  }\n  const firstQ = questions[0];\n  return [{ json: { action: 'reply', message: `Perfeito! Agora algumas perguntas sobre a vaga.\\n\\n*Pergunta 1/${questions.length}:*\\n${firstQ.question_text}`, nextStep: `question_0`, questionIndex: 0, jobOpeningId: job.id, organizationId: job.organization_id, answers, candidateData: updatedCandidate } }];\n}\n\n// Fluxo de perguntas\nif (step.startsWith('question_')) {\n  const idx = parseInt(step.replace('question_', ''), 10);\n  const currentQ = questions[idx];\n  const updatedAnswers = { ...answers, [currentQ.id]: parsed.message };\n  const nextIdx = idx + 1;\n  if (nextIdx < questions.length) {\n    const nextQ = questions[nextIdx];\n    return [{ json: { action: 'reply', message: `*Pergunta ${nextIdx + 1}/${questions.length}:*\\n${nextQ.question_text}`, nextStep: `question_${nextIdx}`, questionIndex: nextIdx, jobOpeningId: job.id, organizationId: job.organization_id, answers: updatedAnswers, candidateData } }];\n  }\n  return [{ json: { action: 'submit', jobOpeningId: job.id, organizationId: job.organization_id, answers: updatedAnswers, candidateData } }];\n}\n\nreturn [{ json: { action: 'reply', message: 'Não entendi. Tente novamente.', done: false } }];"
+      },
+      "id": "process-step",
+      "name": "Processar Etapa",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "submit", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "submit"
+            },
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "reply", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "reply"
+            }
+          ]
+        }
+      },
+      "id": "route-action",
+      "name": "Roteador",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1120, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.first().json;\nconst supabaseUrl = $env.SUPABASE_URL;\nconst supabaseKey = $env.SUPABASE_SERVICE_KEY;\n\n// 1. Verificar duplicata\nconst checkRes = await $http.request({\n  method: 'GET',\n  url: `${supabaseUrl}/rest/v1/candidates?organization_id=eq.${d.organizationId}&email=eq.${encodeURIComponent(d.candidateData.email)}&select=id`,\n  headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` }\n});\nconst existing = checkRes[0];\nlet candidateId;\n\nif (existing?.id) {\n  // Verificar se já candidatou a esta vaga\n  const appCheck = await $http.request({\n    method: 'GET',\n    url: `${supabaseUrl}/rest/v1/applications?job_opening_id=eq.${d.jobOpeningId}&candidate_id=eq.${existing.id}&select=id`,\n    headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` }\n  });\n  if (appCheck[0]) {\n    return [{ json: { message: '⚠️ Você já se candidatou a esta vaga anteriormente.', done: true } }];\n  }\n  candidateId = existing.id;\n} else {\n  // Criar candidato\n  const newCandidate = await $http.request({\n    method: 'POST',\n    url: `${supabaseUrl}/rest/v1/candidates`,\n    headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },\n    body: { organization_id: d.organizationId, full_name: d.candidateData.full_name, email: d.candidateData.email, phone: d.candidateData.phone || null }\n  });\n  candidateId = newCandidate[0]?.id;\n}\n\nif (!candidateId) throw new Error('Falha ao criar candidato');\n\n// 2. Criar candidatura\nconst answersArray = Object.entries(d.answers || {}).map(([qId, ans]) => ({ question_id: qId, answer: ans, score: 0, max_score: 0, question_text: '', question_type: 'text' }));\nawait $http.request({\n  method: 'POST',\n  url: `${supabaseUrl}/rest/v1/applications`,\n  headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' },\n  body: { organization_id: d.organizationId, job_opening_id: d.jobOpeningId, candidate_id: candidateId, answers: answersArray, source: 'agent', score_auto: 0, score_total: 0, score_max: 0, score_percent: 0 }\n});\n\nreturn [{ json: { message: `✅ Candidatura enviada com sucesso!\\n\\nObrigado, *${d.candidateData.full_name}*! Nossa equipe analisará seu perfil e entrará em contato em breve.`, done: true } }];"
+      },
+      "id": "submit-application",
+      "name": "Submeter Candidatura",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ reply: $input.first().json.message, nextStep: $input.first().json.nextStep || null, done: $input.first().json.done || false, state: { jobOpeningId: $input.first().json.jobOpeningId, step: $input.first().json.nextStep, answers: $input.first().json.answers, candidateData: $input.first().json.candidateData } }) }}"
+      },
+      "id": "respond",
+      "name": "Resposta",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1560, 400]
+    }
+  ],
+  "connections": {
+    "Webhook — Mensagem do Candidato": { "main": [[{ "node": "Parsear Mensagem", "type": "main", "index": 0 }]] },
+    "Parsear Mensagem": {
+      "main": [[
+        { "node": "Buscar Vaga", "type": "main", "index": 0 },
+        { "node": "Buscar Perguntas", "type": "main", "index": 0 }
+      ]]
+    },
+    "Buscar Vaga": { "main": [[{ "node": "Processar Etapa", "type": "main", "index": 0 }]] },
+    "Buscar Perguntas": { "main": [[{ "node": "Processar Etapa", "type": "main", "index": 0 }]] },
+    "Processar Etapa": { "main": [[{ "node": "Roteador", "type": "main", "index": 0 }]] },
+    "Roteador": {
+      "main": [
+        [{ "node": "Submeter Candidatura", "type": "main", "index": 0 }],
+        [{ "node": "Resposta", "type": "main", "index": 0 }]
+      ]
+    },
+    "Submeter Candidatura": { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "_readme": {
+    "description": "Agente de recrutamento via WhatsApp/chat. Conduz o candidato pelas perguntas da vaga em sequência e submete a candidatura ao Supabase.",
+    "webhook_url": "POST {N8N_URL}/webhook/recruitment-agent",
+    "env_vars": ["SUPABASE_URL", "SUPABASE_SERVICE_KEY"],
+    "payload_example": {
+      "sessionId": "5511999999999",
+      "message": "João Silva",
+      "jobOpeningId": "uuid-da-vaga",
+      "step": "start",
+      "answers": {},
+      "candidateData": {}
+    },
+    "flow": {
+      "1": "Recebe mensagem com estado da conversa (step, answers, candidateData)",
+      "2": "Busca vaga e perguntas no Supabase",
+      "3": "Processa etapa atual e retorna próxima pergunta ou submete candidatura",
+      "4": "Na submissão: verifica duplicata, cria candidato e candidatura",
+      "5": "Retorna resposta com próximo estado para o canal de mensagens"
+    }
+  }
+}

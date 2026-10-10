@@ -1,0 +1,164 @@
+{
+  "name": "Agenda — Notificações por E-mail (Resend)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agenda-email-notify",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-in",
+      "name": "Webhook — Evento de Agendamento",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Valida o payload recebido do agenda-booking / agenda-n8n-receiver\nconst body = $input.first().json.body ?? $input.first().json;\n\nconst event      = body.event;           // 'created' | 'confirmed' | 'cancelled' | 'reminder'\nconst clientId   = body.client_id;\nconst apptId     = body.appointment_id;\n\nif (!event || !clientId) {\n  throw new Error('Payload inválido: event e client_id são obrigatórios');\n}\n\n// Se os dados do cliente final já vieram no payload, usa direto\n// Caso contrário, serão buscados no próximo node\nreturn [{\n  json: {\n    event,\n    client_id:      clientId,\n    appointment_id: apptId ?? null,\n    customer_email: body.customer_email  ?? null,\n    customer_name:  body.customer_name   ?? null,\n    service_name:   body.service_name    ?? null,\n    start_at:       body.start_at        ?? null,\n    end_at:         body.end_at          ?? null,\n    needs_lookup:   !body.customer_email || !body.start_at,\n  }\n}];"
+      },
+      "id": "parse-payload",
+      "name": "Parsear Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.needs_lookup }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "needs-lookup",
+      "name": "Precisa buscar dados?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/client_appointments",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "id",     "value": "=eq.{{ $json.appointment_id }}" },
+            { "name": "select", "value": "id,customer_name,customer_email,service_name,start_at,end_at,client_id" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-appointment",
+      "name": "Buscar Agendamento",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mescla dados buscados com payload original\nconst appt = $input.first().json[0] ?? $input.first().json;\nconst orig = $('Parsear Payload').first().json;\n\nreturn [{\n  json: {\n    event:          orig.event,\n    client_id:      appt.client_id ?? orig.client_id,\n    appointment_id: appt.id        ?? orig.appointment_id,\n    customer_email: appt.customer_email ?? orig.customer_email,\n    customer_name:  appt.customer_name  ?? orig.customer_name,\n    service_name:   appt.service_name   ?? orig.service_name,\n    start_at:       appt.start_at       ?? orig.start_at,\n    end_at:         appt.end_at         ?? orig.end_at,\n  }\n}];"
+      },
+      "id": "merge-data",
+      "name": "Mesclar Dados",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/functions/v1/send-agenda-email",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "event",          "value": "={{ $json.event }}" },
+            { "name": "client_id",      "value": "={{ $json.client_id }}" },
+            { "name": "appointment_id", "value": "={{ $json.appointment_id }}" },
+            { "name": "customer_email", "value": "={{ $json.customer_email }}" },
+            { "name": "customer_name",  "value": "={{ $json.customer_name }}" },
+            { "name": "service_name",   "value": "={{ $json.service_name }}" },
+            { "name": "start_at",       "value": "={{ $json.start_at }}" },
+            { "name": "end_at",         "value": "={{ $json.end_at }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "call-send-email",
+      "name": "Chamar send-agenda-email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1120, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log do resultado\nconst result = $input.first().json;\nif (result.skipped) {\n  console.log(`E-mail pulado: ${result.reason}`);\n} else if (result.success) {\n  console.log(`E-mail enviado: ${result.resend_id}`);\n} else {\n  console.error(`Erro ao enviar e-mail: ${result.error}`);\n}\nreturn $input.all();"
+      },
+      "id": "log-result",
+      "name": "Log Resultado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"received\": true } }}"
+      },
+      "id": "respond",
+      "name": "Resposta",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1560, 300]
+    }
+  ],
+  "connections": {
+    "Webhook — Evento de Agendamento": {
+      "main": [[{ "node": "Parsear Payload", "type": "main", "index": 0 }]]
+    },
+    "Parsear Payload": {
+      "main": [[{ "node": "Precisa buscar dados?", "type": "main", "index": 0 }]]
+    },
+    "Precisa buscar dados?": {
+      "main": [
+        [{ "node": "Buscar Agendamento", "type": "main", "index": 0 }],
+        [{ "node": "Chamar send-agenda-email", "type": "main", "index": 0 }]
+      ]
+    },
+    "Buscar Agendamento": {
+      "main": [[{ "node": "Mesclar Dados", "type": "main", "index": 0 }]]
+    },
+    "Mesclar Dados": {
+      "main": [[{ "node": "Chamar send-agenda-email", "type": "main", "index": 0 }]]
+    },
+    "Chamar send-agenda-email": {
+      "main": [[{ "node": "Log Resultado", "type": "main", "index": 0 }]]
+    },
+    "Log Resultado": {
+      "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "description": "Recebe eventos de agendamento (criado/confirmado/cancelado/lembrete) e envia e-mail via Edge Function send-agenda-email (Resend). Usa padrão on-behalf-of: From = nome do cliente no domínio da agência, Reply-To = e-mail do cliente.\n\nVariáveis de ambiente necessárias no n8n:\n  SUPABASE_URL           = https://owwaulaenabbdalycusx.supabase.co\n  SUPABASE_SERVICE_KEY   = eyJ...\n\nWebhook path: /webhook/agenda-email-notify\n\nConfigure o campo 'Webhook de Notificação E-mail' nas Configurações do C8 Control ou chame diretamente do workflow agenda-upsert."
+  }
+}

@@ -1,0 +1,1073 @@
+{
+  "name": "Maestr.IA — Sincronização de Métricas de Ads (Multi-tenant)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "2b9ad0a3-8787-4c26-b99f-c8ccb73f639c",
+      "name": "Schedule (A cada 6h)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        -3008,
+        4144
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "sync-ads-metrics",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "0fb7b393-a773-41f9-a94a-1c3c34bcd7b1",
+      "name": "Webhook (Sync Manual)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -3008,
+        4336
+      ],
+      "webhookId": "sync-ads-metrics"
+    },
+    {
+      "parameters": {
+        "jsCode": "const integrationId = $('Separar por Integração').first().json.id;\nconst count = $('Preparar Records1').first().json.count ?? 0;\nreturn [{ json: { integration_id: integrationId, count } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        4592
+      ],
+      "id": "71edd41e-a7ae-4aff-bb43-a2d3abc8901a",
+      "name": "Preparar Integration1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Credenciais1').first().json.supabase_url }}/rest/v1/daily_metrics",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "on_conflict",
+              "value": "client_id,date"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Credenciais1').first().json.supabase_secret_hole }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Credenciais1').first().json.supabase_secret_hole }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates,return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.daily_rows) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "dd7d1bfd-4b09-4b6b-b7cb-226f71d1f3e5",
+      "name": "Upsert daily_metrics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1312,
+        4592
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $('Preparar Records1').item.json;\nconst records = item.records || [];\nconst byDate = {};\n\nfor (const r of records) {\n  if (!r.date) continue;\n  if (!byDate[r.date]) {\n    byDate[r.date] = {\n      client_id:        r.client_id,\n      organization_id:  r.organization_id,\n      date:             r.date,\n      total_spend:      0,\n      total_leads:      0,\n      total_sales:      0,\n      total_revenue:    0,\n      total_impressions:0,\n      total_clicks:     0\n    };\n  }\n  byDate[r.date].total_spend       += r.spend       || 0;\n  byDate[r.date].total_leads       += r.leads       || 0;\n  byDate[r.date].total_sales       += r.sales       || 0;\n  byDate[r.date].total_revenue     += r.revenue     || 0;\n  byDate[r.date].total_impressions += r.impressions || 0;\n  byDate[r.date].total_clicks      += r.clicks      || 0;\n}\n\nconst daily_rows = Object.values(byDate).map(d => ({\n  ...d,\n  cpl:  d.total_leads  > 0 ? +(d.total_spend / d.total_leads).toFixed(4)   : 0,\n  cpa:  d.total_sales  > 0 ? +(d.total_spend / d.total_sales).toFixed(4)   : 0,\n  roas: d.total_spend  > 0 ? +(d.total_revenue / d.total_spend).toFixed(4) : 0\n}));\n\nreturn [{ json: { daily_rows, integration_id: item.integration_id, count: item.count } }];"
+      },
+      "id": "c692649a-3774-49ce-807a-65f5c65eee8e",
+      "name": "Consolidar daily_metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1088,
+        4592
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Credenciais1').first().json.supabase_url }}/rest/v1/rpc/upsert_campaign_data",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Credenciais1').first().json.supabase_secret_hole }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Credenciais1').first().json.supabase_secret_hole }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: $json.records }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "30b84240-6551-49ea-af44-3fa7711337b8",
+      "name": "Upsert campaign_data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        864,
+        4592
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Credenciais1').first().json.supabase_url }}/rest/v1/client_integrations",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "=eq.{{ $json.integration_id }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Credenciais1').first().json.supabase_secret_hole }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Credenciais1').first().json.supabase_secret_hole }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ sync_status: 'success', last_sync_at: new Date().toISOString(), last_sync_records: $json.count, sync_error: null, updated_at: new Date().toISOString() }) }}\n",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "f45e4eac-26d2-45b3-bd50-d460bca291d4",
+      "name": "Status: Sucesso1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1728,
+        4592
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Garante que os records chegam como array independente do formato de entrada\n// O IF pode passar um item { records: [...] } ou múltiplos itens individuais\nconst allItems = $input.all();\nlet records = [];\nlet integration_id = null;\nlet client_id = null;\nlet organization_id = null;\nlet count = 0;\n\nif (allItems.length === 1 && Array.isArray(allItems[0].json.records)) {\n  // Formato esperado: um item com array records\n  records = allItems[0].json.records;\n  integration_id = allItems[0].json.integration_id;\n  client_id = allItems[0].json.client_id;\n  organization_id = allItems[0].json.organization_id;\n  count = allItems[0].json.count ?? records.length;\n} else {\n  // Múltiplos itens individuais (cada item é um record)\n  records = allItems.map(i => i.json).filter(r => r.client_id);\n  if (records.length > 0) {\n    integration_id = allItems[0].json.integration_id ?? null;\n    client_id = records[0].client_id;\n    organization_id = records[0].organization_id;\n  }\n  count = records.length;\n}\n\nreturn [{ json: { records, integration_id, client_id, organization_id, count } }];"
+      },
+      "id": "4a5a2b6a-eca6-4114-8b48-f8c5dbbf1d8a",
+      "name": "Preparar Records1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        656,
+        4592
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.facebook.com/v19.0/{{ $json.account_id }}/insights",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "campaign_id,campaign_name,spend,impressions,reach,clicks,actions,action_values,date_start,video_30_sec_watched_actions"
+            },
+            {
+              "name": "date_preset",
+              "value": "last_7d"
+            },
+            {
+              "name": "level",
+              "value": "campaign"
+            },
+            {
+              "name": "time_increment",
+              "value": "1"
+            },
+            {
+              "name": "limit",
+              "value": "500"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "dc8357ad-3f6d-4804-b3e2-92757ec0e090",
+      "name": "Meta Ads API1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -864,
+        4112
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.facebook.com/v19.0/{{ $('Roteador por Plataforma1').item.json.account_id }}/campaigns",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "id,name,objective"
+            },
+            {
+              "name": "limit",
+              "value": "500"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Roteador por Plataforma1').item.json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "23eb23c6-3a94-4ca7-be8c-431cc9c12201",
+      "name": "Meta Campanhas (Objetivos)1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -864,
+        4384
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Credenciais1').first().json.supabase_url }}/rest/v1/client_integrations",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "=eq.{{ $json.integration_id }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Credenciais1').first().json.supabase_secret_hole }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Credenciais1').first().json.supabase_secret_hole }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  sync_status:       $json._error ? 'error' : 'no_data',\n  sync_error:        $json._error || null,\n  last_sync_at:      new Date().toISOString(),\n  last_sync_records: 0,\n  updated_at:        new Date().toISOString()\n}) }}\n",
+        "options": {}
+      },
+      "id": "4b5135a5-7f18-4aa1-a5a3-e112a8439441",
+      "name": "Status: Sem dados / Erro",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        656,
+        4192
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json._skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              },
+              "id": "cfedb28c-0a60-4bdc-b76f-8344ff8ee8da"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "268a4872-b9f1-426a-a28e-74c07cb96ffb",
+      "name": "Tem dados?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        240,
+        4400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Resolver Organização').first().json;\n\n// Pega TODOS os itens do input (não só o primeiro)\nconst allItems = $input.all();\nconst rawItems = allItems.map(i => i.json);\n\n// Normaliza: suporta array direto, wrapper {data: []}, ou item único\nlet integrations = [];\nfor (const item of rawItems) {\n  if (Array.isArray(item)) {\n    integrations.push(...item);\n  } else if (Array.isArray(item?.data)) {\n    integrations.push(...item.data);\n  } else if (item?.id) {\n    integrations.push(item);\n  }\n}\n\n// Filtra apenas registros com account_id e access_token OU refresh_token (Google usa refresh_token)\nintegrations = integrations.filter(i => i.id && i.account_id && (i.access_token || i.refresh_token));\n\n// Aplica filtro por integration_id ou client_id se vieram no payload\n// Garante que null/\"null\"/undefined são tratados como ausentes\nconst integrationId = ctx.integration_id && ctx.integration_id !== 'null' ? ctx.integration_id : null;\nconst clientId = ctx.client_id && ctx.client_id !== 'null' ? ctx.client_id : null;\n\nif (integrationId) {\n  integrations = integrations.filter(i => i.id === integrationId);\n} else if (clientId) {\n  integrations = integrations.filter(i => i.client_id === clientId);\n}\n\nif (integrations.length === 0) {\n  return [{ json: { _empty: true, message: 'Nenhuma integração ativa encontrada' } }];\n}\n\nreturn integrations.map(i => ({ json: { ...i, organization_id: ctx.organization_id } }));\n"
+      },
+      "id": "b6943563-50cf-4c51-ac1f-a9f649f1277f",
+      "name": "Separar por Integração",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1456,
+        4336
+      ],
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"success\": true, \"message\": \"Sync iniciado\", \"timestamp\": \"{{ $now.toISO() }}\" }",
+        "options": {}
+      },
+      "id": "1c33abfe-de69-4f77-8f68-37c72a2217c7",
+      "name": "Resposta Imediata",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -1936,
+        4144
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Determina o organization_id: vem do body (webhook) ou da env var (schedule)\nconst input = $input.first()?.json ?? {};\n// n8n 2.x: webhook coloca o body em input.body; schedule chega direto\nconst body = (input.body && typeof input.body === 'object') ? input.body : input;\nconst orgId = body.organization_id ?? $env.ORGANIZATION_ID ?? '';\nconst clientId = body.client_id ?? null;\nconst integrationId = body.integration_id ?? null;\n\nif (!orgId) throw new Error('organization_id nao encontrado no payload nem em ORGANIZATION_ID env var');\n\nreturn [{ json: { organization_id: orgId, client_id: clientId, integration_id: integrationId } }];"
+      },
+      "id": "07583bf0-b585-43c7-9316-cdeb794ded9f",
+      "name": "Resolver Organização",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2256,
+        4336
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const integration = $('Roteador por Plataforma1').first().json;\nconst insights    = $('Meta Ads API1').first().json;\nconst objetivos   = $('Meta Campanhas (Objetivos)1').first().json;\n\nconst rows = insights.data || [];\nif (rows.length === 0) return [{ json: { _skip: true, integration_id: integration.id } }];\n\nconst OBJECTIVE_LABELS = {\n  OUTCOME_AWARENESS:     'Reconhecimento',\n  OUTCOME_TRAFFIC:       'Tráfego',\n  OUTCOME_ENGAGEMENT:    'Engajamento',\n  OUTCOME_LEADS:         'Geração de Leads',\n  OUTCOME_APP_PROMOTION: 'Promoção de App',\n  OUTCOME_SALES:         'Vendas',\n  REACH:                 'Alcance',\n  BRAND_AWARENESS:       'Reconhecimento de Marca',\n  VIDEO_VIEWS:           'Visualizações de Vídeo',\n  LINK_CLICKS:           'Cliques no Link',\n  POST_ENGAGEMENT:       'Engajamento com Post',\n  PAGE_LIKES:            'Curtidas na Página',\n  EVENT_RESPONSES:       'Respostas a Eventos',\n  MESSAGES:              'Mensagens',\n  CONVERSIONS:           'Conversões',\n  PRODUCT_CATALOG_SALES: 'Vendas do Catálogo',\n  STORE_VISITS:          'Visitas à Loja',\n};\n\nconst OBJECTIVE_ACTION_MAP = {\n  OUTCOME_TRAFFIC:       ['landing_page_view', 'link_click'],\n  OUTCOME_ENGAGEMENT:    ['post_engagement', 'page_engagement', 'post_reaction', 'comment', 'post'],\n  OUTCOME_LEADS:         ['lead', 'leadgen_grouped'],\n  OUTCOME_SALES:         ['purchase', 'omni_purchase'],\n  OUTCOME_APP_PROMOTION: ['app_install', 'mobile_app_install'],\n  VIDEO_VIEWS:           ['video_view'],\n  LINK_CLICKS:           ['link_click'],\n  POST_ENGAGEMENT:       ['post_engagement'],\n  MESSAGES:              ['onsite_conversion.messaging_conversation_started_7d'],\n  CONVERSIONS:           ['purchase', 'omni_purchase'],\n  PRODUCT_CATALOG_SALES: ['purchase', 'omni_purchase'],\n};\n\nconst OBJECTIVE_METRIC_LABEL = {\n  OUTCOME_TRAFFIC:       'Visualizações da Pág. de Destino',\n  OUTCOME_AWARENESS:     'Alcance',\n  OUTCOME_ENGAGEMENT:    'Engajamentos',\n  OUTCOME_LEADS:         'Leads',\n  OUTCOME_SALES:         'Compras',\n  OUTCOME_APP_PROMOTION: 'Instalações de App',\n  VIDEO_VIEWS:           'ThruPlays',\n  REACH:                 'Alcance',\n  LINK_CLICKS:           'Cliques no Link',\n  POST_ENGAGEMENT:       'Engajamentos com Post',\n  MESSAGES:              'Conversas Iniciadas',\n  CONVERSIONS:           'Conversões',\n  PRODUCT_CATALOG_SALES: 'Vendas do Catálogo',\n};\n\nfunction getObjectiveMetric(objective, actions, row) {\n  actions = actions || [];\n  row = row || {};\n  if (!objective) return null;\n\n  if (objective === 'VIDEO_VIEWS') {\n    const thruplay = actions.find(a => a.action_type === 'video_view');\n    if (thruplay) return parseInt(thruplay.value || 0);\n    const v30 = (row.video_30_sec_watched_actions || []).find(a => a.action_type === 'video_view');\n    if (v30) return parseInt(v30.value || 0);\n    return 0;\n  }\n\n  // Reach e impressions vêm como campos diretos, não dentro de actions[]\n  if (objective === 'OUTCOME_AWARENESS' || objective === 'REACH') {\n    return parseInt(row.reach || 0);\n  }\n\n  const relevantTypes = OBJECTIVE_ACTION_MAP[objective] || [];\n  for (const type of relevantTypes) {\n    const found = actions.find(a => a.action_type === type);\n    if (found) return parseInt(found.value || 0);\n  }\n\n  return null;\n}\n\n// Formato: { data: [ { id, name, objective }, ... ] }\nconst objectiveMap = {};\nfor (const c of (objetivos.data || [])) {\n  if (c.id && c.objective) {\n    objectiveMap[c.id] = c.objective;\n  }\n}\n\nconst records = rows.map(c => {\n  const rawObjective   = objectiveMap[c.campaign_id] ?? null;\n  const objectiveLabel = rawObjective ? (OBJECTIVE_LABELS[rawObjective] ?? rawObjective) : null;\n\n  const actions      = c.actions || [];\n  const actionValues = c.action_values || [];\n\n  const objectiveMetricValue = getObjectiveMetric(rawObjective, actions, c);\n  const objectiveMetricLabel = rawObjective ? (OBJECTIVE_METRIC_LABEL[rawObjective] ?? null) : null;\n\n  return {\n    client_id:              integration.client_id,\n    organization_id:        integration.organization_id,\n    platform:               'meta',\n    date:                   c.date_start,\n    campaign_id:            c.campaign_id,\n    campaign_name:          c.campaign_name || 'Sem nome',\n    objective:              objectiveLabel,\n    objective_metric_label: objectiveMetricLabel,\n    objective_metric_value: objectiveMetricValue,\n    spend:                  parseFloat(c.spend || 0),\n    impressions:            parseInt(c.impressions || 0),\n    reach:                  parseInt(c.reach || 0),\n    clicks:                 parseInt(c.clicks || 0),\n    leads:                  parseInt(actions.find(a => a.action_type === 'lead')?.value || 0),\n    sales:                  parseInt(actions.find(a => a.action_type === 'purchase')?.value || 0),\n    revenue:                parseFloat(actionValues.find(a => a.action_type === 'purchase')?.value || 0),\n  };\n});\n\nreturn records.map(record => ({ \n  json: { ...record, integration_id: integration.id } \n}));"
+      },
+      "id": "86e8c679-01bd-4262-81ba-2f5a3b47e257",
+      "name": "Normalizar Meta1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -512,
+        4240
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.platform }}",
+                    "rightValue": "meta",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "122afd4b-1502-44c2-a227-66a755fa0220"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Meta"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.platform }}",
+                    "rightValue": "google",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "60d9b526-79fd-4eda-a878-43e837e5c144"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Google"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "none"
+        }
+      },
+      "id": "def0b59e-9f10-4e3f-8d2f-50bbd8634676",
+      "name": "Roteador por Plataforma1",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -1216,
+        4336
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.supabase_url }}/rest/v1/client_integrations",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "select",
+              "value": "id,client_id,platform,account_id,access_token,refresh_token,settings,last_sync_at,organization_id,clients(id,name,company)"
+            },
+            {
+              "name": "organization_id",
+              "value": "=eq.{{ $('Resolver Organização').item.json.organization_id }}"
+            },
+            {
+              "name": "account_id",
+              "value": "not.is.null"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $json.supabase_secret_hole }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.supabase_secret_hole }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b49edf30-9fae-48de-ac9f-e5ad57fb62d1",
+      "name": "Buscar Integrações Ativas1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1680,
+        4336
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "edd295fb-d8a6-4eb4-adf5-db0f020369db",
+              "name": "supabase_url",
+              "value": "https://owwaulaenabbdalycusx.supabase.co",
+              "type": "string"
+            },
+            {
+              "id": "404ebb6c-dae0-456e-95fc-ef939f0b1ba2",
+              "name": "supabase_secret_hole",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im93d2F1bGFlbmFiYmRhbHljdXN4Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2OTg3Nzc3OCwiZXhwIjoyMDg1NDUzNzc4fQ.Wo-u89LNCAoCaI7gicog3uzEyLI9FVjgE5MPfrykzuY",
+              "type": "string"
+            },
+            {
+              "id": "dc60cf44-2b80-4232-980b-cf654d43f397",
+              "name": "organization_id",
+              "value": "={{ $json.organization_id }}",
+              "type": "string"
+            },
+            {
+              "id": "1d78da61-4547-4f9e-beca-31e9bacfd8e9",
+              "name": "client_id",
+              "value": "={{ $json.client_id }}",
+              "type": "string"
+            },
+            {
+              "id": "3b911d07-41e1-438c-9caf-36f181de4d29",
+              "name": "integration_id",
+              "value": "={{ $json.integration_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1936,
+        4336
+      ],
+      "id": "200080a2-abbf-446f-be8e-9b85f5f8628c",
+      "name": "Credenciais1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://oauth2.googleapis.com/token",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/x-www-form-urlencoded"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "client_id",
+              "value": "={{ $json.settings.client_id }}"
+            },
+            {
+              "name": "client_secret",
+              "value": "={{ $json.settings.client_secret }}"
+            },
+            {
+              "name": "refresh_token",
+              "value": "={{ $json.refresh_token }}"
+            },
+            {
+              "name": "grant_type",
+              "value": "refresh_token"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "c835f675-8305-460a-95cd-91325ddfd329",
+      "name": "Refresh Google Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -864,
+        4592
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const integration = $('Roteador por Plataforma1').item.json;\nconst tokenResp = $input.item.json;\nconst accessToken = tokenResp.access_token;\nif (!accessToken) {\n  const errMsg = tokenResp.error_description || tokenResp.error || 'unknown';\n  return [{ json: { _skip: true, _error: 'Falha ao renovar token Google: ' + errMsg, integration_id: integration.id } }];\n}\nreturn [{ json: { ...integration, access_token: accessToken } }];"
+      },
+      "id": "6d101447-a3b2-4048-87f5-1c9ec1068c8b",
+      "name": "Merge Google Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -672,
+        4592
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://googleads.googleapis.com/v21/customers/{{ $json.account_id }}/googleAds:searchStream",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            },
+            {
+              "name": "developer-token",
+              "value": "={{ $json.settings?.developer_token }}"
+            },
+            {
+              "name": "login-customer-id",
+              "value": "={{ $json.settings?.manager_id || '' }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"query\": \"SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type, campaign.start_date, metrics.cost_micros, metrics.impressions, metrics.clicks, metrics.conversions, metrics.conversions_value, metrics.ctr, metrics.average_cpc, metrics.all_conversions, metrics.all_conversions_value, segments.date FROM campaign WHERE campaign.status = 'ENABLED' AND segments.date DURING LAST_7_DAYS ORDER BY segments.date DESC LIMIT 10000\"\n  }",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "ac3c1c9c-8614-482f-9c3e-2c9d00fb5010",
+      "name": "Google Ads API1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -480,
+        4592
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const integration = $('Roteador por Plataforma1').item.json;\nconst response = $input.item.json;\n\nif (response.error || response.errors) {\n  const msg = response.error?.message || JSON.stringify(response.errors);\n  return [{ json: { _skip: true, _error: msg, integration_id: integration.id } }];\n}\n\nconst results = response.results || [];\nif (results.length === 0) return [{ json: { _skip: true, integration_id: integration.id } }];\n\nconst records = results.map(r => ({\n  client_id:       integration.client_id,\n  organization_id: integration.organization_id,\n  platform:        'google',\n  date:            r.segments?.date,\n  campaign_name:   r.campaign?.name || 'Sem nome',\n  spend:           (r.metrics?.costMicros || 0) / 1_000_000,\n  impressions:     parseInt(r.metrics?.impressions || 0),\n  clicks:          parseInt(r.metrics?.clicks || 0),\n  leads:           0,\n  sales:           Math.round(parseFloat(r.metrics?.conversions || 0)),\n  revenue:         parseFloat(r.metrics?.conversionsValue || 0)\n}));\n\nreturn [{ json: { records, integration_id: integration.id, client_id: integration.client_id, organization_id: integration.organization_id, count: records.length } }];"
+      },
+      "id": "27efd082-d2bf-416b-9e9c-e33eb249edd8",
+      "name": "Normalizar Google1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -208,
+        4592
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "client_integrations",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "organization_id",
+              "condition": "eq",
+              "keyValue": "5fb8e8ee-81a6-402b-ab7b-315d1cca6407"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -2784,
+        4144
+      ],
+      "id": "7a37e7cb-4104-44fa-b43a-df6f3d6f37a4",
+      "name": "Buscar Integrações",
+      "credentials": {
+        "supabaseApi": {
+          "id": "yDtu96eQqnPXpyAM",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Recebe o array de integrações e extrai apenas os campos necessários\nconst integrations = $input.all().map(item => item.json);\n\nreturn integrations.map(integration => ({\n  json: {\n    integration_id:              integration.id,\n    organization_id: integration.organization_id,\n    client_id:       integration.client_id,\n    platform:        integration.platform,\n  }\n}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2576,
+        4144
+      ],
+      "id": "2e1d32e6-e614-4c04-9419-fa214780033a",
+      "name": "Preparar Integrações"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule (A cada 6h)": {
+      "main": [
+        [
+          {
+            "node": "Buscar Integrações",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook (Sync Manual)": {
+      "main": [
+        [
+          {
+            "node": "Resolver Organização",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert daily_metrics": {
+      "main": [
+        [
+          {
+            "node": "Preparar Integration1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consolidar daily_metrics": {
+      "main": [
+        [
+          {
+            "node": "Upsert daily_metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert campaign_data": {
+      "main": [
+        [
+          {
+            "node": "Consolidar daily_metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Integration1": {
+      "main": [
+        [
+          {
+            "node": "Status: Sucesso1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Records1": {
+      "main": [
+        [
+          {
+            "node": "Upsert campaign_data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meta Ads API1": {
+      "main": [
+        [
+          {
+            "node": "Meta Campanhas (Objetivos)1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Normalizar Meta1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meta Campanhas (Objetivos)1": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Meta1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tem dados?": {
+      "main": [
+        [
+          {
+            "node": "Status: Sem dados / Erro",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preparar Records1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Separar por Integração": {
+      "main": [
+        [
+          {
+            "node": "Roteador por Plataforma1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolver Organização": {
+      "main": [
+        [
+          {
+            "node": "Resposta Imediata",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Credenciais1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar Meta1": {
+      "main": [
+        [
+          {
+            "node": "Tem dados?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Roteador por Plataforma1": {
+      "main": [
+        [
+          {
+            "node": "Meta Ads API1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Refresh Google Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Integrações Ativas1": {
+      "main": [
+        [
+          {
+            "node": "Separar por Integração",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Credenciais1": {
+      "main": [
+        [
+          {
+            "node": "Buscar Integrações Ativas1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Refresh Google Token": {
+      "main": [
+        [
+          {
+            "node": "Merge Google Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Google Token": {
+      "main": [
+        [
+          {
+            "node": "Google Ads API1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Ads API1": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Google1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar Google1": {
+      "main": [
+        [
+          {
+            "node": "Tem dados?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Integrações": {
+      "main": [
+        [
+          {
+            "node": "Preparar Integrações",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Integrações": {
+      "main": [
+        [
+          {
+            "node": "Resolver Organização",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "0308eebb-784f-4288-a761-7b893976ae8a",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "2578bc35b6bdc499db10723a4b7f8f3a18d5bc2bb18bff2484fc584b5c1bf2ee"
+  },
+  "id": "Rg5RJNswf4qUVa0DwhF0y",
+  "tags": []
+}

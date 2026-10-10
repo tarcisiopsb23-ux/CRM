@@ -8,15 +8,19 @@
  */
 import { useEffect, useCallback, useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Printer, Download, X, Loader2 } from "lucide-react";
+import { Printer, Download, X, Loader2, AlertTriangle, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import type { ContractV2 } from "@/hooks/useContracts";
 import type { ContractTemplate } from "@/hooks/useContractTemplates";
 import type { ContractPaymentLine } from "@/hooks/useContractSchedule";
+import { useContractSecurity } from "@/hooks/useContractSecurity";
+import { buildScheduleHtml } from "@/lib/contracts/buildScheduleHtml";
 
 interface Props {
   contract: ContractV2;
   template: ContractTemplate | null;
+  /** clientId necessário para invalidar queries após emissão */
+  clientId?: string;
   onClose?: () => void;
   /** Callback chamado ao gerar PDF/imprimir — deve marcar o contrato como "emitido" */
   onEmit?: () => void;
@@ -24,45 +28,7 @@ interface Props {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function buildScheduleHtml(lines: ContractPaymentLine[]): string {
-  if (!lines || lines.length === 0) return "";
-  const fmt = (v: number) =>
-    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
-
-  const monthlyLines = lines.filter(l => l.line_type === "mensalidade");
-  const setupLines   = lines.filter(l => l.line_type === "setup" || l.line_type === "unico");
-  const isSimple     = monthlyLines.length === 1 && setupLines.length === 0
-                     && monthlyLines[0].month_to === null;
-
-  if (isSimple) {
-    const m = monthlyLines[0];
-    const fmtDate = m.due_date
-      ? new Date(m.due_date).toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" })
-      : "";
-    return `<p>O valor mensal do presente contrato é de <strong>${fmt(m.amount)}</strong>, `
-      + `vencendo todo dia ${m.due_date ? new Date(m.due_date).getDate() : "___"} de cada mês`
-      + (fmtDate ? `, com primeira parcela em ${fmtDate}` : "")
-      + `, a ser pago exclusivamente via PIX (Chave CNPJ: 62.659.676/0001-49 — Agência C8 LTDA).</p>`;
-  }
-
-  const rows = lines.map(l => `
-    <tr>
-      <td>${l.period_label}</td>
-      ${l.due_date
-        ? `<td>${new Date(l.due_date).toLocaleDateString("pt-BR", { day:"2-digit", month:"2-digit", year:"numeric" })}</td>`
-        : "<td>—</td>"}
-      <td class="amount-col">${fmt(l.amount)}</td>
-    </tr>`).join("");
-
-  return `
-    <p>O cronograma de pagamentos do presente contrato é o seguinte:</p>
-    <table class="schedule-table">
-      <thead><tr><th>Período</th><th>Vencimento</th><th>Valor</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-    <p>Pagamentos via PIX (CNPJ: 62.659.676/0001-49 — Agência C8 LTDA).</p>
-    <p>Atraso: multa de 10% + juros de 1% ao mês.</p>`;
-}
+// buildScheduleHtml imported from @/lib/contracts/buildScheduleHtml
 
 function renderTemplate(
   html: string,
@@ -113,16 +79,38 @@ const contractCss = (usableW: number) => `
   .contract-parties p { margin:3pt 0; text-align:justify; }
 
   /* Cláusula: sem page-break-inside — permite quebrar entre alíneas */
-  .contract-clause { margin-bottom:14pt; }
-  .contract-clause h2 { font-size:12pt; font-weight:bold; text-transform:uppercase;
-                        margin:8pt 0 4pt; border-bottom:1px solid #888; padding-bottom:2pt;
-                        page-break-after:avoid; break-after:avoid; }
+  .contract-clause { margin-bottom:8pt; }
+  /* Chips de variável do TipTap — no contrato final devem aparecer como texto inline normal */
+  .variable-chip { display:inline; background:none; border:none; padding:0; color:inherit; font:inherit; }
+  /* Título da cláusula — gerado pelo assembleContract como <h4 class="clause-title"> */
+  .contract-clause h2,
+  .contract-clause h4,
+  .clause-title {
+    font-size:12pt; font-weight:bold; text-transform:uppercase;
+    margin:8pt 0 4pt; border-bottom:1px solid #888; padding-bottom:2pt;
+    page-break-after:avoid; break-after:avoid;
+  }
   /* Alínea: pode quebrar entre alíneas, cada alínea é coesa */
   .contract-clause .alinea { margin-bottom:4pt; }
   .contract-clause p  { margin:3pt 0; text-align:justify; orphans:3; widows:3; }
   .contract-clause ul,
   .contract-clause ol { margin:5pt 0 5pt 22pt; }
   .contract-clause li { margin:2pt 0; text-align:justify; }
+
+  /* Espaço antes da tabela de assinaturas e do parágrafo de local/data */
+  .sig-table { margin-top:36pt; }
+  p:has(+ .sig-table) { margin-top:16pt !important; }
+
+  /* Bloco de assinaturas — espaço acima do local/data e das linhas */
+  .sig-table { margin-top:36pt; }
+  /* Parágrafo de local e data: espaço generoso acima */
+  p:has(+ .sig-table),
+  p + p:last-of-type { margin-top: 0; }
+  /* Seleciona o <p> imediatamente antes da sig-table */
+  .sig-table { margin-top: 36pt; }
+  /* Espaço extra antes do bloco de fechamento (local/data + assinaturas) */
+  .contract-signatures-intro + p,
+  p.sig-local { margin-top: 18pt; }
 
   /* ── Hierarquia de nós (migration 00216) ─────────────────────────────── */
   .contract-node       { display:block; }
@@ -242,7 +230,7 @@ function splitIntoPages(
         const LINE_H_PX = Math.round(12 * 1.6 * (96 / 72));
         const MIN_SPLIT  = 3; // só divide parágrafo se >= 3 linhas
 
-        // ── splitParagraph: divide <p> por palavras ─────────────────────
+        // ── splitParagraph: divide <p> por palavras preservando HTML interno ──
         function splitParagraph(el: HTMLElement, spaceLeft: number): [string, string] | null {
           const elH = el.offsetHeight;
           if (elH < LINE_H_PX * MIN_SPLIT) return null;
@@ -252,6 +240,53 @@ function splitIntoPages(
           if (linesFit < MIN_SPLIT) return null;
           const targetH = linesFit * LINE_H_PX;
 
+          // Se o parágrafo tem HTML interno (strong, em, span…) usa innerHTML
+          // para medir, mas divide no textContent para encontrar o ponto de corte
+          // e depois reaplica os nós originais nas duas metades.
+          // Abordagem: clona o elemento e vai removendo nós filhos pelo final
+          // até caber, preservando formatação.
+          const hasInlineHtml = el.children.length > 0;
+
+          if (hasInlineHtml) {
+            // Mede quantos childNodes cabem na spaceLeft
+            const nodes = Array.from(el.childNodes);
+            if (nodes.length < 2) return null;
+
+            const attrs = Array.from(el.attributes).map(a => `${a.name}="${a.value}"`).join(" ");
+            const tO = `<${el.tagName.toLowerCase()}${attrs ? " " + attrs : ""}>`;
+            const tC = `</${el.tagName.toLowerCase()}>`;
+
+            const temp = doc.createElement(el.tagName);
+            temp.className = el.className;
+            temp.style.cssText = `position:absolute;visibility:hidden;width:${usableW}px`;
+            doc.body.appendChild(temp);
+
+            let cutAt = 0;
+            for (let i = 0; i < nodes.length; i++) {
+              temp.appendChild(nodes[i].cloneNode(true));
+              if (temp.offsetHeight > targetH) { cutAt = Math.max(0, i - 1); break; }
+              cutAt = i;
+            }
+            doc.body.removeChild(temp);
+            if (cutAt <= 0 || cutAt >= nodes.length - 1) return null;
+
+            const firstNodes = nodes.slice(0, cutAt + 1);
+            const restNodes  = nodes.slice(cutAt + 1);
+            // Trim leading whitespace from rest
+            if (restNodes[0]?.nodeType === Node.TEXT_NODE) {
+              restNodes[0] = doc.createTextNode((restNodes[0] as Text).data.trimStart());
+            }
+            const firstHtml = firstNodes.map(n => {
+              const d = doc.createElement("div"); d.appendChild(n.cloneNode(true)); return d.innerHTML;
+            }).join("");
+            const restHtml = restNodes.map(n => {
+              const d = doc.createElement("div"); d.appendChild(n.cloneNode(true)); return d.innerHTML;
+            }).join("");
+            if (!firstHtml.trim() || !restHtml.trim()) return null;
+            return [tO + firstHtml + tC, tO + restHtml + tC];
+          }
+
+          // Texto puro — divide por palavras
           const text  = el.textContent ?? "";
           const words = text.split(/(\s+)/);
           if (words.length < 6) return null;
@@ -316,9 +351,14 @@ function splitIntoPages(
           if (elH === 0) { pageHtml += el.outerHTML; return; }
 
           // ── Blocos de assinatura e tabelas: NUNCA quebrar ───────────────
+          // Apenas tabelas de assinatura (sig-table, sig-block-*) são indivisíveis.
+          // Tabelas de conteúdo (schedule-table, tabelas genéricas) podem quebrar.
           const isSigBlock =
-            el.tagName === "TABLE"                        ||
-            el.classList.contains("contract-signatures") ||
+            (el.tagName === "TABLE" && (
+              el.classList.contains("sig-table") ||
+              (el.className && typeof el.className === "string" && el.className.includes("sig-"))
+            ))                                              ||
+            el.classList.contains("contract-signatures")   ||
             (el.className && typeof el.className === "string" && el.className.includes("sig-"));
           if (isSigBlock) {
             if (pageUsed + elH > usableH) { pages.push(pageHtml); pageHtml = ""; pageUsed = 0; }
@@ -330,6 +370,26 @@ function splitIntoPages(
           if (pageUsed + elH <= usableH) { pageHtml += el.outerHTML; pageUsed += elH; return; }
 
           const children = Array.from(el.children) as HTMLElement[];
+
+          // <p> com conteúdo misto (text nodes + inline elements): tratar como unidade.
+          // Nunca descer pelos children de um <p> — os text nodes seriam perdidos.
+          if (el.tagName === "P") {
+            const spaceLeft = usableH - pageUsed;
+            const parts = pageHtml !== "" ? splitParagraph(el, spaceLeft) : null;
+            if (parts) {
+              pageHtml += parts[0]; pages.push(pageHtml); pageHtml = ""; pageUsed = 0;
+              const tmp = doc.createElement("div");
+              tmp.innerHTML = parts[1];
+              tmp.style.cssText = `position:absolute;visibility:hidden;width:${usableW}px`;
+              doc.body.appendChild(tmp);
+              pageHtml = parts[1]; pageUsed = tmp.offsetHeight;
+              doc.body.removeChild(tmp);
+              return;
+            }
+            if (pageHtml !== "") { pages.push(pageHtml); pageHtml = ""; pageUsed = 0; }
+            pageHtml += el.outerHTML; pageUsed = elH;
+            return;
+          }
 
           // Sem filhos: tenta split de parágrafo ou quebra de página
           if (children.length === 0) {
@@ -484,10 +544,32 @@ ${pagesHtml}
 
 // ── Componente ────────────────────────────────────────────────────────────────
 
-export function ContractViewer({ contract, template, onClose, onEmit }: Props) {
+export function ContractViewer({ contract, template, clientId, onClose, onEmit }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [ready,   setReady]   = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // ── Segurança: verificação de integridade do hash ──────────────────────────
+  const { checkHashIntegrity, emitContract, logView } = useContractSecurity();
+  const [hashStatus, setHashStatus] = useState<
+    { checked: false } |
+    { checked: true; ok: true; noHash?: boolean } |
+    { checked: true; ok: false; reason: string }
+  >({ checked: false });
+
+  // Verifica integridade ao abrir o viewer
+  useEffect(() => {
+    let cancelled = false;
+    checkHashIntegrity({
+      ...contract,
+      payment_schedule: contract.payment_schedule ?? [],
+    }).then(result => {
+      if (!cancelled) setHashStatus({ checked: true, ...result } as typeof hashStatus);
+    });
+    // Registra visualização no audit_log
+    logView(contract.id);
+    return () => { cancelled = true; };
+  }, [contract.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const mt = template?.margin_top    ?? 30;
   const mb = template?.margin_bottom ?? 25;
@@ -502,11 +584,19 @@ export function ContractViewer({ contract, template, onClose, onEmit }: Props) {
   const lhUrl = template?.letterhead_url ?? "";
 
   const scheduleHtml = buildScheduleHtml(contract.payment_schedule ?? []);
-  const htmlContent  = renderTemplate(
-    contract.html_content ?? template?.html_content ?? "",
-    contract.variables ?? {},
-    scheduleHtml,
-  );
+  const htmlContent  = (() => {
+    let html = renderTemplate(
+      contract.html_content ?? template?.html_content ?? "",
+      contract.variables ?? {},
+      scheduleHtml,
+    );
+    // Inject contract number if not already present
+    if (contract.contract_number && !html.includes('class="contract-number"')) {
+      const numHtml = `<p class="contract-number" style="text-align:right;font-size:9pt;color:#666;margin:0 0 4pt;font-family:Calibri,sans-serif;">Contrato nº <strong>${contract.contract_number}</strong></p>`;
+      html = numHtml + html;
+    }
+    return html;
+  })();
 
   useEffect(() => {
     if (!htmlContent) return;
@@ -577,8 +667,14 @@ export function ContractViewer({ contract, template, onClose, onEmit }: Props) {
     win.focus();
     win.print();
     // Marca como emitido ao imprimir (só se ainda for rascunho)
-    if (contract.status === "rascunho") onEmit?.();
-  }, [contract.status, onEmit]);
+    if (contract.status === "rascunho") {
+      emitContract(
+        { ...contract, payment_schedule: contract.payment_schedule ?? [] },
+        clientId ?? contract.client_id
+      );
+      onEmit?.();
+    }
+  }, [contract, clientId, emitContract, onEmit]);
 
   const handlePdf = useCallback(() => {
     const win = iframeRef.current?.contentWindow;
@@ -587,17 +683,48 @@ export function ContractViewer({ contract, template, onClose, onEmit }: Props) {
     win.focus();
     setTimeout(() => win.print(), 400);
     // Marca como emitido ao gerar PDF (só se ainda for rascunho)
-    if (contract.status === "rascunho") onEmit?.();
-  }, [contract.status, onEmit]);
+    if (contract.status === "rascunho") {
+      emitContract(
+        { ...contract, payment_schedule: contract.payment_schedule ?? [] },
+        clientId ?? contract.client_id
+      );
+      onEmit?.();
+    }
+  }, [contract, clientId, emitContract, onEmit]);
 
   return (
     <div className="flex flex-col h-full">
+      {/* ── Banner de alerta de integridade ─────────────────────────────────── */}
+      {hashStatus.checked && !hashStatus.ok && (
+        <div className="flex items-start gap-3 px-4 py-3 bg-red-50 border-b border-red-200 text-red-700 text-xs">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-red-500" />
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold">⚠️ Contrato alterado após a emissão do PDF</p>
+            <p className="mt-0.5 text-red-600">
+              {(hashStatus as { ok: false; reason: string }).reason}
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center gap-2 px-4 py-2.5 border-b bg-background shrink-0">
-        <span className="text-sm font-medium flex-1 truncate">
+        <span className="text-sm font-medium flex-1 truncate flex items-center gap-2">
           {contract.contract_number && (
-            <span className="text-xs text-muted-foreground mr-2">{contract.contract_number}</span>
+            <span className="text-xs text-muted-foreground font-mono">{contract.contract_number}</span>
           )}
           {contract.title}
+          {/* Badge de integridade */}
+          {hashStatus.checked && (
+            hashStatus.ok && !("noHash" in hashStatus && hashStatus.noHash) ? (
+              <span className="inline-flex items-center gap-1 text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full">
+                <ShieldCheck className="h-3 w-3" /> Hash verificado
+              </span>
+            ) : !hashStatus.ok ? (
+              <span className="inline-flex items-center gap-1 text-[10px] text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-full">
+                <AlertTriangle className="h-3 w-3" /> Hash divergente
+              </span>
+            ) : null
+          )}
         </span>
         <Button size="sm" variant="outline" onClick={handlePrint} disabled={!ready} className="gap-1.5">
           {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5" />}

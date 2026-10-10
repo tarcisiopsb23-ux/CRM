@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { addMonths, format } from "date-fns";
+import { insertC8AuditLog } from "@/hooks/useC8AuditLogs";
 
 export interface C8TenantFormValues {
   client_id: string;
@@ -25,6 +26,32 @@ export function useC8TenantActions(organizationId: string | undefined) {
 
   const invalidateClients = () =>
     qc.invalidateQueries({ queryKey: ["clients", organizationId] });
+
+  const invalidateAudit = () =>
+    qc.invalidateQueries({ queryKey: ["c8_audit_logs", organizationId] });
+
+  /** Retorna { userId, userName, userRole } do usuário autenticado atual */
+  async function resolveCallerInfo(): Promise<{ userId: string; userName: string; userRole: string }> {
+    const { data: { user } } = await supabase.auth.getUser();
+    const uid = user?.id ?? "";
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("full_name, role")
+      .eq("id", uid)
+      .maybeSingle();
+    return {
+      userId:   uid,
+      userName: profile?.full_name ?? user?.email ?? "—",
+      userRole: profile?.role ?? "user",
+    };
+  }
+
+  /** Resolve o nome do cliente pelo ID */
+  async function resolveClientName(clientId: string): Promise<string> {
+    const { data } = await supabase
+      .from("clients").select("name").eq("id", clientId).maybeSingle();
+    return data?.name ?? clientId.slice(0, 8);
+  }
 
   // ── saveTenant ──────────────────────────────────────────────────────────────
   const saveTenant = useMutation({
@@ -291,13 +318,28 @@ export function useC8TenantActions(organizationId: string | undefined) {
         }
       }
     },
-    onSuccess: () => {
+    onSuccess: (_data, input) => {
       invalidateTenants();
       invalidateClients();
+      invalidateAudit();
+      if (organizationId) {
+        resolveCallerInfo().then(async (caller) => {
+          const clientName = await resolveClientName(input.client_id);
+          await insertC8AuditLog({
+            organizationId,
+            clientId:    input.client_id,
+            clientName,
+            userId:      caller.userId,
+            userName:    caller.userName,
+            userRole:    caller.userRole,
+            action:      "update_client",
+            description: `Plano do cliente "${clientName}" salvo (${input.plan_name} · ${input.plan_value > 0 ? `R$ ${input.plan_value}/mês` : "gratuito"})`,
+            metadata:    { plan_name: input.plan_name, plan_value: input.plan_value, max_users: input.max_users },
+          });
+        });
+      }
     },
   });
-
-  // ── blockTenant ─────────────────────────────────────────────────────────────
   const blockTenant = useMutation({
     mutationFn: async ({
       clientId,
@@ -320,7 +362,26 @@ export function useC8TenantActions(organizationId: string | undefined) {
         .eq("client_id", clientId);
       if (sessionsError) throw sessionsError;
     },
-    onSuccess: () => invalidateTenants(),
+    onSuccess: (_data, vars) => {
+      invalidateTenants();
+      invalidateAudit();
+      if (organizationId) {
+        resolveCallerInfo().then(async (caller) => {
+          const clientName = await resolveClientName(vars.clientId);
+          await insertC8AuditLog({
+            organizationId,
+            clientId:    vars.clientId,
+            clientName,
+            userId:      caller.userId,
+            userName:    caller.userName,
+            userRole:    caller.userRole,
+            action:      "block_client",
+            description: `Cliente "${clientName}" bloqueado. Motivo: ${vars.reason}`,
+            metadata:    { reason: vars.reason },
+          });
+        });
+      }
+    },
   });
 
   // ── unblockTenant ────────────────────────────────────────────────────────────
@@ -338,7 +399,25 @@ export function useC8TenantActions(organizationId: string | undefined) {
         .eq("client_id", clientId);
       if (error) throw error;
     },
-    onSuccess: () => invalidateTenants(),
+    onSuccess: (_data, vars) => {
+      invalidateTenants();
+      invalidateAudit();
+      if (organizationId) {
+        resolveCallerInfo().then(async (caller) => {
+          const clientName = await resolveClientName(vars.clientId);
+          await insertC8AuditLog({
+            organizationId,
+            clientId:    vars.clientId,
+            clientName,
+            userId:      caller.userId,
+            userName:    caller.userName,
+            userRole:    caller.userRole,
+            action:      "unblock_client",
+            description: `Cliente "${clientName}" desbloqueado.`,
+          });
+        });
+      }
+    },
   });
 
   // ── reactivateTenant — reativa de qualquer status (inclusive cancelado) ──────
@@ -367,9 +446,25 @@ export function useC8TenantActions(organizationId: string | undefined) {
         .eq("id", clientId);
       if (clientError) throw clientError;
     },
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       invalidateTenants();
       invalidateClients();
+      invalidateAudit();
+      if (organizationId) {
+        resolveCallerInfo().then(async (caller) => {
+          const clientName = await resolveClientName(vars.clientId);
+          await insertC8AuditLog({
+            organizationId,
+            clientId:    vars.clientId,
+            clientName,
+            userId:      caller.userId,
+            userName:    caller.userName,
+            userRole:    caller.userRole,
+            action:      "unblock_client",
+            description: `Cliente "${clientName}" reativado.`,
+          });
+        });
+      }
     },
   });
 
@@ -391,7 +486,25 @@ export function useC8TenantActions(organizationId: string | undefined) {
         .eq("client_id", clientId);
       if (error) throw error;
     },
-    onSuccess: () => invalidateTenants(),
+    onSuccess: (_data, vars) => {
+      invalidateTenants();
+      invalidateAudit();
+      if (organizationId) {
+        resolveCallerInfo().then(async (caller) => {
+          const clientName = await resolveClientName(vars.clientId);
+          await insertC8AuditLog({
+            organizationId,
+            clientId:    vars.clientId,
+            clientName,
+            userId:      caller.userId,
+            userName:    caller.userName,
+            userRole:    caller.userRole,
+            action:      "suspend_client",
+            description: `Cliente "${clientName}" suspenso.`,
+          });
+        });
+      }
+    },
   });
 
   // ── cancelTenant ─────────────────────────────────────────────────────────────
@@ -415,9 +528,25 @@ export function useC8TenantActions(organizationId: string | undefined) {
         .eq("id", clientId);
       if (clientError) throw clientError;
     },
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       invalidateTenants();
       invalidateClients();
+      invalidateAudit();
+      if (organizationId) {
+        resolveCallerInfo().then(async (caller) => {
+          const clientName = await resolveClientName(vars.clientId);
+          await insertC8AuditLog({
+            organizationId,
+            clientId:    vars.clientId,
+            clientName,
+            userId:      caller.userId,
+            userName:    caller.userName,
+            userRole:    caller.userRole,
+            action:      "cancel_client",
+            description: `Cliente "${clientName}" cancelado.`,
+          });
+        });
+      }
     },
   });
 
@@ -519,12 +648,28 @@ export function useC8TenantActions(organizationId: string | undefined) {
           .eq("client_id", clientId);
       }
     },
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       invalidateTenants();
       invalidateClients();
+      invalidateAudit();
       qc.invalidateQueries({ queryKey: ["contracts"] });
       qc.invalidateQueries({ queryKey: ["c8_support_passwords"] });
       qc.invalidateQueries({ queryKey: ["c8_tenants_all_for_support"] });
+      if (organizationId) {
+        resolveCallerInfo().then(async (caller) => {
+          const clientName = await resolveClientName(vars.clientId);
+          await insertC8AuditLog({
+            organizationId,
+            clientId:    vars.clientId,
+            clientName,
+            userId:      caller.userId,
+            userName:    caller.userName,
+            userRole:    caller.userRole,
+            action:      "delete_client",
+            description: `Cliente "${clientName}" removido do C8 Control.`,
+          });
+        });
+      }
     },
   });
   const renewContract = useMutation({
@@ -553,7 +698,24 @@ export function useC8TenantActions(organizationId: string | undefined) {
     },
     onSuccess: (_data, vars) => {
       invalidateTenants();
+      invalidateAudit();
       qc.invalidateQueries({ queryKey: ["contracts", organizationId, vars.clientId] });
+      if (organizationId) {
+        resolveCallerInfo().then(async (caller) => {
+          const clientName = await resolveClientName(vars.clientId);
+          await insertC8AuditLog({
+            organizationId,
+            clientId:    vars.clientId,
+            clientName,
+            userId:      caller.userId,
+            userName:    caller.userName,
+            userRole:    caller.userRole,
+            action:      "renew_contract",
+            description: `Contrato do cliente "${clientName}" renovado até ${vars.newEndDate}.`,
+            metadata:    { new_end_date: vars.newEndDate },
+          });
+        });
+      }
     },
   });
 

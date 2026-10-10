@@ -1,64 +1,52 @@
-[api]
-enabled = true
-port = 54321
-schemas = ["public", "graphql_public"]
-extra_search_path = ["public", "extensions"]
-max_rows = 1000
+# Desabilita verificação JWT no gateway para funções que fazem validação manual.
+# Útil quando há incompatibilidade com algoritmos JWT (ex: ES256) ou tokens refrescados.
+# As funções validam o token internamente via getUser().
 
-[db]
-port = 54322
-shadow_port = 54320
-major_version = 15
-
-[studio]
-enabled = true
-port = 54323
-
-[inbucket]
-enabled = true
-port = 54324
-
-[storage]
-enabled = true
-
-[auth]
-enabled = true
-site_url = "http://localhost:3000"
-additional_redirect_urls = ["https://localhost:3000"]
-jwt_expiry = 3600
-enable_refresh_token_rotation = true
-refresh_token_reuse_interval = 10
-enable_signup = true
-
-[functions.validate-access]
+[functions.create-user-direct]
 verify_jwt = false
 
-[functions.provision-tenant]
+[functions.invite-by-email]
 verify_jwt = false
 
-[functions.crm-data-api]
+[functions.delete-user]
 verify_jwt = false
 
-[functions.tenant-status]
+[functions.generate-recruitment-form]
+verify_jwt = true
+
+# google-calendar-oauth: endpoint público — o popup OAuth2 abre sem JWT
+# O authorize redireciona para o Google e o callback é chamado pelo próprio Google
+[functions.google-calendar-oauth]
 verify_jwt = false
 
-[functions.secret-question]
+# agenda-n8n-receiver: chamado pelo n8n (sem JWT do usuário), valida via X-Webhook-Token
+[functions.agenda-n8n-receiver]
 verify_jwt = false
 
-[functions.sync-payments]
+# agenda-booking: formulário público de agendamento — acesso anônimo
+[functions.agenda-booking]
 verify_jwt = false
 
-[functions.payment-card]
+# client-dashboard-auth: login do C8 Control — chamado sem JWT (pré-autenticação)
+# Valida credenciais internamente e retorna session JWT
+[functions.client-dashboard-auth]
 verify_jwt = false
 
-[functions.oauth-exchange]
+# lookup-clients-by-email: descobre slugs vinculados a um e-mail — chamado sem JWT
+# Não retorna dados sensíveis, apenas nome/empresa do cliente
+[functions.lookup-clients-by-email]
 verify_jwt = false
 
-[functions.ga4-metrics]
+# get-meta-connections: lê conexões Meta para o dashboard C8 Control.
+# Usuários C8 Control não têm perfil em profiles — o gateway rejeitaria o JWT.
+# A EF usa service_role internamente, filtrando por organization_id.
+[functions.get-meta-connections]
 verify_jwt = false
 
-[functions.gads-metrics]
+# send-agenda-email: chamado pelo n8n com service_role key
+[functions.send-agenda-email]
 verify_jwt = false
 
-[functions.meta-ads-metrics]
+# appointment-reminders: chamado pelo n8n com X-Service-Key
+[functions.appointment-reminders]
 verify_jwt = false

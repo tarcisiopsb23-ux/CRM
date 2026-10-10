@@ -28,6 +28,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
+import { NacionalidadeCombobox } from "@/components/ui/nacionalidade-combobox";
 import { toast } from "sonner";
 import {
   Plus, Pencil, Trash2, ShieldCheck, Loader2, Users, Phone, Mail,
@@ -101,6 +102,7 @@ interface RepForm {
   representa_ids: string[];
   estado_civil: string;
   nacionalidade: string;
+  sexo: string;
 }
 
 const emptyForm = (): RepForm => ({
@@ -111,7 +113,7 @@ const emptyForm = (): RepForm => ({
   procuracao_tipo: "", procuracao_data: "",
   procuracao_validade: "", procuracao_indeterminada: false,
   procuracao_notas: "", representa_ids: [],
-  estado_civil: "", nacionalidade: "",
+  estado_civil: "", nacionalidade: "", sexo: "",
 });
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -307,6 +309,7 @@ export function RepresentativesEditor({ clientId, signingType, onSigningTypeChan
       representa_ids:          rep.representa_ids ?? [],
       estado_civil:            rep.estado_civil ?? "",
       nacionalidade:           rep.nacionalidade ?? "",
+      sexo:                    (rep as any).sexo ?? "",
     });
 
   const handleSave = async () => {
@@ -341,8 +344,9 @@ export function RepresentativesEditor({ clientId, signingType, onSigningTypeChan
         procuracao_notas:        editing.procuracao_notas.trim() || null,
         representa_ids:          editing.representa_ids.length > 0 ? editing.representa_ids : null,
         estado_civil:            editing.estado_civil || null,
-        nacionalidade:           editing.nacionalidade.trim() || null,
-      });
+        nacionalidade:           editing.nacionalidade || null,
+        sexo:                    editing.sexo || null,
+      } as any);
       toast.success(editing.id ? "Representante atualizado." : "Representante adicionado.");
       setEditing(null);
     } catch (err: unknown) {
@@ -507,16 +511,39 @@ export function RepresentativesEditor({ clientId, signingType, onSigningTypeChan
                     onChange={e => setEditing(p => p ? { ...p, cargo: e.target.value } : p)} />
                 </div>
 
-                {/* Estado civil e nacionalidade do representante */}
+                {/* Sexo, estado civil e nacionalidade do representante */}
                 <div className="space-y-1.5">
-                  <Label>Estado Civil</Label>
-                  <Input value={editing.estado_civil} placeholder="Ex: Casado(a)" className="h-8"
-                    onChange={e => setEditing(p => p ? { ...p, estado_civil: e.target.value } : p)} />
+                  <Label>Sexo</Label>
+                  <Select value={editing.sexo}
+                    onValueChange={v => setEditing(p => p ? { ...p, sexo: v } : p)}>
+                    <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="masculino">Masculino</SelectItem>
+                      <SelectItem value="feminino">Feminino</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-1.5">
+                  <Label>Estado Civil</Label>
+                  <Select value={editing.estado_civil}
+                    onValueChange={v => setEditing(p => p ? { ...p, estado_civil: v } : p)}>
+                    <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="solteiro">Solteiro(a)</SelectItem>
+                      <SelectItem value="casado">Casado(a)</SelectItem>
+                      <SelectItem value="divorciado">Divorciado(a)</SelectItem>
+                      <SelectItem value="viuvo">Viúvo(a)</SelectItem>
+                      <SelectItem value="uniao_estavel">União Estável</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="col-span-2 space-y-1.5">
                   <Label>Nacionalidade</Label>
-                  <Input value={editing.nacionalidade} placeholder="Ex: Brasileiro(a)" className="h-8"
-                    onChange={e => setEditing(p => p ? { ...p, nacionalidade: e.target.value } : p)} />
+                  <NacionalidadeCombobox
+                    value={editing.nacionalidade}
+                    onChange={v => setEditing(p => p ? { ...p, nacionalidade: v } : p)}
+                    size="sm"
+                  />
                 </div>
               </div>
 

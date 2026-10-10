@@ -1,20 +1,15 @@
 import { useEffect, useState, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
-import { useAuth } from "@/hooks/useAuth";
-import { TenantSelector } from "@/components/auth/TenantSelector";
-import { SupportBannerBar } from "@/components/auth/SupportLayout";
-import { ContractExpiryBanner } from "@/components/ContractExpiryBanner";
-import { useTenantStatus } from "@/hooks/useTenantStatus";
+import { useParams, useNavigate } from "react-router-dom";
+import { logger } from "@/lib/logger";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line,
   CartesianGrid, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
 import {
-  ArrowDown, ArrowUp, BarChart3, Briefcase, Calendar,
-  CheckCircle2, DollarSign, Info, KanbanSquare, ListFilter, Lock, LogOut,
-  Package, MessageCircle as MessageCircleIcon, MousePointerClick,
-  PieChart, Settings, Target, TrendingUp, Users, Zap,
+  Activity, ArrowDown, ArrowUp, BarChart3, Briefcase, Calendar,
+  CheckCircle2, DollarSign, Info, ListFilter, Lock, LogOut, MessageCircle,
+  PieChart, Target, TrendingUp, User, Users, Zap,
 } from "lucide-react";import {
   Tooltip as ShadcnTooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from "@/components/ui/tooltip";
@@ -30,172 +25,382 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { HorizontalScroll } from "@/components/ui/horizontal-scroll";
 import { ModernFunnel } from "@/components/ui/modern-funnel";
-import { supabase, supabaseCrm } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import {
-  format, subDays, startOfMonth, endOfMonth,
-  subMonths, parseISO,
+  format, subDays, startOfMonth, endOfMonth, parseISO,
+  isBefore, subMonths, subYears,
 } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { useClientKPIs, useClientKPIHistory } from "@/hooks/useClientKPIs";
+import { useQuery } from "@tanstack/react-query";
 import { useClientReports } from "@/hooks/useHubPerformance";
 import { useClientConversationKpis } from "@/hooks/useClientConversationKpis";
-import { useTrackingInjection } from "@/hooks/useTrackingInjection";
-import { useAdClickSessions } from "@/hooks/useAdClickSessions";
-import { useGA4Metrics, useGoogleAdsMetrics } from "@/hooks/useGoogleAnalytics";
-import { useMetaAdsMetrics } from "@/hooks/useMetaAds";
-import { useOAuthTokens } from "@/hooks/useOAuthTokens";
-import { useFunnelStats } from "@/hooks/useFunnelStats";
-import { useInactivityLogout } from "@/hooks/useInactivityLogout";
-import { canManageRole } from "@/hooks/useAuth";
+import { usePartnershipImpact, fmtImpact, isLowerBetterImpact } from "@/hooks/usePartnershipImpact";
 import { ConversationKpiDashboard } from "@/components/whatsapp/ConversationKpiDashboard";
-import { MessageCircle } from "lucide-react";
-import { CrmSection } from "@/components/crm/CrmSection";
-import { AdClickSection } from "@/components/performance/AdClickSection";
-import { GoogleMetaDashboard } from "@/components/performance/GoogleMetaDashboard";
-import { initiateGoogleOAuth, initiateMetaOAuth } from "@/lib/oauth";
-import { KpiResultDialog } from "@/components/kpi/KpiResultDialog";
+import { fmtKpiValue } from "@/lib/formatters";
 
-const isLowerBetter = (name: string) => /cac|cpa|cpl|cpc|cpm|custo/i.test(name);
-const KPI_COLORS = ["#10b981","#7C3AED","#f59e0b","#a855f7","#f43f5e","#06b6d4","#e879f9","#34d399"];
+const isLowerBetter = (name: string) => /cac|cpa|cpl|cpc|cpm|custo|inadimpl|churn|cancelamento|devolução|reclamação|tempo.*espera|prazo.*entrega/i.test(name);
+const KPI_COLORS = ["#10b981","#2D8CC7","#f59e0b","#a855f7","#f43f5e","#06b6d4","#e879f9","#34d399"];
+
+// Agrega linhas diárias de campaign_data por (platform, campaign_name)
+function aggregateCampaigns(rows: any[]) {
+  const map = new Map<string, any>();
+  for (const r of rows) {
+    const key = `${r.platform}||${r.campaign_id ?? r.campaign_name ?? ""}`;
+    if (!map.has(key)) {
+      map.set(key, {
+        platform: r.platform,
+        campaign_name: r.campaign_name ?? "—",
+        campaign_id: r.campaign_id ?? null,
+        objective: r.objective ?? null,
+        objective_metric_label: r.objective_metric_label ?? null,
+        spend: 0, leads: 0, sales: 0, clicks: 0, impressions: 0, revenue: 0, reach: 0,
+        objective_metric_value: 0,
+        daily: [] as any[],
+      });
+    }
+    const agg = map.get(key)!;
+    agg.spend                  += r.spend                  ?? 0;
+    agg.leads                  += r.leads                  ?? 0;
+    agg.sales                  += r.sales                  ?? 0;
+    agg.clicks                 += r.clicks                 ?? 0;
+    agg.impressions            += r.impressions            ?? 0;
+    agg.revenue                += r.revenue                ?? 0;
+    agg.reach                  += r.reach                  ?? 0;
+    agg.objective_metric_value += r.objective_metric_value ?? 0;
+    if (!agg.objective && r.objective) agg.objective = r.objective;
+    if (!agg.objective_metric_label && r.objective_metric_label) agg.objective_metric_label = r.objective_metric_label;
+    agg.daily.push(r);
+  }
+  return Array.from(map.values()).map(c => {
+    const hasRealMetric = c.objective_metric_label && c.objective_metric_value > 0;
+    const resultLabel = hasRealMetric ? c.objective_metric_label
+      : c.sales > 0 ? "Vendas" : c.leads > 0 ? "Leads" : "Cliques";
+    const mainResult = hasRealMetric ? c.objective_metric_value
+      : c.sales > 0 ? c.sales : c.leads > 0 ? c.leads : c.clicks;
+    const objective = c.objective ?? (c.sales > 0 ? "Vendas" : c.leads > 0 ? "Geração de Leads" : "Tráfego");
+    const cpr = c.spend > 0 && mainResult > 0 ? c.spend / mainResult : 0;
+    const ctr  = c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0;
+    const cpc  = c.clicks > 0 ? c.spend / c.clicks : 0;
+    const cpm  = c.impressions > 0 ? (c.spend / c.impressions) * 1000 : 0;
+    const roas = c.spend > 0 && c.revenue > 0 ? c.revenue / c.spend : 0;
+    const daily = [...c.daily].sort((a: any, b: any) => a.date > b.date ? 1 : -1);
+    return { ...c, objective, mainResult, resultLabel, cpr, ctr, cpc, cpm, roas, daily };
+  }).sort((a, b) => b.spend - a.spend);
+}
 
 export function PublicDashboardPage() {
+  const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
-  const { session, tenantId, role, isSupport, loading: authLoading, signOut } = useAuth();
-  const tenantStatus = useTenantStatus();
-  useInactivityLogout();
-  const canManage = canManageRole(role, isSupport);
+  const [loading, setLoading] = useState(true);
   const [clientData, setClientData] = useState<any>(null);
-  const [clientDataLoaded, setClientDataLoaded] = useState(false);
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
-  const [showKpiDialog, setShowKpiDialog] = useState(false);
   const [newPassword, setNewPassword] = useState("");
+  const [contractStartDate, setContractStartDate] = useState<Date | null>(null);
   const [dateRange, setDateRange] = useState({
-    from: format(subDays(new Date(), 30), "yyyy-MM-dd"),
-    to: format(new Date(), "yyyy-MM-dd"),
+    from: format(startOfMonth(new Date()), "yyyy-MM-dd"),
+    to: format(endOfMonth(new Date()), "yyyy-MM-dd"),
   });
   const [activeKpiId, setActiveKpiId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"performance" | "atendimento" | "crm">("crm");
-  const [selectedTenantId, setSelectedTenantId] = useState<string | null>(
-    () => sessionStorage.getItem("support_selected_tenant_id")
-  );
-  const [selectedTenantName, setSelectedTenantName] = useState<string | undefined>(
-    () => sessionStorage.getItem("support_selected_tenant_name") ?? undefined
-  );
+  const [activeTab, setActiveTab] = useState<"performance" | "atendimento">("performance");
+  const [autoFallbackApplied, setAutoFallbackApplied] = useState(false);
 
-  // Dashboard flags — todos ativos por padrão após carregar
-  const dashPerformance: boolean = clientDataLoaded ? (clientData?.metadata?.dashboard_performance ?? true) : false;
-  const dashAtendimento: boolean = clientDataLoaded ? (clientData?.metadata?.dashboard_atendimento ?? true) : false;
-  const dashCrm: boolean         = clientDataLoaded ? (clientData?.metadata?.dashboard_crm         ?? true) : false;
+  // Garante que o dateRange é estável e não cria novo objeto a cada render
+  const stableDateRange = useMemo(() => dateRange, [dateRange.from, dateRange.to]);
+
+  // Auto-signout após 30 minutos de inatividade
+  useEffect(() => {
+    const TIMEOUT = 30 * 60 * 1000;
+    let timer: ReturnType<typeof setTimeout>;
+    const reset = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        localStorage.removeItem(`client_auth_${slug}`);
+        navigate(`/public/dashboard/${slug}/login`);
+      }, TIMEOUT);
+    };
+    const events = ["mousedown", "mousemove", "keypress", "scroll", "touchstart"];
+    events.forEach(e => window.addEventListener(e, reset));
+    reset();
+    return () => {
+      clearTimeout(timer);
+      events.forEach(e => window.removeEventListener(e, reset));
+    };
+  }, [slug, navigate]);
+
+  // Dashboard flags from client metadata
+  const dashPerformance: boolean = clientData?.metadata?.dashboard_performance ?? true;
+  const dashAtendimento: boolean = clientData?.metadata?.dashboard_atendimento ?? false;
 
   // Dynamic title
-  const activeCount = [dashPerformance, dashAtendimento, dashCrm].filter(Boolean).length;
   const dashboardTitle =
-    activeCount >= 2 ? "C8 Control" :
-    dashAtendimento ? "C8 Control" :
-    dashCrm ? "C8 Control" :
-    "C8 Control";
+    dashPerformance && dashAtendimento ? "Dashboard Completo" :
+    dashAtendimento ? "Dashboard de Atendimento" :
+    "Dashboard de Performance";
 
   // Ensure activeTab is valid when flags change
-  const resolvedTab: "performance" | "atendimento" | "crm" = (() => {
-    const enabled = (
-      (dashCrm ? ["crm"] : []) as ("performance" | "atendimento" | "crm")[]
-    ).concat(
-      dashAtendimento ? ["atendimento"] : [],
-      dashPerformance ? ["performance"] : []
-    );
-    if (enabled.length === 0) return "performance";
-    return enabled.includes(activeTab as any) ? activeTab as any : enabled[0];
-  })();
+  const resolvedTab: "performance" | "atendimento" =
+    dashPerformance && !dashAtendimento ? "performance" :
+    !dashPerformance && dashAtendimento ? "atendimento" :
+    activeTab;
 
-  // Redirect to login when session is gone
   useEffect(() => {
-    if (!authLoading && !session) {
-      navigate("/login");
+    const authSession = localStorage.getItem(`client_auth_${slug}`);
+    if (!authSession) { navigate(`/public/dashboard/${slug}/login`); return; }
+    const parsedData = JSON.parse(authSession);
+    setClientData(parsedData);
+    const fetchFreshData = async () => {
+      // Re-fetch via RPC (bypasses RLS) to get latest metadata flags
+      if (parsedData.dashboard_slug || slug) {
+        const { data: clients } = await supabase
+          .rpc('get_client_by_slug', { p_slug: parsedData.dashboard_slug ?? slug });
+        if (clients && clients.length > 0) {
+          const fresh = clients[0];
+          const merged = {
+            ...parsedData,
+            favicon_url: fresh.favicon_url ?? parsedData.favicon_url,
+            metadata: {
+              ...(parsedData.metadata ?? {}),
+              dashboard_performance: fresh.dashboard_performance ?? true,
+              dashboard_atendimento: fresh.dashboard_atendimento ?? false,
+              ...(fresh.conversion_metrics && Object.keys(fresh.conversion_metrics).length > 0
+                ? { conversion_metrics: fresh.conversion_metrics }
+                : {}),
+              ...(Array.isArray(fresh.dashboard_kpis) && fresh.dashboard_kpis.length > 0
+                ? { dashboard_kpis: fresh.dashboard_kpis }
+                : {}),
+              ...(Array.isArray(fresh.geral_dashboard_cards) && fresh.geral_dashboard_cards.length > 0
+                ? { geral_dashboard_cards: fresh.geral_dashboard_cards }
+                : {}),
+            },
+          };
+          setClientData(merged);
+          localStorage.setItem(`client_auth_${slug}`, JSON.stringify(merged));
+        }
+      }
+      if (parsedData.id) {
+        // Usa RPC SECURITY DEFINER para bypasear RLS (usuário pode estar autenticado em outra org)
+        const { data: allContracts, error: contractsError } = await supabase
+          .rpc('get_client_contracts_public', { p_client_id: parsedData.id });
+
+        logger.debug('Contratos via RPC', { 
+          contracts: allContracts, 
+          error: contractsError?.message 
+        }, 'PUBLIC_DASHBOARD');
+
+        // Fallback: query direta (caso RPC ainda não exista)
+        let contracts = (allContracts ?? []) as any[];
+        if (contractsError || contracts.length === 0) {
+          const { data: directContracts } = await supabase
+            .from("contracts")
+            .select("id, start_date, contract_date, is_dashboard_reference")
+            .eq("client_id", parsedData.id)
+            .order("start_date", { ascending: true });
+          logger.debug('Contratos via query direta', { contracts: directContracts }, 'PUBLIC_DASHBOARD');
+          contracts = (directContracts ?? []) as any[];
+        }
+
+        if (contracts.length > 0) {
+          const refContract = contracts.find((c: any) => c.is_dashboard_reference === true)
+            ?? contracts[0];
+
+          logger.debug('Contrato de referência escolhido', { 
+            contractId: refContract.id,
+            isReference: refContract.is_dashboard_reference 
+          }, 'PUBLIC_DASHBOARD');
+
+          const rawDate = String(refContract.contract_date ?? refContract.start_date).substring(0, 10);
+          const contractDate = parseISO(rawDate);
+          const effectiveStart = startOfMonth(contractDate);
+          logger.debug('Data do contrato processada', { 
+            rawDate,
+            effectiveStart: effectiveStart.toISOString() 
+          }, 'PUBLIC_DASHBOARD');
+          setContractStartDate(effectiveStart);
+        } else {
+          logger.warn('Nenhum contrato encontrado para o cliente', { clientId: parsedData.id }, 'PUBLIC_DASHBOARD');
+        }
+      }
+      setLoading(false);
+    };
+    fetchFreshData();
+  }, [slug, navigate]);
+
+  const { data: kpisRaw } = useQuery({
+    queryKey: ["public_client_kpis", clientData?.id],
+    queryFn: async () => {
+      if (!clientData?.id) return [];
+      console.log('[Dashboard] Buscando KPIs para client_id:', clientData.id);
+      // Tenta via RPC primeiro (SECURITY DEFINER, bypassa RLS)
+      const { data: rpcData, error: rpcError } = await supabase
+        .rpc('get_client_kpis_public', { p_client_id: clientData.id });
+      console.log('[Dashboard] RPC KPIs result:', { rpcData, rpcError });
+      if (!rpcError && rpcData && rpcData.length > 0) return rpcData;
+      // Fallback: query direta
+      const { data, error } = await supabase
+        .from("client_kpis")
+        .select("*")
+        .eq("client_id", clientData.id)
+        .order("name", { ascending: true });
+      console.log('[Dashboard] Direct KPIs result:', { data, error });
+      if (error) return [];
+      return data || [];
+    },
+    enabled: !!clientData?.id,
+  });
+  const kpis = ((kpisRaw ?? []) as any[]).filter((k: any) => k.name !== "__lead_manual" && k.name !== "__sale_manual");
+
+  const { data: kpiHistoryRaw } = useQuery({
+    queryKey: ["public_client_kpi_history", clientData?.id],
+    queryFn: async () => {
+      if (!clientData?.id) return [];
+      console.log('[Dashboard] Buscando KPI history para client_id:', clientData.id);
+      const { data: rpcData, error: rpcError } = await supabase
+        .rpc('get_client_kpi_history_public', { p_client_id: clientData.id });
+      console.log('[Dashboard] RPC KPI history result:', { rpcData, rpcError });
+      if (!rpcError && rpcData && rpcData.length > 0) return rpcData;
+      const { data, error } = await supabase
+        .from("client_kpi_history")
+        .select("*")
+        .eq("client_id", clientData.id)
+        .order("month_year", { ascending: false });
+      console.log('[Dashboard] Direct KPI history result:', { data, error });
+      if (error) return [];
+      return data || [];
+    },
+    enabled: !!clientData?.id,
+  });
+  const kpiHistory = ((kpiHistoryRaw ?? []) as any[]);
+  const { campaignDataQuery } = useClientReports(clientData?.organization_id, clientData?.id, stableDateRange, true);
+  const realCampaigns = useMemo(() => aggregateCampaigns((campaignDataQuery.data ?? []) as any[]), [campaignDataQuery.data]);
+  const [campaignFilter, setCampaignFilter] = useState<"Todas" | "meta" | "google">("Todas");
+  const filteredRealCampaigns = useMemo(() =>
+    campaignFilter === "Todas" ? realCampaigns : realCampaigns.filter((c: any) => c.platform === campaignFilter),
+    [realCampaigns, campaignFilter]
+  );
+  const [selectedCampaign, setSelectedCampaign] = useState<any>(null);
+
+  // ── Mapeamento de métricas de conversão ─────────────────────────────────────
+  // Lê a configuração salva no metadata do cliente.
+  const conversionConfig = useMemo(() => {
+    const meta = (clientData?.metadata ?? {}) as Record<string, any>;
+    const cfg = meta.conversion_metrics ?? {};
+    // Suporta formato novo (arrays) e antigo (campo único)
+    const leadFields: string[] = Array.isArray(cfg.lead_fields) ? cfg.lead_fields
+      : (cfg.lead_field && cfg.lead_field !== "none") ? [cfg.lead_field] : ["leads"];
+    const saleFields: string[] = Array.isArray(cfg.sale_fields) ? cfg.sale_fields
+      : (cfg.sale_field && cfg.sale_field !== "none") ? [cfg.sale_field] : ["sales"];
+    // IDs de KPIs selecionados para cards no dashboard (vazio = todos)
+    const dashboardKpis: string[] = Array.isArray(meta.dashboard_kpis) ? meta.dashboard_kpis : [];
+    return { leadFields, saleFields, dashboardKpis };
+  }, [clientData?.metadata]);
+
+  // Busca registros manuais de lead/venda quando configurado como "manual"
+  const { data: manualKpiHistory } = useQuery({
+    queryKey: ["public_manual_kpi_history", clientData?.id],
+    queryFn: async () => {
+      if (!clientData?.id) return [];
+      const { data, error } = await supabase
+        .from("client_kpi_history")
+        .select("kpi_id, month_year, value")
+        .eq("client_id", clientData.id);
+      if (error) return [];
+      return data || [];
+    },
+    enabled: !!clientData?.id && (conversionConfig.leadFields?.includes("manual") ?? false),
+  });
+
+  // Busca IDs dos KPIs especiais de manual quando necessário
+  const { data: manualKpiIds } = useQuery({
+    queryKey: ["public_manual_kpi_ids", clientData?.id],
+    queryFn: async () => {
+      if (!clientData?.id) return null;
+      const { data } = await supabase
+        .from("client_kpis")
+        .select("id, name")
+        .eq("client_id", clientData.id)
+        .in("name", ["__lead_manual", "__sale_manual"]);
+      const leadKpi = data?.find((k: any) => k.name === "__lead_manual");
+      const saleKpi = data?.find((k: any) => k.name === "__sale_manual");
+      return { leadKpiId: leadKpi?.id ?? null, saleKpiId: saleKpi?.id ?? null };
+    },
+    enabled: !!clientData?.id && ((conversionConfig.leadFields?.includes("manual") ?? false) || (conversionConfig.saleFields?.includes("manual") ?? false)),
+  });
+
+  // Agrega campaign_data por data para o gráfico de Evolução Diária.
+  // Usamos campaign_data (não daily_metrics) porque é a única tabela que tem o campo revenue.
+  // daily_metrics é uma tabela legada que não possui total_revenue.
+  const realDailyMetrics = useMemo(() => {
+    const rows = (campaignDataQuery.data ?? []) as any[];
+    const { leadFields, saleFields } = conversionConfig;
+    const hasManualLead = leadFields.includes("manual");
+    const hasManualSale = saleFields.includes("manual");
+    const fixedFields = ["leads","clicks","sales","revenue","impressions","reach","spend","objective_metric_value"];
+    const byDate: Record<string, any> = {};
+    for (const r of rows) {
+      const d = r.date;
+      if (!d) continue;
+      if (!byDate[d]) byDate[d] = { date: d, total_spend: 0, total_leads: 0, total_sales: 0, total_revenue: 0, total_impressions: 0, total_clicks: 0 };
+      byDate[d].total_spend       += Number(r.spend ?? 0);
+      byDate[d].total_revenue     += Number(r.revenue ?? 0);
+      byDate[d].total_impressions += Number(r.impressions ?? 0);
+      byDate[d].total_clicks      += Number(r.clicks ?? 0);
+      // Lead: soma campos fixos + eventos dinâmicos (objective_metric_label)
+      if (!hasManualLead) {
+        for (const f of leadFields) {
+          if (!f || f === "none") continue;
+          if (fixedFields.includes(f)) byDate[d].total_leads += Number(r[f] ?? 0);
+          else if (r.objective_metric_label === f) byDate[d].total_leads += Number(r.objective_metric_value ?? 0);
+        }
+      }
+      // Venda
+      if (!hasManualSale) {
+        for (const f of saleFields) {
+          if (!f || f === "none") continue;
+          if (fixedFields.includes(f)) byDate[d].total_sales += Number(r[f] ?? 0);
+          else if (r.objective_metric_label === f) byDate[d].total_sales += Number(r.objective_metric_value ?? 0);
+        }
+      }
     }
-  }, [authLoading, session, navigate]);
-
-  // Fetch client metadata from CRM_DB using RLS (tenant_id from JWT)
-  // Suporte com tenant_id próprio (novo modelo): usa tenantId diretamente
-  // Suporte sem tenant_id (modelo antigo): usa selectedTenantId do TenantSelector
-  // Usuário normal do C8 Control: tenantId vem do JWT (client_id via hook)
-  const isSupportWithTenant = isSupport && !!tenantId;
-  const effectiveTenantId = isSupportWithTenant
-    ? tenantId
-    : isSupport
-      ? selectedTenantId
-      : tenantId
-        ?? session?.user?.user_metadata?.client_id  // fallback se JWT hook não emitiu tenant_id
-        ?? null;
-  useEffect(() => {
-    if (!effectiveTenantId || effectiveTenantId === "") return;
-    const fetchClientData = async () => {
-      const { data: clients, error } = await supabaseCrm
-        .from("clients")
-        .select("id, name, company, favicon_url, metadata")
-        .eq("tenant_id", effectiveTenantId)
-        .limit(1);
-      if (error) console.warn("[Dashboard] erro ao buscar clientData:", error.message);
-      if (clients && clients.length > 0) {
-        const fresh = clients[0];
-        const meta = fresh.metadata ?? {};
-        setClientData({
-          ...fresh,
-          company: fresh.company ?? null,
-          metadata: {
-            ...meta,
-            dashboard_performance: meta.dashboard_performance ?? true,
-            dashboard_atendimento: meta.dashboard_atendimento ?? true,
-            dashboard_crm:         meta.dashboard_crm         ?? true,
-          },
+    const result = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
+    // Sobrepõe com dados manuais se configurado
+    if ((hasManualLead || hasManualSale) && manualKpiHistory && manualKpiIds) {
+      const { leadKpiId, saleKpiId } = manualKpiIds;
+      for (const entry of (manualKpiHistory as any[])) {
+        const monthPrefix = String(entry.month_year).substring(0, 7);
+        const daysInMonth = result.filter((d: any) => d.date.startsWith(monthPrefix));
+        if (daysInMonth.length === 0) continue;
+        const perDay = entry.value / daysInMonth.length;
+        daysInMonth.forEach((day: any) => {
+          if (hasManualLead && entry.kpi_id === leadKpiId) day.total_leads += perDay;
+          if (hasManualSale && entry.kpi_id === saleKpiId) day.total_sales += perDay;
         });
       }
-      setClientDataLoaded(true);
-    };
-    fetchClientData();
-  }, [effectiveTenantId]);
+    }
+    return result;
+  }, [campaignDataQuery.data, conversionConfig, manualKpiHistory, manualKpiIds]);
 
-  // Tracking injection removed — GTM and Meta Pixel are now injected only
-  // in the WhatsAppRedirectPage (/wa) to avoid tracking the client dashboard.
+  // Debug log quando dados chegam
+  console.log('[Dashboard] State:', {
+    clientId: clientData?.id,
+    orgId: clientData?.organization_id,
+    kpisCount: kpis.length,
+    kpiHistoryCount: kpiHistory.length,
+    campaignsCount: realCampaigns.length,
+    dailyMetricsCount: realDailyMetrics.length,
+  });
 
-  // clientId is the effective tenant ID (support uses selectedTenantId)
-  const clientId: string | undefined = effectiveTenantId ?? undefined;
-
-  const kpisQuery = useClientKPIs(clientId);
-  const kpiHistoryQuery = useClientKPIHistory(clientId);
-  const kpis = (kpisQuery.data ?? []) as any[];
-  const kpiHistory = (kpiHistoryQuery.data ?? []) as any[];
-  const { campaignDataQuery, dailyMetricsQuery } = useClientReports(clientId, dateRange);
-  const realCampaigns = (campaignDataQuery.data ?? []) as any[];
-  const realDailyMetrics = (dailyMetricsQuery.data ?? []) as any[];
-  const adClickQuery = useAdClickSessions(clientId, dateRange);
-  const { googleToken, metaToken } = useOAuthTokens(clientId);
-  const ga4Query = useGA4Metrics(googleToken ? clientId : undefined, dateRange);
-  const gadsQuery = useGoogleAdsMetrics(googleToken ? clientId : undefined, dateRange);
-  const metaQuery = useMetaAdsMetrics(metaToken ? clientId : undefined, dateRange);
-
-  // totals must be declared before funnelStats (which references it)
-  const totals = useMemo(() => realDailyMetrics.reduce((acc: any, curr: any) => ({
-    spend: acc.spend + (curr.total_spend || 0),
-    leads: acc.leads + (curr.total_leads || 0),
-    sales: acc.sales + (curr.total_sales || 0),
-    revenue: acc.revenue + (curr.revenue || 0),
-    impressions: acc.impressions + (curr.impressions || 0),
-    clicks: acc.clicks + (curr.clicks || 0),
-  }), { spend: 0, leads: 0, sales: 0, revenue: 0, impressions: 0, clicks: 0 }), [realDailyMetrics]);
-
-  const funnelStats = useFunnelStats(clientId, dateRange);
-
-  const handleLogoff = async () => {
-    await signOut();
-    navigate("/login");
+  const handleLogoff = () => {
+    localStorage.removeItem(`client_auth_${slug}`);
+    navigate(`/public/dashboard/${slug}/login`);
   };
 
   const handleChangePassword = async () => {
     if (!newPassword.trim()) return;
     try {
-      const { data: client } = await supabase.from("clients").select("id, metadata").limit(1).single();
+      const { data: client } = await supabase.from("clients").select("id, metadata").eq("dashboard_slug", slug).single();
       if (!client) return;
       const { error } = await supabase.from("clients")
         .update({ metadata: { ...(client.metadata as any || {}), dashboard_password: newPassword.trim() } })
@@ -207,173 +412,72 @@ export function PublicDashboardPage() {
     } catch { toast.error("Erro ao atualizar senha."); }
   };
 
-  // ── Consolidated metrics: real API data takes priority over manual daily_metrics ──
-  const consolidated = useMemo(() => {
-    const gads = gadsQuery.data;
-    const meta = metaQuery.data;
-    const funnel = funnelStats.data;
-    const adClicks = adClickQuery.data?.totalClicks ?? 0;
+  const totals = useMemo(() => realDailyMetrics.reduce((acc, curr) => ({
+    spend:       acc.spend       + (curr.total_spend       || 0),
+    leads:       acc.leads       + (curr.total_leads       || 0),
+    sales:       acc.sales       + (curr.total_sales       || 0),
+    revenue:     acc.revenue     + (curr.total_revenue     || 0),
+    impressions: acc.impressions + (curr.total_impressions || 0),
+    clicks:      acc.clicks      + (curr.total_clicks      || 0),
+  }), { spend: 0, leads: 0, sales: 0, revenue: 0, impressions: 0, clicks: 0 }), [realDailyMetrics]);
 
-    // Spend: Google Ads + Meta Ads, fallback to daily_metrics
-    const spend = (gads || meta)
-      ? (gads?.spend ?? 0) + (meta?.spend ?? 0)
-      : totals.spend;
-
-    // Impressions: Google Ads + Meta Ads, fallback to daily_metrics
-    const impressions = (gads || meta)
-      ? (gads?.impressions ?? 0) + (meta?.impressions ?? 0)
-      : totals.impressions;
-
-    // Clicks: Google Ads + Meta Ads + ad_click_sessions, fallback to daily_metrics
-    const clicks = (gads || meta || adClicks > 0)
-      ? (gads?.clicks ?? 0) + (meta?.clicks ?? 0) + adClicks
-      : totals.clicks;
-
-    // Leads: CRM "novo" stage history, fallback to daily_metrics
-    const leads = funnel ? funnel.novo : totals.leads;
-
-    // Qualified: CRM "contato" stage history
-    const qualified = funnel?.contato ?? 0;
-
-    // Sales: CRM "fechado" stage history, fallback to daily_metrics
-    const sales = funnel ? funnel.fechado : totals.sales;
-
-    // Revenue: from daily_metrics (manually entered or API-fed)
-    const revenue = totals.revenue;
-
-    const roas = spend > 0 ? (revenue / spend).toFixed(1) : "0.0";
-    const conversionRate = leads > 0 ? ((sales / leads) * 100).toFixed(1) : "0.0";
-    const cpa = sales > 0 ? (spend / sales).toFixed(0) : "0";
-
-    // Daily chart: merge Google Ads + Meta Ads by day, fallback to daily_metrics
-    const dailyMap = new Map<string, { date: string; total_spend: number; revenue: number; total_leads: number; impressions: number; clicks: number }>();
-    // Start with daily_metrics as base
-    for (const d of realDailyMetrics) {
-      dailyMap.set(d.date, { ...d });
-    }
-    // Override/merge with Google Ads daily data
-    if (gads?.byDay) {
-      for (const d of gads.byDay) {
-        const existing = dailyMap.get(d.date) ?? { date: d.date, total_spend: 0, revenue: 0, total_leads: 0, impressions: 0, clicks: 0 };
-        dailyMap.set(d.date, { ...existing, total_spend: existing.total_spend + d.spend, clicks: existing.clicks + d.clicks });
-      }
-    }
-    // Merge Meta Ads daily data
-    if (meta?.byDay) {
-      for (const d of meta.byDay) {
-        const existing = dailyMap.get(d.date) ?? { date: d.date, total_spend: 0, revenue: 0, total_leads: 0, impressions: 0, clicks: 0 };
-        dailyMap.set(d.date, {
-          ...existing,
-          total_spend: existing.total_spend + d.spend,
-          impressions: existing.impressions + d.impressions,
-          clicks: existing.clicks + d.clicks,
-          total_leads: existing.total_leads + d.leads,
-        });
-      }
-    }
-    const dailyData = Array.from(dailyMap.values()).sort((a, b) => a.date.localeCompare(b.date));
-
-    // Campaigns: Google Ads + Meta Ads merged with ad_click_sessions by campaign name
-    // Normalize name for matching: lowercase + trim
-    const normalize = (s: string) => s.toLowerCase().trim();
-
-    // Build ad_click_sessions map: normalized campaign name → tracked clicks count
-    const adClicksByCampaign = new Map<string, number>();
-    if (adClickQuery.data?.byCampaign) {
-      for (const c of adClickQuery.data.byCampaign) {
-        const key = normalize(c.campaign);
-        adClicksByCampaign.set(key, (adClicksByCampaign.get(key) ?? 0) + c.clicks);
-      }
-    }
-
-    const campaigns: {
-      platform: string; name: string; spend: number;
-      leads: number; sales: number; revenue: number;
-      trackedClicks: number; // from ad_click_sessions
-    }[] = [];
-
-    if (gads?.byCampaign?.length) {
-      for (const c of gads.byCampaign) {
-        campaigns.push({
-          platform: "Google Ads", name: c.campaign,
-          spend: c.spend, leads: 0, sales: c.conversions, revenue: c.roas * c.spend,
-          trackedClicks: adClicksByCampaign.get(normalize(c.campaign)) ?? 0,
-        });
-      }
-    }
-    if (meta?.byCampaign?.length) {
-      for (const c of meta.byCampaign) {
-        campaigns.push({
-          platform: "Meta Ads", name: c.campaign_name,
-          spend: c.spend, leads: c.leads, sales: c.purchases, revenue: c.roas * c.spend,
-          trackedClicks: adClicksByCampaign.get(normalize(c.campaign_name)) ?? 0,
-        });
-      }
-    }
-
-    // If no API campaigns, fall back to campaign_data + enrich with ad_click_sessions
-    const finalCampaigns = campaigns.length > 0
-      ? campaigns
-      : realCampaigns.map((c: any) => ({
-          ...c,
-          trackedClicks: adClicksByCampaign.get(normalize(c.name ?? "")) ?? 0,
-        }));
-
-    // Add campaigns that exist ONLY in ad_click_sessions (no API match)
-    // These are campaigns tracked via the /wa link but not connected to any ad platform API
-    const matchedNames = new Set(finalCampaigns.map((c: any) => normalize(c.name ?? "")));
-    const adOnlyCampaigns: typeof campaigns = [];
-    for (const [normName, trackedClicks] of adClicksByCampaign.entries()) {
-      if (!matchedNames.has(normName)) {
-        // Find original (non-normalized) name and source from byCampaign
-        const original = adClickQuery.data?.byCampaign.find(
-          c => normalize(c.campaign) === normName
-        );
-        adOnlyCampaigns.push({
-          platform: original?.source ?? "Link Rastreado",
-          name: original?.campaign ?? normName,
-          spend: 0,
-          leads: 0,
-          sales: 0,
-          revenue: 0,
-          trackedClicks,
-        });
-      }
-    }
-
-    const allCampaigns = [...finalCampaigns, ...adOnlyCampaigns]
-      .sort((a: any, b: any) => (b.trackedClicks + (b.spend ?? 0)) - (a.trackedClicks + (a.spend ?? 0)));
-
-    return { spend, impressions, clicks, leads, qualified, sales, revenue, roas, conversionRate, cpa, dailyData, finalCampaigns: allCampaigns };
-  }, [gadsQuery.data, metaQuery.data, funnelStats.data, adClickQuery.data, totals, realDailyMetrics, realCampaigns]);
-
-  // KPI cards – mês atual vs anterior
+  // KPI cards — mês atual vs anterior com regras de comparação:
+  // 1. Se houver dado no mês atual E no mês anterior → comparação normal
+  // 2. Se for o primeiro mês pós-contrato (sem dado no mês anterior pós-contrato) → compara com último mês do histórico pré-contrato
+  // 3. Se não houver nenhum resultado pós-contrato → growth = null (Sem dados)
   const kpiCards = useMemo(() => {
+    const contractStart = contractStartDate ? startOfMonth(contractStartDate) : null;
+
     return kpis.map((kpi, idx) => {
-      // Pega todos os registros deste KPI ordenados do mais recente ao mais antigo
-      const kpiEntries = kpiHistory
+      const history = kpiHistory
         .filter(h => h.kpi_id === kpi.id)
         .sort((a, b) => String(b.month_year).localeCompare(String(a.month_year)));
 
-      const current = kpiEntries[0]?.value ?? null;
-      // Se há apenas 1 registro, prev = 0 para permitir comparação
-      const prev = kpiEntries.length >= 2 ? kpiEntries[1].value : (kpiEntries.length === 1 ? 0 : null);
-      const growth = current !== null && prev !== null
-        ? (prev !== 0 ? ((current - prev) / prev) * 100 : (current > 0 ? 100 : 0))
+      // Separa histórico pós-contrato e pré-contrato
+      const postHistory = contractStart
+        ? history.filter(h => !isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), contractStart))
+        : history;
+      const preHistory = contractStart
+        ? history.filter(h => isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), contractStart))
+        : [];
+
+      // Se não há nenhum dado pós-contrato → sem dados
+      if (postHistory.length === 0) {
+        return { ...kpi, current: null, prev: null, growth: null, color: KPI_COLORS[idx % KPI_COLORS.length] };
+      }
+
+      // Valor atual = mais recente pós-contrato
+      const currentEntry = postHistory[0];
+      const current = currentEntry?.value ?? null;
+
+      // Valor anterior: tenta o segundo mais recente pós-contrato
+      // Se for o primeiro mês pós-contrato, usa o último mês do histórico pré-contrato
+      let prevEntry = postHistory[1] ?? null;
+      if (!prevEntry && preHistory.length > 0) {
+        prevEntry = preHistory[0]; // último mês pré-contrato
+      }
+
+      const prev = prevEntry?.value ?? null;
+      const growth = current !== null && prev !== null && prev !== 0
+        ? ((current - prev) / prev) * 100
         : null;
       return { ...kpi, current, prev, growth, color: KPI_COLORS[idx % KPI_COLORS.length] };
     });
-  }, [kpis, kpiHistory]);
+  }, [kpis, kpiHistory, contractStartDate]);
 
-  // Sparkline – até 12 meses, baseado nos registros existentes
+  // Filtra kpiCards pelos IDs selecionados para o dashboard (vazio = exibe todos)
+  const visibleKpiCards = useMemo(() => {
+    const { dashboardKpis } = conversionConfig;
+    if (!dashboardKpis || dashboardKpis.length === 0) return kpiCards as any[];
+    return (kpiCards as any[]).filter((k: any) => dashboardKpis.includes(k.id));
+  }, [kpiCards, conversionConfig]);
+
+  // Sparkline (6 meses) por KPI
   const kpiSparkline = useMemo(() => {
-    const allMonths = kpiHistory.map(h => String(h.month_year).slice(0, 7));
-    const uniqueMonths = [...new Set(allMonths)].sort();
-    // Pega até 12 meses mais recentes com pelo menos 1 registro
-    const relevantMonths = uniqueMonths.slice(-12);
+    const monthKeys = Array.from({ length: 6 }).map((_, i) => format(subMonths(new Date(), i), "yyyy-MM")).reverse();
     const byKpi = new Map<string, { month: string; value: number }[]>();
     for (const kpi of kpis) {
-      byKpi.set(kpi.id, relevantMonths.map(mk => ({
+      byKpi.set(kpi.id, monthKeys.map(mk => ({
         month: mk,
         value: kpiHistory.find(h => h.kpi_id === kpi.id && String(h.month_year).startsWith(mk))?.value ?? 0,
       })));
@@ -381,129 +485,155 @@ export function PublicDashboardPage() {
     return byKpi;
   }, [kpis, kpiHistory]);
 
-  // Evolução longo prazo – até 12 meses com registros
+  // Evolução longo prazo (12 meses anteriores ao atual)
   const longTermData = useMemo(() => {
-    const allMonths = kpiHistory.map(h => String(h.month_year).slice(0, 7));
-    const uniqueMonths = [...new Set(allMonths)].sort();
-    const relevantMonths = uniqueMonths.slice(-12);
-    return relevantMonths.map(monthStr => {
-      const point: any = { name: format(parseISO(monthStr + "-01"), "MMM/yy", { locale: ptBR }) };
+    const contractStart = contractStartDate ? startOfMonth(contractStartDate) : null;
+    console.log('[LongTerm] contractStartDate:', contractStartDate, '→ contractStart:', contractStart);
+    const points = Array.from({ length: 12 }).map((_, i) => {
+      const month = startOfMonth(subMonths(new Date(), 12 - i));
+      const monthStr = format(month, "yyyy-MM");
+      // Sem contractStart: todas as barras cinzas até o estado carregar
+      const isVigencia = contractStart ? !isBefore(month, contractStart) : false;
+      console.log(`[LongTerm] ${monthStr}: isVigencia=${isVigencia}`);
+      const point: any = {
+        name: format(month, "MMM/yy", { locale: ptBR }),
+        isVigencia,
+      };
       kpis.forEach(kpi => {
-        const h = kpiHistory.find(h => h.kpi_id === kpi.id && String(h.month_year).startsWith(monthStr));
+        const h = kpiHistory.find(h => h.kpi_id === kpi.id && String(h.month_year).substring(0, 7) === monthStr);
         point[kpi.name] = h ? h.value : null;
       });
       return point;
     });
-  }, [kpis, kpiHistory]);
+    return points;
+  }, [kpis, kpiHistory, contractStartDate]);
+
+  // Impacto da parceria — dois cards para faturamento, um para os demais
+  const partnershipImpact = usePartnershipImpact(kpis, kpiHistory, contractStartDate);
 
   // Tabela comparativa de performance
+  // - Média Histórica: últimos 12 meses do histórico ANTERIOR ao contrato (base para meta)
+  // - Média Pós-Contrato: últimos 12 meses pós-contrato (progresso)
+  // - Resultado Atual: mais recente pós-contrato
   const perfRows = useMemo(() => {
-    const currentKey = format(new Date(), "yyyy-MM");
-    const fmt = (v: number, unit: string) =>
-      unit === "currency" ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(v)
-      : unit === "percentage" ? `${v.toFixed(2)}%` : String(v);
+    const contractStart = contractStartDate ? startOfMonth(contractStartDate) : null;
+    const fmt = (v: number, unit: string) => fmtKpiValue(v, unit);
     return kpis.map(kpi => {
-      const history = kpiHistory.filter(h => h.kpi_id === kpi.id);
-      const current = history.find(h => String(h.month_year).startsWith(currentKey))?.value ?? null;
-      const avg = history.length > 0 ? history.reduce((a, h) => a + h.value, 0) / history.length : null;
+      const allHistory = kpiHistory
+        .filter(h => h.kpi_id === kpi.id)
+        .sort((a, b) => String(b.month_year).localeCompare(String(a.month_year)));
+
+      // Pós-contrato
+      const postHistory = contractStart
+        ? allHistory.filter(h => !isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), contractStart))
+        : allHistory;
+
+      // Pré-contrato
+      const preHistory = contractStart
+        ? allHistory.filter(h => isBefore(startOfMonth(parseISO(String(h.month_year).substring(0, 10))), contractStart))
+        : [];
+
+      // Resultado atual = mais recente pós-contrato
+      const current = postHistory[0]?.value ?? null;
+
+      // Média histórica = últimos 12 meses pré-contrato (base da meta)
+      const preLast12 = preHistory.slice(0, 12);
+      const preAvg = preLast12.length > 0
+        ? preLast12.reduce((a, h) => a + Number(h.value), 0) / preLast12.length
+        : null;
+
+      // Média pós-contrato = últimos 12 meses pós-contrato (progresso)
+      const postLast12 = postHistory.slice(0, 12);
+      const postAvg = postLast12.length > 0
+        ? postLast12.reduce((a, h) => a + Number(h.value), 0) / postLast12.length
+        : null;
+
       const target = kpi.target_value ?? null;
-      const vsAvg = current !== null && avg !== null && avg !== 0 ? ((current - avg) / avg) * 100 : null;
-      const pctMeta = current !== null && target !== null && target !== 0 ? (current / target) * 100 : null;
+      // vs Histórico: compara resultado atual (postAvg) com média histórica pré-contrato (preAvg)
+      const displayCurrent = postAvg ?? current;
+      const vsAvg = displayCurrent !== null && preAvg !== null && preAvg !== 0
+        ? ((displayCurrent - preAvg) / preAvg) * 100
+        : null;
+      const pctMeta = displayCurrent !== null && target !== null && target !== 0 ? (displayCurrent / target) * 100 : null;
       const lower = isLowerBetter(kpi.name);
       let status = "Sem dados";
-      if (vsAvg !== null) {
+      if (current !== null) {
         if (pctMeta !== null && (lower ? pctMeta <= 100 : pctMeta >= 100)) status = "Meta atingida";
         else if (pctMeta !== null && (lower ? pctMeta <= 105 : pctMeta >= 90)) status = "Próximo da meta";
-        else if (lower ? vsAvg <= -5 : vsAvg >= 5) status = "Acima da média";
-        else if (lower ? vsAvg >= 5 : vsAvg <= -5) status = "Abaixo da média";
-        else status = "Na média";
+        else if (vsAvg !== null && (lower ? vsAvg <= -5 : vsAvg >= 5)) status = "Acima da média";
+        else if (vsAvg !== null && (lower ? vsAvg >= 5 : vsAvg <= -5)) status = "Abaixo da média";
+        else if (vsAvg !== null) status = "Na média";
       }
-      return { kpi, current, avg, target, vsAvg, pctMeta, status, fmt };
+      return { kpi, current: displayCurrent, preAvg, postAvg, target, vsAvg, pctMeta, status, fmt };
     });
-  }, [kpis, kpiHistory]);
+  }, [kpis, kpiHistory, contractStartDate]);
 
-  if (authLoading) return (
+  if (loading) return (
     <div className="flex items-center justify-center min-h-screen bg-[#111827]">
       <div className="flex flex-col items-center gap-4">
-        <div className="h-12 w-12 animate-spin rounded-full border-4 border-[#7C3AED] border-t-transparent" />
-        <p className="text-slate-400 font-medium tracking-wide">Iniciando C8 Control...</p>
+        <div className="h-12 w-12 animate-spin rounded-full border-4 border-[#2D8CC7] border-t-transparent" />
+        <p className="text-slate-400 font-medium tracking-wide">Iniciando Dashboard de Performance...</p>
       </div>
     </div>
   );
 
-  // Suporte sem tenant_id (modelo antigo) — mostrar seletor de tenant
-  // Só mostra para roles de agência (agency/support) — nunca para owner/admin/member
-  // que são roles de clientes do C8 Control
-  const clientRoles = ["owner", "admin", "manager", "member", "viewer"];
-  if (isSupport && !tenantId && !selectedTenantId && !clientRoles.includes(role)) {
-    return (
-      <TenantSelector
-        onSelect={(id, name) => {
-          setSelectedTenantId(id);
-          setSelectedTenantName(name);
-          sessionStorage.setItem("support_selected_tenant_id", id);
-          sessionStorage.setItem("support_selected_tenant_name", name);
-          void supabaseCrm.from("audit_logs").insert({
-            tenant_id:  id,
-            user_id:    session?.user?.id ?? "unknown",
-            user_email: session?.user?.email ?? null,
-            user_role:  "agency",
-            action:     `Suporte acessou dashboard do tenant: ${name ?? id}`,
-            category:   "support",
-            ip_hint:    "browser",
-          });
-        }}
-      />
-    );
-  }
+  const roas = totals.spend > 0 ? (totals.revenue / totals.spend).toFixed(1) : "0.0";
+  const cpa = totals.sales > 0 ? (totals.spend / totals.sales).toFixed(0) : "0";
+  // Se não há leads, usa cliques como denominador (igual ao funil adaptativo)
+  const conversionRate = totals.leads > 0
+    ? ((totals.sales / totals.leads) * 100).toFixed(1)
+    : totals.clicks > 0
+      ? ((totals.sales / totals.clicks) * 100).toFixed(1)
+      : "0.0";
+  const conversionLabel = totals.leads > 0 ? "Leads → Vendas" : totals.clicks > 0 ? "Cliques → Vendas" : "Conversão";
+  const isZero = totals.spend === 0 && totals.revenue === 0 && totals.clicks === 0;
 
-  // Use consolidated values (real API data > manual daily_metrics)
-  const roas = consolidated.roas;
-  const cpa = consolidated.cpa;
-  const conversionRate = consolidated.conversionRate;
-  const selectedKpi = kpis.find(k => k.id === (activeKpiId ?? kpis[0]?.id)) ?? kpis[0];
-  const selectedColor = selectedKpi ? KPI_COLORS[kpis.indexOf(selectedKpi) % KPI_COLORS.length] : "#7C3AED";
+  // Fallback automático: se mês atual sem dados, recua para mês anterior (só uma vez)
+  useEffect(() => {
+    if (
+      !campaignDataQuery.isLoading &&
+      isZero &&
+      !autoFallbackApplied &&
+      dateRange.from === format(startOfMonth(new Date()), "yyyy-MM-dd")
+    ) {
+      setAutoFallbackApplied(true);
+      setDateRange({
+        from: format(startOfMonth(subMonths(new Date(), 1)), "yyyy-MM-dd"),
+        to:   format(endOfMonth(subMonths(new Date(), 1)),   "yyyy-MM-dd"),
+      });
+    }
+  }, [campaignDataQuery.isLoading, isZero, autoFallbackApplied, dateRange.from]);
 
-  const fmtVal = (v: number, unit: string) =>
-    unit === "currency" ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(v)
-    : unit === "percentage" ? `${v}%` : String(v);
+  // KPI padrão: faturamento bruto tem prioridade, senão o primeiro da lista
+  const defaultKpi = kpis.find(k => /faturamento/i.test(k.name)) ?? kpis[0];
+  // KPIs ordenados: faturamento primeiro, depois os demais
+  const sortedKpis = [
+    ...kpis.filter(k => /faturamento/i.test(k.name)),
+    ...kpis.filter(k => !/faturamento/i.test(k.name)),
+  ];
+  const selectedKpi = sortedKpis.find(k => k.id === (activeKpiId ?? defaultKpi?.id)) ?? defaultKpi;
+  const selectedColor = selectedKpi ? KPI_COLORS[kpis.indexOf(selectedKpi) % KPI_COLORS.length] : "#2D8CC7";
+
+  const fmtVal = (v: number, unit: string) => fmtKpiValue(v, unit);
 
   return (
     <TooltipProvider>
-      <div className="min-h-screen bg-[#0F172A] text-slate-100 font-sans p-4 md:p-8 selection:bg-[#7C3AED]/30">
+      <div className="min-h-screen bg-[#0F172A] text-slate-100 font-sans p-4 md:p-8 selection:bg-[#2D8CC7]/30">
         <div className="max-w-[1600px] mx-auto space-y-8">
 
-          {/* -- BANNER DE VENCIMENTO DE CONTRATO -- */}
-          {!isSupport && tenantStatus.isNearExpiry && tenantStatus.contractEnd && (
-            <ContractExpiryBanner contractEnd={tenantStatus.contractEnd} />
-          )}
-
-          {/* -- BANNER DE SUPORTE (seção exclusiva, acima do header) -- */}
-          {isSupport && (
-            <SupportBannerBar />
-          )}
-
-          {/* -- HEADER -- */}
-          <header className="flex items-center justify-between gap-4 border-b border-slate-800 pb-8">
-            {/* Logo + título */}
-            <div className="flex items-center gap-3 min-w-0">
-              {clientData?.metadata?.avatar_url ? (
-                <img src={clientData.metadata.avatar_url} alt="Logo" className="h-10 w-10 rounded-xl shadow-lg object-cover shrink-0" />
-              ) : (
-                <img src={clientData?.favicon_url ?? "/favicon.png"} alt="Logo" className="h-10 w-10 rounded-xl shadow-lg object-contain shrink-0" />
-              )}
-              <div className="min-w-0">
+          {/* ── HEADER ── */}
+          <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-slate-800 pb-8">
+            <div className="space-y-1">
+              <div className="flex items-center gap-3">
+                <img src={clientData?.favicon_url ?? "/favicon.png"} alt="Logo" className="h-10 w-10 rounded-xl shadow-lg object-contain" />
                 <h1 className="text-3xl font-black tracking-tight text-white uppercase">{dashboardTitle}</h1>
-                {(clientData?.metadata?.display_name || clientData?.company || clientData?.name) && (
-                  <p className="text-slate-300 font-bold text-sm truncate">
-                    {clientData?.metadata?.display_name || clientData?.company || clientData?.name}
-                  </p>
-                )}
               </div>
+              <p className="text-slate-400 font-medium pl-[52px]">
+                Análise estratégica • <span className="text-[#2D8CC7]">{clientData?.company || clientData?.name}</span>
+              </p>
             </div>
 
-            {/* Filtros + perfil — agrupados no canto direito */}
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex flex-wrap items-center gap-4">
               {/* Filtro de período */}
               <PeriodDropdown dateRange={dateRange} onChange={setDateRange} />
 
@@ -511,60 +641,29 @@ export function PublicDashboardPage() {
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" className="bg-slate-800/50 border-slate-700 hover:bg-slate-800 text-slate-200 gap-2 h-10">
-                    {clientData?.metadata?.avatar_url ? (
-                      <img src={clientData.metadata.avatar_url} alt="Avatar" className="h-6 w-6 rounded-full object-cover" />
-                    ) : (
-                      <div className="h-6 w-6 rounded-full bg-[#7C3AED] flex items-center justify-center text-[10px] font-black text-white">
-                        {(() => {
-                          const name = clientData?.metadata?.display_name || clientData?.name || "";
-                          const parts = name.trim().split(/\s+/);
-                          return parts.length >= 2
-                            ? (parts[0][0] + parts[1][0]).toUpperCase()
-                            : name.slice(0, 2).toUpperCase() || "?";
-                        })()}
-                      </div>
-                    )}
+                    <div className="h-6 w-6 rounded-full bg-[#2D8CC7] flex items-center justify-center text-[10px] font-black text-white">
+                      {clientData?.name?.charAt(0)}
+                    </div>
+                    <span className="text-sm font-bold truncate max-w-[100px]">{clientData?.name}</span>
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent className="bg-[#1E293B] border-slate-800 text-slate-200 w-56 shadow-2xl" align="end">
-                  <DropdownMenuItem className="gap-2 focus:bg-slate-800 cursor-pointer py-3" onClick={() => navigate("/dashboard/profile")}>
-                    <Settings className="h-4 w-4 text-[#7C3AED]" />
-                    <span className="text-sm font-bold">Meu Perfil / Integrações</span>
-                  </DropdownMenuItem>
+                  <DropdownMenuLabel className="text-xs uppercase font-black tracking-widest text-slate-500">Minha Conta</DropdownMenuLabel>
                   <DropdownMenuSeparator className="bg-slate-800" />
-                  <DropdownMenuItem className="gap-2 focus:bg-slate-800 cursor-pointer py-3" onClick={() => setShowKpiDialog(true)}>
-                    <BarChart3 className="h-4 w-4 text-[#7C3AED]" />
-                    <span className="text-sm font-bold">Registrar Resultado KPI</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator className="bg-slate-800" />
-                  <DropdownMenuItem className="gap-2 focus:bg-slate-800 cursor-pointer py-3" onClick={() => navigate("/dashboard/catalog")}>
-                    <Package className="h-4 w-4 text-violet-400" />
-                    <span className="text-sm font-bold">Produtos/Serviços</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator className="bg-slate-800" />
-                  <DropdownMenuItem className="gap-2 focus:bg-slate-800 cursor-pointer py-3" onClick={() => navigate("/dashboard/payments")}>
-                    <DollarSign className="h-4 w-4 text-emerald-400" />
-                    <span className="text-sm font-bold">Faturas e Pagamentos</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator className="bg-slate-800" />
-                  <DropdownMenuItem className="gap-2 focus:bg-slate-800 cursor-pointer py-3" onClick={() => navigate("/dashboard/whatsapp-sync")}>
-                    <MessageCircleIcon className="h-4 w-4 text-emerald-400" />
-                    <span className="text-sm font-bold">WhatsApp → CRM</span>
+                  <DropdownMenuItem className="gap-2 focus:bg-slate-800 cursor-pointer py-3">
+                    <User className="h-4 w-4 text-[#2D8CC7]" />
+                    <div className="flex flex-col">
+                      <span className="text-sm font-bold">{clientData?.name}</span>
+                      <span className="text-[10px] text-slate-500 truncate">{clientData?.company}</span>
+                    </div>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator className="bg-slate-800" />
                   <DropdownMenuItem className="gap-2 focus:bg-slate-800 cursor-pointer py-3" onClick={() => setShowPasswordDialog(true)}>
                     <Lock className="h-4 w-4 text-orange-400" />
                     <span className="text-sm font-bold">Alterar Senha</span>
                   </DropdownMenuItem>
-                  {canManage && (<>
-                    <DropdownMenuSeparator className="bg-slate-800" />
-                    <DropdownMenuItem className="gap-2 focus:bg-slate-800 cursor-pointer py-3" onClick={() => navigate("/dashboard/logs")}>
-                      <ListFilter className="h-4 w-4 text-slate-400" />
-                      <span className="text-sm font-bold">Logs de Auditoria</span>
-                    </DropdownMenuItem>
-                  </>)}
                   <DropdownMenuSeparator className="bg-slate-800" />
-                  <DropdownMenuItem className="gap-2 focus:bg-red-900/40 focus:text-red-400 text-red-400 hover:bg-red-900/40 cursor-pointer py-3" onClick={handleLogoff}>
+                  <DropdownMenuItem className="gap-2 focus:text-red-400 text-red-400 cursor-pointer py-3" onClick={handleLogoff}>
                     <LogOut className="h-4 w-4" />
                     <span className="text-sm font-bold">Encerrar Sessão</span>
                   </DropdownMenuItem>
@@ -582,80 +681,114 @@ export function PublicDashboardPage() {
               </DialogHeader>
               <div className="py-4 space-y-2">
                 <Label htmlFor="np">Nova Senha</Label>
-                <Input id="np" type="password" placeholder="????????" className="bg-slate-900 border-slate-700 text-white h-12"
+                <Input id="np" type="password" placeholder="••••••••" className="bg-slate-900 border-slate-700 text-white h-12"
                   value={newPassword} onChange={e => setNewPassword(e.target.value)} />
               </div>
               <DialogFooter>
                 <Button variant="ghost" onClick={() => setShowPasswordDialog(false)}>Cancelar</Button>
-                <Button onClick={handleChangePassword} className="bg-[#7C3AED] hover:bg-[#7C3AED]/90">Salvar Nova Senha</Button>
+                <Button onClick={handleChangePassword} className="bg-[#2D8CC7] hover:bg-[#2D8CC7]/90">Salvar Nova Senha</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
 
-          {/* KPI Result Dialog */}
-          <KpiResultDialog
-            open={showKpiDialog}
-            onClose={() => setShowKpiDialog(false)}
-            clientId={clientId ?? ""}
-          />
-
-          {/* -- TABS (s? aparece quando ambos ativos) -- */}
-          {activeCount >= 2 && (
+          {/* ── TABS (só aparece quando ambos ativos) ── */}
+          {dashPerformance && dashAtendimento && (
             <div className="flex gap-1 bg-slate-800/60 p-1 rounded-xl border border-slate-700 w-fit">
-              {dashCrm && (
-                <button
-                  onClick={() => setActiveTab("crm")}
-                  className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${
-                    resolvedTab === "crm"
-                      ? "bg-[#7C3AED] text-white shadow"
-                      : "text-slate-400 hover:text-slate-200"
-                  }`}
-                >
-                  <KanbanSquare className="h-4 w-4" /> CRM
-                </button>
-              )}
-              {dashAtendimento && (
-                <button
-                  onClick={() => setActiveTab("atendimento")}
-                  className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${
-                    resolvedTab === "atendimento"
-                      ? "bg-emerald-600 text-white shadow"
-                      : "text-slate-400 hover:text-slate-200"
-                  }`}
-                >
-                  <MessageCircle className="h-4 w-4" /> Atendimento
-                </button>
-              )}
-              {dashPerformance && (
-                <button
-                  onClick={() => setActiveTab("performance")}
-                  className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${
-                    resolvedTab === "performance"
-                      ? "bg-[#7C3AED] text-white shadow"
-                      : "text-slate-400 hover:text-slate-200"
-                  }`}
-                >
-                  <BarChart3 className="h-4 w-4" /> Performance
-                </button>
-              )}
+              <button
+                onClick={() => setActiveTab("performance")}
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${
+                  resolvedTab === "performance"
+                    ? "bg-[#2D8CC7] text-white shadow"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <BarChart3 className="h-4 w-4" /> Performance
+              </button>
+              <button
+                onClick={() => setActiveTab("atendimento")}
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${
+                  resolvedTab === "atendimento"
+                    ? "bg-emerald-600 text-white shadow"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <MessageCircle className="h-4 w-4" /> Atendimento
+              </button>
             </div>
           )}
 
-          {/* -- CONTEÚDO: PERFORMANCE -- */}
+          {/* ── CONTEÚDO: PERFORMANCE ── */}
           {resolvedTab === "performance" && (
           <div className="space-y-8">
 
-          {/* -- 1. MÉTRICAS DE ANÚNCIOS -- */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            <MetricCard label="Investimento" value={`R$ ${consolidated.spend.toLocaleString("pt-BR")}`} icon={<DollarSign className="h-5 w-5 text-[#7C3AED]" />} info="Total ad spend from Google Ads + Meta Ads in the selected period. Falls back to manually entered data if APIs are not connected." />
-            <MetricCard label="Leads" value={consolidated.leads} icon={<Users className="h-5 w-5 text-blue-400" />} info="Leads that entered the CRM pipeline (stage: New) in the period, tracked via stage history." />
-            <MetricCard label="Vendas" value={consolidated.sales} icon={<Target className="h-5 w-5 text-emerald-400" />} info="Deals closed in the CRM (stage: Closed) in the period, tracked via stage history." />
-            <MetricCard label="Conversão" value={`${conversionRate}%`} icon={<CheckCircle2 className="h-5 w-5 text-emerald-400" />} info="Percentage of leads that became closed deals (Closed ÷ New × 100)." />
-            <MetricCard label="Faturamento Estimado" value={`R$ ${consolidated.revenue.toLocaleString("pt-BR")}`} icon={<TrendingUp className="h-5 w-5 text-white" />} info="Estimated revenue from closed deals in the period." highlight />
-            <MetricCard label="ROAS" value={`${roas}x`} icon={<PieChart className="h-5 w-5 text-orange-400" />} info="Return on Ad Spend — revenue ÷ ad spend. A ROAS of 4x means every R$1 spent generated R$4 in revenue." />
-          </div>
+          {/* ── BANNER: dados zerados ── */}
+          {isZero && (
+            <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+              <Info className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+              <p className="text-sm text-amber-200">
+                Nenhum dado encontrado para o período selecionado. Use o filtro de período acima para selecionar o mês atual ou meses anteriores.
+              </p>
+            </div>
+          )}
 
-          {/* -- 2. EVOLUÇÃO DIÁRIA + FUNIL -- */}
+          {/* ── 1. IMPACTO DA PARCERIA ── */}
+          {partnershipImpact.length > 0 && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 px-1">
+                <Zap className="h-5 w-5 text-yellow-400" />
+                <h2 className="text-xl font-bold text-white uppercase tracking-tight">Impacto da Parceria</h2>
+                <InfoTooltip text="Compara a média dos indicadores de negócio antes e depois do início do contrato com a agência." />
+              </div>
+              <HorizontalScroll>
+                {partnershipImpact.map((item) => (
+                  <Card key={item.id} className="bg-[#1E293B] border-slate-800 shadow-2xl p-7 relative overflow-hidden flex-none w-auto min-w-[411px]">
+                    <div className="flex items-center justify-between gap-6">
+                      <div className="flex-1 space-y-3">
+                        <div>
+                          <p className="text-[11px] uppercase font-black tracking-widest text-slate-400">{item.label}</p>
+                          <p className="text-[10px] text-slate-600 mt-0.5">{item.subtitle}</p>
+                        </div>
+                        <div className="flex items-end gap-6">
+                          <div className="space-y-1">
+                            <p className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">Média Antes</p>
+                            <p className="text-base font-black text-slate-400">{fmtImpact(item.pre, item.unit)}</p>
+                          </div>
+                          <ArrowUp className="h-4 w-4 text-slate-600 mb-1" />
+                          <div className="space-y-1">
+                            <p className="text-[9px] text-[#2D8CC7] uppercase font-bold tracking-wider">
+                              {item.type === "ultimo_mes" ? "Último Mês" : "Média Atual"}
+                            </p>
+                            <p className="text-2xl font-black text-white">{fmtImpact(item.post, item.unit)}</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className={cn("flex flex-col items-center justify-center h-20 w-20 rounded-2xl border shadow-lg shrink-0",
+                        (isLowerBetterImpact(item.kpiName) ? (item.growth ?? 0) <= 0 : (item.growth ?? 0) >= 0)
+                          ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                          : "bg-red-500/10 border-red-500/20 text-red-400"
+                      )}>
+                        <span className="text-sm font-black">{(item.growth ?? 0) >= 0 ? "+" : ""}{Number(item.growth ?? 0).toFixed(0)}%</span>
+                        <span className="text-[9px] font-bold uppercase opacity-70 mt-0.5">Cresc.</span>
+                      </div>
+                    </div>
+                    <div className="absolute top-0 right-0 h-full w-32 bg-gradient-to-l from-[#2D8CC7]/5 to-transparent pointer-events-none" />
+                  </Card>
+                ))}
+              </HorizontalScroll>
+            </div>
+          )}
+
+          {/* ── 2. MÉTRICAS DE ANÚNCIOS ── */}
+          <div className={`grid gap-4 ${totals.leads > 0 ? "grid-cols-2 md:grid-cols-3 lg:grid-cols-6" : "grid-cols-2 md:grid-cols-3 lg:grid-cols-5"}`}>
+            <MetricCard label="Investimento" value={`R$ ${totals.spend.toLocaleString("pt-BR")}`} icon={<DollarSign className="h-5 w-5 text-[#2D8CC7]" />} info="Valor total investido em mídia paga (Meta Ads, Google Ads, etc.) no período selecionado." />
+            {totals.leads > 0 && (
+              <MetricCard label="Leads" value={totals.leads} icon={<Users className="h-5 w-5 text-blue-400" />} info="Número total de leads gerados pelas campanhas no período." />
+            )}
+            <MetricCard label="Vendas" value={totals.sales} icon={<Target className="h-5 w-5 text-emerald-400" />} info="Total de vendas fechadas e atribuídas às campanhas de mídia paga no período." />
+            <MetricCard label="Conversão" value={`${conversionRate}%`} icon={<CheckCircle2 className="h-5 w-5 text-emerald-400" />} info={`Taxa de conversão: ${conversionLabel}.`} />
+            <MetricCard label="Faturamento Estimado" value={`R$ ${totals.revenue.toLocaleString("pt-BR")}`} icon={<TrendingUp className="h-5 w-5 text-white" />} info="Receita total estimada gerada pelas vendas atribuídas às campanhas no período." highlight />
+            <MetricCard label="ROAS" value={`${roas}x`} icon={<PieChart className="h-5 w-5 text-orange-400" />} info="Return on Ad Spend — retorno sobre o investimento em anúncios." />
+          </div>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-stretch">
             <div className="lg:col-span-2">
               <Card className="bg-[#1E293B] border-slate-800 shadow-2xl h-full flex flex-col">
@@ -668,15 +801,15 @@ export function PublicDashboardPage() {
                 </CardHeader>
                 <CardContent className="flex-1 min-h-[450px] pt-4">
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={consolidated.dailyData}>
+                    <AreaChart data={realDailyMetrics}>
                       <defs>
                         <linearGradient id="gRev" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
                           <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                         </linearGradient>
                         <linearGradient id="gSpend" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#7C3AED" stopOpacity={0.3} />
-                          <stop offset="95%" stopColor="#7C3AED" stopOpacity={0} />
+                          <stop offset="5%" stopColor="#2D8CC7" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#2D8CC7" stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
@@ -685,8 +818,8 @@ export function PublicDashboardPage() {
                       <YAxis axisLine={false} tickLine={false} tick={{ fill: "#94a3b8", fontSize: 12 }} />
                       <Tooltip contentStyle={{ backgroundColor: "#0F172A", border: "1px solid #334155", borderRadius: "12px" }} itemStyle={{ fontSize: "12px", fontWeight: "bold" }} />
                       <Legend verticalAlign="top" align="right" height={36} iconType="circle" />
-                      <Area type="monotone" dataKey="revenue" name="Faturamento Est. (R$)" stroke="#10b981" strokeWidth={4} fillOpacity={1} fill="url(#gRev)" />
-                      <Area type="monotone" dataKey="total_spend" name="Investimento (R$)" stroke="#7C3AED" strokeWidth={4} fillOpacity={1} fill="url(#gSpend)" />
+                      <Area type="monotone" dataKey="total_revenue" name="Faturamento Est. (R$)" stroke="#10b981" strokeWidth={4} fillOpacity={1} fill="url(#gRev)" />
+                      <Area type="monotone" dataKey="total_spend" name="Investimento (R$)" stroke="#2D8CC7" strokeWidth={4} fillOpacity={1} fill="url(#gSpend)" />
                       <Line type="monotone" dataKey="total_leads" name="Leads" stroke="#3b82f6" strokeWidth={2} dot={{ r: 4 }} />
                     </AreaChart>
                   </ResponsiveContainer>
@@ -700,220 +833,292 @@ export function PublicDashboardPage() {
                 <InfoTooltip text="Visualize como os usuários avançam em cada etapa da jornada de compra: de impressões até vendas fechadas. As taxas entre etapas revelam onde há maior perda e onde focar otimizações." />
               </CardHeader>
               <CardContent className="flex-1 flex flex-col justify-center pt-6">
-                <ModernFunnel textVariant="white" steps={[
-                  {
-                    label: "Impressões",
-                    value: consolidated.impressions.toLocaleString("pt-BR"),
-                    color: "bg-slate-700", width: "w-full",
-                    percentage: ((consolidated.clicks / (consolidated.impressions || 1)) * 100).toFixed(1) + "%",
-                    rateLabel: "CTR"
-                  },
-                  {
-                    label: "Cliques",
-                    value: consolidated.clicks.toLocaleString("pt-BR"),
-                    color: "bg-[#7C3AED]/40", width: "w-[88%]",
-                    percentage: ((consolidated.leads / (consolidated.clicks || 1)) * 100).toFixed(1) + "%",
-                    rateLabel: "TX. CONV."
-                  },
-                  {
-                    label: "Leads (Novos)",
-                    value: consolidated.leads.toLocaleString("pt-BR"),
-                    color: "bg-blue-500/40", width: "w-[76%]",
-                    percentage: ((consolidated.qualified / (consolidated.leads || 1)) * 100).toFixed(1) + "%",
-                    rateLabel: "QUALIF."
-                  },
-                  {
-                    label: "Qualificados",
-                    value: consolidated.qualified.toLocaleString("pt-BR"),
-                    color: "bg-indigo-500/40", width: "w-[64%]",
-                    percentage: ((consolidated.sales / (consolidated.qualified || 1)) * 100).toFixed(1) + "%",
-                    rateLabel: "TX. FECH."
-                  },
-                  {
-                    label: "Fechados",
-                    value: consolidated.sales.toLocaleString("pt-BR"),
-                    color: "bg-emerald-500/40", width: "w-[52%]"
-                  },
-                ]} />
+                <ModernFunnel textVariant="white" steps={(() => {
+                  const hasLeads = totals.leads > 0;
+                  const steps = [
+                    { label: "Impressões", value: totals.impressions.toLocaleString("pt-BR"), color: "bg-slate-700", width: "w-full", percentage: ((totals.clicks / (totals.impressions || 1)) * 100).toFixed(1) + "%", rateLabel: "CTR" },
+                    ...(hasLeads ? [
+                      { label: "Cliques", value: totals.clicks.toLocaleString("pt-BR"), color: "bg-[#2D8CC7]/40", width: "w-[85%]", percentage: ((totals.leads / (totals.clicks || 1)) * 100).toFixed(1) + "%", rateLabel: "TX. CONV." },
+                      { label: "Leads", value: totals.leads, color: "bg-blue-500/40", width: "w-[70%]", percentage: ((totals.sales / (totals.leads || 1)) * 100).toFixed(1) + "%", rateLabel: "TX. FECH." },
+                      { label: "Vendas", value: totals.sales, color: "bg-emerald-500/40", width: "w-[55%]" },
+                    ] : [
+                      { label: "Cliques", value: totals.clicks.toLocaleString("pt-BR"), color: "bg-[#2D8CC7]/40", width: "w-[85%]", percentage: ((totals.sales / (totals.clicks || 1)) * 100).toFixed(1) + "%", rateLabel: "TX. CONV." },
+                      { label: "Vendas", value: totals.sales, color: "bg-emerald-500/40", width: "w-[70%]" },
+                    ]),
+                  ];
+                  return steps;
+                })()} />
                 <div className="mt-8 pt-6 border-t border-slate-700 text-center w-full">
                   <p className="text-slate-400 text-xs uppercase font-black tracking-widest">Resultado Final</p>
-                  <p className="text-3xl font-black text-emerald-400 mt-2">R$ {consolidated.revenue.toLocaleString("pt-BR")}</p>
+                  <p className="text-3xl font-black text-emerald-400 mt-2">R$ {totals.revenue.toLocaleString("pt-BR")}</p>
                 </div>
               </CardContent>
             </Card>
           </div>
 
-          {/* -- 3. TOP CAMPANHAS -- */}
-          <Card className="bg-[#1E293B] border-slate-800 shadow-2xl">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-xl font-bold text-white">Top Campanhas do Período</CardTitle>
-              <InfoTooltip text="Ranking das campanhas com maior volume de resultado no período. Compare eficiência entre campanhas e plataformas – identifique quais geram melhor ROAS e menor custo por aquisição para direcionar o investimento." />
-            </CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="text-slate-500 text-[10px] uppercase font-black tracking-widest border-b border-slate-800">
-                      <th className="pb-4">Plataforma</th>
-                      <th className="pb-4">Campanha</th>
-                      <th className="pb-4">Invest.</th>
-                      <th className="pb-4 text-center">Cliques API</th>
-                      <th className="pb-4 text-center">Cliques Rastr.</th>
-                      <th className="pb-4 text-center">Leads</th>
-                      <th className="pb-4 text-center">Vendas</th>
-                      <th className="pb-4 text-right">ROAS</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/50">
-                    {consolidated.finalCampaigns.length === 0 ? (
-                      <tr>
-                        <td colSpan={8} className="py-8 text-center text-slate-500 text-sm italic">
-                          Sem dados de campanhas para este período.
-                        </td>
-                      </tr>
-                    ) : consolidated.finalCampaigns.map((c: any, idx: number) => {
-                      const roasCamp = c.spend > 0 ? (c.revenue / c.spend).toFixed(1) : "0.0";
-                      return (
-                        <tr key={c.id ?? c.name ?? idx} className="text-sm hover:bg-slate-800/30 transition-colors">
-                          <td className="py-4 text-slate-400 font-bold">{c.platform}</td>
-                          <td className="py-4 font-bold text-slate-200">{c.name}</td>
-                          <td className="py-4 text-slate-400">R$ {(c.spend || 0).toLocaleString("pt-BR")}</td>
-                          <td className="py-4 text-slate-400 font-bold text-center">{(c.clicks ?? "—")}</td>
-                          <td className="py-4 text-center">
-                            {(c.trackedClicks ?? 0) > 0
-                              ? <span className="text-violet-400 font-black">{c.trackedClicks}</span>
-                              : <span className="text-slate-600">—</span>
-                            }
-                          </td>
-                          <td className="py-4 text-slate-400 font-bold text-center">{c.leads ?? "—"}</td>
-                          <td className="py-4 text-slate-400 font-bold text-center">{c.sales ?? "—"}</td>
-                          <td className="py-4 text-right">
-                            <span className={cn("font-black px-2 py-1 rounded text-xs", Number(roasCamp) >= 4 ? "bg-emerald-500/10 text-emerald-400" : "bg-orange-500/10 text-orange-400")}>
-                              {roasCamp}x
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* -- 4. INDICADORES DE NEGÓCIO (KPIs manuais) -- */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* ── 3. TOP CAMPANHAS + OBSERVAÇÕES ESTRATÉGICAS ── */}
+          <div className="grid grid-cols-1 gap-8">
             <Card className="bg-[#1E293B] border-slate-800 shadow-2xl">
               <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="text-xl font-bold text-white flex items-center gap-2">
-                  <Briefcase className="h-5 w-5 text-[#7C3AED]" />
-                  Indicadores de Negócio
-                </CardTitle>
-                <InfoTooltip text="Indicadores-chave de negócio registrados manualmente pela equipe. Cada card exibe o valor do mês atual e o badge colorido mostra a variação percentual em relação ao mês anterior (MoM – Month over Month)." />
+                <CardTitle className="text-xl font-bold text-white">Top Campanhas do Período</CardTitle>
+                <div className="flex items-center gap-2">
+                  {(["Todas", "meta", "google"] as const).map(f => (
+                    <button
+                      key={f}
+                      onClick={() => setCampaignFilter(f)}
+                      className={cn(
+                        "px-3 py-1 rounded-full text-[11px] font-bold transition-colors",
+                        campaignFilter === f
+                          ? "bg-white text-slate-900"
+                          : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                      )}
+                    >
+                      {f === "Todas" ? "Todas" : f.charAt(0).toUpperCase() + f.slice(1)}
+                    </button>
+                  ))}
+                  <InfoTooltip text="Ranking das campanhas com maior volume de resultado no período. Compare eficiência entre campanhas e plataformas — identifique quais geram melhor ROAS e menor custo por resultado." />
+                </div>
               </CardHeader>
               <CardContent>
-                {kpisQuery.isError ? (
-                  <div className="flex flex-col items-center justify-center py-12 gap-3 text-red-400">
-                    <BarChart3 className="h-10 w-10 opacity-40" />
-                    <p className="text-sm text-center">Erro ao carregar indicadores.<br /><span className="text-xs text-slate-500">Verifique o console para detalhes.</span></p>
-                  </div>
-                ) : kpisQuery.isLoading ? (
-                  <div className="flex items-center justify-center py-12 text-slate-500 text-sm">Carregando...</div>
-                ) : kpis.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-12 gap-3 text-slate-500">
-                    <BarChart3 className="h-10 w-10 opacity-20" />
-                    <p className="text-sm text-center">Nenhum indicador cadastrado ainda.<br />Os KPIs aparecerão aqui após serem configurados.</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {kpiCards.map(kpi => {
-                      const pctMeta = kpi.target_value && kpi.current !== null
-                        ? Math.min((kpi.current / kpi.target_value) * 100, 150)
-                        : null;
-                      const metaOk = pctMeta !== null && (isLowerBetter(kpi.name) ? pctMeta <= 100 : pctMeta >= 100);
-                      const metaColor = pctMeta === null ? "#475569"
-                        : metaOk ? "#10b981"
-                        : pctMeta >= 80 ? "#f59e0b"
-                        : "#ef4444";
-                      return (
-                        <Card key={kpi.id} className="bg-slate-900/30 border-slate-800 p-5">
-                          <div className="flex items-start justify-between mb-3">
-                            <div className="h-8 w-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: kpi.color + "18" }}>
-                              <BarChart3 className="h-4 w-4" style={{ color: kpi.color }} />
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              {kpi.growth !== null && (
-                                <div className={cn("flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded",
-                                  (isLowerBetter(kpi.name) ? kpi.growth <= 0 : kpi.growth >= 0)
-                                    ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"
-                                )}>
-                                  {kpi.growth >= 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
-                                  {Math.abs(kpi.growth).toFixed(0)}%
-                                </div>
-                              )}
-                            </div>
+                {selectedCampaign && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setSelectedCampaign(null)}>
+                    <div className="bg-[#0F172A] border border-slate-700 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+                      <div className="px-6 py-4 border-b border-slate-800 flex items-start justify-between">
+                        <div>
+                          <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">{selectedCampaign.platform}</p>
+                          <h2 className="text-lg font-black text-white mt-0.5">{selectedCampaign.campaign_name}</h2>
+                          <p className="text-xs text-slate-400 mt-0.5">{selectedCampaign.objective}</p>
+                        </div>
+                        <button onClick={() => setSelectedCampaign(null)} className="text-slate-400 hover:text-white text-2xl font-bold leading-none">×</button>
+                      </div>
+                      <div className="px-6 py-4 grid grid-cols-4 gap-3 border-b border-slate-800">
+                        {[
+                          { label: "Investimento", value: `R$ ${selectedCampaign.spend.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` },
+                          { label: "Impressões",   value: selectedCampaign.impressions > 0 ? selectedCampaign.impressions.toLocaleString("pt-BR") : "—" },
+                          { label: "Cliques",      value: selectedCampaign.clicks > 0 ? selectedCampaign.clicks.toLocaleString("pt-BR") : "—" },
+                          { label: "CTR",          value: selectedCampaign.ctr > 0 ? `${selectedCampaign.ctr.toFixed(2)}%` : "—" },
+                          { label: "CPC",          value: selectedCampaign.cpc > 0 ? `R$ ${selectedCampaign.cpc.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—" },
+                          { label: "CPM",          value: selectedCampaign.cpm > 0 ? `R$ ${selectedCampaign.cpm.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—" },
+                          { label: "Alcance",      value: selectedCampaign.reach > 0 ? selectedCampaign.reach.toLocaleString("pt-BR") : "—" },
+                          { label: selectedCampaign.resultLabel, value: String(selectedCampaign.mainResult) },
+                          { label: "Custo/Result.", value: selectedCampaign.cpr > 0 ? `R$ ${selectedCampaign.cpr.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—" },
+                          { label: "Faturamento",  value: selectedCampaign.revenue > 0 ? `R$ ${selectedCampaign.revenue.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : "—" },
+                          { label: "ROAS",         value: selectedCampaign.roas > 0 ? `${selectedCampaign.roas.toFixed(1)}x` : "—" },
+                        ].map((m: any) => (
+                          <div key={m.label} className="bg-slate-800/50 rounded-xl p-3">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">{m.label}</p>
+                            <p className="text-base font-black text-white mt-1">{m.value}</p>
                           </div>
-                          <p className="text-[10px] uppercase font-black tracking-widest text-slate-500">{kpi.name}</p>
-                          <p className="text-2xl font-black text-white mt-1">
-                            {kpi.current !== null ? fmtVal(kpi.current, kpi.unit) : <span className="text-slate-600 text-base font-bold">Sem dados</span>}
-                          </p>
-                          {/* Meta progress */}
-                          {kpi.target_value !== null && (
-                            <div className="mt-3 space-y-1">
-                              <div className="flex items-center justify-between">
-                                <span className="text-[10px] text-slate-500">Meta: {fmtVal(kpi.target_value, kpi.unit)}/mês</span>
-                                {pctMeta !== null && (
-                                  <span className="text-[10px] font-black" style={{ color: metaColor }}>
-                                    {pctMeta.toFixed(0)}%
-                                  </span>
-                                )}
-                              </div>
-                              <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                                <div className="h-full rounded-full transition-all"
-                                  style={{ width: `${Math.min(pctMeta ?? 0, 100)}%`, backgroundColor: metaColor }} />
-                              </div>
-                            </div>
-                          )}
-                        </Card>
-                      );
-                    })}
+                        ))}
+                      </div>
+                      <div className="flex-1 overflow-auto px-6 py-4">
+                        <p className="text-xs font-black uppercase tracking-widest text-slate-500 mb-3">Resultados por Dia</p>
+                        <table className="w-full text-left border-collapse text-sm">
+                          <thead>
+                            <tr className="text-slate-500 text-[10px] uppercase font-black tracking-widest border-b border-slate-800">
+                              <th className="pb-2 pr-4">Data</th>
+                              <th className="pb-2 pr-4 text-right">Invest.</th>
+                              <th className="pb-2 pr-4 text-right">Impressões</th>
+                              <th className="pb-2 pr-4 text-right">Cliques</th>
+                              <th className="pb-2 pr-4 text-right">CTR</th>
+                              <th className="pb-2 pr-4 text-right">CPC</th>
+                              <th className="pb-2 pr-4 text-right">Alcance</th>
+                              <th className="pb-2 pr-4 text-right">{selectedCampaign.resultLabel}</th>
+                              <th className="pb-2 text-right">Faturamento</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/50">
+                            {selectedCampaign.daily.map((d: any) => {
+                              const dCtr = d.impressions > 0 ? ((d.clicks / d.impressions) * 100).toFixed(2) : "—";
+                              const dCpc = d.clicks > 0 ? `R$ ${(d.spend / d.clicks).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—";
+                              const dResult = selectedCampaign.objective_metric_label && d.objective_metric_value > 0 ? d.objective_metric_value : d.sales > 0 ? d.sales : d.leads > 0 ? d.leads : d.clicks;
+                              return (
+                                <tr key={d.date} className="hover:bg-slate-800/30">
+                                  <td className="py-2 pr-4 text-slate-300 font-medium">{d.date}</td>
+                                  <td className="py-2 pr-4 text-right text-slate-400">R$ {(d.spend ?? 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</td>
+                                  <td className="py-2 pr-4 text-right text-slate-500">{d.impressions > 0 ? d.impressions.toLocaleString("pt-BR") : "—"}</td>
+                                  <td className="py-2 pr-4 text-right text-slate-500">{d.clicks > 0 ? d.clicks.toLocaleString("pt-BR") : "—"}</td>
+                                  <td className="py-2 pr-4 text-right text-slate-500">{dCtr !== "—" ? `${dCtr}%` : "—"}</td>
+                                  <td className="py-2 pr-4 text-right text-slate-500">{dCpc}</td>
+                                  <td className="py-2 pr-4 text-right text-slate-500">{d.reach > 0 ? d.reach.toLocaleString("pt-BR") : "—"}</td>
+                                  <td className="py-2 pr-4 text-right font-bold text-slate-200">{dResult}</td>
+                                  <td className="py-2 text-right text-slate-400">{d.revenue > 0 ? `R$ ${d.revenue.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : "—"}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
                   </div>
                 )}
+                <div className="overflow-x-auto scrollbar-dark">
+                  <div className="overflow-y-auto scrollbar-dark" style={{ maxHeight: "336px" }}>
+                    <table className="text-left border-collapse whitespace-nowrap" style={{ minWidth: "1300px", width: "100%" }}>
+                      <thead className="sticky top-0 bg-[#1E293B] z-10">
+                        <tr className="text-slate-500 text-[10px] uppercase font-black tracking-widest border-b border-slate-800">
+                          <th className="px-4 py-3 w-20">Plat.</th>
+                          <th className="px-4 py-3 min-w-[350px]">Campanha</th>
+                          <th className="px-4 py-3 text-right w-32">Investimento</th>
+                          <th className="px-4 py-3 text-center w-32">Resultado</th>
+                          <th className="px-4 py-3 text-right w-32">Custo/Result.</th>
+                          <th className="px-4 py-3 text-right w-28">Faturamento</th>
+                          <th className="px-4 py-3 text-right w-20">ROAS</th>
+                          <th className="px-4 py-3 text-right w-28">Impressões</th>
+                          <th className="px-4 py-3 text-right w-24">Cliques</th>
+                          <th className="px-4 py-3 text-right w-20">CTR</th>
+                          <th className="px-4 py-3 text-right w-24">CPC</th>
+                          <th className="px-4 py-3 text-right w-24">CPM</th>
+                          <th className="px-4 py-3 text-right w-24">Alcance</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/50">
+                        {filteredRealCampaigns.length === 0 ? (
+                          <tr><td colSpan={13} className="py-8 text-center text-slate-500 text-sm italic">Sem dados de campanhas para este período.</td></tr>
+                        ) : filteredRealCampaigns.map((c: any) => (
+                          <tr key={`${c.platform}-${c.campaign_name}`} className="text-sm hover:bg-slate-800/30 transition-colors cursor-pointer" onClick={() => setSelectedCampaign(c)}>
+                            <td className="px-4 py-3 text-slate-400 font-bold w-20">{c.platform}</td>
+                            <td className="px-4 py-3 min-w-[350px] whitespace-normal">
+                              <div className="font-bold text-slate-200 hover:text-blue-400 transition-colors">{c.campaign_name}</div>
+                              <div className="text-[10px] font-normal text-slate-500 uppercase tracking-wide mt-0.5">{c.objective}</div>
+                            </td>
+                            <td className="px-4 py-3 text-slate-400 text-right w-32">R$ {c.spend.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</td>
+                            <td className="px-4 py-3 text-center w-32">
+                              <div className="font-black text-slate-200 text-sm">{c.mainResult.toLocaleString("pt-BR")}</div>
+                              <div className="text-[10px] font-normal text-slate-500">{c.resultLabel}</div>
+                            </td>
+                            <td className="px-4 py-3 text-slate-300 text-right w-32">{c.cpr > 0 ? `R$ ${c.cpr.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}</td>
+                            <td className="px-4 py-3 text-slate-300 text-right w-28">{c.revenue > 0 ? `R$ ${c.revenue.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : "—"}</td>
+                            <td className="px-4 py-3 text-right w-20">
+                              <span className={cn("font-black px-2 py-1 rounded text-xs", c.roas >= 4 ? "bg-emerald-500/10 text-emerald-400" : "bg-orange-500/10 text-orange-400")}>
+                                {c.roas > 0 ? `${c.roas.toFixed(1)}x` : "0.0x"}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-slate-500 text-right w-28">{c.impressions > 0 ? c.impressions.toLocaleString("pt-BR") : "—"}</td>
+                            <td className="px-4 py-3 text-slate-500 text-right w-24">{c.clicks > 0 ? c.clicks.toLocaleString("pt-BR") : "—"}</td>
+                            <td className="px-4 py-3 text-right w-20">
+                              <span className={cn("font-bold", c.ctr >= 2 ? "text-emerald-400" : c.ctr >= 1 ? "text-slate-300" : c.ctr > 0 ? "text-orange-400" : "text-slate-500")}>
+                                {c.ctr > 0 ? `${c.ctr.toFixed(2)}%` : "—"}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-slate-500 text-right w-24">{c.cpc > 0 ? `R$ ${c.cpc.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}</td>
+                            <td className="px-4 py-3 text-slate-500 text-right w-24">{c.cpm > 0 ? `R$ ${c.cpm.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}</td>
+                            <td className="px-4 py-3 text-slate-500 text-right w-24">{c.reach > 0 ? c.reach.toLocaleString("pt-BR") : "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </CardContent>
             </Card>
 
-            {/* Observações Estratégicas */}
+            {/* Observações estratégicas */}
             <Card className="bg-[#1E293B] border-slate-800 shadow-2xl">
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-xl font-bold text-white">Observações Estratégicas</CardTitle>
                 <InfoTooltip text="Análise automática dos principais números do período: eficiência de custo por aquisição (CPA), retorno sobre investimento em anúncios (ROAS) e volume de leads gerados. Use como ponto de partida para decisões estratégicas." />
               </CardHeader>
               <CardContent className="space-y-3">
-                <InsightItem icon={<CheckCircle2 className="h-4 w-4 text-emerald-400" />}
-                  text={<>Eficiência: CPA calculado em <span className="text-emerald-400 font-bold">R$ {cpa}</span> no período.</>} />
-                <InsightItem icon={<TrendingUp className="h-4 w-4 text-[#7C3AED]" />}
-                  text={<>ROAS de <span className="text-[#7C3AED] font-bold">{roas}x</span> – cada R$ 1 investido gerou R$ {roas} em faturamento estimado.</>} />
-                <InsightItem icon={<Users className="h-4 w-4 text-blue-400" />}
-                  text={<><span className="text-blue-400 font-bold">{consolidated.leads}</span> leads gerados com taxa de conversão de <span className="text-blue-400 font-bold">{conversionRate}%</span>.</>} />
+                {/* CPA: lower is better — só mostra se > 0 */}
+                {Number(cpa) > 0 && (
+                  <InsightItem icon={<CheckCircle2 className="h-4 w-4 text-emerald-400" />}
+                    text={<>Eficiência: CPA calculado em <span className="text-emerald-400 font-bold">R$ {cpa}</span> no período.</>} />
+                )}
+                {/* ROAS: só mostra se > 0 */}
+                {Number(roas) > 0 && (
+                  <InsightItem icon={<TrendingUp className="h-4 w-4 text-[#2D8CC7]" />}
+                    text={<>ROAS de <span className="text-[#2D8CC7] font-bold">{roas}x</span> — cada R$ 1 investido gerou R$ {roas} em faturamento estimado.</>} />
+                )}
+                {/* Leads: só mostra se > 0 */}
+                {totals.leads > 0 && (
+                  <InsightItem icon={<Users className="h-4 w-4 text-blue-400" />}
+                    text={<><span className="text-blue-400 font-bold">{totals.leads}</span> leads gerados com taxa de conversão de <span className="text-blue-400 font-bold">{conversionRate}%</span>.</>} />
+                )}
+                {/* KPI insights: só mostra se growth relevante */}
                 {kpiCards.filter(k => k.growth !== null && (isLowerBetter(k.name) ? k.growth <= -5 : k.growth >= 5)).slice(0, 2).map(k => (
                   <InsightItem key={k.id} icon={<Zap className="h-4 w-4 text-yellow-400" />}
                     text={<><span className="text-yellow-400 font-bold">{k.name}</span>: variação de {k.growth! >= 0 ? "+" : ""}{k.growth!.toFixed(1)}% vs mês anterior.</>} />
                 ))}
+                {/* Fallback se não há nenhuma observação */}
+                {Number(cpa) === 0 && Number(roas) === 0 && totals.leads === 0 && kpiCards.filter(k => k.growth !== null && (isLowerBetter(k.name) ? k.growth <= -5 : k.growth >= 5)).length === 0 && (
+                  <p className="text-sm text-slate-500 text-center py-4">Nenhuma observação disponível para o período selecionado.</p>
+                )}
               </CardContent>
             </Card>
           </div>
 
-          {/* -- 4. EVOLUÇÃO DE LONGO PRAZO -- */}
+          {/* ── 5. INDICADORES DE NEGÓCIO (KPIs manuais) — linha toda ── */}
+          <Card className="bg-[#1E293B] border-slate-800 shadow-2xl">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-xl font-bold text-white flex items-center gap-2">
+                <Briefcase className="h-5 w-5 text-[#2D8CC7]" />
+                Indicadores de Negócio
+              </CardTitle>
+              <InfoTooltip text="Indicadores-chave de negócio registrados manualmente pela equipe. Cada card exibe o valor do mês atual e o badge colorido mostra a variação percentual em relação ao mês anterior (MoM — Month over Month)." />
+            </CardHeader>
+            <CardContent>
+              {visibleKpiCards.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 gap-3 text-slate-500">
+                  <BarChart3 className="h-10 w-10 opacity-20" />
+                  <p className="text-sm text-center">Nenhum indicador cadastrado ainda.<br />Os KPIs aparecerão aqui após serem configurados.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                  {visibleKpiCards.map(kpi => (
+                    <Card key={kpi.id} className="bg-slate-900/30 border-slate-800 p-5">
+                      <div className="flex items-start justify-between">
+                        <div className="h-8 w-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: kpi.color + "18" }}>
+                          <BarChart3 className="h-4 w-4" style={{ color: kpi.color }} />
+                        </div>
+                        <div className="flex items-start gap-2">
+                          {kpi.growth !== null && (
+                            <div className={cn("flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded",
+                              (isLowerBetter(kpi.name) ? kpi.growth <= 0 : kpi.growth >= 0)
+                                ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"
+                            )}>
+                              {kpi.growth >= 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+                              {Math.abs(kpi.growth).toFixed(0)}%
+                            </div>
+                          )}
+                          <InfoTooltip text={`${kpi.name}: valor do mês atual com variação percentual em relação ao mês anterior.`} />
+                        </div>
+                      </div>
+                      <p className="text-[10px] uppercase font-black tracking-widest text-slate-500 mt-3">{kpi.name}</p>
+                      <p className="text-2xl font-black text-white mt-1">
+                        {kpi.current !== null ? fmtVal(kpi.current, kpi.unit) : <span className="text-slate-600 text-base font-bold">Sem dados</span>}
+                      </p>
+                      {kpi.prev !== null ? (
+                        <p className="text-[10px] text-slate-500 mt-2">
+                          Anterior: <span className="text-slate-400 font-bold">{fmtVal(kpi.prev, kpi.unit)}</span>
+                        </p>
+                      ) : (
+                        <p className="text-[9px] text-slate-600 mt-2">Mês atual vs anterior</p>
+                      )}
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* ── 4. EVOLUÇÃO DE LONGO PRAZO ── */}
           <div className="space-y-4">
             <div className="flex items-center justify-between flex-wrap gap-3">
               <div>
                 <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                  <Briefcase className="h-5 w-5 text-[#7C3AED]" />
+                  <Briefcase className="h-5 w-5 text-[#2D8CC7]" />
                   Evolução de Longo Prazo
-                  <InfoTooltip text="Gráfico de barras com a evolução mensal de cada KPI nos últimos 12 meses. Selecione o indicador desejado pelos botões acima do gráfico." />
+                  <InfoTooltip text="Gráfico de barras com a evolução mensal de cada KPI nos últimos 12 meses. As barras em cinza representam o período anterior ao contrato e as coloridas o período de parceria ativa. Selecione o indicador desejado pelos botões acima do gráfico." />
                 </h2>
-                <p className="text-sm text-slate-400 mt-1">Últimos 12 meses – selecione o indicador</p>
+                <p className="text-sm text-slate-400 mt-1">Últimos 12 meses — selecione o indicador</p>
               </div>
+              {kpis.length > 0 && contractStartDate && (
+                <div className="flex items-center gap-4 text-[10px] font-bold text-slate-400">
+                  <div className="flex items-center gap-1.5"><div className="h-2.5 w-2.5 rounded-sm bg-slate-600" /> HISTÓRICO ANTERIOR</div>
+                  <div className="flex items-center gap-1.5"><div className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: selectedColor }} /> PARCERIA ATIVA</div>
+                </div>
+              )}
             </div>
             <Card className="bg-[#1E293B] border-slate-800 shadow-2xl overflow-hidden">
               <CardContent className="pt-6">
@@ -925,9 +1130,9 @@ export function PublicDashboardPage() {
                 ) : (
                   <>
                     <div className="flex flex-wrap items-center gap-2 mb-6">
-                      {kpis.map((kpi, idx) => {
-                        const color = KPI_COLORS[idx % KPI_COLORS.length];
-                        const isActive = (activeKpiId ?? kpis[0]?.id) === kpi.id;
+                      {sortedKpis.map((kpi, idx) => {
+                        const color = KPI_COLORS[kpis.indexOf(kpi) % KPI_COLORS.length];
+                        const isActive = (activeKpiId ?? defaultKpi?.id) === kpi.id;
                         return (
                           <button key={kpi.id} onClick={() => setActiveKpiId(kpi.id)}
                             className={cn("px-3 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-wider transition-all border",
@@ -938,6 +1143,19 @@ export function PublicDashboardPage() {
                         );
                       })}
                     </div>
+                    {/* Legenda pré-contrato vs vigência */}
+                    {contractStartDate && (
+                      <div className="flex items-center gap-4 mb-4">
+                        <div className="flex items-center gap-1.5">
+                          <div className="h-3 w-3 rounded-sm bg-[#334155]" />
+                          <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Histórico Anterior</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <div className="h-3 w-3 rounded-sm" style={{ backgroundColor: selectedColor }} />
+                          <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Vigência do Contrato</span>
+                        </div>
+                      </div>
+                    )}
                     <ResponsiveContainer width="100%" height={320}>
                       <BarChart data={longTermData} barSize={24}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
@@ -951,7 +1169,12 @@ export function PublicDashboardPage() {
                           formatter={(value: any) => selectedKpi ? [fmtVal(value, selectedKpi.unit), selectedKpi.name] : [value, ""]}
                         />
                         <Bar dataKey={selectedKpi?.name ?? ""} radius={[6, 6, 0, 0]}
-                          fill={selectedColor} opacity={0.85}
+                          shape={(props: any) => {
+                            const { x, y, width, height, payload } = props;
+                            const color = payload?.isVigencia ? selectedColor : "#334155";
+                            const r = 6;
+                            return <path d={`M${x},${y+r} Q${x},${y} ${x+r},${y} L${x+width-r},${y} Q${x+width},${y} ${x+width},${y+r} L${x+width},${y+height} L${x},${y+height} Z`} fill={color} opacity={0.9} />;
+                          }}
                         />
                       </BarChart>
                     </ResponsiveContainer>
@@ -961,159 +1184,154 @@ export function PublicDashboardPage() {
             </Card>
           </div>
 
-          {/* -- 6. PAINEL DE KPIs — resultado do mês vs meta + histórico 6 meses -- */}
-          <Card className="bg-[#1E293B] border-slate-800 shadow-2xl overflow-hidden">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-xl font-bold text-white flex items-center gap-2">
-                <ListFilter className="h-5 w-5 text-[#7C3AED]" />
-                Painel de KPIs
-              </CardTitle>
-              <InfoTooltip text="Resultado do mês atual de cada KPI comparado à meta mensal e ao histórico dos últimos 6 meses. A barra de progresso mostra o quanto da meta foi atingido no mês corrente." />
-            </CardHeader>
-            <CardContent className="p-0">
-              {kpis.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 gap-3 text-slate-500">
-                  <ListFilter className="h-10 w-10 opacity-20" />
-                  <p className="text-sm text-center">Nenhum indicador cadastrado.<br />Configure os KPIs em Perfil → Configurações.</p>
-                </div>
-              ) : (() => {
-                // Meses com registros (mín 1, máx 12), ordenados do mais antigo ao mais recente
-                const allHistoryMonths = [...new Set(kpiHistory.map(h => String(h.month_year).slice(0, 7)))].sort();
-                const panelMonthKeys = allHistoryMonths.slice(-12);
-                // Mês mais recente com registro = "atual"
-                const currentKey = panelMonthKeys[panelMonthKeys.length - 1] ?? format(new Date(), "yyyy-MM");
-                // Colunas históricas: todos exceto o mais recente (até 5)
-                const histCols = panelMonthKeys.slice(0, -1).slice(-5);
-                return (
+          {/* ── 6. COMPARATIVO DE PERFORMANCE ── */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 px-1">
+              <ListFilter className="h-5 w-5 text-[#2D8CC7]" />
+              <h2 className="text-xl font-bold text-white uppercase tracking-tight">Comparativo de Performance</h2>
+              <InfoTooltip text="Tabela que cruza a média histórica, a meta definida e o resultado atual de cada KPI. A coluna 'vs Média' mostra se o resultado está acima ou abaixo do histórico, enquanto '% Meta' indica o quanto da meta foi atingido. O status resume a situação de cada indicador." />
+            </div>
+            <Card className="bg-[#1E293B] border-slate-800 shadow-2xl overflow-hidden">
+              <CardContent className="p-0">
+                {perfRows.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 gap-3 text-slate-500">
+                    <ListFilter className="h-10 w-10 opacity-20" />
+                    <p className="text-sm text-center">Nenhum indicador cadastrado.<br />A tabela comparativa aparecerá após o cadastro dos KPIs.</p>
+                  </div>
+                ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="border-b border-slate-800 bg-slate-900/40">
-                          <th className="px-5 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 min-w-[160px]">KPI</th>
-                          <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 whitespace-nowrap">Mês Atual</th>
-                          <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 whitespace-nowrap">Meta/Mês</th>
-                          <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 whitespace-nowrap min-w-[140px]">Progresso</th>
-                          <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 whitespace-nowrap">MoM</th>
-                          {histCols.map(mk => (
-                            <th key={mk} className="px-3 py-4 text-center text-[10px] font-black uppercase tracking-widest text-slate-500 whitespace-nowrap">
-                              {format(parseISO(mk + "-01"), "MMM/yy", { locale: ptBR })}
-                            </th>
+                          {["KPI", "Média Histórica (Pré)", "Meta", "Resultado Atual (Pós)", "vs Histórico", "% Meta", "Status"].map(h => (
+                            <th key={h} className="px-5 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 whitespace-nowrap">{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/50">
-                        {kpiCards.map(kpi => {
+                        {perfRows.map(({ kpi, current, preAvg, postAvg, target, vsAvg, pctMeta, status, fmt }) => {
                           const lower = isLowerBetter(kpi.name);
-                          const pct = kpi.target_value && kpi.current !== null
-                            ? (kpi.current / kpi.target_value) * 100 : null;
-                          const metaOk = pct !== null && (lower ? pct <= 100 : pct >= 100);
-                          const barColor = pct === null ? "#475569" : metaOk ? "#10b981" : pct >= 80 ? "#f59e0b" : "#ef4444";
-                          const growthOk = kpi.growth !== null && (lower ? kpi.growth <= 0 : kpi.growth >= 0);
-                          return (
+                          const vsPositive = vsAvg !== null && (lower ? vsAvg <= 0 : vsAvg >= 0);
+                          const statusColor =
+                            status === "Meta atingida" ? "text-emerald-400 bg-emerald-500/10" :
+                            status === "Próximo da meta" ? "text-yellow-400 bg-yellow-500/10" :
+                            status === "Acima da média" ? "text-blue-400 bg-blue-500/10" :
+                            status === "Abaixo da média" ? "text-red-400 bg-red-500/10" :
+                            status === "Sem dados" ? "text-slate-600 bg-slate-800/50" :
+                            "text-slate-400 bg-slate-700/30";
+                          // Resultado atual = média pós-contrato (ou valor mais recente se só 1 mês)
+                          const displayCurrent = postAvg ?? current;                          return (
                             <tr key={kpi.id} className="hover:bg-slate-800/30 transition-colors">
                               <td className="px-5 py-4">
-                                <div className="flex items-center gap-2">
-                                  <div className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: kpi.color }} />
-                                  <p className="text-sm font-bold text-white">{kpi.name}</p>
-                                </div>
+                                <p className="text-sm font-bold text-white">{kpi.name}</p>
+                                <p className="text-[10px] text-slate-500 uppercase font-bold">{kpi.category}</p>
                               </td>
-                              <td className="px-4 py-4 text-sm font-black text-white whitespace-nowrap">
-                                {kpi.current !== null ? fmtVal(kpi.current, kpi.unit) : <span className="text-slate-600 text-xs">—</span>}
+                              <td className="px-5 py-4 text-sm text-slate-400 font-semibold whitespace-nowrap">
+                                {preAvg !== null ? fmt(preAvg, kpi.unit) : <span className="text-slate-600">—</span>}
                               </td>
-                              <td className="px-4 py-4 text-sm text-slate-400 whitespace-nowrap">
-                                {kpi.target_value !== null ? fmtVal(kpi.target_value, kpi.unit) : <span className="text-slate-600 text-xs italic">sem meta</span>}
+                              <td className="px-5 py-4 text-sm text-slate-400 font-semibold whitespace-nowrap">
+                                {target !== null ? fmt(target, kpi.unit) : <span className="text-slate-600 text-xs italic">Não definida</span>}
                               </td>
-                              <td className="px-4 py-4">
-                                {pct !== null ? (
-                                  <div className="space-y-1 min-w-[120px]">
-                                    <div className="flex justify-between">
-                                      <span className="text-[10px] font-black" style={{ color: barColor }}>{Math.min(pct, 150).toFixed(0)}%</span>
-                                      {metaOk && <span className="text-[10px] text-emerald-400 font-bold">✓ Meta</span>}
-                                    </div>
-                                    <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                                      <div className="h-full rounded-full" style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: barColor }} />
-                                    </div>
-                                  </div>
-                                ) : <span className="text-slate-700 text-xs">—</span>}
+                              <td className="px-5 py-4 text-sm font-black text-white whitespace-nowrap">
+                                {displayCurrent !== null ? fmt(displayCurrent, kpi.unit) : <span className="text-slate-600">—</span>}
                               </td>
-                              <td className="px-4 py-4 whitespace-nowrap">
-                                {kpi.growth !== null ? (
-                                  <span className={cn("flex items-center gap-1 text-xs font-black", growthOk ? "text-emerald-400" : "text-red-400")}>
-                                    {kpi.growth >= 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
-                                    {Math.abs(kpi.growth).toFixed(1)}%
+                              <td className="px-5 py-4 whitespace-nowrap">
+                                {vsAvg !== null ? (
+                                  <span className={cn("flex items-center gap-1 text-xs font-black", vsPositive ? "text-emerald-400" : "text-red-400")}>
+                                    {vsAvg >= 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+                                    {Math.abs(vsAvg).toFixed(2)}%
                                   </span>
                                 ) : <span className="text-slate-600 text-xs">—</span>}
                               </td>
-                              {histCols.map(mk => {
-                                const val = kpiHistory.find(h => h.kpi_id === kpi.id && String(h.month_year).startsWith(mk))?.value;
-                                return (
-                                  <td key={mk} className="px-3 py-4 text-center text-xs font-bold whitespace-nowrap text-slate-400">
-                                    {val !== undefined ? fmtVal(val, kpi.unit) : <span className="text-slate-700">—</span>}
-                                  </td>
-                                );
-                              })}
+                              <td className="px-5 py-4 whitespace-nowrap">
+                                {pctMeta !== null ? (
+                                  <div className="space-y-1">
+                                    <span className="text-xs font-black text-slate-300">{pctMeta.toFixed(2)}%</span>
+                                    <div className="w-20 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                                      <div className={cn("h-full rounded-full", pctMeta >= 100 ? "bg-emerald-400" : pctMeta >= 80 ? "bg-yellow-400" : "bg-red-400")}
+                                        style={{ width: `${Math.min(pctMeta, 100)}%` }} />
+                                    </div>
+                                  </div>
+                                ) : <span className="text-slate-600 text-xs">—</span>}
+                              </td>
+                              <td className="px-5 py-4">
+                                <span className={cn("text-[10px] font-black px-2 py-1 rounded-full uppercase tracking-wider whitespace-nowrap", statusColor)}>
+                                  {status}
+                                </span>
+                              </td>
                             </tr>
                           );
                         })}
                       </tbody>
                     </table>
                   </div>
-                );
-              })()}
-            </CardContent>
-          </Card>
+                )}
+              </CardContent>
+            </Card>
+          </div>
 
-          {/* -- 7. GOOGLE + META DASHBOARD -- */}
-          <Card className="bg-[#1E293B] border-slate-800 shadow-2xl">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-xl font-bold text-white">Google & Meta Ads</CardTitle>
-              <InfoTooltip text="Dados de campanhas, gastos, conversões e ROAS do Google Analytics, Google Ads e Meta Ads. Conecte suas contas em Perfil → Integrações para ver os dados aqui." />
-            </CardHeader>
-            <CardContent>
-              <GoogleMetaDashboard
-                ga4={ga4Query.data}
-                gads={gadsQuery.data}
-                meta={metaQuery.data}
-                googleConnected={!!googleToken}
-                metaConnected={!!metaToken}
-                isLoadingGoogle={ga4Query.isLoading || gadsQuery.isLoading}
-                isLoadingMeta={metaQuery.isLoading}
-                onConnectGoogle={() => clientId && initiateGoogleOAuth(clientId, "")}
-                onConnectMeta={() => clientId && initiateMetaOAuth(clientId, "")}
-              />
-            </CardContent>
-          </Card>
-
-          {/* -- 9. CLIQUES DE ANÚNCIOS -- */}
-          <Card className="bg-[#1E293B] border-slate-800 shadow-2xl">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-xl font-bold text-white flex items-center gap-2">
-                <MousePointerClick className="h-5 w-5 text-violet-400" />
-                Cliques de Anúncios
-              </CardTitle>
-              <InfoTooltip text="Cliques capturados via link intermediário com rastreamento de UTMs. Mostra de onde vêm os cliques, quais campanhas geram mais tráfego e a taxa de conversão em leads." />
-            </CardHeader>
-            <CardContent>
-              <AdClickSection
-                stats={adClickQuery.data ?? { totalClicks: 0, uniqueCampaigns: 0, byCampaign: [], bySource: [], byDay: [], conversionRate: 0 }}
-                isLoading={adClickQuery.isLoading}
-              />
-            </CardContent>
-          </Card>
+          {/* ── 7. CONSOLIDADO MENSAL (KPIs) ── */}
+          {(() => {
+            // 12 meses anteriores ao atual (exclui o mês corrente)
+            const months = Array.from({ length: 12 }).map((_, i) => subMonths(new Date(), 12 - i));
+            return (
+              <Card className="bg-[#1E293B] border-slate-800 shadow-2xl overflow-hidden">
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <CardTitle className="text-xl font-bold text-white">Consolidado Mensal</CardTitle>
+                  <InfoTooltip text="Histórico completo dos últimos 12 meses para cada indicador de negócio cadastrado. Permite visualizar tendências de longo prazo, sazonalidades e a evolução mês a mês de cada KPI." />
+                </CardHeader>
+                <CardContent className="p-0">
+                  {kpis.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 gap-3 text-slate-500">
+                      <ListFilter className="h-10 w-10 opacity-20" />
+                      <p className="text-sm text-center">A tabela consolidada aparecerá aqui<br />após o cadastro e registro dos indicadores.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="text-slate-500 text-[10px] uppercase font-black tracking-widest border-b border-slate-800">
+                            <th className="pb-4 pl-5 min-w-[180px] sticky left-0 bg-[#1E293B] z-10">Indicador</th>
+                            {months.map(m => (
+                              <th key={m.toISOString()} className="pb-4 px-5 text-center min-w-[110px]">
+                                {format(m, "MMM/yy", { locale: ptBR })}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/50">
+                          {kpis.map(kpi => (
+                            <tr key={kpi.id} className="text-sm group hover:bg-[#2d3f55] transition-colors">
+                              <td className="py-4 pl-5 pr-4 font-bold text-slate-200 sticky left-0 bg-[#1E293B] group-hover:bg-[#2d3f55] z-10 border-r border-slate-800 group-hover:text-white transition-colors">{kpi.name}</td>
+                              {months.map(m => {
+                                const mk = format(m, "yyyy-MM");
+                                const val = kpiHistory.find(h => h.kpi_id === kpi.id && String(h.month_year).startsWith(mk))?.value;
+                                return (
+                                  <td key={mk} className="py-4 px-5 text-center text-slate-300 font-bold group-hover:text-white transition-colors">
+                                    {val !== undefined ? fmtVal(val, kpi.unit) : <span className="text-slate-700 group-hover:text-slate-500">—</span>}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })()}
 
           </div>
           )}
-          {/* -- CONTEÚDO: ATENDIMENTO -- */}
+          {/* ── CONTEÚDO: ATENDIMENTO ── */}
           {resolvedTab === "atendimento" && (
             <AtendimentoSection
-            clientId={clientId}
+              organizationId={clientData?.organization_id}
+              clientId={clientData?.id}
               dateRange={dateRange}
-              hasN8n={!!(clientData?.metadata?.n8n_api_key?.trim())}
             />
-          )}
-
-          {resolvedTab === "crm" && (
-            <CrmSection clientId={clientId} clientMetadata={clientData?.metadata} />
           )}
 
           <footer className="text-center pt-8 border-t border-slate-800">
@@ -1159,7 +1377,7 @@ function PeriodDropdown({
               <Calendar className="h-3.5 w-3.5 text-white" />
               {label}
             </div>
-        <span className="text-slate-500">▾</span>
+            <span className="text-slate-500">▾</span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent className="bg-[#1E293B] border-slate-700 text-slate-200 w-52 shadow-2xl p-1" align="start">
@@ -1167,7 +1385,7 @@ function PeriodDropdown({
           {presets.map(p => (
             <DropdownMenuItem key={p.label}
               className={cn("text-sm font-medium cursor-pointer rounded-lg px-3 py-2 focus:bg-slate-700",
-                activePreset?.label === p.label && "bg-[#7C3AED]/20 text-[#7C3AED] font-bold")}
+                activePreset?.label === p.label && "bg-[#2D8CC7]/20 text-[#2D8CC7] font-bold")}
               onClick={() => onChange({ from: p.from, to: p.to })}>
               {p.label}
             </DropdownMenuItem>
@@ -1180,7 +1398,7 @@ function PeriodDropdown({
         <input type="date" value={dateRange.from}
           onChange={e => onChange({ ...dateRange, from: e.target.value })}
           className="date-input-white bg-transparent text-[11px] font-bold text-slate-300 focus:outline-none w-[112px]" />
-        <span className="text-slate-600 text-xs">→</span>
+        <span className="text-slate-600 text-xs">—</span>
         <input type="date" value={dateRange.to}
           onChange={e => onChange({ ...dateRange, to: e.target.value })}
           className="date-input-white bg-transparent text-[11px] font-bold text-slate-300 focus:outline-none w-[112px]" />
@@ -1189,79 +1407,17 @@ function PeriodDropdown({
   );
 }
 
-function AtendimentoSection({ clientId, dateRange, hasN8n }: { clientId?: string; dateRange: { from: string; to: string }; hasN8n: boolean }) {
-  const { totals, trend, byCampaign, bySource, byAgent, isLoading, hasData } = useClientConversationKpis(clientId, dateRange);
-
-  // Dados comparativos: manual (QR Code + CSV) vs automação (n8n)
-  // + tempo médio de vida dos leads (created_at → updated_at quando fechado)
-  const [canalData, setCanalData] = useState<{
-    manual:  { leads: number; fechados: number; valor: number; conversao: number };
-    auto:    { leads: number; fechados: number; valor: number; conversao: number };
-    tempoMedioVidaDias: number | null;
-    totalContatos: number;
-    conversas: number;
-    porStatus: { novo: number; contato: number; proposta: number; negociacao: number; fechado: number; perdido: number };
-  } | undefined>(undefined);
-
-  useEffect(() => {
-    if (!clientId) return;
-    supabase.from("crm_leads")
-      .select("status, proposal_value, origin, updated_at, created_at")
-      .gte("created_at", dateRange.from)
-      .lte("created_at", dateRange.to + "T23:59:59")
-      .then(({ data }) => {
-        if (!data) return;
-
-        const isAuto = (origin: string | null) => origin != null && /n8n|automa/i.test(origin);
-        const manual = data.filter(l => !isAuto(l.origin));
-        const auto   = data.filter(l => isAuto(l.origin));
-
-        const calcGrupo = (grupo: typeof data) => {
-          const total = grupo.length;
-          const fechados = grupo.filter(l => l.status === "fechado");
-          const valor = fechados.reduce((acc, l) => acc + (l.proposal_value ?? 0), 0);
-          return { leads: total, fechados: fechados.length, valor, conversao: total > 0 ? (fechados.length / total) * 100 : 0 };
-        };
-
-        const concluidos = data.filter(l => (l.status === "fechado" || l.status === "perdido") && l.updated_at && l.created_at);
-        const tempoMedioVidaDias = concluidos.length > 0
-          ? concluidos.reduce((acc, l) => {
-              const dias = (new Date(l.updated_at!).getTime() - new Date(l.created_at).getTime()) / (1000 * 60 * 60 * 24);
-              return acc + dias;
-            }, 0) / concluidos.length
-          : null;
-
-        const count = (s: string) => data.filter(l => l.status === s).length;
-
-        setCanalData({
-          manual: calcGrupo(manual),
-          auto: calcGrupo(auto),
-          tempoMedioVidaDias,
-          totalContatos: data.length,
-          // Conversas = leads que saíram de "novo" (status != 'novo'), 1 por lead
-          conversas: data.filter(l => l.status !== "novo").length,
-          porStatus: {
-            novo: count("novo"),
-            contato: count("contato"),
-            proposta: count("proposta"),
-            negociacao: count("negociacao"),
-            fechado: count("fechado"),
-            perdido: count("perdido"),
-          },
-        });
-      });
-  }, [clientId, dateRange.from, dateRange.to]);
-
+function AtendimentoSection({ organizationId, clientId, dateRange }: { organizationId?: string; clientId?: string; dateRange: { from: string; to: string } }) {
+  const { totals, trend, byCampaign, bySource, byAgent, isLoading, hasData } = useClientConversationKpis(organizationId, clientId, dateRange);
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2 px-1">
         <MessageCircle className="h-5 w-5 text-emerald-400" />
-        <h2 className="text-xl font-bold text-white uppercase tracking-tight">Atendimento e Conversas</h2>
+        <h2 className="text-xl font-bold text-white uppercase tracking-tight">Automação de Conversas</h2>
       </div>
       <ConversationKpiDashboard
         totals={totals} trend={trend} byCampaign={byCampaign} bySource={bySource} byAgent={byAgent}
-        isLoading={isLoading} hasData={hasData} hasN8n={hasN8n} canalData={canalData} theme="dark"
-        dateRange={dateRange}
+        isLoading={isLoading} hasData={hasData} theme="dark"
       />
     </div>
   );
@@ -1305,6 +1461,4 @@ function InfoTooltip({ text, light = false }: any) {
     </ShadcnTooltip>
   );
 }
-
-
 

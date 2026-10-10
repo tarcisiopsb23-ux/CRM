@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, Loader2, BellRing, Megaphone, CalendarRange } from "lucide-react";
@@ -16,7 +16,6 @@ import { cn } from "@/lib/utils";
 import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useDynamicClient } from "@/hooks/useDynamicClient";
-import { useClientAuth } from "@/hooks/useClientAuth";
 import { PageHeader } from "./components/PageHeader";
 import { StatusBadge } from "./components/StatusBadge";
 import { CredentialsErrorState } from "./components/CredentialsErrorState";
@@ -71,8 +70,6 @@ const defaultForm: FormState = {
 
 export function AvisosPage() {
   const dc = useDynamicClient();
-  const { auth } = useClientAuth();
-  const clientId = auth?.user?.client_id ?? "";
   const queryClient = useQueryClient();
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -83,13 +80,11 @@ export function AvisosPage() {
   if (!dc) return <CredentialsErrorState />;
 
   const { data: items = [], isLoading } = useQuery({
-    queryKey: ["ai_notices", clientId],
-    enabled: !!clientId,
+    queryKey: ["ai_notices"],
     queryFn: async () => {
       const { data, error } = await dc
-        .from("client_ai_notices")
+        .from("ai_notices")
         .select("*")
-        .eq("client_id", clientId)
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as AiNotice[];
@@ -99,37 +94,37 @@ export function AvisosPage() {
 
   const createMutation = useMutation({
     mutationFn: async (payload: Omit<AiNotice, "id" | "created_at">) => {
-      const { error } = await dc.from("client_ai_notices").insert({ ...payload, client_id: clientId });
+      const { error } = await dc.from("ai_notices").insert(payload);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_notices", clientId] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_notices"] }),
     onError: (e: any) => toast.error(e.message),
   });
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, payload }: { id: string; payload: Partial<Omit<AiNotice, "id" | "created_at">> }) => {
-      const { error } = await dc.from("client_ai_notices").update(payload).eq("id", id).eq("client_id", clientId);
+      const { error } = await dc.from("ai_notices").update(payload).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_notices", clientId] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_notices"] }),
     onError: (e: any) => toast.error(e.message),
   });
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await dc.from("client_ai_notices").delete().eq("id", id).eq("client_id", clientId);
+      const { error } = await dc.from("ai_notices").delete().eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_notices", clientId] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_notices"] }),
     onError: (e: any) => toast.error(e.message),
   });
 
   const toggleStatusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: "active" | "inactive" }) => {
-      const { error } = await dc.from("client_ai_notices").update({ status }).eq("id", id).eq("client_id", clientId);
+      const { error } = await dc.from("ai_notices").update({ status }).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_notices", clientId] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai_notices"] }),
     onError: (e: any) => toast.error(e.message),
   });
 

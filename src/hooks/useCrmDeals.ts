@@ -1,10 +1,11 @@
 /**
- * useCrmDeals
+ * useCrmDeals — T-2.3
  *
- * Hook isolado para deals do CRM.
- * Separado do useCrmPipeline para permitir uso independente
- * sem carregar stages junto.
+ * CRUD de negociações (deals) no Banco B do cliente.
+ * Hook dedicado separado do useCrmPipeline para uso independente
+ * (ex: cards condicionais no DashboardGeral).
  */
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDynamicClient } from "@/hooks/useDynamicClient";
 
@@ -21,17 +22,29 @@ export interface CrmDeal {
   expected_close_date: string | null;
   created_at: string;
   updated_at: string;
+  // joins opcionais
   contact?: { name: string } | null;
   product?: { name: string; price: number } | null;
 }
 
+export type CrmDealInput = {
+  client_id: string;
+  stage_id?: string | null;
+  title?: string | null;
+  contact_id?: string | null;
+  product_id?: string | null;
+  value?: number;
+  notes?: string | null;
+  expected_close_date?: string | null;
+};
+
 export function useCrmDeals(clientId: string | undefined) {
   const dc = useDynamicClient();
   const qc = useQueryClient();
-  const key = ["crm_deals", clientId];
+  const qk = ["crm_deals", clientId];
 
   const query = useQuery<CrmDeal[]>({
-    queryKey: key,
+    queryKey: qk,
     queryFn: async () => {
       if (!dc || !clientId) return [];
       const { data, error } = await dc
@@ -45,57 +58,51 @@ export function useCrmDeals(clientId: string | undefined) {
     staleTime: 30_000,
   });
 
-  const createDeal = useMutation({
-    mutationFn: async (input: {
-      client_id: string; stage_id: string;
-      title?: string; contact_id?: string | null;
-      product_id?: string | null; value?: number;
-    }) => {
+  const create = useMutation({
+    mutationFn: async (input: CrmDealInput) => {
       if (!dc) throw new Error("Banco não conectado");
       const { data, error } = await dc
         .from("crm_deals")
         .insert({ ...input, status: "open", value: input.value ?? 0 })
-        .select("*, contact:crm_contacts(name), product:crm_products(name, price)")
+        .select()
         .single();
       if (error) throw error;
       return data as CrmDeal;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: key }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk }),
   });
 
-  const updateDeal = useMutation({
+  const update = useMutation({
     mutationFn: async ({ id, ...patch }: Partial<CrmDeal> & { id: string }) => {
       if (!dc) throw new Error("Banco não conectado");
       const { error } = await dc.from("crm_deals").update(patch).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: key }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk }),
   });
 
-  const removeDeal = useMutation({
-    mutationFn: async (id: string) => {
-      if (!dc) throw new Error("Banco não conectado");
-      const { error } = await dc.from("crm_deals").delete().eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: key }),
-  });
-
-  const moveDeal = useMutation({
+  const move = useMutation({
     mutationFn: async ({ id, stage_id }: { id: string; stage_id: string }) => {
       if (!dc) throw new Error("Banco não conectado");
       const { error } = await dc.from("crm_deals").update({ stage_id }).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: key }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk }),
   });
 
-  return {
-    data:        query.data ?? [],
-    isLoading:   query.isLoading,
-    createDeal,
-    updateDeal,
-    removeDeal,
-    moveDeal,
-  };
+  const remove = useMutation({
+    mutationFn: async (id: string) => {
+      if (!dc) throw new Error("Banco não conectado");
+      const { error } = await dc.from("crm_deals").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk }),
+  });
+
+  /** Soma de value das negociações ganhas */
+  const wonRevenue = (query.data ?? [])
+    .filter(d => d.status === "won")
+    .reduce((sum, d) => sum + (d.value || 0), 0);
+
+  return { ...query, create, update, move, remove, wonRevenue };
 }

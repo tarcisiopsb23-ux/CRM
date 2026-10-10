@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createClientSupabase } from "@/lib/createClientSupabase";
+import { supabase } from "@/lib/supabase";
 
 // Regras de validação da senha
 const RULES = [
@@ -46,17 +47,17 @@ export function SetPasswordPage() {
     if (!slug) return;
     const raw = sessionStorage.getItem(`client_auth_v2_${slug}`);
     if (!raw) {
-      navigate(`/${slug}/login`, { replace: true });
+      navigate(`/public/dashboard/${slug}/login`, { replace: true });
       return;
     }
     try {
       const parsed = JSON.parse(raw);
       if (!parsed?.force_password_change) {
         // Já definiu senha — vai para o dashboard
-        navigate(`/${slug}`, { replace: true });
+        navigate(`/public/dashboard/${slug}`, { replace: true });
       }
     } catch {
-      navigate(`/${slug}/login`, { replace: true });
+      navigate(`/public/dashboard/${slug}/login`, { replace: true });
     }
   }, [slug, navigate]);
 
@@ -72,32 +73,44 @@ export function SetPasswordPage() {
     setLoading(true);
 
     try {
+      // Recupera sessão do sessionStorage
       const raw    = sessionStorage.getItem(`client_auth_v2_${slug}`);
       const parsed = raw ? JSON.parse(raw) : null;
       if (!parsed?.session?.access_token) throw new Error("Sessão não encontrada.");
 
-      // Usa o cliente do Banco A — injeta a sessão e atualiza a senha
-      const BANK_A_URL = import.meta.env.VITE_SUPABASE_URL as string;
-      const BANK_A_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-      const bankA      = createClientSupabase(BANK_A_URL, BANK_A_KEY);
+      // Busca credenciais do Banco B
+      const { data: clients } = await supabase.rpc("get_client_by_slug", { p_slug: slug });
+      const client = clients?.[0];
+      if (!client?.client_supabase_url || !client?.client_supabase_anon_key) {
+        throw new Error("Configurações do dashboard não encontradas.");
+      }
 
-      await bankA.auth.setSession({
+      const bankB = createClientSupabase(client.client_supabase_url, client.client_supabase_anon_key);
+
+      // Restaura sessão no cliente do Banco B
+      await bankB.auth.setSession({
         access_token:  parsed.session.access_token,
         refresh_token: parsed.session.refresh_token,
       });
 
-      const { error: updateErr } = await bankA.auth.updateUser({
+      // Atualiza senha e remove force_password_change
+      const { error: updateErr } = await bankB.auth.updateUser({
         password,
         data: { force_password_change: false },
       });
 
       if (updateErr) throw new Error(updateErr.message);
 
-      // Remove o flag da sessão e redireciona
+      // Atualiza o sessionStorage removendo o flag
       const updated = { ...parsed, force_password_change: false };
       sessionStorage.setItem(`client_auth_v2_${slug}`, JSON.stringify(updated));
+
       setSuccess(true);
-      setTimeout(() => navigate(`/${slug}`, { replace: true }), 2000);
+
+      // Redireciona para o dashboard após 2 segundos
+      setTimeout(() => {
+        navigate(`/public/dashboard/${slug}`, { replace: true });
+      }, 2000);
 
     } catch (err: any) {
       setError(err.message ?? "Erro ao definir senha. Tente novamente.");

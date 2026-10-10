@@ -1,0 +1,206 @@
+{
+  "name": "Agenda — Renovação Automática de Watch Channels (Diário)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "hoursInterval": 1 }]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule — A Cada Hora",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300],
+      "notes": "Executa a cada hora para verificar watch channels que expiram em menos de 24h.\nA janela de 24h garante que mesmo execuções saltadas não causem perda de notificações.\nO watch channel do Google Calendar expira em 7 dias — renovar com 24h de antecedência é seguro."
+    },
+
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/client_google_calendar_tokens",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
+        ]},
+        "sendQuery": true,
+        "queryParameters": { "parameters": [
+          { "name": "connected",    "value": "=eq.true" },
+          { "name": "watch_expiry", "value": "=lt.{{ new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() }}" },
+          { "name": "select",       "value": "client_id,access_token,refresh_token,token_expiry,calendar_id,watch_channel_id,watch_expiry" }
+        ]},
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "buscar-expirados",
+      "name": "Buscar Clientes com Watch Expirando",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300],
+      "notes": "Lista todos os clientes cujo watch channel expira nas próximas 24h.\nFiltro: connected=true AND watch_expiry < now+24h"
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const result = $input.first().json;\nconst rows = Array.isArray(result) ? result : [];\n\nif (rows.length === 0) {\n  console.log('[renew-watch] Nenhum watch channel precisando de renovação.');\n  return [];\n}\n\nconsole.log(`[renew-watch] ${rows.length} clientes com watch channel expirando.`);\n\nreturn rows.map(row => ({\n  json: {\n    client_id:     row.client_id,\n    access_token:  row.access_token,\n    refresh_token: row.refresh_token,\n    token_expiry:  row.token_expiry,\n    calendar_id:   row.calendar_id ?? 'primary',\n    watch_expiry:  row.watch_expiry,\n  }\n}));"
+      },
+      "id": "processar-lista",
+      "name": "Processar Lista de Clientes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const row = $input.first().json;\nconst expiry = row.token_expiry ? new Date(row.token_expiry).getTime() : 0;\nconst needsRefresh = expiry - Date.now() < 5 * 60 * 1000;\nreturn [{ json: { ...row, needs_token_refresh: needsRefresh } }];"
+      },
+      "id": "checar-token",
+      "name": "Checar Token OAuth2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+
+    {
+      "parameters": {
+        "conditions": { "options": { "caseSensitive": false }, "conditions": [
+          { "leftValue": "={{ $json.needs_token_refresh }}", "rightValue": true,
+            "operator": { "type": "boolean", "operation": "equals" } }
+        ]}
+      },
+      "id": "if-token-expirado",
+      "name": "Token precisa renovar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://oauth2.googleapis.com/token",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "Content-Type", "value": "application/x-www-form-urlencoded" }
+        ]},
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": { "parameters": [
+          { "name": "client_id",     "value": "={{ $env.GOOGLE_CALENDAR_CLIENT_ID }}" },
+          { "name": "client_secret", "value": "={{ $env.GOOGLE_CALENDAR_CLIENT_SECRET }}" },
+          { "name": "refresh_token", "value": "={{ $json.refresh_token }}" },
+          { "name": "grant_type",    "value": "refresh_token" }
+        ]},
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "renovar-oauth-token",
+      "name": "Renovar Access Token OAuth2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 180]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const refreshResult = $input.first().json;\nconst prev = $('Checar Token OAuth2').first().json;\nreturn [{ json: {\n  ...prev,\n  access_token: refreshResult.access_token ?? prev.access_token,\n  token_expiry: refreshResult.expires_in\n    ? new Date(Date.now() + refreshResult.expires_in * 1000).toISOString()\n    : prev.token_expiry\n} }];"
+      },
+      "id": "merge-access-token",
+      "name": "Mesclar Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 180]
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://www.googleapis.com/calendar/v3/calendars/' + encodeURIComponent($json.calendar_id) + '/events/watch' }}",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "Authorization", "value": "=Bearer {{ $json.access_token }}" },
+          { "name": "Content-Type",  "value": "application/json" }
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  id:         'c8-watch-' + $json.client_id.substring(0, 8) + '-' + Date.now(),\n  type:       'web_hook',\n  address:    $env.N8N_GOOGLE_CALENDAR_WEBHOOK_URL,\n  expiration: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).getTime()\n}) }}",
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "registrar-novo-watch",
+      "name": "Registrar Novo Watch Channel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 300],
+      "notes": "Registra um novo watch channel no Google Calendar do cliente.\nO channel_id usa o prefixo 'c8-watch-' + parte do client_id + timestamp para unicidade."
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const watchResult = $input.first().json;\nconst ctx = $('Checar Token OAuth2').first().json;\n\nif (!watchResult?.id) {\n  console.error(`[renew-watch] Falha ao renovar watch para cliente ${ctx.client_id}:`, JSON.stringify(watchResult));\n  return [];\n}\n\nconst newExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();\nconsole.log(`[renew-watch] Watch renovado para ${ctx.client_id}: ${watchResult.id} | expira: ${newExpiry}`);\n\nreturn [{ json: {\n  client_id:        ctx.client_id,\n  new_channel_id:   watchResult.id,\n  new_resource_id:  watchResult.resourceId ?? '',\n  new_expiry:       newExpiry,\n} }];"
+      },
+      "id": "processar-resultado-watch",
+      "name": "Processar Resultado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 300]
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/save_google_watch_channel",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Content-Type",  "value": "application/json" }
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  p_client_id:   $json.client_id,\n  p_channel_id:  $json.new_channel_id,\n  p_resource_id: $json.new_resource_id,\n  p_expiry:      $json.new_expiry\n}) }}",
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "salvar-watch-banco",
+      "name": "Salvar Watch no Banco A",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2220, 300]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Processar Resultado').first().json;\nconsole.log(`[renew-watch] ✅ Cliente ${prev.client_id} — watch channel renovado com sucesso.`);\nreturn [{ json: { success: true, client_id: prev.client_id, new_channel_id: prev.new_channel_id, expires: prev.new_expiry } }];"
+      },
+      "id": "log-sucesso",
+      "name": "Log Sucesso",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2440, 300]
+    }
+  ],
+
+  "connections": {
+    "Schedule — A Cada Hora":             { "main": [[{ "node": "Buscar Clientes com Watch Expirando", "type": "main", "index": 0 }]] },
+    "Buscar Clientes com Watch Expirando":{ "main": [[{ "node": "Processar Lista de Clientes",         "type": "main", "index": 0 }]] },
+    "Processar Lista de Clientes":        { "main": [[{ "node": "Checar Token OAuth2",                 "type": "main", "index": 0 }]] },
+    "Checar Token OAuth2":                { "main": [[{ "node": "Token precisa renovar?",              "type": "main", "index": 0 }]] },
+    "Token precisa renovar?": {
+      "main": [
+        [{ "node": "Renovar Access Token OAuth2", "type": "main", "index": 0 }],
+        [{ "node": "Registrar Novo Watch Channel", "type": "main", "index": 0 }]
+      ]
+    },
+    "Renovar Access Token OAuth2":        { "main": [[{ "node": "Mesclar Token",                      "type": "main", "index": 0 }]] },
+    "Mesclar Token":                      { "main": [[{ "node": "Registrar Novo Watch Channel",        "type": "main", "index": 0 }]] },
+    "Registrar Novo Watch Channel":       { "main": [[{ "node": "Processar Resultado",                 "type": "main", "index": 0 }]] },
+    "Processar Resultado":                { "main": [[{ "node": "Salvar Watch no Banco A",             "type": "main", "index": 0 }]] },
+    "Salvar Watch no Banco A":            { "main": [[{ "node": "Log Sucesso",                         "type": "main", "index": 0 }]] }
+  },
+
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "templateId": "agenda-renew-watch-v1",
+    "description": "Renovação automática de watch channels do Google Calendar. Executa a cada hora e renova automaticamente os canais que expiram em menos de 24h. Garante que as notificações push do Google nunca parem por expiração silenciosa."
+  },
+  "notes": "## Agenda — Renovação Automática de Watch Channels\n\n### Objetivo:\nEliminar o gap de watch channels que expiravam em 7 dias sem renovação.\n\n### Como funciona:\n1. Executa a cada hora via Schedule Trigger\n2. Lista todos os clientes com connected=true E watch_expiry < agora+24h\n3. Para cada cliente: renova o access_token se necessário, registra novo watch channel no Google\n4. Salva o novo channel_id e watch_expiry no Banco A\n5. O workflow agenda-google-webhook usa o channel_id para identificar o cliente nos pushes\n\n### Variáveis necessárias:\n  SUPABASE_URL, SUPABASE_SERVICE_KEY\n  GOOGLE_CALENDAR_CLIENT_ID, GOOGLE_CALENDAR_CLIENT_SECRET\n  N8N_GOOGLE_CALENDAR_WEBHOOK_URL  — URL do webhook agenda-google-webhook\n\n### Ativar este workflow:\n  1. Importar no n8n\n  2. Configurar as variáveis de ambiente acima\n  3. Ativar o workflow (toggle no topo direito)\n  O Schedule Trigger executará automaticamente a cada hora."
+}

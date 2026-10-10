@@ -137,7 +137,7 @@ export function PerformancePage() {
   });
   const kpiHistory = (kpiHistoryRaw ?? []) as any[];
 
-  const { campaignDataQuery } = useClientReports(auth?.id, stableDateRange);
+  const { campaignDataQuery } = useClientReports(auth?.organization_id, auth?.id, stableDateRange, true);
   const realCampaigns = useMemo(() => aggregateCampaigns((campaignDataQuery.data ?? []) as any[]), [campaignDataQuery.data]);
   const filteredRealCampaigns = useMemo(() =>
     campaignFilter === "Todas" ? realCampaigns : realCampaigns.filter((c: any) => c.platform === campaignFilter),

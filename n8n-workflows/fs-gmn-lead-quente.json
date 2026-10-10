@@ -1,0 +1,207 @@
+{
+  "name": "⚠️ DEPRECADO — FS — GMN Lead Quente (Landing Google Meu Negócio)",
+  "nodes": [
+
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "FS_GMN_Lead_Quente",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook — Receber Lead GMN",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "FS_GMN_Lead_Quente",
+      "notes": "Recebe leads QUENTES da landing /google-meu-negocio.\nURL de teste: https://ia-n8n.whlwlh.easypanel.host/webhook-test/FS_GMN_Lead_Quente\nURL produção: https://ia-n8n.whlwlh.easypanel.host/webhook/FS_GMN_Lead_Quente\n\nAutenticação via header X-Webhook-Token.\n\nPayload esperado:\n  tipo_lead                    : 'QUALIFICADO'\n  classificacao                : 'QUENTE'\n  score                        : number (0–6)\n  nome                         : string\n  whatsapp                     : string\n  email                        : string\n  segmento                     : string (nome do estabelecimento)\n  fase                         : string (cidade)\n  dor                          : string (resumo GMN)\n  aquisicao                    : string\n  prazo                        : string\n  experiencia                  : string\n  texto_livre                  : string\n  utm_source                   : string\n  utm_medium                   : string\n  utm_campaign                 : string\n  cta_origem                   : 'agendamento' | 'whatsapp'\n  agendamento_modalidade       : string (presente se cta_origem = agendamento)\n  agendamento_dias_semana      : string (presente se cta_origem = agendamento)\n  agendamento_data_solicitacao : ISO string (presente se cta_origem = agendamento)\n  data                         : ISO string"
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body ?? $input.first().json;\n\n// ── Autenticação ────────────────────────────────────────────────────────────\nconst token = $input.first().json.headers?.['x-webhook-token']\n           ?? $input.first().json.headers?.['X-Webhook-Token']\n           ?? '';\nconst expectedToken = $env.WEBHOOK_TOKEN ?? '';\nif (expectedToken && token !== expectedToken) {\n  throw new Error('Token inválido — acesso não autorizado');\n}\n\n// ── Validação de campos obrigatórios ─────────────────────────────────────────\nif (!body.nome || !body.whatsapp) {\n  throw new Error('Campos obrigatórios ausentes: nome, whatsapp');\n}\n\nconst whatsappRaw = String(body.whatsapp).replace(/\\D/g, '');\nconst ctaOrigem   = body.cta_origem ?? 'whatsapp'; // 'agendamento' | 'whatsapp'\n\n// ── Montar objeto detalhes_funil ─────────────────────────────────────────────\nconst detalhesFunil = {\n  tipo_lead:    body.tipo_lead    ?? 'QUALIFICADO',\n  dor:          body.dor          ?? '',\n  aquisicao:    body.aquisicao    ?? '',\n  prazo:        body.prazo        ?? '',\n  experiencia:  body.experiencia  ?? '',\n  texto_livre:  body.texto_livre  ?? '',\n  cta_origem:   ctaOrigem,\n  ...(ctaOrigem === 'agendamento' ? {\n    agendamento_modalidade:       body.agendamento_modalidade       ?? '',\n    agendamento_dias_semana:      body.agendamento_dias_semana      ?? '',\n    agendamento_data_solicitacao: body.agendamento_data_solicitacao ?? new Date().toISOString(),\n  } : {}),\n};\n\nreturn [{ json: {\n  nome:            body.nome,\n  whatsapp:        whatsappRaw,\n  email:           body.email        ?? '',\n  classificacao:   body.classificacao ?? 'QUENTE',\n  score:           body.score         ?? 0,\n  segmento:        body.segmento      ?? '',  // nome do estabelecimento\n  cidade:          body.fase           ?? '',  // campo fase = cidade no GMN\n  dor:             body.dor            ?? '',\n  aquisicao:       body.aquisicao      ?? '',\n  prazo:           body.prazo          ?? '',\n  experiencia:     body.experiencia    ?? '',\n  texto_livre:     body.texto_livre    ?? '',\n  utm_source:      body.utm_source     ?? 'gmn-landing',\n  utm_medium:      body.utm_medium     ?? 'organico',\n  utm_campaign:    body.utm_campaign   ?? 'google-meu-negocio',\n  cta_origem:      ctaOrigem,\n  detalhes_funil:  detalhesFunil,\n  recebido_em:     body.data           ?? new Date().toISOString(),\n} }];"
+      },
+      "id": "validar-payload",
+      "name": "Validar e Normalizar Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/leads",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "organization_id", "value": "=eq.{{ $env.C8_ORGANIZATION_ID }}" },
+            { "name": "phone",           "value": "=eq.{{ $json.whatsapp }}" },
+            { "name": "select",          "value": "id,name,phone,etapa_kanban,classificacao_lead,contato_iniciado_em" },
+            { "name": "limit",           "value": "1" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "neverError": true } }
+        }
+      },
+      "id": "buscar-lead-existente",
+      "name": "Buscar Lead Existente por Telefone",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "notes": "Busca lead pelo WhatsApp. Resultado determina se é INSERT (novo) ou UPDATE (já existe)."
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const lead     = $('Validar e Normalizar Payload').first().json;\nconst result   = $input.first().json;\nconst existing = Array.isArray(result) ? result[0] : null;\n\n// ── Decisão: INSERT novo ou UPDATE existente ──────────────────────────────────\n//\n// Caso 1: lead não existe → INSERT independente de cta_origem\n// Caso 2: lead existe + cta_origem = 'agendamento' → IGNORAR (já registrado)\n// Caso 3: lead existe + cta_origem = 'whatsapp'    → UPDATE (cliente contatou)\n\nlet acao;\nif (!existing) {\n  acao = 'inserir';\n} else if (lead.cta_origem === 'whatsapp') {\n  acao = 'atualizar_contato';\n} else {\n  // cta_origem = 'agendamento' e lead já existe — duplicata silenciosa\n  acao = 'ignorar';\n  console.log(`GMN Lead duplicado (agendamento) ignorado: ${lead.nome} (${lead.whatsapp}) — já existe como ${existing.id}`);\n}\n\nreturn [{ json: {\n  ...lead,\n  acao,\n  lead_id_existente: existing?.id ?? null,\n} }];"
+      },
+      "id": "decidir-acao",
+      "name": "Decidir Ação (INSERT / UPDATE / IGNORAR)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "notes": "Roteamento:\n  inserir           → novo lead, vai para INSERT\n  atualizar_contato → lead existente + WhatsApp direto, vai para UPDATE\n  ignorar           → agendamento duplicado, encerra o fluxo"
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.acao }}",
+              "operation": "equal",
+              "value2": "inserir"
+            }
+          ]
+        }
+      },
+      "id": "rota-inserir",
+      "name": "Rota: Inserir?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1120, 180]
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.acao }}",
+              "operation": "equal",
+              "value2": "atualizar_contato"
+            }
+          ]
+        }
+      },
+      "id": "rota-atualizar",
+      "name": "Rota: Atualizar Contato?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1120, 420]
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/leads",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  organization_id:    $env.C8_ORGANIZATION_ID,\n  name:               $json.nome,\n  company:            $json.segmento || $json.nome,\n  phone:              $json.whatsapp,\n  email:              $json.email   || null,\n  nicho:              $json.segmento || null,\n  source:             'gmn-landing',\n  servico:            'Google Meu Negócio',\n  etapa_kanban:       $json.cta_origem === 'whatsapp' ? 'cliente_contatou' : 'formulario',\n  stage_id:           $json.cta_origem === 'whatsapp' ? 'cliente_contatou' : 'formulario',\n  prioridade:         'alta',\n  score_qualificacao: $json.score,\n  classificacao_lead: $json.classificacao,\n  utm_source:         $json.utm_source  || null,\n  utm_medium:         $json.utm_medium  || null,\n  utm_campaign:       $json.utm_campaign || null,\n  detalhes_funil:     $json.detalhes_funil,\n  contato_iniciado_em: $json.cta_origem === 'whatsapp' ? new Date().toISOString() : null,\n  metadata: {\n    cidade:       $json.cidade,\n    recebido_em:  $json.recebido_em,\n    cta_origem:   $json.cta_origem\n  }\n}) }}",
+        "options": {
+          "response": { "response": { "neverError": true } }
+        }
+      },
+      "id": "inserir-lead",
+      "name": "INSERT — Novo Lead GMN",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 180],
+      "notes": "Insere novo lead GMN.\netapa_kanban:\n  'formulario'      se veio por agendamento\n  'cliente_contatou' se veio direto pelo WhatsApp\nprioridade = alta (lead quente com diagnóstico completo)"
+    },
+
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/leads?id=eq.{{ $json.lead_id_existente }}&organization_id=eq.{{ $env.C8_ORGANIZATION_ID }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  etapa_kanban:        'cliente_contatou',\n  stage_id:            'cliente_contatou',\n  contato_iniciado_em: new Date().toISOString(),\n  classificacao_lead:  'QUENTE',\n  score_qualificacao:  $json.score,\n  detalhes_funil:      $json.detalhes_funil,\n  updated_at:          new Date().toISOString()\n}) }}",
+        "options": {
+          "response": { "response": { "neverError": true } }
+        }
+      },
+      "id": "atualizar-lead",
+      "name": "UPDATE — Marcar Cliente Contatou",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 420],
+      "notes": "Lead já existe e o cliente clicou no WhatsApp por conta própria.\nAtualiza:\n  etapa_kanban        → 'cliente_contatou'\n  contato_iniciado_em → timestamp agora\n  classificacao_lead  → QUENTE (reforça prioridade)\n  detalhes_funil      → sobrescreve com dados mais recentes\nNão duplica o lead. Sinaliza para a equipe não iniciar novo atendimento."
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const result = $input.first().json;\nconst lead   = $('Decidir Ação (INSERT / UPDATE / IGNORAR)').first().json;\n\nconst record   = Array.isArray(result) ? result[0] : result;\nconst leadId   = record?.id ?? lead.lead_id_existente ?? null;\nconst operacao = lead.acao === 'inserir' ? 'INSERT' : 'UPDATE';\n\nif (!leadId) {\n  console.error(`GMN Lead — falha no ${operacao}:`, JSON.stringify(result));\n} else {\n  console.log(`GMN Lead ${operacao}: ${leadId} — ${lead.nome} (${lead.whatsapp}) [${lead.cta_origem}]`);\n}\n\nreturn [{ json: { success: !!leadId, lead_id: leadId, operacao } }];"
+      },
+      "id": "verificar-resultado",
+      "name": "Verificar Resultado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 300]
+    }
+
+  ],
+
+  "connections": {
+    "Webhook — Receber Lead GMN":              { "main": [[{ "node": "Validar e Normalizar Payload",            "type": "main", "index": 0 }]] },
+    "Validar e Normalizar Payload":            { "main": [[{ "node": "Buscar Lead Existente por Telefone",      "type": "main", "index": 0 }]] },
+    "Buscar Lead Existente por Telefone":      { "main": [[{ "node": "Decidir Ação (INSERT / UPDATE / IGNORAR)", "type": "main", "index": 0 }]] },
+    "Decidir Ação (INSERT / UPDATE / IGNORAR)": {
+      "main": [
+        [{ "node": "Rota: Inserir?",           "type": "main", "index": 0 }],
+        [{ "node": "Rota: Atualizar Contato?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Rota: Inserir?":           { "main": [[{ "node": "INSERT — Novo Lead GMN",           "type": "main", "index": 0 }], []] },
+    "Rota: Atualizar Contato?": { "main": [[{ "node": "UPDATE — Marcar Cliente Contatou", "type": "main", "index": 0 }], []] },
+    "INSERT — Novo Lead GMN":           { "main": [[{ "node": "Verificar Resultado", "type": "main", "index": 0 }]] },
+    "UPDATE — Marcar Cliente Contatou": { "main": [[{ "node": "Verificar Resultado", "type": "main", "index": 0 }]] }
+  },
+
+  "settings": { "executionOrder": "v1" },
+
+  "meta": {
+    "templateId": "fs-gmn-lead-quente-v1",
+    "description": "Processa leads QUENTES da landing /google-meu-negocio. Faz INSERT para novos leads e UPDATE para leads existentes que clicaram no WhatsApp por conta própria (etapa cliente_contatou)."
+  },
+
+  "notes": "⚠️ DEPRECADO — NÃO USAR MAIS\n\nSubstituído por: fs-lead-universal.json (FS_Lead_Universal)\n\nEste workflow foi o receptor de leads da landing Google Meu Negócio.\nAgora o workflow universal trata todos os formulários — GMN, qualificação geral e futuros.\n\nUse: VITE_WEBHOOK_UNIVERSAL → https://ia-n8n.whlwlh.easypanel.host/webhook/FS_Lead_Universal\n\nO formulário GMN deve enviar:\n  classificacao: calculado com seus próprios thresholds (score 0-6: >=4 QUENTE, >=2 MORNO)\n  score:         pontuação obtida (0-6)\n  score_max:     6\n  funil:         { estabelecimento, como_conheceu, problemas, perfil_existe,\n                   informacoes, fotos, avaliacoes, buscas, perda_cliente, ... }\n  agendamento:   { modalidade, dias_semana, data_solicitacao }  ← quando cta_origem='agendamento'"
+}

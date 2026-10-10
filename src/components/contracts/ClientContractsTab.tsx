@@ -4,7 +4,7 @@
  * Lista contratos v2 (novo sistema) + contratos legados (tabela contracts).
  * Permite criar novo contrato via wizard e visualizar/exportar PDF.
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Dialog, DialogContent,
+  Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -21,12 +21,15 @@ import {
 import {
   FileText, Plus, Eye, Download, MoreHorizontal,
   CheckCircle2, Clock, XCircle, Send, Loader2, Archive,
+  AlertTriangle, RotateCcw, ShieldAlert,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useClientContracts, useContracts } from "@/hooks/useContracts";
 import { useContractTemplates } from "@/hooks/useContractTemplates";
+import { useContractSecurity } from "@/hooks/useContractSecurity";
 import { ContractGenerator } from "./ContractGenerator";
 import { ContractViewer } from "./ContractViewer";
+import { ContractV2DetailPage } from "./ContractV2DetailPage";
 import type { ContractV2 } from "@/hooks/useContracts";
 import type { ContractRow } from "@/hooks/useContracts";
 
@@ -64,19 +67,44 @@ export function ClientContractsTab({ clientId, clientName, clientCnpj, clientAdd
   const { data: contracts = [], isLoading } = useClientContracts(clientId);
   const { data: templates = [] } = useContractTemplates();
   const { changeStatus } = useContracts();
+  const { confirmSignature, revertToDraft, checkHashIntegrity } = useContractSecurity();
 
-  const [mode, setMode] = useState<"list" | "create" | "view">("list");
+  const [mode, setMode] = useState<"list" | "create" | "edit" | "view" | "detail">("list");
   const [viewing, setViewing] = useState<ContractV2 | null>(null);
+  const [editing, setEditing] = useState<ContractV2 | null>(null);
 
-  // ── Dialog de confirmação de assinatura ──────────────────────────────────
+  // ── Hash integrity state (um por contrato, calculado lazy ao renderizar) ───
+  const [hashAlerts, setHashAlerts] = useState<Record<string, boolean>>({});
+
+  // Verifica hash de contratos emitidos quando a lista carrega
+  useEffect(() => {
+    const emitidos = contracts.filter(c => c.status === "emitido" && c.content_hash);
+    if (emitidos.length === 0) return;
+    emitidos.forEach(async c => {
+      const result = await checkHashIntegrity({
+        ...c,
+        payment_schedule: c.payment_schedule ?? [],
+      });
+      if (!result.ok) {
+        setHashAlerts(prev => ({ ...prev, [c.id]: true }));
+      }
+    });
+  }, [contracts]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Dialog de confirmação de assinatura (four-eyes via RPC) ─────────────
   const [signDialog, setSignDialog] = useState<{ contract: ContractV2 } | null>(null);
   const [signDate, setSignDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [isSigning, setIsSigning] = useState(false);
+  const [signError, setSignError] = useState<string | null>(null);
+
+  // ── Dialog de retornar para rascunho ─────────────────────────────────────
+  const [revertDialog, setRevertDialog] = useState<{ contract: ContractV2 } | null>(null);
+  const [isReverting, setIsReverting] = useState(false);
 
   const handleStatusChange = async (contract: ContractV2, status: ContractV2["status"]) => {
     if (status === "assinado") {
-      // Intercepta: abre dialog para confirmar a data de assinatura
       setSignDate(format(new Date(), "yyyy-MM-dd"));
+      setSignError(null);
       setSignDialog({ contract });
       return;
     }
@@ -91,19 +119,37 @@ export function ClientContractsTab({ clientId, clientName, clientCnpj, clientAdd
   const handleConfirmSign = async () => {
     if (!signDialog) return;
     setIsSigning(true);
+    setSignError(null);
     try {
-      await changeStatus.mutateAsync({
-        id:       signDialog.contract.id,
-        clientId,
-        status:   "assinado",
-        signedAt: signDate,
-      });
-      toast.success("Contrato marcado como Assinado.");
-      setSignDialog(null);
+      const result = await confirmSignature(signDialog.contract.id, clientId, signDate);
+      if (result.success) {
+        toast.success("Assinatura confirmada com sucesso.");
+        setSignDialog(null);
+      } else {
+        setSignError(result.error ?? "Erro ao confirmar assinatura.");
+      }
     } catch (err: any) {
-      toast.error(err.message ?? "Erro ao registrar assinatura.");
+      setSignError(err.message ?? "Erro inesperado.");
     } finally {
       setIsSigning(false);
+    }
+  };
+
+  const handleRevertToDraft = async () => {
+    if (!revertDialog) return;
+    setIsReverting(true);
+    try {
+      const result = await revertToDraft(revertDialog.contract.id, clientId);
+      if (result.success) {
+        toast.success(`Contrato retornado para rascunho. Novo número: ${result.contract_number}`);
+        setRevertDialog(null);
+      } else {
+        toast.error(result.error ?? "Erro ao retornar para rascunho.");
+      }
+    } catch (err: any) {
+      toast.error(err.message ?? "Erro inesperado.");
+    } finally {
+      setIsReverting(false);
     }
   };
 
@@ -133,6 +179,55 @@ export function ClientContractsTab({ clientId, clientName, clientCnpj, clientAdd
     );
   }
 
+  // ── Modo editar rascunho ───────────────────────────────────────────────────
+  if (mode === "edit" && editing) {
+    return (
+      <div className="flex flex-col flex-1 overflow-y-auto" style={{ minHeight: "calc(100vh - 220px)" }}>
+        <ContractGenerator
+          clientId={clientId}
+          clientName={clientName}
+          clientCnpj={clientCnpj}
+          clientAddress={clientAddress}
+          clientAddressStreet={clientAddressStreet}
+          clientAddressNumber={clientAddressNumber}
+          clientAddressComplement={clientAddressComplement}
+          clientAddressNeighborhood={clientAddressNeighborhood}
+          clientAddressCity={clientAddressCity}
+          clientAddressState={clientAddressState}
+          organizationId={organizationId}
+          editingContract={editing}
+          onEditSuccess={(contractId) => {
+            setEditing(null);
+            setViewing(null);
+            setMode("list");
+            toast.success("Rascunho atualizado! Clique em Visualizar para ver o documento.");
+          }}
+          onSuccess={(contractId) => {
+            setEditing(null);
+            setMode("list");
+          }}
+          onClose={() => { setEditing(null); setMode("detail"); }}
+        />
+      </div>
+    );
+  }
+
+  // ── Modo detalhe (contratos v2) ────────────────────────────────────────────
+  if (mode === "detail" && viewing) {
+    return (
+      <div className="flex flex-col flex-1 overflow-y-auto" style={{ minHeight: "calc(100vh - 220px)" }}>
+        <ContractV2DetailPage
+          contract={viewing}
+          organizationId={organizationId}
+          clientId={clientId}
+          onBack={() => { setMode("list"); setViewing(null); }}
+          onViewPdf={() => setMode("view")}
+          onEdit={viewing.status === "rascunho" ? () => { setEditing(viewing); setMode("edit"); } : undefined}
+        />
+      </div>
+    );
+  }
+
   // ── Modo visualizar ────────────────────────────────────────────────────────
   if (mode === "view" && viewing) {
     const tpl = templates.find(t => t.id === viewing.template_id) ?? null;
@@ -141,14 +236,8 @@ export function ClientContractsTab({ clientId, clientName, clientCnpj, clientAdd
         <ContractViewer
           contract={viewing}
           template={tpl}
+          clientId={clientId}
           onClose={() => { setMode("list"); setViewing(null); }}
-          onEmit={viewing.status === "rascunho" ? async () => {
-            try {
-              await changeStatus.mutateAsync({ id: viewing.id, clientId, status: "emitido" });
-              // Atualiza o objeto local para o badge refletir imediatamente
-              setViewing(prev => prev ? { ...prev, status: "emitido" } : prev);
-            } catch { /* silencioso — o PDF já foi gerado */ }
-          } : undefined}
         />
       </div>
     );
@@ -197,10 +286,11 @@ export function ClientContractsTab({ clientId, clientName, clientCnpj, clientAdd
             const schedule = c.payment_schedule ?? [];
             const recurring = schedule.find(l => l.is_recurring);
             const setup = schedule.find(l => l.line_type === "setup" || l.line_type === "unico");
+            const hasHashAlert = hashAlerts[c.id] === true;
 
             return (
-              <div key={c.id} className="flex items-start gap-3 p-3 rounded-lg border hover:bg-muted/30 transition-colors">
-                <FileText className="h-5 w-5 text-violet-500 shrink-0 mt-0.5" />
+              <div key={c.id} className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${hasHashAlert ? "border-amber-300 bg-amber-50/40" : "hover:bg-muted/30"}`}>
+                <FileText className={`h-5 w-5 shrink-0 mt-0.5 ${hasHashAlert ? "text-amber-500" : "text-violet-500"}`} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     {c.contract_number && (
@@ -210,6 +300,11 @@ export function ClientContractsTab({ clientId, clientName, clientCnpj, clientAdd
                     <Badge className={`text-[10px] flex items-center gap-0.5 ${statusCfg.color}`}>
                       <StatusIcon className="h-2.5 w-2.5" /> {statusCfg.label}
                     </Badge>
+                    {hasHashAlert && (
+                      <Badge className="text-[10px] flex items-center gap-0.5 bg-amber-100 text-amber-700 border-amber-300">
+                        <AlertTriangle className="h-2.5 w-2.5" /> Alterado após emissão
+                      </Badge>
+                    )}
                     {c.proposal_id && (
                       <Badge variant="outline" className="text-[10px] text-blue-600 border-blue-300">
                         Proposta vinculada
@@ -223,9 +318,7 @@ export function ClientContractsTab({ clientId, clientName, clientCnpj, clientAdd
                       </p>
                     )}
                     {setup && (
-                      <p className="text-[10px] text-muted-foreground">
-                        Setup: {fmt(setup.amount)}
-                      </p>
+                      <p className="text-[10px] text-muted-foreground">Setup: {fmt(setup.amount)}</p>
                     )}
                     {recurring && (
                       <p className="text-[10px] text-muted-foreground">
@@ -233,13 +326,16 @@ export function ClientContractsTab({ clientId, clientName, clientCnpj, clientAdd
                       </p>
                     )}
                     {c.start_date && (
-                      <p className="text-[10px] text-muted-foreground">
-                        Início: {fmtDate(c.start_date)}
-                      </p>
+                      <p className="text-[10px] text-muted-foreground">Início: {fmtDate(c.start_date)}</p>
                     )}
                     {c.signed_at && (
                       <p className="text-[10px] text-emerald-600">
                         Assinado em {fmtDate(c.signed_at)}
+                      </p>
+                    )}
+                    {c.emitted_by && c.emitted_at && (
+                      <p className="text-[10px] text-muted-foreground">
+                        PDF emitido em {fmtDate(c.emitted_at)}
                       </p>
                     )}
                   </div>
@@ -247,7 +343,7 @@ export function ClientContractsTab({ clientId, clientName, clientCnpj, clientAdd
 
                 <div className="flex items-center gap-1 shrink-0">
                   <Button size="sm" variant="ghost" className="gap-1 text-xs"
-                    onClick={() => { setViewing(c); setMode("view"); }}>
+                    onClick={() => { setViewing(c); setMode("detail"); }}>
                     <Eye className="h-3.5 w-3.5" /> Ver
                   </Button>
                   {canEdit && (
@@ -258,13 +354,40 @@ export function ClientContractsTab({ clientId, clientName, clientCnpj, clientAdd
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        {/* Emitido: gerado pelo ContractViewer ao imprimir/PDF — não manual */}
-                        {(c.status === "rascunho" || c.status === "emitido") && (
+                        {/* Confirmar assinatura — four-eyes via RPC */}
+                        {(c.status === "emitido") && (
                           <DropdownMenuItem onClick={() => handleStatusChange(c, "assinado")}>
-                            <CheckCircle2 className="h-3.5 w-3.5 mr-2 text-emerald-600" /> Marcar como Assinado
+                            <CheckCircle2 className="h-3.5 w-3.5 mr-2 text-emerald-600" /> Confirmar Assinatura
                           </DropdownMenuItem>
                         )}
-                        {c.status !== "cancelado" && c.status !== "encerrado" && (
+                        {/* Retornar para rascunho — só para emitido */}
+                        {c.status === "emitido" && (
+                          <DropdownMenuItem onClick={() => setRevertDialog({ contract: c })}>
+                            <RotateCcw className="h-3.5 w-3.5 mr-2 text-amber-600" /> Retornar para Rascunho
+                          </DropdownMenuItem>
+                        )}
+                        {/* Alerta se hash diverge */}
+                        {hasHashAlert && (
+                          <DropdownMenuItem
+                            className="text-amber-700 focus:text-amber-700"
+                            onClick={() => { setViewing(c); setMode("detail"); }}
+                          >
+                            <ShieldAlert className="h-3.5 w-3.5 mr-2" /> Ver alerta de integridade
+                          </DropdownMenuItem>
+                        )}
+                        {c.status !== "cancelado" && c.status !== "encerrado" && c.status !== "assinado" && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-red-600"
+                              onClick={() => handleStatusChange(c, "cancelado")}
+                            >
+                              <XCircle className="h-3.5 w-3.5 mr-2" /> Cancelar contrato
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                        {/* Assinado: só cancelamento */}
+                        {c.status === "assinado" && (
                           <>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
@@ -345,20 +468,25 @@ export function ClientContractsTab({ clientId, clientName, clientCnpj, clientAdd
     {/* ── Dialog: confirmar data de assinatura ─────────────────────────── */}
     <Dialog open={!!signDialog} onOpenChange={o => { if (!o) setSignDialog(null); }}>
       <DialogContent className="max-w-sm">
-        <div className="space-y-4 p-1">
-          <div>
-            <h3 className="text-base font-semibold flex items-center gap-2">
-              <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-              Registrar Assinatura
-            </h3>
-            <p className="text-sm text-muted-foreground mt-1">
-              Informe a data em que o contrato foi assinado pelo cliente.
-              Essa data constará no documento.
-            </p>
-          </div>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+            Confirmar Assinatura
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Informe a data em que o contrato foi assinado pelo cliente.
+            Apenas gestores e superiores podem confirmar — quem emitiu o PDF
+            não pode ser o mesmo que confirma a assinatura.
+          </p>
 
           {signDialog && (
             <p className="text-xs text-muted-foreground border rounded-md px-3 py-2 bg-muted/30 truncate">
+              {signDialog.contract.contract_number && (
+                <span className="font-mono mr-2">{signDialog.contract.contract_number}</span>
+              )}
               {signDialog.contract.title}
             </p>
           )}
@@ -379,13 +507,60 @@ export function ClientContractsTab({ clientId, clientName, clientCnpj, clientAdd
             )}
           </div>
 
+          {signError && (
+            <div className="flex items-start gap-2 px-3 py-2.5 rounded-md bg-red-50 border border-red-200 text-xs text-red-700">
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>{signError}</span>
+            </div>
+          )}
+
           <div className="flex justify-end gap-2 pt-1">
-            <Button variant="outline" size="sm" onClick={() => setSignDialog(null)} disabled={isSigning}>
+            <Button variant="outline" size="sm" onClick={() => { setSignDialog(null); setSignError(null); }} disabled={isSigning}>
               Cancelar
             </Button>
             <Button size="sm" onClick={handleConfirmSign} disabled={!signDate || isSigning} className="gap-1.5">
               {isSigning && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               Confirmar Assinatura
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+
+    {/* ── Dialog: retornar para rascunho ────────────────────────────────── */}
+    {/* ── Dialog: retornar para rascunho ────────────────────────────────── */}
+    <Dialog open={!!revertDialog} onOpenChange={o => { if (!o) setRevertDialog(null); }}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <RotateCcw className="h-5 w-5 text-amber-600" />
+            Retornar para Rascunho
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            O contrato voltará para Rascunho e receberá um <strong>novo número</strong>.
+            O número atual será descartado e nunca reutilizado.
+            O PDF gerado anteriormente ficará desatualizado.
+          </p>
+
+          {revertDialog && (
+            <p className="text-xs text-muted-foreground border rounded-md px-3 py-2 bg-muted/30 truncate">
+              {revertDialog.contract.contract_number && (
+                <span className="font-mono mr-2">{revertDialog.contract.contract_number}</span>
+              )}
+              {revertDialog.contract.title}
+            </p>
+          )}
+
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="outline" size="sm" onClick={() => setRevertDialog(null)} disabled={isReverting}>
+              Cancelar
+            </Button>
+            <Button size="sm" variant="destructive" onClick={handleRevertToDraft} disabled={isReverting} className="gap-1.5">
+              {isReverting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              Confirmar Retorno
             </Button>
           </div>
         </div>

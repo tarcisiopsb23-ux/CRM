@@ -104,15 +104,15 @@ function ConnectionCard({
     <Card className="card-surface border-border/50 hover:border-primary/30 transition-all">
       <CardContent className="pt-4 pb-3 space-y-3">
         {/* Header */}
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-8 h-8 rounded-lg bg-[#1877F2]/15 flex items-center justify-center shrink-0">
+        <div className="space-y-1.5">
+          <div className="flex items-start gap-2">
+            <div className="w-8 h-8 rounded-lg bg-[#1877F2]/15 flex items-center justify-center shrink-0 mt-0.5">
               <svg className="h-4 w-4 text-[#1877F2]" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
               </svg>
             </div>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold truncate">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold truncate leading-tight">
                 {connection.display_name ?? PROVIDER_LABEL[connection.provider] ?? connection.provider}
               </p>
               <p className="text-[10px] text-muted-foreground">
@@ -120,10 +120,21 @@ function ConnectionCard({
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-1 shrink-0">
+          {/* Badges — linha separada para não comprimir o título */}
+          <div className="flex flex-wrap items-center gap-1">
             <Badge className={cn("text-[10px] border", method.className)}>
               {method.label}
             </Badge>
+            {connection.connection_method === "manual" && (
+              <Badge variant="outline" className={cn(
+                "text-[10px]",
+                connection.use_agency_token
+                  ? "border-violet-500/40 text-violet-400"
+                  : "border-slate-500/30 text-slate-400"
+              )}>
+                {connection.use_agency_token ? "Token agência" : "Token próprio"}
+              </Badge>
+            )}
           </div>
         </div>
 
@@ -204,7 +215,7 @@ export function MetaConnectionsList({ clientSlug = "", clientId = null, organiza
   const { role, isSupport } = useAuth();
   const isAdminOrOwner = canManageRole(role, isSupport);
 
-  const { connections, isLoading, flags, refetch } = useMetaConnections(externalOrgId);
+  const { connections, isLoading, flags, refetch } = useMetaConnections(externalOrgId, clientId);
 
   const [manualModalOpen,  setManualModalOpen]  = useState(false);
   const [manageConnection, setManageConnection] = useState<MetaConnectionSafe | null>(null);
@@ -312,6 +323,7 @@ export function MetaConnectionsList({ clientSlug = "", clientId = null, organiza
         open={manualModalOpen}
         onOpenChange={setManualModalOpen}
         organizationId={externalOrgId}
+        clientId={clientId}
       />
 
       {manageConnection && (

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useOrganization } from '@/hooks/useOrganization';
 import { useListasManager, type CreateListaInput } from '@/hooks/useListasManager';
 import { useLeadsKanban } from '@/hooks/useLeadsKanban';

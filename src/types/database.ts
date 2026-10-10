@@ -34,6 +34,7 @@ export type LeadContactOrigin =
   | 'campanha_google'
   | 'campanha_meta'
   | 'organico'
+  | 'c8_form'
   | 'outras';
 
 export type LeadGmnStatus =

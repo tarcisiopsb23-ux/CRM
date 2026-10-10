@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+﻿import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueries } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -54,7 +54,7 @@ export function DashboardGeralPage() {
   }, [auth?.metadata]);
 
   // ── Dados de campanhas ─────────────────────────────────────────────────────
-  const { campaignDataQuery } = useClientReports(auth?.id, dateRange);
+  const { campaignDataQuery } = useClientReports(auth?.organization_id, auth?.id, dateRange, true);
 
   const { totalLeads, totalSales, totalClicks, totalSpend, totalRevenue, activeCampaigns, dailyData } = useMemo(() => {
     const rows = (campaignDataQuery.data ?? []) as any[];

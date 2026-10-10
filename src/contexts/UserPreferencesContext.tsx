@@ -18,8 +18,7 @@ const UserPreferencesContext = createContext<UserPreferencesContextType | undefi
 /** Retorna true se a rota atual é do dashboard público (nunca deve ter tema do CRM aplicado) */
 function isPublicDashboardRoute() {
   const path = window.location.pathname;
-  // No C8 Control todas as rotas são do dashboard público exceto /login e /booking
-  return !path.startsWith('/login') && !path.startsWith('/booking') && !path.startsWith('/r');
+  return path.startsWith('/public/dashboard/') || path.startsWith('/demo/dashboard');
 }
 
 export function UserPreferencesProvider({ children }: { children: React.ReactNode }) {

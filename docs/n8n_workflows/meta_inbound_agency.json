@@ -1,0 +1,311 @@
+{
+  "name": "Meta Inbound — Agência",
+  "description": "Recebe evento da Edge Function meta-webhook-agency, verifica bot_active, processa com IA (OpenAI) e responde via send-message. Cobre WhatsApp, Instagram DM, Facebook DM e comentários.",
+  "version": "1.0.0",
+  "nodes": [
+    {
+      "id": "webhook-trigger",
+      "name": "Webhook — Meta Agency Inbound",
+      "type": "n8n-nodes-base.webhook",
+      "parameters": {
+        "path": "meta-inbound-agency",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "position": [240, 300]
+    },
+    {
+      "id": "respond-immediately",
+      "name": "Respond 200 Immediately",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "parameters": { "responseCode": 200, "responseBody": "{\"ok\":true}" },
+      "position": [460, 180]
+    },
+    {
+      "id": "extract-fields",
+      "name": "Extrair Campos do Evento",
+      "type": "n8n-nodes-base.set",
+      "parameters": {
+        "values": {
+          "string": [
+            { "name": "organization_id",   "value": "={{ $json.organization_id }}" },
+            { "name": "event_type",        "value": "={{ $json.event_type }}" },
+            { "name": "channel_type",      "value": "={{ $json.event_type.split('_')[0] }}" },
+            { "name": "sender_phone",      "value": "={{ $json.sender_phone }}" },
+            { "name": "sender_id",         "value": "={{ $json.sender_id }}" },
+            { "name": "sender_name",       "value": "={{ $json.sender_name ?? 'Contato' }}" },
+            { "name": "content",           "value": "={{ $json.content }}" },
+            { "name": "conversation_id",   "value": "={{ $json.conversation_id }}" },
+            { "name": "contact_id",        "value": "={{ $json.contact_id }}" },
+            { "name": "meta_connection_id","value": "={{ $json.meta_connection_id }}" },
+            { "name": "message_type",      "value": "={{ $json.message_type ?? 'text' }}" }
+          ]
+        }
+      },
+      "position": [460, 380]
+    },
+    {
+      "id": "check-event-type",
+      "name": "Tipo de Evento?",
+      "type": "n8n-nodes-base.switch",
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{ $json.event_type }}",
+        "rules": {
+          "rules": [
+            { "value2": "whatsapp_message",   "output": 0 },
+            { "value2": "instagram_dm",       "output": 1 },
+            { "value2": "facebook_dm",        "output": 2 },
+            { "value2": "instagram_comment",  "output": 3 },
+            { "value2": "facebook_comment",   "output": 4 }
+          ]
+        }
+      },
+      "position": [680, 380]
+    },
+    {
+      "id": "get-conversation",
+      "name": "Busca Conversa no Banco A",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/whatsapp_conversations",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "contact_id",         "value": "=eq.{{ $json.contact_id }}" },
+            { "name": "organization_id",    "value": "=eq.{{ $json.organization_id }}" },
+            { "name": "omni_status",        "value": "=not.in.(resolved,closed)" },
+            { "name": "select",             "value": "id,omni_status,bot_context,assigned_agent_id,meta_connection_id" },
+            { "name": "order",              "value": "last_message_at.desc" },
+            { "name": "limit",              "value": "1" }
+          ]
+        }
+      },
+      "position": [900, 280]
+    },
+    {
+      "id": "check-bot-active",
+      "name": "Bot Está Ativo?",
+      "type": "n8n-nodes-base.if",
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $('get-conversation').first().json.omni_status }}",
+              "operation": "notEqual",
+              "value2": "human_active"
+            }
+          ]
+        }
+      },
+      "position": [1120, 280]
+    },
+    {
+      "id": "get-last-messages",
+      "name": "Busca Histórico (10 msgs)",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/whatsapp_messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "conversation_id",  "value": "=eq.{{ $('get-conversation').first().json.id }}" },
+            { "name": "select",           "value": "direction,content,sender_type,created_at" },
+            { "name": "order",            "value": "created_at.desc" },
+            { "name": "limit",            "value": "10" }
+          ]
+        }
+      },
+      "position": [1340, 200]
+    },
+    {
+      "id": "get-org-settings",
+      "name": "Busca Config da Org (ai_settings / org_integrations)",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/organization_integrations",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "organization_id",   "value": "=eq.{{ $json.organization_id }}" },
+            { "name": "integration_type",  "value": "=eq.n8n" },
+            { "name": "select",            "value": "config" }
+          ]
+        }
+      },
+      "position": [1340, 380]
+    },
+    {
+      "id": "build-openai-messages",
+      "name": "Monta Mensagens para OpenAI",
+      "type": "n8n-nodes-base.code",
+      "parameters": {
+        "jsCode": "const history = $('get-last-messages').all().map(m => ({\n  role: m.json.direction === 'outbound' ? 'assistant' : 'user',\n  content: m.json.content ?? ''\n})).reverse();\n\nconst systemPrompt = `Você é um assistente de atendimento para a agência. Responda de forma concisa e útil. Se o cliente solicitar falar com humano, utilize exatamente a palavra-chave [HANDOFF]. Se não souber responder, utilize [HANDOFF].`;\n\nreturn [{\n  json: {\n    messages: [\n      { role: 'system', content: systemPrompt },\n      ...history,\n      { role: 'user', content: $json.content }\n    ],\n    organization_id: $json.organization_id,\n    conversation_id: $('get-conversation').first().json.id,\n    contact_id: $json.contact_id,\n    meta_connection_id: $json.meta_connection_id,\n    sender_phone: $json.sender_phone,\n    sender_id: $json.sender_id,\n    channel_type: $json.channel_type\n  }\n}];"
+      },
+      "position": [1560, 200]
+    },
+    {
+      "id": "openai-chat",
+      "name": "OpenAI — Gerar Resposta",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "parameters": {
+        "resource": "chat",
+        "operation": "complete",
+        "model": "gpt-4o-mini",
+        "messages": "={{ $json.messages }}",
+        "options": { "maxTokens": 300, "temperature": 0.7 }
+      },
+      "position": [1780, 200]
+    },
+    {
+      "id": "check-handoff",
+      "name": "Precisa Handoff?",
+      "type": "n8n-nodes-base.if",
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.choices[0].message.content }}",
+              "operation": "contains",
+              "value2": "[HANDOFF]"
+            }
+          ]
+        }
+      },
+      "position": [2000, 200]
+    },
+    {
+      "id": "send-bot-reply",
+      "name": "Envia Resposta do Bot",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/functions/v1/send-message",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"connection_id\": \"{{ $('build-openai-messages').first().json.meta_connection_id }}\",\n  \"organization_id\": \"{{ $('build-openai-messages').first().json.organization_id }}\",\n  \"channel_type\": \"{{ $('build-openai-messages').first().json.channel_type }}\",\n  \"recipient_id\": \"{{ $('build-openai-messages').first().json.sender_phone || $('build-openai-messages').first().json.sender_id }}\",\n  \"message_type\": \"text\",\n  \"content\": \"{{ $json.choices[0].message.content.replace('[HANDOFF]', '').trim() }}\",\n  \"conversation_id\": \"{{ $('build-openai-messages').first().json.conversation_id }}\"\n}"
+      },
+      "position": [2220, 120]
+    },
+    {
+      "id": "trigger-handoff",
+      "name": "Registra Handoff no Banco A",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/assign_conversation",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"p_conversation_id\": \"{{ $('build-openai-messages').first().json.conversation_id }}\",\n  \"p_agent_id\": null,\n  \"p_from_bot\": true,\n  \"p_reason\": \"Bot solicitou transferência\",\n  \"p_summary\": \"{{ $('build-openai-messages').first().json.messages.slice(-5).map(m => m.role + ': ' + m.content).join('\\n') }}\"\n}"
+      },
+      "position": [2220, 320]
+    },
+    {
+      "id": "update-conv-status-bot-active",
+      "name": "Atualiza Status Conversa (bot_active)",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/whatsapp_conversations",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [{ "name": "id", "value": "=eq.{{ $('get-conversation').first().json.id }}" }]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "{\"omni_status\":\"bot_active\"}"
+      },
+      "position": [2440, 120]
+    },
+    {
+      "id": "update-conv-status-waiting",
+      "name": "Atualiza Status Conversa (waiting_human)",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/whatsapp_conversations",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [{ "name": "id", "value": "=eq.{{ $('get-conversation').first().json.id }}" }]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "{\"omni_status\":\"waiting_human\"}"
+      },
+      "position": [2440, 320]
+    }
+  ],
+  "connections": {
+    "webhook-trigger": {
+      "main": [
+        [
+          { "node": "respond-immediately", "type": "main", "index": 0 },
+          { "node": "extract-fields",      "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "extract-fields": {
+      "main": [[{ "node": "check-event-type", "type": "main", "index": 0 }]]
+    },
+    "check-event-type": {
+      "main": [
+        [{ "node": "get-conversation", "type": "main", "index": 0 }],
+        [{ "node": "get-conversation", "type": "main", "index": 0 }],
+        [{ "node": "get-conversation", "type": "main", "index": 0 }],
+        [],
+        []
+      ]
+    },
+    "get-conversation": {
+      "main": [[{ "node": "check-bot-active", "type": "main", "index": 0 }]]
+    },
+    "check-bot-active": {
+      "main": [
+        [
+          { "node": "get-last-messages",  "type": "main", "index": 0 },
+          { "node": "get-org-settings",   "type": "main", "index": 0 }
+        ],
+        []
+      ]
+    },
+    "get-last-messages":    { "main": [[{ "node": "build-openai-messages", "type": "main", "index": 0 }]] },
+    "get-org-settings":     { "main": [[{ "node": "build-openai-messages", "type": "main", "index": 0 }]] },
+    "build-openai-messages":{ "main": [[{ "node": "openai-chat",           "type": "main", "index": 0 }]] },
+    "openai-chat":          { "main": [[{ "node": "check-handoff",         "type": "main", "index": 0 }]] },
+    "check-handoff": {
+      "main": [
+        [{ "node": "send-bot-reply",              "type": "main", "index": 0 }],
+        [{ "node": "trigger-handoff",             "type": "main", "index": 0 }]
+      ]
+    },
+    "send-bot-reply":    { "main": [[{ "node": "update-conv-status-bot-active", "type": "main", "index": 0 }]] },
+    "trigger-handoff":   { "main": [[{ "node": "update-conv-status-waiting",    "type": "main", "index": 0 }]] }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "c8-control-agency"
+  }
+}

@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+﻿import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { subDays, format, startOfDay } from "date-fns";
 

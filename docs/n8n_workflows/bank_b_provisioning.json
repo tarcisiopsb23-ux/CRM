@@ -1,0 +1,326 @@
+{
+  "name": "Banco B — Provisionamento e Atualização de Schema",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "provision-bank-b",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook_trigger",
+      "name": "Webhook — Novo cliente ou atualização de schema",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 500],
+      "notes": "CONFIGURAÇÃO DO WEBHOOK:\n\n1. Copie a URL de produção deste nó\n2. No Supabase (Banco A) → Database → Webhooks:\n   - Evento: INSERT e UPDATE na tabela 'clients'\n   - Condição: NEW.client_supabase_url IS NOT NULL AND NEW.client_supabase_anon_key IS NOT NULL\n   - URL: [URL deste webhook]\n   - Secret: configure o mesmo valor em 'WEBHOOK_SECRET' abaixo\n\nAlternativamente para atualização em massa:\n   - Chame via HTTP POST com body: { \"mode\": \"all\" }\n   - Para cliente específico: { \"mode\": \"single\", \"client_id\": \"uuid\" }\n   - Para todos com banco B configurado: { \"mode\": \"all\" }"
+    },
+
+    {
+      "parameters": {
+        "jsCode": "// Determina o modo de operação:\n// - Supabase Webhook: mode = 'single', client_id vem do payload\n// - Chamada manual (modo all): mode = 'all'\n// - Chamada manual (modo single): mode = 'single', client_id no body\n\nconst body = $json;\n\n// Payload do Supabase Webhook\nif (body.record && body.record.id) {\n  const record = body.record;\n  // Só processa se tiver banco B configurado\n  if (!record.client_supabase_url || !record.client_supabase_anon_key) {\n    return [{ json: { skip: true, reason: 'client_supabase_url ou anon_key não preenchidos' } }];\n  }\n  return [{ json: {\n    mode: 'single',\n    client_id: record.id,\n    client_name: record.company || record.name,\n    skip: false\n  }}];\n}\n\n// Chamada manual\nconst mode = body.mode || 'all';\nif (mode === 'single' && body.client_id) {\n  return [{ json: { mode: 'single', client_id: body.client_id, skip: false } }];\n}\nreturn [{ json: { mode: 'all', skip: false } }];"
+      },
+      "id": "parse_input",
+      "name": "Parsear entrada e determinar modo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 400]
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true },
+          "conditions": [
+            {
+              "id": "skip_check",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check_skip",
+      "name": "Deve pular?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 400]
+    },
+
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"skipped\": true, \"reason\": $json.reason } }}",
+        "options": {}
+      },
+      "id": "respond_skip",
+      "name": "Responder: pulado",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 280]
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true },
+          "conditions": [
+            {
+              "id": "mode_check",
+              "leftValue": "={{ $json.mode }}",
+              "rightValue": "all",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check_mode",
+      "name": "Modo: all ou single?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 500]
+    },
+
+    {
+      "parameters": {
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/clients",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "select",
+              "value": "id,name,company,client_supabase_url,client_supabase_anon_key"
+            },
+            {
+              "name": "client_supabase_url",
+              "value": "not.is.null"
+            },
+            {
+              "name": "client_supabase_anon_key",
+              "value": "not.is.null"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_ANON_KEY }}" },
+            { "name": "Authorization", "value": "Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Accept",        "value": "application/json" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch_all_clients",
+      "name": "Buscar todos os clientes com Banco B",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 400],
+      "notes": "Busca todos os clientes que têm client_supabase_url preenchida.\nConfigurações necessárias em Variáveis n8n:\n  SUPABASE_URL = URL do Supabase da agência (Banco A)\n  SUPABASE_ANON_KEY = Chave anon do Banco A\n  SUPABASE_SERVICE_ROLE_KEY = Service role do Banco A\n  EDGE_FUNCTION_URL = URL base das Edge Functions (geralmente igual a SUPABASE_URL)"
+    },
+
+    {
+      "parameters": {
+        "fieldToSplitOut": "={{ Array.isArray($json) ? $json : [$json] }}",
+        "options": {}
+      },
+      "id": "split_clients",
+      "name": "Iterar por cliente",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [1340, 400]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "// Prepara o payload para o modo single\nconst clientId = $('check_mode').first().json.client_id;\nreturn [{ json: { id: clientId } }];"
+      },
+      "id": "prepare_single",
+      "name": "Preparar cliente único",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 600]
+    },
+
+    {
+      "parameters": {
+        "url": "={{ $vars.EDGE_FUNCTION_URL || $vars.SUPABASE_URL }}/functions/v1/provision-client-db",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_ANON_KEY }}" },
+            { "name": "Authorization", "value": "Bearer {{ $vars.SUPABASE_SERVICE_ROLE_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "client_id", "value": "={{ $json.id }}" }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "retry": {
+            "enabled": true,
+            "maxTries": 2
+          }
+        }
+      },
+      "id": "call_provision",
+      "name": "Chamar provision-client-db",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 500],
+      "continueOnFail": true
+    },
+
+    {
+      "parameters": {
+        "jsCode": "// Agrega resultados de todos os clientes\nconst items = $input.all();\nconst results = items.map(item => ({\n  client_id: item.json.client_id || item.json.id,\n  client_name: item.json.client_name,\n  success: item.json.success === true,\n  error: item.json.error || null,\n  message: item.json.message || null\n}));\n\nconst succeeded = results.filter(r => r.success).length;\nconst failed    = results.filter(r => !r.success).length;\n\nreturn [{ json: {\n  total: results.length,\n  succeeded,\n  failed,\n  results,\n  summary: `${succeeded}/${results.length} clientes provisionados com sucesso`\n} }];"
+      },
+      "id": "aggregate_results",
+      "name": "Agregar resultados",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 500]
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true },
+          "conditions": [
+            {
+              "id": "has_failures",
+              "leftValue": "={{ $json.failed }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check_failures",
+      "name": "Houve falhas?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2000, 500]
+    },
+
+    {
+      "parameters": {
+        "url": "={{ $vars.SLACK_WEBHOOK_URL }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "=⚠️ *Provisionamento Banco B* — {{ $json.failed }} falha(s)\\n```{{ JSON.stringify($json.results.filter(r => !r.success), null, 2) }}```"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "notify_slack",
+      "name": "Notificar falhas (Slack)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2220, 400],
+      "notes": "Opcional: configure SLACK_WEBHOOK_URL nas variáveis do n8n para receber alertas de falha.\nRemova este nó se não usar Slack.",
+      "continueOnFail": true
+    },
+
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "respond_success",
+      "name": "Responder: resultado",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2220, 600]
+    }
+  ],
+
+  "connections": {
+    "Webhook — Novo cliente ou atualização de schema": {
+      "main": [[ { "node": "Parsear entrada e determinar modo", "type": "main", "index": 0 } ]]
+    },
+    "Start": {
+      "main": [[ { "node": "Parsear entrada e determinar modo", "type": "main", "index": 0 } ]]
+    },
+    "Parsear entrada e determinar modo": {
+      "main": [[ { "node": "Deve pular?", "type": "main", "index": 0 } ]]
+    },
+    "Deve pular?": {
+      "main": [
+        [ { "node": "Responder: pulado", "type": "main", "index": 0 } ],
+        [ { "node": "Modo: all ou single?", "type": "main", "index": 0 } ]
+      ]
+    },
+    "Modo: all ou single?": {
+      "main": [
+        [ { "node": "Buscar todos os clientes com Banco B", "type": "main", "index": 0 } ],
+        [ { "node": "Preparar cliente único", "type": "main", "index": 0 } ]
+      ]
+    },
+    "Buscar todos os clientes com Banco B": {
+      "main": [[ { "node": "Iterar por cliente", "type": "main", "index": 0 } ]]
+    },
+    "Iterar por cliente": {
+      "main": [[ { "node": "Chamar provision-client-db", "type": "main", "index": 0 } ]]
+    },
+    "Preparar cliente único": {
+      "main": [[ { "node": "Chamar provision-client-db", "type": "main", "index": 0 } ]]
+    },
+    "Chamar provision-client-db": {
+      "main": [[ { "node": "Agregar resultados", "type": "main", "index": 0 } ]]
+    },
+    "Agregar resultados": {
+      "main": [[ { "node": "Houve falhas?", "type": "main", "index": 0 } ]]
+    },
+    "Houve falhas?": {
+      "main": [
+        [ { "node": "Notificar falhas (Slack)", "type": "main", "index": 0 } ],
+        [ { "node": "Responder: resultado", "type": "main", "index": 0 } ]
+      ]
+    },
+    "Notificar falhas (Slack)": {
+      "main": [[ { "node": "Responder: resultado", "type": "main", "index": 0 } ]]
+    }
+  },
+
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+
+  "staticData": null,
+  "tags": ["banco-b", "provisioning", "dashboard", "supabase"],
+  "pinData": {},
+  "versionId": "1.0.0",
+  "meta": {
+    "instanceId": "bank-b-provisioning",
+    "templateId": "bank-b-provisioning-v1"
+  }
+}

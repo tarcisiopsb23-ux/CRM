@@ -1,0 +1,343 @@
+{
+  "name": "Agenda Sync — Maestr.ia ↔ ClickUp ↔ Google Calendar",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agenda-sync",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-agenda",
+      "name": "Webhook — Agenda Maestr.ia",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 400],
+      "webhookId": "agenda-sync"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.item.json.body || $input.item.json;\nconst action = body.action; // 'create' | 'update' | 'delete'\nconst event  = body.event;\n\nif (!event || !action) return [{ json: { skip: true } }];\n\nconst startMs = event.start_at ? new Date(event.start_at).getTime() : null;\nconst endMs   = event.end_at   ? new Date(event.end_at).getTime()   : null;\n\n// Cor do tipo de evento (hex) — vem no metadata\nconst eventColor = event.metadata?.color || '#3b82f6';\n\n// Mapeia hex para ID de cor do Google Calendar\nconst gcalColorMap = {\n  '#3b82f6': '9',  // Blueberry — reuniao\n  '#22c55e': '2',  // Sage — ligacao\n  '#a855f7': '3',  // Grape — entrega\n  '#f59e0b': '5',  // Banana — lembrete\n  '#10b981': '2',  // Sage — captacao\n  '#06b6d4': '7',  // Peacock — reuniao_integracao\n  '#6366f1': '9',  // Blueberry — reuniao_planejamento\n  '#8b5cf6': '3',  // Grape — reuniao_periodica\n  '#f43f5e': '11', // Tomato — apresentacao_proposta\n  '#6b7280': '8',  // Graphite — outro\n};\nconst gcalColorId = gcalColorMap[eventColor] || '9';\n\n// Converte UTC para horário local de Brasília (UTC-3) sem sufixo Z\n// O Google Calendar usa o campo timeZone para interpretar — precisa receber o horário local\nconst toSaoPauloLocal = (utcStr) => {\n  if (!utcStr) return null;\n  const d = new Date(utcStr);\n  // UTC-3 = subtrai 3h\n  const local = new Date(d.getTime() - 3 * 60 * 60 * 1000);\n  return local.toISOString().replace('Z', '').slice(0, 19);\n};\n\nreturn [{ json: {\n  action,\n  event_id: event.id,\n  title: event.title,\n  description: event.description || '',\n  start_at: event.start_at,\n  end_at: event.end_at,\n  start_at_local: toSaoPauloLocal(event.start_at),\n  end_at_local: toSaoPauloLocal(event.end_at),\n  start_ms: startMs,\n  end_ms: endMs,\n  location: event.location || '',\n  meeting_url: event.meeting_url || null,\n  clickup_task_id: event.clickup_task_id,\n  gcal_event_id: event.gcal_event_id || event.google_event_id,\n  is_freelancer: event.is_freelancer || false,\n  sync_clickup: event.is_freelancer === true,\n  all_day: event.all_day || event.metadata?.all_day || false,\n  clickup_list_id: event.metadata?.clickup_list_id || 'CLICKUP_AGENDA_LIST_ID',\n  color: eventColor,\n  gcal_color_id: gcalColorId\n}}];"
+      },
+      "id": "parse-event",
+      "name": "Parsear Evento",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{ $json.skip }}", "value2": true }]
+        }
+      },
+      "id": "skip-check",
+      "name": "Skip?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 400]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "create", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "create"
+            },
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "update", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "update"
+            },
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "delete", "operator": { "type": "string", "operation": "equals" } }] },
+              "renameOutput": true, "outputKey": "delete"
+            }
+          ]
+        }
+      },
+      "id": "route-action",
+      "name": "Roteador de Ação",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{ $json.sync_clickup }}", "value2": true }]
+        }
+      },
+      "id": "check-freelancer-create",
+      "name": "É Terceirizado? (criar)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1120, 160],
+      "_comment": "Só sincroniza com ClickUp se is_freelancer=true. Eventos internos vão apenas para o Google Calendar."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{ $json.sync_clickup }}", "value2": true }]
+        }
+      },
+      "id": "check-freelancer-update",
+      "name": "É Terceirizado? (atualizar)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1120, 480]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.clickup.com/api/v2/list/{{ $json.clickup_list_id }}/task",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "={{ $env.CLICKUP_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $json.title, description: $json.description, due_date: $json.end_ms, start_date: $json.start_ms, tags: ['agenda', $json.is_freelancer ? 'terceirizado' : 'interno'] }) }}"
+      },
+      "id": "clickup-create-event",
+      "name": "ClickUp — Criar Evento",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1120, 160]
+    },
+    {
+      "parameters": {
+        "url": "=https://www.googleapis.com/calendar/v3/calendars/{{ $env.GCAL_CALENDAR_ID }}/events",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ summary: $json.title, description: ($json.description ? $json.description + '\\n\\n' : '') + ($json.meeting_url ? '🔗 Reunião: ' + $json.meeting_url : ''), location: $json.location, colorId: $json.gcal_color_id, start: $json.all_day ? { date: $json.start_at_local.slice(0,10) } : { dateTime: $json.start_at_local, timeZone: 'America/Sao_Paulo' }, end: $json.all_day ? { date: $json.end_at_local.slice(0,10) } : { dateTime: $json.end_at_local, timeZone: 'America/Sao_Paulo' }, extendedProperties: { private: { maestria_event_id: $json.event_id } } }) }}"
+      },
+      "id": "gcal-create-event",
+      "name": "Google Calendar — Criar Evento",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1120, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "const clickupResult = $('ClickUp — Criar Evento').item.json;\nconst gcalResult    = $('Google Calendar — Criar Evento').item.json;\nconst prev = $('Parsear Evento').item.json;\n\nreturn [{ json: {\n  event_id: prev.event_id,\n  clickup_task_id: clickupResult?.id || null,\n  gcal_event_id: gcalResult?.id || null\n}}];"
+      },
+      "id": "merge-ids",
+      "name": "Consolidar IDs Externos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 240]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/events?id=eq.{{ $json.event_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ clickup_task_id: $json.clickup_task_id, gcal_event_id: $json.gcal_event_id, clickup_synced_at: new Date().toISOString() }) }}"
+      },
+      "id": "save-event-ids",
+      "name": "Salvar IDs no Maestr.ia",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1560, 240]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.clickup.com/api/v2/task/{{ $json.clickup_task_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "={{ $env.CLICKUP_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $json.title, description: $json.description, due_date: $json.end_ms }) }}"
+      },
+      "id": "clickup-update-event",
+      "name": "ClickUp — Atualizar Evento",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1120, 480]
+    },
+    {
+      "parameters": {
+        "url": "=https://www.googleapis.com/calendar/v3/calendars/{{ $env.GCAL_CALENDAR_ID }}/events/{{ $json.gcal_event_id }}",
+        "requestMethod": "PUT",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify({ summary: $json.title, description: ($json.description ? $json.description + '\\n\\n' : '') + ($json.meeting_url ? '🔗 Reunião: ' + $json.meeting_url : ''), location: $json.location, colorId: $json.gcal_color_id, start: $json.all_day ? { date: $json.start_at_local.slice(0,10) } : { dateTime: $json.start_at_local, timeZone: 'America/Sao_Paulo' }, end: $json.all_day ? { date: $json.end_at_local.slice(0,10) } : { dateTime: $json.end_at_local, timeZone: 'America/Sao_Paulo' } }) }}"
+      },
+      "id": "gcal-update-event",
+      "name": "Google Calendar — Atualizar Evento",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1120, 640]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [{ "value1": "={{ $json.clickup_task_id }}", "value2": "" , "operation": "isNotEmpty" }]
+        }
+      },
+      "id": "check-clickup-id-delete",
+      "name": "Tem ClickUp ID?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1120, 820]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.clickup.com/api/v2/task/{{ $json.clickup_task_id }}",
+        "requestMethod": "DELETE",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "={{ $env.CLICKUP_API_KEY }}" }
+          ]
+        }
+      },
+      "id": "clickup-delete-event",
+      "name": "ClickUp — Excluir Evento",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1340, 760]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [{ "value1": "={{ $json.gcal_event_id }}", "value2": "", "operation": "isNotEmpty" }]
+        }
+      },
+      "id": "check-gcal-id-delete",
+      "name": "Tem GCal ID?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1120, 980]
+    },
+    {
+      "parameters": {
+        "url": "=https://www.googleapis.com/calendar/v3/calendars/{{ $env.GCAL_CALENDAR_ID }}/events/{{ $json.gcal_event_id }}",
+        "requestMethod": "DELETE",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api"
+      },
+      "id": "gcal-delete-event",
+      "name": "Google Calendar — Excluir Evento",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1340, 980]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true }) }}"
+      },
+      "id": "respond",
+      "name": "Resposta",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1780, 500]
+    }
+  ],
+  "connections": {
+    "Webhook — Agenda Maestr.ia": { "main": [[{ "node": "Parsear Evento", "type": "main", "index": 0 }]] },
+    "Parsear Evento": { "main": [[{ "node": "Skip?", "type": "main", "index": 0 }]] },
+    "Skip?": {
+      "main": [
+        [{ "node": "Resposta", "type": "main", "index": 0 }],
+        [{ "node": "Roteador de Ação", "type": "main", "index": 0 }]
+      ]
+    },
+    "Roteador de Ação": {
+      "main": [
+        [
+          { "node": "É Terceirizado? (criar)", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "É Terceirizado? (atualizar)", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Tem ClickUp ID?", "type": "main", "index": 0 },
+          { "node": "Tem GCal ID?", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "É Terceirizado? (criar)": {
+      "main": [
+        [
+          { "node": "ClickUp — Criar Evento", "type": "main", "index": 0 },
+          { "node": "Google Calendar — Criar Evento", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Google Calendar — Criar Evento", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "É Terceirizado? (atualizar)": {
+      "main": [
+        [
+          { "node": "ClickUp — Atualizar Evento", "type": "main", "index": 0 },
+          { "node": "Google Calendar — Atualizar Evento", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Google Calendar — Atualizar Evento", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "ClickUp — Criar Evento": { "main": [[{ "node": "Consolidar IDs Externos", "type": "main", "index": 0 }]] },
+    "Google Calendar — Criar Evento": { "main": [[{ "node": "Consolidar IDs Externos", "type": "main", "index": 0 }]] },
+    "Consolidar IDs Externos": { "main": [[{ "node": "Salvar IDs no Maestr.ia", "type": "main", "index": 0 }]] },
+    "Salvar IDs no Maestr.ia": { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] },
+    "ClickUp — Atualizar Evento": { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] },
+    "Google Calendar — Atualizar Evento": { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] },
+    "Tem ClickUp ID?": {
+      "main": [
+        [{ "node": "ClickUp — Excluir Evento", "type": "main", "index": 0 }],
+        [{ "node": "Resposta", "type": "main", "index": 0 }]
+      ]
+    },
+    "ClickUp — Excluir Evento": { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] },
+    "Tem GCal ID?": {
+      "main": [
+        [{ "node": "Google Calendar — Excluir Evento", "type": "main", "index": 0 }],
+        [{ "node": "Resposta", "type": "main", "index": 0 }]
+      ]
+    },
+    "Google Calendar — Excluir Evento": { "main": [[{ "node": "Resposta", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "_readme": {
+    "env_vars": [
+      "CLICKUP_API_KEY — Personal token do ClickUp",
+      "CLICKUP_AGENDA_LIST_ID — ID da lista de agenda no ClickUp",
+      "GCAL_CALENDAR_ID — ID do calendário Google (ex: primary ou email@gmail.com)",
+      "SUPABASE_URL", "SUPABASE_SERVICE_KEY"
+    ],
+    "gcal_auth": "Configurar credencial OAuth2 do Google no n8n com escopo: https://www.googleapis.com/auth/calendar",
+    "webhook_url": "POST {N8N_URL}/webhook/agenda-sync",
+    "trigger": "Chamado pelo useEvents do Maestr.ia ao criar/atualizar/deletar evento",
+    "actions": {
+      "create": "Cria evento no Google Calendar sempre. Cria no ClickUp APENAS se is_freelancer=true (evento para terceirizado). Salva IDs externos de volta no Maestr.ia.",
+      "update": "Atualiza no Google Calendar sempre. Atualiza no ClickUp APENAS se is_freelancer=true.",
+      "delete": "Exclui evento no ClickUp (se tiver clickup_task_id) e no Google Calendar (se tiver gcal_event_id). Cada exclusão é independente — se um ID não existir, pula sem erro."
+    },
+    "clickup_filter": "Apenas eventos marcados como is_freelancer=true são sincronizados com o ClickUp. Eventos internos (is_freelancer=false) vão apenas para o Google Calendar."
+  }
+}

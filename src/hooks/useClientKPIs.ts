@@ -3,10 +3,11 @@ import { supabase } from "@/lib/supabase";
 
 export interface ClientKPI {
   id: string;
+  organization_id: string;
   client_id: string;
   name: string;
   category: string;
-  unit: "currency" | "percentage" | "number";
+  unit: 'currency' | 'percentage' | 'number';
   is_predefined: boolean;
   target_value: number | null;
   created_at: string;
@@ -15,6 +16,7 @@ export interface ClientKPI {
 
 export interface ClientKPIHistory {
   id: string;
+  organization_id: string;
   client_id: string;
   kpi_id: string;
   month_year: string;
@@ -23,42 +25,58 @@ export interface ClientKPIHistory {
   updated_at: string;
 }
 
-// Single-tenant: sem organization_id
-export function useClientKPIs(clientId?: string) {
+export function useClientKPIs(organizationId?: string, clientId?: string) {
   const qc = useQueryClient();
 
   const query = useQuery<ClientKPI[]>({
-    queryKey: ["client_kpis", clientId],
+    queryKey: ["client_kpis_v2", organizationId, clientId],
     queryFn: async () => {
-      if (!clientId) return [];
+      if (!organizationId || !clientId) return [];
       const { data, error } = await supabase
         .from("client_kpis")
         .select("*")
+        .eq("organization_id", organizationId)
         .eq("client_id", clientId)
+        .not("name", "in", '("__lead_manual","__sale_manual")')
         .order("name", { ascending: true });
-      if (error) {
-        console.error("[useClientKPIs] erro ao buscar KPIs:", error);
-        throw error;
-      }
+      if (error) throw error;
       return data || [];
     },
-    enabled: !!clientId,
-    retry: 1,
-    staleTime: 5 * 60 * 1000,
+    enabled: !!organizationId && !!clientId,
   });
 
   const create = useMutation({
     mutationFn: async (kpi: Partial<ClientKPI>) => {
-      if (!clientId) throw new Error("client_id não fornecido.");
+      if (!organizationId || !clientId) {
+        throw new Error("ID da organização ou do cliente não fornecido.");
+      }
       const { data, error } = await supabase
         .from("client_kpis")
-        .insert({ ...kpi, client_id: clientId })
+        .insert({ ...kpi, organization_id: organizationId, client_id: clientId })
         .select()
         .single();
       if (error) throw error;
       return data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["client_kpis", clientId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["client_kpis_v2", organizationId, clientId] });
+    },
+  });
+
+  const update = useMutation({
+    mutationFn: async ({ id, name, unit, target_value }: { id: string; name: string; unit: string; target_value?: number | null }) => {
+      const { data, error } = await supabase
+        .from("client_kpis")
+        .update({ name, unit, target_value })
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["client_kpis_v2", organizationId, clientId] });
+    },
   });
 
   const remove = useMutation({
@@ -67,49 +85,79 @@ export function useClientKPIs(clientId?: string) {
       if (error) throw error;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["client_kpis", clientId] });
-      qc.invalidateQueries({ queryKey: ["client_kpi_history", clientId] });
+      qc.invalidateQueries({ queryKey: ["client_kpis_v2", organizationId, clientId] });
+      qc.invalidateQueries({ queryKey: ["client_kpi_history", organizationId, clientId] });
     },
   });
 
-  return { ...query, create, remove };
+  return { ...query, create, update, remove };
 }
 
-export function useClientKPIHistory(clientId?: string) {
+export function useClientKPIHistory(organizationId?: string, clientId?: string) {
   const qc = useQueryClient();
 
   const query = useQuery<ClientKPIHistory[]>({
-    queryKey: ["client_kpi_history", clientId],
+    queryKey: ["client_kpi_history", organizationId, clientId],
     queryFn: async () => {
-      if (!clientId) return [];
+      if (!organizationId || !clientId) return [];
       const { data, error } = await supabase
         .from("client_kpi_history")
         .select("*")
+        .eq("organization_id", organizationId)
         .eq("client_id", clientId)
         .order("month_year", { ascending: false });
-      if (error) {
-        console.error("[useClientKPIHistory] erro ao buscar histórico:", error);
-        throw error;
-      }
+      if (error) throw error;
       return data || [];
     },
-    enabled: !!clientId,
-    retry: 1,
-    staleTime: 5 * 60 * 1000,
+    enabled: !!organizationId && !!clientId,
   });
 
   const upsert = useMutation({
     mutationFn: async (history: Partial<ClientKPIHistory>) => {
       const { data, error } = await supabase
         .from("client_kpi_history")
-        .upsert({ ...history, client_id: clientId })
+        .upsert({ ...history, organization_id: organizationId, client_id: clientId }, { onConflict: "kpi_id, month_year" })
         .select()
         .single();
       if (error) throw error;
       return data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["client_kpi_history", clientId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["client_kpi_history", organizationId, clientId] });
+      qc.invalidateQueries({ queryKey: ["dynamic_revenue", organizationId, clientId] });
+    },
   });
 
-  return { ...query, upsert };
+  const update = useMutation({
+    mutationFn: async ({ id, value, month_year }: { id: string; value: number; month_year: string }) => {
+      const { data, error } = await supabase
+        .from("client_kpi_history")
+        .update({ value, month_year })
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["client_kpi_history", organizationId, clientId] });
+      qc.invalidateQueries({ queryKey: ["dynamic_revenue", organizationId, clientId] });
+    },
+  });
+
+  const remove = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("client_kpi_history")
+        .delete()
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["client_kpi_history", organizationId, clientId] });
+      qc.invalidateQueries({ queryKey: ["dynamic_revenue", organizationId, clientId] });
+    },
+  });
+
+  return { ...query, upsert, update, remove };
 }
