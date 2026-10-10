@@ -68,6 +68,10 @@ Deno.serve(async (req) => {
     .not("status", "in", '("deleted")');
 
   if (client_id) {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(client_id)) {
+      return json({ error: "client_id inválido" }, 400);
+    }
     q = q.or(`client_id.eq.${client_id},client_id.is.null`);
   }
 
