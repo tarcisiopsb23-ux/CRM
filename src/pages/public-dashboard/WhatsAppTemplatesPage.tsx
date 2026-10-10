@@ -104,6 +104,7 @@ const VARIABLE_FIELDS = [
 export function WhatsAppTemplatesPage() {
   const { auth }       = useClientAuth();
   const organizationId = auth?.organization_id as string | undefined;
+  const clientId       = auth?.id as string | undefined;
   const navigate       = useNavigate();
   const slug           = auth?.slug ?? "";
   const userRole       = auth?.user?.role ?? "viewer";
@@ -134,7 +135,7 @@ export function WhatsAppTemplatesPage() {
       const res = await fetch(`${SUPABASE_URL}/functions/v1/get-meta-connections`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}`, "apikey": ANON_KEY },
-        body: JSON.stringify({ organization_id: organizationId }),
+        body: JSON.stringify({ organization_id: organizationId, client_id: clientId }),
       });
       const efData = await res.json() as { connections?: Array<Record<string,unknown>>; error?: string };
 
