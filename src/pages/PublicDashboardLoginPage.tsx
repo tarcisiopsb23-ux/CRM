@@ -82,7 +82,7 @@ export function PublicDashboardLoginPage() {
         if (parsed?.authenticated && parsed?.session?.access_token) {
           const exp = parsed.session.expires_at;
           if (!exp || Date.now() / 1000 < exp) {
-            navigate(`/public/dashboard/${slug}`, { replace: true });
+            navigate(`/${slug}`, { replace: true });
           }
         }
       } catch { /* sessão inválida, segue para login */ }
@@ -195,11 +195,11 @@ export function PublicDashboardLoginPage() {
       if (data.force_password_change) {
         const withFlag = { ...auth, force_password_change: true };
         sessionStorage.setItem(`client_auth_v2_${resolvedSlug}`, JSON.stringify(withFlag));
-        navigate(`/public/dashboard/${resolvedSlug}/set-password`, { replace: true });
+        navigate(`/${resolvedSlug}/set-password`, { replace: true });
         return;
       }
 
-      navigate(`/public/dashboard/${resolvedSlug}`, { replace: true });
+      navigate(`/${resolvedSlug}`, { replace: true });
     } catch (err) {
       setError("Erro ao conectar. Tente novamente.");
     } finally {
