@@ -26,6 +26,7 @@ import { useClientAuth } from "@/hooks/useClientAuth";
 import { useDynamicClient } from "@/hooks/useDynamicClient";
 import { supabase } from "@/lib/supabase";
 import { useGoogleCalendar } from "@/hooks/useGoogleCalendar";
+import { OAuthIntegrations } from "@/components/integrations/OAuthIntegrations";
 import { PageHeader } from "./components/PageHeader";
 import { CredentialsErrorState } from "./components/CredentialsErrorState";
 
@@ -361,6 +362,26 @@ export function ConfigIntegracoesPage() {
               </div>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* ── Automações e Métricas de Campanhas ── */}
+      <Card className="card-surface">
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Link2 className="h-4 w-4 text-primary" />
+            Automações e Métricas de Campanhas
+          </CardTitle>
+          <CardDescription>
+            Conecte suas contas de anúncios para importar métricas de campanhas
+            automaticamente na aba Performance.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <OAuthIntegrations
+            clientId={auth?.id ?? null}
+            slug={dc.slug}
+          />
         </CardContent>
       </Card>
 
