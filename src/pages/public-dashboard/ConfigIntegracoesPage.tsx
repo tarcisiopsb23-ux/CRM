@@ -9,12 +9,12 @@
  *   - UTM Builder: gerar links rastreáveis
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
   Link2, Copy, ExternalLink, Calendar, CheckCircle2, Loader2,
-  Unlink, AlertCircle,
+  Unlink, AlertCircle, MessageCircle, Instagram, Facebook,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +24,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { toast } from "sonner";
 import { useClientAuth } from "@/hooks/useClientAuth";
 import { useDynamicClient } from "@/hooks/useDynamicClient";
+import { supabase } from "@/lib/supabase";
 import { useGoogleCalendar } from "@/hooks/useGoogleCalendar";
 import { PageHeader } from "./components/PageHeader";
 import { CredentialsErrorState } from "./components/CredentialsErrorState";
@@ -49,6 +50,73 @@ export function ConfigIntegracoesPage() {
   const [utmCampaign, setUtmCampaign] = useState("");
   const [utmContent, setUtmContent]   = useState("");
   const [utmCopied, setUtmCopied]     = useState(false);
+
+  // ── Meta connections ────────────────────────────────────────────────────────
+  const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+  const ANON_KEY     = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+
+  interface MetaConn {
+    id: string;
+    provider: string;
+    status: string;
+    whatsapp_display_phone_number: string | null;
+    whatsapp_phone_number_id: string | null;
+    instagram_username: string | null;
+    instagram_account_id: string | null;
+    facebook_page_name: string | null;
+    facebook_page_id: string | null;
+    waba_id: string | null;
+  }
+
+  const [metaConns,   setMetaConns]   = useState<MetaConn[]>([]);
+  const [metaLoading, setMetaLoading] = useState(true);
+
+  useEffect(() => {
+    if (!auth?.organization_id) { setMetaLoading(false); return; }
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (!token) return;
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/get-meta-connections`, {
+          method:  "POST",
+          headers: {
+            "Content-Type":  "application/json",
+            "Authorization": `Bearer ${token}`,
+            "apikey":        ANON_KEY,
+          },
+          body: JSON.stringify({
+            organization_id: auth.organization_id,
+            client_id:       auth.id,
+          }),
+        });
+        const json = await res.json() as { connections?: MetaConn[]; error?: string };
+        setMetaConns(json.connections ?? []);
+      } catch (e) {
+        console.error("[ConfigIntegracoesPage] meta load:", e);
+      } finally {
+        setMetaLoading(false);
+      }
+    })();
+  }, [auth?.organization_id, auth?.id]);
+
+  const waConn = metaConns.find(c =>
+    c.status === "active" &&
+    (c.whatsapp_phone_number_id || c.waba_id ||
+     c.provider === "whatsapp" || c.provider === "meta_multi")
+  ) ?? null;
+
+  const igConn = metaConns.find(c =>
+    c.status === "active" &&
+    (c.instagram_account_id ||
+     c.provider === "instagram" || c.provider === "meta_multi")
+  ) ?? null;
+
+  const fbConn = metaConns.find(c =>
+    c.status === "active" &&
+    (c.facebook_page_id ||
+     c.provider === "facebook" || c.provider === "meta_multi")
+  ) ?? null;
 
   if (!dc) return <CredentialsErrorState />;
 
@@ -212,6 +280,89 @@ export function ConfigIntegracoesPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* ── Canais Meta ── */}
+      <Card className="card-surface">
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Instagram className="h-4 w-4 text-primary" />
+            Canais Meta
+          </CardTitle>
+          <CardDescription>
+            Status das conexões Meta para WhatsApp, Instagram e Facebook.
+            A agência configura as conexões no painel administrativo.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {metaLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+              <Loader2 className="h-4 w-4 animate-spin" /> Verificando conexões...
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {/* WhatsApp Business */}
+              <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <MessageCircle className="h-5 w-5 text-emerald-500" />
+                  <div>
+                    <p className="text-sm font-medium">WhatsApp Business</p>
+                    {waConn?.whatsapp_display_phone_number && (
+                      <p className="text-xs text-muted-foreground">{waConn.whatsapp_display_phone_number}</p>
+                    )}
+                  </div>
+                </div>
+                {waConn ? (
+                  <Badge variant="outline" className="text-xs text-emerald-400 border-emerald-500/30">
+                    <CheckCircle2 className="h-3 w-3 mr-1" /> Conectado
+                  </Badge>
+                ) : (
+                  <span className="text-xs text-muted-foreground">A agência configura a conexão no painel administrativo</span>
+                )}
+              </div>
+
+              {/* Instagram */}
+              <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <Instagram className="h-5 w-5 text-pink-500" />
+                  <div>
+                    <p className="text-sm font-medium">Instagram</p>
+                    {igConn?.instagram_username && (
+                      <p className="text-xs text-muted-foreground">@{igConn.instagram_username}</p>
+                    )}
+                  </div>
+                </div>
+                {igConn ? (
+                  <Badge variant="outline" className="text-xs text-emerald-400 border-emerald-500/30">
+                    <CheckCircle2 className="h-3 w-3 mr-1" /> Conectado
+                  </Badge>
+                ) : (
+                  <span className="text-xs text-muted-foreground">A agência configura a conexão no painel administrativo</span>
+                )}
+              </div>
+
+              {/* Facebook Page */}
+              <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <Facebook className="h-5 w-5 text-blue-500" />
+                  <div>
+                    <p className="text-sm font-medium">Facebook Page</p>
+                    {fbConn?.facebook_page_name && (
+                      <p className="text-xs text-muted-foreground">{fbConn.facebook_page_name}</p>
+                    )}
+                  </div>
+                </div>
+                {fbConn ? (
+                  <Badge variant="outline" className="text-xs text-emerald-400 border-emerald-500/30">
+                    <CheckCircle2 className="h-3 w-3 mr-1" /> Conectado
+                  </Badge>
+                ) : (
+                  <span className="text-xs text-muted-foreground">A agência configura a conexão no painel administrativo</span>
+                )}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* ── UTM Builder ── */}
       <Card className="card-surface">

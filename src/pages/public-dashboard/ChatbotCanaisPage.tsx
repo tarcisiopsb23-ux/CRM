@@ -41,7 +41,7 @@ interface MetaConn {
 
 export function ChatbotCanaisPage() {
   const navigate       = useNavigate();
-  const { auth }       = useClientAuth();
+  const { auth, slug } = useClientAuth();
   const organizationId = auth?.organization_id as string | undefined;
   const clientId       = auth?.id as string | undefined;
 
@@ -175,7 +175,13 @@ export function ChatbotCanaisPage() {
                   <div className="flex items-center gap-2">
                     <AlertCircle className="h-4 w-4 text-muted-foreground shrink-0" />
                     <p className="text-xs text-muted-foreground">
-                      A agência configura a conexão no painel administrativo
+                      A agência configura a conexão no painel administrativo.{" "}
+                      <button
+                        onClick={() => navigate(`/${slug}/configuracoes/integracoes`)}
+                        className="text-primary underline hover:no-underline"
+                      >
+                        Ver Integrações
+                      </button>
                     </p>
                   </div>
                 </div>
@@ -225,7 +231,13 @@ export function ChatbotCanaisPage() {
                   <div className="flex items-center gap-2">
                     <AlertCircle className="h-4 w-4 text-muted-foreground shrink-0" />
                     <p className="text-xs text-muted-foreground">
-                      A agência configura a conexão no painel administrativo
+                      A agência configura a conexão no painel administrativo.{" "}
+                      <button
+                        onClick={() => navigate(`/${slug}/configuracoes/integracoes`)}
+                        className="text-primary underline hover:no-underline"
+                      >
+                        Ver Integrações
+                      </button>
                     </p>
                   </div>
                 </div>
@@ -275,7 +287,13 @@ export function ChatbotCanaisPage() {
                   <div className="flex items-center gap-2">
                     <AlertCircle className="h-4 w-4 text-muted-foreground shrink-0" />
                     <p className="text-xs text-muted-foreground">
-                      A agência configura a conexão no painel administrativo
+                      A agência configura a conexão no painel administrativo.{" "}
+                      <button
+                        onClick={() => navigate(`/${slug}/configuracoes/integracoes`)}
+                        className="text-primary underline hover:no-underline"
+                      >
+                        Ver Integrações
+                      </button>
                     </p>
                   </div>
                 </div>
