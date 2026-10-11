@@ -24,3 +24,7 @@ export const supabase = createClient(
     }
   }
 );
+
+// Alias para compatibilidade com imports legados do Maestria
+// No C8 Control, ambos apontam para o mesmo Banco A
+export const supabaseCrm = supabase;
