@@ -40,3 +40,36 @@ export function initiateMetaOAuth(clientId: string, slug: string) {
 
   window.location.href = `https://www.facebook.com/v19.0/dialog/oauth?${params}`;
 }
+
+/** Inicia o fluxo OAuth Google. Redireciona para o Google consent screen. */
+export function initiateGoogleOAuth(clientId: string, slug: string) {
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
+  if (!googleClientId) {
+    throw new Error(
+      "Conexão com Google não configurada. Contate o administrador."
+    );
+  }
+
+  const redirectUri = `${window.location.origin}/oauth/callback`;
+  const state = btoa(JSON.stringify({ provider: "google", clientId, slug }));
+
+  const scopes = [
+    "https://www.googleapis.com/auth/analytics.readonly",
+    "https://www.googleapis.com/auth/adwords",
+    "https://www.googleapis.com/auth/calendar",
+    "email",
+    "profile",
+  ].join(" ");
+
+  const params = new URLSearchParams({
+    client_id:     googleClientId,
+    redirect_uri:  redirectUri,
+    scope:         scopes,
+    response_type: "code",
+    access_type:   "offline",
+    prompt:        "consent",
+    state,
+  });
+
+  window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+}
