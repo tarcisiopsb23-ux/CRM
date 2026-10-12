@@ -32,7 +32,7 @@ import { CredentialsErrorState } from "./components/CredentialsErrorState";
 
 export function ConfigIntegracoesPage() {
   const dc = useDynamicClient();
-  const { auth } = useClientAuth();
+  const { auth, slug } = useClientAuth();
   const agendaEnabled = auth?.modules_config?.agenda_enabled === true;
 
   // ── Google Calendar OAuth2 ───────────────────────────────────────────────────
@@ -76,9 +76,10 @@ export function ConfigIntegracoesPage() {
     if (!auth?.organization_id) { setMetaLoading(false); return; }
     (async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const token = session?.access_token;
-        if (!token) return;
+        // Usa o token da sessão do cliente (sessionStorage), não do supabase.auth
+        const raw = sessionStorage.getItem(`client_auth_v2_${slug}`);
+        const clientSession = raw ? JSON.parse(raw) : null;
+        const token = clientSession?.session?.access_token ?? ANON_KEY;
         const res = await fetch(`${SUPABASE_URL}/functions/v1/get-meta-connections`, {
           method:  "POST",
           headers: {

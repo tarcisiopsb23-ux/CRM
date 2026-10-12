@@ -126,11 +126,10 @@ export function WhatsAppTemplatesPage() {
     if (!organizationId) return;
     setLoading(true);
     try {
-      // Usa a EF get-meta-connections com service_role para contornar RLS
-      // O usuario C8 Control nao tem perfil em profiles, entao a RLS bloqueia
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) { setLoading(false); return; }
+      // Usa o token da sessão do cliente (sessionStorage), não do supabase.auth
+      const raw = sessionStorage.getItem(`client_auth_v2_${slug}`);
+      const clientSession = raw ? JSON.parse(raw) : null;
+      const token = clientSession?.session?.access_token ?? ANON_KEY;
 
       const res = await fetch(`${SUPABASE_URL}/functions/v1/get-meta-connections`, {
         method: "POST",

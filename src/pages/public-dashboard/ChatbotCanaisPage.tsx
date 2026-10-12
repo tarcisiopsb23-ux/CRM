@@ -49,12 +49,14 @@ export function ChatbotCanaisPage() {
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    if (!organizationId) return;
+    if (!organizationId) { setLoading(false); return; }
     setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) { setLoading(false); return; }
+      // Usa o token da sessão do cliente (armazenado no sessionStorage pelo login do C8 Control)
+      // NÃO usa supabase.auth.getSession() que retorna a sessão do CRM (pode ser null aqui)
+      const raw = sessionStorage.getItem(`client_auth_v2_${slug}`);
+      const clientSession = raw ? JSON.parse(raw) : null;
+      const token = clientSession?.session?.access_token ?? ANON_KEY;
 
       const res = await fetch(`${SUPABASE_URL}/functions/v1/get-meta-connections`, {
         method: "POST",
@@ -72,7 +74,7 @@ export function ChatbotCanaisPage() {
     } finally {
       setLoading(false);
     }
-  }, [organizationId]);
+  }, [organizationId, clientId, slug]);
 
   useEffect(() => { load(); }, [load]);
 
