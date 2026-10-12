@@ -6,8 +6,8 @@ export interface OAuthToken {
   id: string;
   tenant_id: string;
   provider: "google" | "meta";
-  access_token: string;
-  refresh_token: string | null;
+  access_token?: string;
+  refresh_token?: string | null;
   expires_at: string | null;
   scope: string | null;
   ga4_property_id: string | null;
@@ -25,6 +25,16 @@ export function useOAuthTokens(tenantId?: string, dbClient?: SupabaseClient | nu
     queryKey: ["oauth_tokens", tenantId],
     queryFn: async () => {
       if (!tenantId) return [];
+
+      // Tenta via RPC (SECURITY DEFINER — contorna RLS para clientes C8 Control)
+      const { data: rpcData, error: rpcError } = await db
+        .rpc("get_oauth_tokens_for_client", { p_client_id: tenantId });
+
+      if (!rpcError && rpcData) {
+        return (rpcData ?? []) as OAuthToken[];
+      }
+
+      // Fallback: query direta (funciona quando o JWT tem tenant_id — usuários CRM)
       const { data, error } = await db
         .from("oauth_tokens")
         .select("*")
