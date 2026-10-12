@@ -165,9 +165,10 @@ export function WhatsAppTemplatesPage() {
 
   // Chama a EF whatsapp-template-service
   async function callTemplateService(action: string, extra: Record<string,unknown> = {}) {
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token;
-    if (!token) throw new Error("NÃ£o autenticado");
+    // Usa token da sessão do cliente (sessionStorage), não supabase.auth que é null no C8 Control
+    const raw = sessionStorage.getItem(`client_auth_v2_${slug}`);
+    const clientSession = raw ? JSON.parse(raw) : null;
+    const token = clientSession?.session?.access_token ?? ANON_KEY;
 
     const res = await fetch(`${SUPABASE_URL}/functions/v1/whatsapp-template-service`, {
       method: "POST",

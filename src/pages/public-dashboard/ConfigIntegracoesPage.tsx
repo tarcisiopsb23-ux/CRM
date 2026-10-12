@@ -27,7 +27,7 @@ import { useDynamicClient } from "@/hooks/useDynamicClient";
 import { supabase } from "@/lib/supabase";
 import { useGoogleCalendar } from "@/hooks/useGoogleCalendar";
 import { OAuthIntegrations } from "@/components/integrations/OAuthIntegrations";
-import { createClient } from "@supabase/supabase-js";
+
 import { PageHeader } from "./components/PageHeader";
 import { CredentialsErrorState } from "./components/CredentialsErrorState";
 
@@ -123,19 +123,6 @@ export function ConfigIntegracoesPage() {
 
   if (!dc) return <CredentialsErrorState />;
 
-  // Cliente Supabase autenticado com o token da sessão do cliente C8 Control
-  // Necessário porque supabase.auth não tem sessão do cliente (usa sessionStorage separado)
-  const clientSupabase = (() => {
-    const raw = sessionStorage.getItem(`client_auth_v2_${slug}`);
-    const session = raw ? JSON.parse(raw) : null;
-    const token = session?.session?.access_token;
-    if (!token) return supabase;
-    const url  = import.meta.env.VITE_SUPABASE_URL as string;
-    const akey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-    const c = createClient(url, akey, { auth: { persistSession: false } });
-    c.auth.setSession({ access_token: token, refresh_token: session?.session?.refresh_token ?? "" });
-    return c;
-  })();
 
   const utmUrl = (() => {
     if (!utmBase.trim()) return "";
@@ -397,7 +384,6 @@ export function ConfigIntegracoesPage() {
           <OAuthIntegrations
             clientId={auth?.id ?? null}
             slug={dc.slug}
-            dbClient={clientSupabase}
           />
         </CardContent>
       </Card>

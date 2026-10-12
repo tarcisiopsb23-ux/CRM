@@ -9,10 +9,11 @@
  *   • anon_key do Banco A
  */
 
-import { createContext, ReactNode, useState, useCallback } from "react";
+import { createContext, ReactNode, useState, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Session } from "@supabase/supabase-js";
 import type { DynamicUser } from "@/hooks/useDynamicAuth";
+import { supabase } from "@/lib/supabase";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -132,6 +133,18 @@ export function ClientAuthProvider({
   const [auth, setAuthState] = useState<ClientAuth | null>(() => {
     return loadFromStorage(slug);
   });
+
+  // Injeta a sessão do cliente no supabase.auth para que queries com RLS funcionem
+  // Isso resolve o "Multiple GoTrueClient instances" — usa o singleton existente
+  useEffect(() => {
+    const stored = loadFromStorage(slug);
+    if (stored?.session?.access_token) {
+      supabase.auth.setSession({
+        access_token:  stored.session.access_token,
+        refresh_token: stored.session.refresh_token ?? "",
+      }).catch(() => {}); // silencia erros — o token pode não ser válido para o GoTrue
+    }
+  }, [slug]);
 
   const setAuth = useCallback((newAuth: ClientAuth) => {
     saveToStorage(slug, newAuth);
