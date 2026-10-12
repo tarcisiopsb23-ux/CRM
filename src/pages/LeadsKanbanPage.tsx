@@ -1,4 +1,4 @@
-﻿import { useMemo, useState, useEffect } from "react";
+mport { useMemo, useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { KanbanBoard, LeadDetailsModal, LeadsListView } from "@/components/kanban";
 import { NovoLeadDialog } from "@/components/kanban/NovoLeadDialog";

@@ -1,4 +1,4 @@
-﻿export type Json =
+xport type Json =
   | string
   | number
   | boolean

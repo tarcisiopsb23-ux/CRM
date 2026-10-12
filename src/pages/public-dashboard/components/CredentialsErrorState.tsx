@@ -1,4 +1,4 @@
-﻿import { AlertCircle } from "lucide-react";
+mport { AlertCircle } from "lucide-react";
 
 export function CredentialsErrorState() {
   return (

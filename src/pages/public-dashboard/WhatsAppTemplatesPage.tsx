@@ -1,4 +1,4 @@
-﻿/**
+**
  * WhatsAppTemplatesPage
  *
  * Gerencia templates WhatsApp Business (HSM) da WABA conectada.
