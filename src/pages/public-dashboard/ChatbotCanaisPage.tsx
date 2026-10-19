@@ -1,4 +1,4 @@
-i**
+/**
  * ChatbotCanaisPage
  *
  * Exibe 3 cards fixos independentes (WhatsApp, Instagram, Facebook Page)
