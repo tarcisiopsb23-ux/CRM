@@ -1,4 +1,4 @@
-**
+i**
  * AgendaPage — Página principal do módulo Agenda no C8 Control.
  *
  * Exibe calendário mensal + lista de agendamentos do dia selecionado.

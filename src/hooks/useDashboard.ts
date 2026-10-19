@@ -1,4 +1,4 @@
-mport { useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { startOfMonth, endOfMonth, startOfDay, format } from "date-fns";
 

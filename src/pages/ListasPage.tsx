@@ -1,4 +1,4 @@
-mport { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useOrganization } from '@/hooks/useOrganization';
 import { useListasManager, type CreateListaInput, type UpdateListaInput } from '@/hooks/useListasManager';
 import { useProfiles } from '@/hooks/useProfiles';
