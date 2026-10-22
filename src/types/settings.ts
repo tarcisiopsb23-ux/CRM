@@ -80,6 +80,14 @@ export interface N8nConfig {
   whatsappAgentWebhookUrl?: string;   // URL do workflow n8n_whatsapp_agent
   instagramAgentWebhookUrl?: string;  // URL do workflow n8n_instagram_agent
   facebookAgentWebhookUrl?: string;   // URL do workflow n8n_facebook_agent
+  // Webhooks de ciclo de vida do atendimento omnichannel
+  // Disparados por ações do frontend/EFs quando eventos de atendimento ocorrem.
+  omniHandoffWebhookUrl?: string;    // bot transferiu para humano (notificar atendentes disponíveis)
+  omniQueueWebhookUrl?: string;      // conversa entrou na fila humana (dispara timer de fallback no n8n)
+  omniFallbackWebhookUrl?: string;   // fallback round-robin: n8n deve buscar próximo agente disponível
+  omniOutboundWebhookUrl?: string;   // atendente enviou mensagem (log de atendimento no n8n)
+  omniResolvedWebhookUrl?: string;   // conversa resolvida (pós-atendimento: CSAT, CRM sync)
+  omniTransferWebhookUrl?: string;   // conversa transferida entre atendentes (notificar receptor)
 }
 
 export interface C8ControlConfig {
