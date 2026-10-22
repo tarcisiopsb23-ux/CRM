@@ -74,6 +74,12 @@ export interface N8nConfig {
   c8ClientOpsWebhookUrl?: string;     // Webhook n8n: operações no banco do cliente (test, reset_password, apply_schema)
   c8SchemaRawUrl?: string;            // URL raw do bank_b_full_schema.sql no GitHub (API, não browser)
   githubToken?: string;               // GitHub Personal Access Token (read:repo) — apenas repositórios privados
+  // Chat & Atendimento Omnichannel — 3 workflows n8n independentes por canal
+  // Um único conjunto serve todos os clientes da agência.
+  // A EF meta-webhook-client roteia para o webhook correto por canal.
+  whatsappAgentWebhookUrl?: string;   // URL do workflow n8n_whatsapp_agent
+  instagramAgentWebhookUrl?: string;  // URL do workflow n8n_instagram_agent
+  facebookAgentWebhookUrl?: string;   // URL do workflow n8n_facebook_agent
 }
 
 export interface C8ControlConfig {
