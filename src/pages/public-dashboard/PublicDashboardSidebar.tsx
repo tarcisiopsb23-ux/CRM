@@ -24,6 +24,9 @@ import { useClientAuth } from "@/hooks/useClientAuth";
 import { useDynamicClient } from "@/hooks/useDynamicClient";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { AgentStatusToggle } from "@/components/omnichannel/AgentStatusToggle";
+import { AgentStatus } from "@/hooks/useOmnichannelInbox";
+import { supabase } from "@/lib/supabase";
 
 // ─── Nav definitions ──────────────────────────────────────────────────────────
 
@@ -196,6 +199,18 @@ export function PublicDashboardSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const location  = useLocation();
+
+  const [agentStatus, setAgentStatus] = useState<AgentStatus>('offline');
+
+  const handleAgentStatusChange = useCallback((status: AgentStatus) => {
+    setAgentStatus(status);
+    supabase.rpc('set_agent_status', {
+      p_agent_id: auth?.user?.id,
+      p_status:   status,
+    }).then(({ error }) => {
+      if (error) console.warn('[PublicDashboardSidebar] set_agent_status:', error);
+    });
+  }, [auth?.user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const modules       = auth?.modules_config;
   const crmEnabled       = modules?.crm_enabled    === true;
@@ -454,6 +469,15 @@ export function PublicDashboardSidebar() {
         {(chatbotEnabled || iaLegacyEnabled) && !collapsed && (
           <div className="px-2">
             <BotToggle slug={slug} />
+          </div>
+        )}
+        {/* Atendimento: status do agente — visível quando messaging ativo e sidebar expandida */}
+        {messagingEnabled && !collapsed && (
+          <div className="px-2">
+            <div className="flex items-center justify-between px-2 py-1">
+              <span className="text-[10px] text-muted-foreground">Atendimento</span>
+              <AgentStatusToggle status={agentStatus} onStatusChange={handleAgentStatusChange} />
+            </div>
           </div>
         )}
         {isSupportUser ? (

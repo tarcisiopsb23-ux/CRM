@@ -33,6 +33,8 @@ import {
   Message,
 } from "@/hooks/useOmnichannelInbox";
 import { AgentStatusToggle } from "@/components/omnichannel/AgentStatusToggle";
+import { useClientAuth } from "@/hooks/useClientAuth";
+import { supabase } from "@/lib/supabase";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -828,6 +830,7 @@ function RightColumn({ conv, messages, onToggleBot }: RightColumnProps) {
 // ─── Página principal ──────────────────────────────────────────────────────────
 
 export function OmnichannelInboxPage() {
+  const { auth } = useClientAuth();
   const {
     conversations,
     conversationsLoading,
@@ -848,6 +851,20 @@ export function OmnichannelInboxPage() {
     toggleBotForConversation,
     unreadCount,
   } = useOmnichannelInbox();
+
+  // Auto-registro do atendente ao montar a página (fire-and-forget)
+  useEffect(() => {
+    if (!auth?.id || !auth?.organization_id || !auth?.user?.id) return;
+    supabase.rpc('ensure_client_agent', {
+      p_client_id:       auth.id,
+      p_organization_id: auth.organization_id,
+      p_crm_user_id:     auth.user.id,
+      p_display_name:    auth.user.full_name ?? auth.user.email ?? 'Agente',
+      p_avatar_url:      (auth?.user as unknown as { avatar_url?: string })?.avatar_url ?? null,
+    }).then(({ error }) => {
+      if (error) console.warn('[OmnichannelInboxPage] ensure_client_agent:', error);
+    });
+  }, [auth?.id, auth?.organization_id, auth?.user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Filtros locais (UI) que traduzem para hookFilters
   const [localSearch, setLocalSearch] = useState(hookFilters.search ?? "");
