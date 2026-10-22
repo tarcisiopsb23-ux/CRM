@@ -26,6 +26,10 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 
 import {
   useOmnichannelInbox,
@@ -175,10 +179,14 @@ function ConversationItem({
   conv,
   isActive,
   onClick,
+  onAssume,
+  myAgentId,
 }: {
   conv: Conversation;
   isActive: boolean;
   onClick: () => void;
+  onAssume?: (convId: string) => void;
+  myAgentId?: string | null;
 }) {
   return (
     <button
@@ -212,6 +220,18 @@ function ConversationItem({
           <ChannelBadge channel={conv.channel_type} small />
           <StatusBadgeSmall status={conv.status} />
         </div>
+        {onAssume && myAgentId && !conv.assigned_agent_id && (
+          <div className="mt-1" onClick={e => e.stopPropagation()}>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-5 px-2 text-[10px]"
+              onClick={() => onAssume(conv.id)}
+            >
+              Assumir
+            </Button>
+          </div>
+        )}
       </div>
     </button>
   );
@@ -331,6 +351,8 @@ interface LeftColumnProps {
   onFilterChange: (f: Partial<{ search: string; channel: ChannelFilter; status: StatusFilter }>) => void;
   myStatus: ReturnType<typeof useOmnichannelInbox>["myStatus"];
   setMyStatus: ReturnType<typeof useOmnichannelInbox>["setMyStatus"];
+  onAssume?: (convId: string) => void;
+  myAgentId?: string | null;
 }
 
 function LeftColumn({
@@ -343,6 +365,8 @@ function LeftColumn({
   onFilterChange,
   myStatus,
   setMyStatus,
+  onAssume,
+  myAgentId,
 }: LeftColumnProps) {
   const channelButtons: Array<{ key: ChannelFilter; label: string }> = [
     { key: null, label: "Todos" },
@@ -442,6 +466,8 @@ function LeftColumn({
               conv={conv}
               isActive={conv.id === activeId}
               onClick={() => onSelect(conv.id)}
+              onAssume={onAssume}
+              myAgentId={myAgentId}
             />
           ))}
       </div>
@@ -462,6 +488,9 @@ interface CenterColumnProps {
   onResolve: () => void;
   onToggleBot: (active: boolean) => void;
   onBack?: () => void;
+  onTransfer?: (agentId: string, reason?: string) => Promise<void>;
+  clientId?: string | null;
+  myAgentId?: string | null;
 }
 
 function CenterColumn({
@@ -475,12 +504,47 @@ function CenterColumn({
   onResolve,
   onToggleBot,
   onBack,
+  onTransfer,
+  clientId,
+  myAgentId,
 }: CenterColumnProps) {
   const [inputText, setInputText] = useState("");
   const [isInternalNote, setIsInternalNote] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Transfer dialog state
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [onlineAgents, setOnlineAgents] = useState<Array<{ agent_id: string; display_name: string; current_load: number }>>([]);
+  const [selectedAgent, setSelectedAgent] = useState<string>('');
+  const [transferReason, setTransferReason] = useState('');
+  const [transferLoading, setTransferLoading] = useState(false);
+
+  const handleOpenTransfer = async () => {
+    if (!clientId) return;
+    const { data, error } = await supabase.rpc('get_online_agents_for_client', { p_client_id: clientId });
+    if (!error && data) {
+      setOnlineAgents((data as any[]).filter((a: any) => a.agent_id !== myAgentId));
+    }
+    setSelectedAgent('');
+    setTransferReason('');
+    setTransferOpen(true);
+  };
+
+  const handleConfirmTransfer = async () => {
+    if (!selectedAgent || !onTransfer) return;
+    setTransferLoading(true);
+    try {
+      await onTransfer(selectedAgent, transferReason || undefined);
+      toast.success('Conversa transferida com sucesso!');
+      setTransferOpen(false);
+    } catch {
+      toast.error('Erro ao transferir conversa');
+    } finally {
+      setTransferLoading(false);
+    }
+  };
 
   // Auto-scroll ao fim quando novas mensagens chegam
   useEffect(() => {
@@ -574,7 +638,8 @@ function CenterColumn({
             size="sm"
             variant="ghost"
             className="h-7 px-2 text-xs text-muted-foreground"
-            onClick={() => toast.info("Transferência de conversa estará disponível em breve.")}
+            onClick={handleOpenTransfer}
+            disabled={!clientId}
           >
             Transferir
           </Button>
@@ -706,6 +771,61 @@ function CenterColumn({
           </div>
         </div>
       </div>
+
+      {/* Dialog de transferência */}
+      <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Transferir Conversa</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {onlineAgents.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nenhum outro atendente online no momento.</p>
+            ) : (
+              <div className="space-y-1">
+                <label className="text-sm font-medium">Selecionar atendente</label>
+                <div className="space-y-1">
+                  {onlineAgents.map(agent => (
+                    <button
+                      key={agent.agent_id}
+                      type="button"
+                      onClick={() => setSelectedAgent(agent.agent_id)}
+                      className={cn(
+                        'w-full flex items-center justify-between px-3 py-2 rounded-md border text-sm transition-colors',
+                        selectedAgent === agent.agent_id
+                          ? 'border-primary bg-primary/10 text-foreground'
+                          : 'border-border hover:bg-secondary/40 text-foreground'
+                      )}
+                    >
+                      <span>{agent.display_name}</span>
+                      <span className="text-xs text-muted-foreground">{agent.current_load} conv.</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div>
+              <label className="text-sm font-medium">Motivo (opcional)</label>
+              <Textarea
+                value={transferReason}
+                onChange={e => setTransferReason(e.target.value)}
+                placeholder="Motivo da transferência..."
+                rows={2}
+                className="mt-1 resize-none text-sm"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTransferOpen(false)}>Cancelar</Button>
+            <Button
+              onClick={handleConfirmTransfer}
+              disabled={!selectedAgent || transferLoading}
+            >
+              {transferLoading ? 'Transferindo...' : 'Confirmar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -850,7 +970,12 @@ export function OmnichannelInboxPage() {
     resolveConversation,
     toggleBotForConversation,
     unreadCount,
+    assignConversation,
+    transferConversation,
   } = useOmnichannelInbox();
+
+  // myAgentId: capturado do ensure_client_agent no mount
+  const [myAgentId, setMyAgentId] = useState<string | null>(null);
 
   // Auto-registro do atendente ao montar a página (fire-and-forget)
   useEffect(() => {
@@ -861,8 +986,9 @@ export function OmnichannelInboxPage() {
       p_crm_user_id:     auth.user.id,
       p_display_name:    auth.user.full_name ?? auth.user.email ?? 'Agente',
       p_avatar_url:      (auth?.user as unknown as { avatar_url?: string })?.avatar_url ?? null,
-    }).then(({ error }) => {
+    }).then(({ data, error }) => {
       if (error) console.warn('[OmnichannelInboxPage] ensure_client_agent:', error);
+      else if (data) setMyAgentId(data);
     });
   }, [auth?.id, auth?.organization_id, auth?.user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -924,6 +1050,21 @@ export function OmnichannelInboxPage() {
     [activeConversationId, toggleBotForConversation]
   );
 
+  const handleAssume = useCallback(async (convId: string) => {
+    if (!myAgentId) return;
+    try {
+      await assignConversation(convId, myAgentId);
+      toast.success('Conversa assumida!');
+    } catch {
+      toast.error('Erro ao assumir conversa');
+    }
+  }, [myAgentId, assignConversation]);
+
+  const handleTransfer = useCallback(async (agentId: string, reason?: string) => {
+    if (!activeConversationId) return;
+    await transferConversation(activeConversationId, agentId, reason);
+  }, [activeConversationId, transferConversation]);
+
   return (
     <div className="flex h-[calc(100vh-8rem)] -mx-4 md:-mx-8 -mt-6 md:-mt-8 overflow-hidden">
       {/* Coluna esquerda — escondida em mobile quando conversa selecionada */}
@@ -943,6 +1084,8 @@ export function OmnichannelInboxPage() {
           onFilterChange={handleFilterChange}
           myStatus={myStatus}
           setMyStatus={setMyStatus}
+          onAssume={handleAssume}
+          myAgentId={myAgentId}
         />
       </div>
 
@@ -964,6 +1107,9 @@ export function OmnichannelInboxPage() {
           onResolve={handleResolve}
           onToggleBot={handleToggleBot}
           onBack={activeConversationId ? () => setActiveConversation(null) : undefined}
+          onTransfer={handleTransfer}
+          clientId={auth?.id ?? null}
+          myAgentId={myAgentId}
         />
       </div>
 
