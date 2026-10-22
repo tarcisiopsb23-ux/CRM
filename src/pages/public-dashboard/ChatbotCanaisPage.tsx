@@ -13,12 +13,13 @@ import { useNavigate } from "react-router-dom";
 import {
   MessageCircle, Instagram, ShieldCheck, CheckCircle2,
   AlertCircle, Loader2, ExternalLink, Facebook,
-  Bot, Users, AlertTriangle, Info,
+  Bot, Users, AlertTriangle, Info, X,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge }       from "@/components/ui/badge";
 import { Button }      from "@/components/ui/button";
 import { Switch }      from "@/components/ui/switch";
+import { Label }       from "@/components/ui/label";
 import { PageHeader }  from "./components/PageHeader";
 import { useClientAuth } from "@/hooks/useClientAuth";
 import { supabase }    from "@/lib/supabase";
@@ -26,6 +27,38 @@ import { toast }       from "sonner";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const ANON_KEY     = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+
+const DAYS = [
+  { key: "seg", label: "Seg" },
+  { key: "ter", label: "Ter" },
+  { key: "qua", label: "Qua" },
+  { key: "qui", label: "Qui" },
+  { key: "sex", label: "Sex" },
+  { key: "sab", label: "Sáb" },
+  { key: "dom", label: "Dom" },
+];
+
+interface AttendanceConfig {
+  fallback_assign_after_mins: number;
+  queue_message: string;
+  outside_hours_message: string;
+  handoff_keywords: string[];
+  human_hours_start: string;
+  human_hours_end: string;
+  human_days: string[];
+  auto_assign: boolean;
+}
+
+const ATTENDANCE_DEFAULTS: AttendanceConfig = {
+  fallback_assign_after_mins: 2,
+  queue_message: "Aguarde, em breve um atendente irá assumir sua conversa.",
+  outside_hours_message: "Nosso horário de atendimento humano terminou. Retornaremos em breve.",
+  handoff_keywords: [],
+  human_hours_start: "09:00",
+  human_hours_end: "18:00",
+  human_days: ["seg", "ter", "qua", "qui", "sex"],
+  auto_assign: false,
+};
 
 interface MetaConn {
   id:                            string;
@@ -75,6 +108,10 @@ export function ChatbotCanaisPage() {
   const [conns,   setConns]   = useState<MetaConn[]>([]);
   const [loading, setLoading] = useState(true);
   const [config,  setConfig]  = useState<ChannelConfig>(DEFAULT_CONFIG);
+  const [attendance, setAttendance] = useState<AttendanceConfig>(ATTENDANCE_DEFAULTS);
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [attendanceSaving, setAttendanceSaving] = useState(false);
+  const [keywordInput, setKeywordInput] = useState("");
 
   const load = useCallback(async () => {
     if (!organizationId) { setLoading(false); return; }
@@ -131,8 +168,32 @@ export function ChatbotCanaisPage() {
       });
   }, [clientId]);
 
-  // ── Salvar configuração de canal ─────────────────────────────────────────
+  // ── Carregar configuração de atendimento ────────────────────────────────
 
+  useEffect(() => {
+    if (!clientId) return;
+    setAttendanceLoading(true);
+    supabase
+      .rpc('get_client_attendance_config', { p_client_id: clientId })
+      .then(({ data, error }) => {
+        if (error || !data) return;
+        const row = Array.isArray(data) ? data[0] : data;
+        if (!row) return;
+        setAttendance({
+          fallback_assign_after_mins: row.fallback_assign_after_mins ?? 2,
+          queue_message: row.queue_message ?? ATTENDANCE_DEFAULTS.queue_message,
+          outside_hours_message: row.outside_hours_message ?? ATTENDANCE_DEFAULTS.outside_hours_message,
+          handoff_keywords: row.handoff_keywords ?? [],
+          human_hours_start: row.human_hours_start ?? '09:00',
+          human_hours_end: row.human_hours_end ?? '18:00',
+          human_days: row.human_days ?? ATTENDANCE_DEFAULTS.human_days,
+          auto_assign: row.auto_assign ?? false,
+        });
+      })
+      .finally(() => setAttendanceLoading(false));
+  }, [clientId]);
+
+  // ── Salvar configuração de canal ─────────────────────────────────────────
   const saveChannelConfig = useCallback(
     async (channel: 'whatsapp' | 'instagram' | 'facebook', field: 'bot' | 'human', value: boolean) => {
       if (!clientId || !organizationId) return;
@@ -174,8 +235,63 @@ export function ChatbotCanaisPage() {
     [clientId, organizationId, config]
   );
 
-  // ── Channel detection ───────────────────────────────────────────────────
+  // ── Helpers de atendimento ───────────────────────────────────────────────
 
+  const setAtt = <K extends keyof AttendanceConfig>(key: K, val: AttendanceConfig[K]) =>
+    setAttendance(prev => ({ ...prev, [key]: val }));
+
+  const addKeyword = () => {
+    const kw = keywordInput.trim().toLowerCase();
+    if (!kw || attendance.handoff_keywords.includes(kw)) return;
+    setAtt('handoff_keywords', [...attendance.handoff_keywords, kw]);
+    setKeywordInput('');
+  };
+
+  const removeKeyword = (kw: string) =>
+    setAtt('handoff_keywords', attendance.handoff_keywords.filter(k => k !== kw));
+
+  const toggleDay = (day: string) => {
+    const days = attendance.human_days.includes(day)
+      ? attendance.human_days.filter(d => d !== day)
+      : [...attendance.human_days, day];
+    setAtt('human_days', days);
+  };
+
+  const saveAttendanceConfig = async () => {
+    if (!clientId || !organizationId) return;
+    if (attendance.human_hours_start && attendance.human_hours_end &&
+        attendance.human_hours_start >= attendance.human_hours_end) {
+      toast.error('O horário de início deve ser anterior ao horário de fim.');
+      return;
+    }
+    const safeMins = Math.max(1, Math.min(60, attendance.fallback_assign_after_mins || 2));
+    setAttendanceSaving(true);
+    try {
+      const { error } = await supabase.rpc('upsert_client_attendance_config', {
+        p_client_id: clientId,
+        p_organization_id: organizationId,
+        p_whatsapp_bot_active: config.botWhatsapp,
+        p_instagram_bot_active: config.botInstagram,
+        p_facebook_bot_active: config.botFacebook,
+        p_auto_assign: attendance.auto_assign,
+        p_fallback_assign_after_mins: safeMins,
+        p_queue_message: attendance.queue_message,
+        p_outside_hours_message: attendance.outside_hours_message,
+        p_human_hours_start: attendance.human_hours_start || null,
+        p_human_hours_end: attendance.human_hours_end || null,
+        p_human_days: attendance.human_days,
+        p_handoff_keywords: attendance.handoff_keywords,
+      });
+      if (error) throw error;
+      toast.success('Configurações de atendimento salvas!');
+    } catch (err: unknown) {
+      toast.error(`Erro ao salvar: ${(err as Error).message}`);
+    } finally {
+      setAttendanceSaving(false);
+    }
+  };
+
+  // ── Channel detection ───────────────────────────────────────────────────
   const waConn = conns.find(c =>
     c.status === "active" &&
     (c.whatsapp_phone_number_id || c.waba_id ||
@@ -537,9 +653,169 @@ export function ChatbotCanaisPage() {
         </div>
       )}
 
+      {/* ── Configurações de Atendimento ── */}
+      <Card className="card-surface">
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10">
+              <Users className="h-5 w-5 text-blue-500" />
+            </div>
+            <div>
+              <CardTitle className="text-base">Configurações de Atendimento</CardTitle>
+              <CardDescription className="text-xs mt-0.5">
+                Fila geral com fallback automático, handoff e horário de atendimento humano.
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {attendanceLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Carregando configurações...
+            </div>
+          ) : (
+            <div className="space-y-6">
+
+              {/* Fila geral com fallback automático */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-black uppercase tracking-widest text-slate-500">Fila Geral com Fallback Automático</h4>
+                <p className="text-[10px] text-slate-400 italic">
+                  Conversas novas ficam visíveis para todos os atendentes online. Qualquer um pode assumir manualmente.
+                  Se ninguém assumir no tempo configurado, o sistema atribui automaticamente ao atendente online há mais tempo sem conversa (round-robin).
+                </p>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="auto_assign" className="text-sm font-medium cursor-pointer">Fallback automático ativo</Label>
+                  <Switch
+                    id="auto_assign"
+                    checked={attendance.auto_assign}
+                    onCheckedChange={val => setAtt('auto_assign', val)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Tempo para auto-atribuição (minutos)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={60}
+                    value={attendance.fallback_assign_after_mins}
+                    onChange={e => setAtt('fallback_assign_after_mins', parseInt(e.target.value) || 2)}
+                    className="w-32 px-3 py-2 rounded-md border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-slate-900 bg-white dark:text-white dark:bg-slate-950"
+                  />
+                </div>
+              </div>
+
+              {/* Handoff */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-black uppercase tracking-widest text-slate-500">Handoff Bot → Humano</h4>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Palavras-chave de handoff
+                  </label>
+                  <p className="text-[10px] text-slate-400 italic mb-2">
+                    Se o cliente digitar qualquer uma dessas palavras, o bot transfere para atendimento humano.
+                  </p>
+                  <div className="flex gap-2 mb-2">
+                    <input
+                      type="text"
+                      value={keywordInput}
+                      onChange={e => setKeywordInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addKeyword(); } }}
+                      placeholder="ex: humano, atendente, falar com alguém"
+                      className="flex-1 px-3 py-2 rounded-md border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-slate-900 bg-white dark:text-white dark:bg-slate-950"
+                    />
+                    <Button type="button" variant="outline" size="sm" onClick={addKeyword}>Adicionar</Button>
+                  </div>
+                  {attendance.handoff_keywords.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {attendance.handoff_keywords.map(kw => (
+                        <span key={kw} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-medium">
+                          {kw}
+                          <button type="button" onClick={() => removeKeyword(kw)} className="hover:text-destructive">
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Mensagem de espera na fila
+                  </label>
+                  <textarea
+                    value={attendance.queue_message}
+                    onChange={e => setAtt('queue_message', e.target.value)}
+                    rows={3}
+                    className="w-full px-3 py-2 rounded-md border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-slate-900 bg-white dark:text-white dark:bg-slate-950 resize-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Mensagem fora do horário de atendimento
+                  </label>
+                  <textarea
+                    value={attendance.outside_hours_message}
+                    onChange={e => setAtt('outside_hours_message', e.target.value)}
+                    rows={3}
+                    className="w-full px-3 py-2 rounded-md border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-slate-900 bg-white dark:text-white dark:bg-slate-950 resize-none"
+                  />
+                </div>
+              </div>
+
+              {/* Horário de atendimento */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-black uppercase tracking-widest text-slate-500">Horário de Atendimento Humano</h4>
+                <div className="flex flex-wrap gap-2">
+                  {DAYS.map(({ key, label }) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => toggleDay(key)}
+                      className={`px-3 py-1.5 rounded-md border text-xs font-medium transition-colors ${
+                        attendance.human_days.includes(key)
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'bg-background text-muted-foreground border-input hover:bg-muted'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Início</label>
+                    <input
+                      type="time"
+                      value={attendance.human_hours_start}
+                      onChange={e => setAtt('human_hours_start', e.target.value)}
+                      className="px-3 py-2 rounded-md border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-slate-900 bg-white dark:text-white dark:bg-slate-950"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Fim</label>
+                    <input
+                      type="time"
+                      value={attendance.human_hours_end}
+                      onChange={e => setAtt('human_hours_end', e.target.value)}
+                      className="px-3 py-2 rounded-md border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-slate-900 bg-white dark:text-white dark:bg-slate-950"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <Button onClick={saveAttendanceConfig} disabled={attendanceSaving} className="w-full">
+                {attendanceSaving ? 'Salvando...' : 'Salvar Configurações de Atendimento'}
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-        <a
+        <ExternalLink className="h-3.5 w-3.5 shrink-0" />        <a
           href="https://developers.facebook.com/docs/whatsapp/cloud-api"
           target="_blank"
           rel="noopener noreferrer"
