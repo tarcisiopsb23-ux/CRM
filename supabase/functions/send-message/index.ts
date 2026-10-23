@@ -302,7 +302,7 @@ Deno.serve(async (req) => {
 
     // ── Persiste mensagem enviada no banco ────────────────────────────────────
     if (conversation_id && messageId) {
-      const msgTable   = client_id ? "client_channel_messages"  : "whatsapp_messages";
+      const msgTable   = client_id ? "client_channel_messages"  : "omni_messages";
       const insertData = client_id
         ? {
             client_id,
