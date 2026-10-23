@@ -52,7 +52,7 @@ export function useKanbanFunnel(organizationId: string | undefined) {
 }
 
 // -----------------------------------------------------------------------------
-// Pending human conversations (whatsapp - em_atendimento or aberta)
+// Pending human conversations (omni - em_atendimento or aberta)
 // -----------------------------------------------------------------------------
 
 export function usePendingConversations(organizationId: string | undefined) {
@@ -61,9 +61,9 @@ export function usePendingConversations(organizationId: string | undefined) {
     queryFn: async () => {
       if (!organizationId) return { count: 0, items: [] };
       const { data, error } = await supabase
-        .from("whatsapp_conversations")
+        .from("omni_conversations")
         .select(
-          "id, status, last_message_at, contact:whatsapp_contacts(phone, name)"
+          "id, status, last_message_at, contact:omni_contacts(phone, name)"
         )
         .eq("organization_id", organizationId)
         .in("status", ["aberta", "em_atendimento"])
