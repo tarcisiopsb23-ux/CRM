@@ -38,6 +38,9 @@ export interface Conversation {
   channel_type: string;
   meta_connection_id: string | null;
   contact_id: string | null;
+  /** Preenchido futuramente quando client_channel_conversations tiver a coluna omni_contact_id.
+   *  Por ora fica undefined para que o ContactSheet use contact_id como fallback. */
+  omni_contact_id?: string | null;
   status: string;
   priority: string;
   bot_active: boolean;

@@ -88,6 +88,7 @@ export interface N8nConfig {
   omniOutboundWebhookUrl?: string;   // atendente enviou mensagem (log de atendimento no n8n)
   omniResolvedWebhookUrl?: string;   // conversa resolvida (pós-atendimento: CSAT, CRM sync)
   omniTransferWebhookUrl?: string;   // conversa transferida entre atendentes (notificar receptor)
+  omniSummaryWebhookUrl?: string;    // Workflow de resumo histórico do contato (sob demanda)
 }
 
 export interface C8ControlConfig {

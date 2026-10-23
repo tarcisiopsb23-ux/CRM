@@ -14,10 +14,11 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import {
   MessageCircle, Search, ChevronLeft, ChevronRight,
   Send, Paperclip, PenLine, Check, CheckCheck, Clock,
-  FileText, ExternalLink,
+  FileText, ExternalLink, User, Link2, Unlink, GitMerge,
+  Instagram, Facebook, Phone, X as XIcon, AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
-import { format, isToday, isYesterday, formatDistanceStrict, parseISO } from "date-fns";
+import { format, isToday, isYesterday, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,10 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle,
+} from "@/components/ui/sheet";
 
 import {
   useOmnichannelInbox,
@@ -332,6 +337,526 @@ function MessageBubble({ msg }: { msg: Message }) {
   );
 }
 
+// ─── ContactSheet modal ────────────────────────────────────────────────────────
+
+interface OmniContact {
+  id: string;
+  display_name: string | null;
+  phone: string | null;
+  email: string | null;
+  client_id: string | null;
+}
+
+interface OmniIdentity {
+  id: string;
+  channel_type: string;
+  external_user_id: string;
+  username: string | null;
+}
+
+interface ContactSheetProps {
+  contactId: string | null;
+  channelType: string | null;
+  clientId: string | null;
+  organizationId: string | null;
+  authUserId: string | null;
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  onContactChanged?: () => void;
+}
+
+function ChannelIcon({ ch }: { ch: string }) {
+  if (ch === "whatsapp")           return <Phone className="h-3.5 w-3.5 text-emerald-400 shrink-0" />;
+  if (ch.startsWith("instagram"))  return <Instagram className="h-3.5 w-3.5 text-pink-400 shrink-0" />;
+  if (ch.startsWith("facebook"))   return <Facebook className="h-3.5 w-3.5 text-blue-400 shrink-0" />;
+  return <User className="h-3.5 w-3.5 text-muted-foreground shrink-0" />;
+}
+
+function ContactSheet({
+  contactId,
+  channelType,
+  clientId,
+  organizationId,
+  authUserId,
+  open,
+  onOpenChange,
+  onContactChanged,
+}: ContactSheetProps) {
+  const [loading, setLoading]         = useState(false);
+  const [omniContactId, setOmniContactId] = useState<string | null>(null);
+  const [contact, setContact]         = useState<OmniContact | null>(null);
+  const [identities, setIdentities]   = useState<OmniIdentity[]>([]);
+
+  // Section 1 form
+  const [displayName, setDisplayName] = useState("");
+  const [phone, setPhone]             = useState("");
+  const [email, setEmail]             = useState("");
+  const [saving, setSaving]           = useState(false);
+
+  // Section 3 — client link
+  const [linkedClientName, setLinkedClientName] = useState<string | null>(null);
+  const [clientSearch, setClientSearch]         = useState("");
+  const [clientResults, setClientResults]       = useState<Array<{ id: string; name: string }>>([]);
+  const [linkingClient, setLinkingClient]       = useState(false);
+
+  // Section 4 — merge
+  const [mergeSearch, setMergeSearch]     = useState("");
+  const [mergeResults, setMergeResults]   = useState<Array<{ id: string; display_name: string | null; phone: string | null }>>([]);
+  const [mergeTarget, setMergeTarget]     = useState<{ id: string; display_name: string | null } | null>(null);
+  const [mergeConfirmOpen, setMergeConfirmOpen] = useState(false);
+  const [merging, setMerging]             = useState(false);
+
+  // ── Carregamento ────────────────────────────────────────────────────────────
+
+  const loadContact = useCallback(async () => {
+    if (!contactId) return;
+    setLoading(true);
+    try {
+      let resolvedId = contactId;
+
+      // Try to find omni_contacts row
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: rpcData } = await (supabase.rpc as any)('get_omni_contact_with_identities', {
+        p_contact_id: resolvedId,
+      });
+
+      if (rpcData?.contact) {
+        setOmniContactId(resolvedId);
+        setContact(rpcData.contact as OmniContact);
+        setIdentities((rpcData.identities ?? []) as OmniIdentity[]);
+        setDisplayName(rpcData.contact.display_name ?? "");
+        setPhone(rpcData.contact.phone ?? "");
+        setEmail(rpcData.contact.email ?? "");
+      } else {
+        // Fallback: try to find-or-create omni record via tenant identity
+        const { data: identityRow } = await supabase
+          .from('client_contact_identities')
+          .select('external_user_id, display_name')
+          .eq('contact_id', contactId)
+          .eq('channel_type', channelType ?? '')
+          .limit(1)
+          .maybeSingle();
+
+        if (identityRow?.external_user_id) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const { data: oid } = await (supabase.rpc as any)('upsert_omni_contact_identity', {
+            p_organization_id: organizationId,
+            p_channel_type: channelType,
+            p_external_user_id: identityRow.external_user_id,
+            p_display_name: identityRow.display_name ?? null,
+          });
+          if (oid) {
+            resolvedId = oid as string;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const { data: rpcData2 } = await (supabase.rpc as any)('get_omni_contact_with_identities', {
+              p_contact_id: resolvedId,
+            });
+            if (rpcData2?.contact) {
+              setOmniContactId(resolvedId);
+              setContact(rpcData2.contact as OmniContact);
+              setIdentities((rpcData2.identities ?? []) as OmniIdentity[]);
+              setDisplayName(rpcData2.contact.display_name ?? "");
+              setPhone(rpcData2.contact.phone ?? "");
+              setEmail(rpcData2.contact.email ?? "");
+            }
+          }
+        } else {
+          // No identity — show empty form
+          setOmniContactId(null);
+          setContact(null);
+          setIdentities([]);
+          setDisplayName("");
+          setPhone("");
+          setEmail("");
+        }
+      }
+
+      // Load linked client name if applicable
+      setLinkedClientName(null);
+      // We'll set after contact is loaded
+    } catch (err) {
+      console.error('[ContactSheet] loadContact error:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [contactId, channelType, organizationId]);
+
+  // Load linked client name when contact changes
+  useEffect(() => {
+    if (!contact?.client_id) { setLinkedClientName(null); return; }
+    supabase
+      .from('clients')
+      .select('name')
+      .eq('id', contact.client_id)
+      .maybeSingle()
+      .then(({ data }) => setLinkedClientName(data?.name ?? null));
+  }, [contact?.client_id]);
+
+  useEffect(() => {
+    if (open) {
+      setClientSearch("");
+      setClientResults([]);
+      setMergeSearch("");
+      setMergeResults([]);
+      setMergeTarget(null);
+      loadContact();
+    }
+  }, [open, contactId, loadContact]);
+
+  // ── Section 1: Save identification ─────────────────────────────────────────
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      if (!omniContactId) {
+        if (!organizationId || !channelType || !displayName) {
+          toast.error("Preencha pelo menos o nome para criar o contato");
+          return;
+        }
+        // Create via upsert using phone as external_user_id placeholder
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { data: newId } = await (supabase.rpc as any)('upsert_omni_contact_identity', {
+          p_organization_id: organizationId,
+          p_channel_type: channelType,
+          p_external_user_id: phone || `manual-${Date.now()}`,
+          p_display_name: displayName,
+        });
+        if (newId) {
+          await supabase
+            .from('omni_contacts')
+            .update({ display_name: displayName, phone, email })
+            .eq('id', newId);
+          setOmniContactId(newId as string);
+        }
+      } else {
+        const { error } = await supabase
+          .from('omni_contacts')
+          .update({ display_name: displayName, phone, email })
+          .eq('id', omniContactId);
+        if (error) throw error;
+      }
+      toast.success("Contato atualizado");
+      onContactChanged?.();
+      await loadContact();
+    } catch (err) {
+      toast.error("Erro ao salvar contato");
+      console.error('[ContactSheet] handleSave:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ── Section 2: Remove identity ─────────────────────────────────────────────
+
+  const handleRemoveIdentity = async (identityId: string) => {
+    const { error } = await supabase
+      .from('omni_contact_identities')
+      .delete()
+      .eq('id', identityId);
+    if (error) { toast.error("Erro ao remover canal"); return; }
+    setIdentities((prev) => prev.filter((i) => i.id !== identityId));
+    toast.success("Canal removido");
+  };
+
+  // ── Section 3: Client search & link ────────────────────────────────────────
+
+  useEffect(() => {
+    if (!clientSearch) { setClientResults([]); return; }
+    const timer = setTimeout(async () => {
+      const { data } = await supabase
+        .from('clients')
+        .select('id, name')
+        .ilike('name', `%${clientSearch}%`)
+        .limit(10);
+      setClientResults((data ?? []) as Array<{ id: string; name: string }>);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [clientSearch]);
+
+  const handleLinkClient = async (selectedId: string, selectedName: string) => {
+    if (!omniContactId) return;
+    setLinkingClient(true);
+    try {
+      const { error } = await supabase
+        .from('omni_contacts')
+        .update({ client_id: selectedId })
+        .eq('id', omniContactId);
+      if (error) throw error;
+      setLinkedClientName(selectedName);
+      setContact((c) => c ? { ...c, client_id: selectedId } : c);
+      setClientSearch("");
+      setClientResults([]);
+      toast.success("Vínculo criado");
+    } catch {
+      toast.error("Erro ao vincular cliente");
+    } finally {
+      setLinkingClient(false);
+    }
+  };
+
+  const handleUnlinkClient = async () => {
+    if (!omniContactId) return;
+    const { error } = await supabase
+      .from('omni_contacts')
+      .update({ client_id: null })
+      .eq('id', omniContactId);
+    if (error) { toast.error("Erro ao desvincular"); return; }
+    setLinkedClientName(null);
+    setContact((c) => c ? { ...c, client_id: null } : c);
+    toast.success("Vínculo removido");
+  };
+
+  // ── Section 4: Merge search ────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!mergeSearch || !omniContactId) { setMergeResults([]); return; }
+    const timer = setTimeout(async () => {
+      const { data } = await supabase
+        .from('omni_contacts')
+        .select('id, display_name, phone')
+        .ilike('display_name', `%${mergeSearch}%`)
+        .neq('id', omniContactId)
+        .limit(10);
+      setMergeResults((data ?? []) as Array<{ id: string; display_name: string | null; phone: string | null }>);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [mergeSearch, omniContactId]);
+
+  const handleMergeConfirm = async () => {
+    if (!mergeTarget || !omniContactId || !authUserId) return;
+    setMerging(true);
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (supabase.rpc as any)('merge_omni_contacts', {
+        p_winner_id: omniContactId,
+        p_loser_id: mergeTarget.id,
+        p_merged_by: authUserId,
+      });
+      if (error) throw error;
+      toast.success("Cadastros unificados com sucesso");
+      setMergeConfirmOpen(false);
+      setMergeTarget(null);
+      setMergeSearch("");
+      setMergeResults([]);
+      onContactChanged?.();
+      await loadContact();
+    } catch {
+      toast.error("Erro ao unificar cadastros");
+    } finally {
+      setMerging(false);
+    }
+  };
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
+  return (
+    <>
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto flex flex-col gap-0 p-0">
+          <SheetHeader className="px-4 py-3 border-b border-border shrink-0">
+            <SheetTitle className="flex items-center gap-2 text-sm">
+              <User className="h-4 w-4" />
+              Identificação do Contato
+            </SheetTitle>
+          </SheetHeader>
+
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto p-4 space-y-6">
+
+              {/* ── Seção 1: Identificação ──────────────────────────────── */}
+              <section className="space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Dados do contato
+                </p>
+                <div className="space-y-2">
+                  <div>
+                    <Label className="text-xs">Nome</Label>
+                    <Input
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      placeholder="Nome do contato"
+                      className="h-8 text-sm mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Telefone / WhatsApp</Label>
+                    <Input
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="+55 11 99999-0000"
+                      className="h-8 text-sm mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">E-mail</Label>
+                    <Input
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="email@exemplo.com"
+                      className="h-8 text-sm mt-1"
+                    />
+                  </div>
+                </div>
+                <Button size="sm" className="h-7 text-xs" onClick={handleSave} disabled={saving}>
+                  {saving ? "Salvando..." : "Salvar"}
+                </Button>
+              </section>
+
+              {/* ── Seção 2: Canais conectados ──────────────────────────── */}
+              <section className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Canais identificados
+                </p>
+                {identities.length === 0 ? (
+                  <p className="text-xs text-muted-foreground italic">Nenhum canal identificado</p>
+                ) : (
+                  <div className="space-y-1">
+                    {identities.map((id) => (
+                      <div key={id.id} className="flex items-center justify-between gap-2 rounded-md border border-border px-2 py-1.5">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <ChannelIcon ch={id.channel_type} />
+                          <span className="text-xs text-foreground truncate">
+                            {id.username ?? id.external_user_id}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveIdentity(id.id)}
+                          className="shrink-0 p-0.5 text-muted-foreground hover:text-destructive transition-colors"
+                          title="Remover canal"
+                        >
+                          <XIcon className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              {/* ── Seção 3: Vínculo a cliente ──────────────────────────── */}
+              <section className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Vínculo ao cliente
+                </p>
+                {linkedClientName ? (
+                  <div className="flex items-center justify-between gap-2 rounded-md border border-border px-2 py-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <Link2 className="h-3.5 w-3.5 text-primary shrink-0" />
+                      <span className="text-xs text-foreground">{linkedClientName}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleUnlinkClient}
+                      className="shrink-0 text-xs text-muted-foreground hover:text-destructive transition-colors flex items-center gap-1"
+                    >
+                      <Unlink className="h-3 w-3" /> Desvincular
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <Input
+                      value={clientSearch}
+                      onChange={(e) => setClientSearch(e.target.value)}
+                      placeholder="Buscar cliente para vincular..."
+                      className="h-8 text-xs"
+                      disabled={!omniContactId}
+                    />
+                    {clientResults.length > 0 && (
+                      <div className="rounded-md border border-border overflow-hidden">
+                        {clientResults.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            disabled={linkingClient}
+                            onClick={() => handleLinkClient(c.id, c.name)}
+                            className="w-full text-left px-2 py-1.5 text-xs hover:bg-secondary/40 transition-colors border-b border-border last:border-0"
+                          >
+                            {c.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {!omniContactId && (
+                      <p className="text-[11px] text-muted-foreground italic">
+                        Salve o contato primeiro para vincular
+                      </p>
+                    )}
+                  </div>
+                )}
+              </section>
+
+              {/* ── Seção 4: Unificar cadastros ─────────────────────────── */}
+              <section className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Unificar cadastros
+                </p>
+                <div className="rounded-md bg-amber-500/10 border border-amber-500/20 px-3 py-2 flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-amber-300">
+                    Esta ação não pode ser desfeita automaticamente. O cadastro selecionado será mesclado neste.
+                  </p>
+                </div>
+                <Input
+                  value={mergeSearch}
+                  onChange={(e) => setMergeSearch(e.target.value)}
+                  placeholder="Buscar outro cadastro para mesclar..."
+                  className="h-8 text-xs"
+                  disabled={!omniContactId}
+                />
+                {mergeResults.length > 0 && (
+                  <div className="rounded-md border border-border overflow-hidden">
+                    {mergeResults.map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => { setMergeTarget(m); setMergeConfirmOpen(true); }}
+                        className="w-full text-left px-2 py-1.5 text-xs hover:bg-secondary/40 transition-colors border-b border-border last:border-0"
+                      >
+                        <span className="font-medium">{m.display_name ?? "Sem nome"}</span>
+                        {m.phone && <span className="text-muted-foreground ml-1.5">{m.phone}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {!omniContactId && (
+                  <p className="text-[11px] text-muted-foreground italic">
+                    Salve o contato primeiro para habilitar a unificação
+                  </p>
+                )}
+              </section>
+
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
+
+      {/* Confirm merge dialog */}
+      <Dialog open={mergeConfirmOpen} onOpenChange={setMergeConfirmOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm">
+              <GitMerge className="h-4 w-4" /> Confirmar unificação
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            O cadastro <strong className="text-foreground">{mergeTarget?.display_name ?? "selecionado"}</strong> será mesclado neste contato. Todos os canais e histórico serão transferidos. Isso não pode ser desfeito automaticamente.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setMergeConfirmOpen(false)}>Cancelar</Button>
+            <Button size="sm" variant="destructive" onClick={handleMergeConfirm} disabled={merging}>
+              {merging ? "Unificando..." : "Confirmar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 // ─── Coluna esquerda ───────────────────────────────────────────────────────────
 
 type ChannelFilter = ChannelKey | null;
@@ -491,6 +1016,8 @@ interface CenterColumnProps {
   onTransfer?: (agentId: string, reason?: string) => Promise<void>;
   clientId?: string | null;
   myAgentId?: string | null;
+  organizationId?: string | null;
+  authUserId?: string | null;
 }
 
 function CenterColumn({
@@ -507,6 +1034,8 @@ function CenterColumn({
   onTransfer,
   clientId,
   myAgentId,
+  organizationId,
+  authUserId,
 }: CenterColumnProps) {
   const [inputText, setInputText] = useState("");
   const [isInternalNote, setIsInternalNote] = useState(false);
@@ -520,6 +1049,9 @@ function CenterColumn({
   const [selectedAgent, setSelectedAgent] = useState<string>('');
   const [transferReason, setTransferReason] = useState('');
   const [transferLoading, setTransferLoading] = useState(false);
+
+  // Contact sheet state
+  const [contactSheetOpen, setContactSheetOpen] = useState(false);
 
   const handleOpenTransfer = async () => {
     if (!clientId) return;
@@ -602,9 +1134,14 @@ function CenterColumn({
         )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-semibold text-foreground truncate">
+            <button
+              type="button"
+              onClick={() => setContactSheetOpen(true)}
+              className="text-sm font-semibold text-foreground truncate hover:underline text-left"
+              title="Ver / identificar contato"
+            >
               {conv.contact_name ?? conv.contact_phone ?? "Desconhecido"}
-            </span>
+            </button>
             <ChannelBadge channel={conv.channel_type} />
             <StatusBadgeSmall status={conv.status} />
           </div>
@@ -826,6 +1363,18 @@ function CenterColumn({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ContactSheet */}
+      <ContactSheet
+        contactId={activeConversation?.omni_contact_id ?? activeConversation?.contact_id ?? null}
+        channelType={activeConversation?.channel_type ?? null}
+        clientId={clientId ?? null}
+        organizationId={organizationId ?? null}
+        authUserId={authUserId ?? null}
+        open={contactSheetOpen}
+        onOpenChange={setContactSheetOpen}
+        onContactChanged={() => setContactSheetOpen(false)}
+      />
     </div>
   );
 }
@@ -1110,6 +1659,8 @@ export function OmnichannelInboxPage() {
           onTransfer={handleTransfer}
           clientId={auth?.id ?? null}
           myAgentId={myAgentId}
+          organizationId={auth?.organization_id ?? null}
+          authUserId={auth?.user?.id ?? null}
         />
       </div>
 
