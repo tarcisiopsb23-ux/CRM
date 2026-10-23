@@ -349,6 +349,24 @@ Deno.serve(async (req) => {
         }
       }
 
+      // Cria/atualiza omni_contact em paralelo (histórico unificado agência+cliente)
+      // Fire-and-forget — não bloqueia o fluxo principal
+      admin.rpc("upsert_omni_contact_identity", {
+        p_organization_id:  orgId,
+        p_channel_type:     channelType,
+        p_external_user_id: externalUserId,
+        p_display_name:     event.sender_name ?? null,
+        p_username:         event.sender_name ?? null,
+      }).then(({ data: omniContactId }) => {
+        if (omniContactId && conversationId) {
+          // Vincula omni_contact_id à conversa quando ela for criada
+          admin.rpc("link_conversation_omni_contact", {
+            p_conversation_id: conversationId,
+            p_omni_contact_id: omniContactId as string,
+          }).catch(() => {});
+        }
+      }).catch(() => {});
+
       // 5. Busca ou cria conversa ativa
       let conversationId: string | null = null;
       const { data: activeConv } = await admin
@@ -417,8 +435,7 @@ Deno.serve(async (req) => {
           .eq("id", eventRow.id);
       }
 
-      // 8. Dispara webhook n8n do cliente assincronamente
-      // Busca a URL do webhook n8n armazenada na organização
+      // 8. Dispara webhook n8n do cliente assincronamente (roteamento por canal)
       const { data: n8nCfg } = await admin
         .from("organization_integrations")
         .select("config")
@@ -426,7 +443,16 @@ Deno.serve(async (req) => {
         .eq("integration_type", "n8n")
         .maybeSingle();
 
-      const n8nWebhookUrl = (n8nCfg?.config as Record<string, string> | null)?.metaInboundClientWebhookUrl;
+      const cfg = (n8nCfg?.config as Record<string, string> | null) ?? {};
+
+      let n8nWebhookUrl: string | undefined;
+      if (channelType === "whatsapp") {
+        n8nWebhookUrl = cfg.whatsappAgentWebhookUrl;
+      } else if (channelType === "instagram_dm" || channelType === "instagram_comment") {
+        n8nWebhookUrl = cfg.instagramAgentWebhookUrl;
+      } else if (channelType === "facebook_dm" || channelType === "facebook_comment") {
+        n8nWebhookUrl = cfg.facebookAgentWebhookUrl;
+      }
 
       if (n8nWebhookUrl) {
         fetch(n8nWebhookUrl, {
@@ -451,6 +477,8 @@ Deno.serve(async (req) => {
             timestamp:          event.timestamp,
           }),
         }).catch(e => console.error("[meta-webhook-client] n8n dispatch error:", e.message));
+      } else {
+        console.warn(`[meta-webhook-client] No n8n webhook configured for channel_type=${channelType} (org=${orgId})`);
       }
 
       processed++;
