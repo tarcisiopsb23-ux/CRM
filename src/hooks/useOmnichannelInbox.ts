@@ -18,7 +18,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { useClientAuth } from "@/hooks/useClientAuth";
-import type { N8nConfig } from "@/types/settings";
 
 // ─── Tipos públicos ───────────────────────────────────────────────────────────
 
@@ -179,42 +178,6 @@ export function useOmnichannelInbox(): UseOmnichannelInboxReturn {
   const clientId = auth?.id ?? null;
   const orgId = auth?.organization_id ?? null;
   const userId = auth?.user?.id ?? null;
-
-  // ── Webhook helper ────────────────────────────────────────────────────────
-
-  const dispatchAttendanceWebhook = useCallback(async (
-    webhookKey: keyof Pick<N8nConfig,
-      | 'omniHandoffWebhookUrl'
-      | 'omniQueueWebhookUrl'
-      | 'omniFallbackWebhookUrl'
-      | 'omniOutboundWebhookUrl'
-      | 'omniResolvedWebhookUrl'
-      | 'omniTransferWebhookUrl'
-    >,
-    payload: Record<string, unknown>
-  ) => {
-    try {
-      if (!orgId) return;
-      const { data } = await supabase
-        .from('organization_integrations')
-        .select('config')
-        .eq('organization_id', orgId)
-        .eq('integration_type', 'n8n')
-        .maybeSingle();
-      const url = (data?.config as Record<string, string> | null)?.[webhookKey];
-      if (!url) return;
-      fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          client_id: clientId,
-          organization_id: orgId,
-          ...payload,
-          timestamp: new Date().toISOString(),
-        }),
-      }).catch(() => {});
-    } catch { /* silencioso */ }
-  }, [orgId, clientId]);
 
   // ── Estado ─────────────────────────────────────────────────────────────────
 
@@ -555,15 +518,8 @@ export function useOmnichannelInbox(): UseOmnichannelInboxReturn {
       if (error) {
         console.error("[useOmnichannelInbox] transferConversation error:", error);
       }
-      if (!error) {
-        await dispatchAttendanceWebhook('omniTransferWebhookUrl', {
-          conversation_id: conversationId,
-          to_agent_id: agentId,
-          reason: reason ?? null,
-        });
-      }
     },
-    [dispatchAttendanceWebhook]
+    []
   );
 
   const resolveConversation = useCallback(
@@ -581,9 +537,8 @@ export function useOmnichannelInbox(): UseOmnichannelInboxReturn {
         console.error("[useOmnichannelInbox] resolveConversation error:", error);
         return;
       }
-      await dispatchAttendanceWebhook('omniResolvedWebhookUrl', { conversation_id: conversationId });
     },
-    [clientId, dispatchAttendanceWebhook]
+    [clientId]
   );
 
   const toggleBotForConversation = useCallback(
@@ -597,15 +552,8 @@ export function useOmnichannelInbox(): UseOmnichannelInboxReturn {
       if (error) {
         console.error("[useOmnichannelInbox] toggleBotForConversation error:", error);
       }
-      if (!error && !botActive) {
-        // Bot foi desativado = handoff manual para humano
-        await dispatchAttendanceWebhook('omniHandoffWebhookUrl', {
-          conversation_id: conversationId,
-          type: 'manual_handoff',
-        });
-      }
     },
-    [clientId, dispatchAttendanceWebhook]
+    [clientId]
   );
 
   // ── Filtros ─────────────────────────────────────────────────────────────────
