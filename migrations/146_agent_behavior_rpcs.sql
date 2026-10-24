@@ -291,3 +291,130 @@ GRANT EXECUTE ON FUNCTION public.get_agent_status_by_channel(TEXT, TEXT) TO auth
 
 -- Atualizar schema_migrations para incluir esta RPC
 -- (já registrado como 146_agent_behavior_rpcs acima)
+
+-- ── resolve_conversation ─────────────────────────────────────────────────────
+-- RPC unificada para resolver/encerrar uma conversa.
+-- Funciona para agência (omni_conversations) e clientes C8 Control (client_channel_conversations).
+-- Reseta bot_active = true para que a próxima conversa comece com o bot ativo.
+-- Libera a carga do agente atribuído.
+--
+-- Uso no n8n (disparado pelo botão Resolver no chat ou pelo atendente):
+--   POST /rest/v1/rpc/resolve_conversation
+--   Body: {
+--     "p_conversation_id": "uuid",
+--     "p_source": "client",         -- "client" | "agency"
+--     "p_resolved_by": "uuid",      -- agent_id ou profile_id de quem resolveu
+--     "p_resolution": "resolved"    -- "resolved" | "closed"
+--   }
+
+CREATE OR REPLACE FUNCTION public.resolve_conversation(
+  p_conversation_id UUID,
+  p_source          TEXT,           -- "client" | "agency"
+  p_resolved_by     UUID DEFAULT NULL,
+  p_resolution      TEXT DEFAULT 'resolved'  -- "resolved" | "closed"
+)
+RETURNS JSONB
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_status      TEXT := CASE WHEN p_resolution = 'closed' THEN 'closed' ELSE 'resolved' END;
+  v_agent_id    UUID;
+  v_client_id   UUID;
+  v_org_id      UUID;
+BEGIN
+  IF p_source = 'client' THEN
+    -- ── Conversa de cliente C8 Control ──────────────────────────────────────
+    UPDATE public.client_channel_conversations
+    SET
+      status       = v_status,
+      bot_active   = true,          -- reseta: próxima conversa começa com bot ativo
+      resolved_at  = CASE WHEN v_status = 'resolved' THEN now() ELSE resolved_at END,
+      closed_at    = CASE WHEN v_status = 'closed'   THEN now() ELSE closed_at   END,
+      updated_at   = now()
+    WHERE id = p_conversation_id
+    RETURNING assigned_agent_id, client_id
+    INTO v_agent_id, v_client_id;
+
+    -- Libera carga do agente (client_agent_sessions)
+    IF v_agent_id IS NOT NULL THEN
+      UPDATE public.client_agent_sessions
+      SET
+        current_load      = GREATEST(0, current_load - 1),
+        resolutions_today = resolutions_today + 1,
+        updated_at        = now()
+      WHERE agent_id = v_agent_id;
+    END IF;
+
+    -- Remove da fila de espera se estiver lá
+    DELETE FROM public.client_queue_entries WHERE conversation_id = p_conversation_id;
+
+    -- Registra na timeline
+    INSERT INTO public.client_channel_timeline(
+      client_id, organization_id, conversation_id,
+      event_type, actor_type, actor_id, actor_name, metadata
+    )
+    SELECT
+      c.client_id, c.organization_id, p_conversation_id,
+      'conversation_' || v_status,
+      CASE WHEN p_resolved_by IS NOT NULL THEN 'human' ELSE 'system' END,
+      p_resolved_by::TEXT,
+      'Sistema',
+      jsonb_build_object('resolution', v_status, 'resolved_by', p_resolved_by)
+    FROM public.client_channel_conversations c
+    WHERE c.id = p_conversation_id;
+
+  ELSIF p_source = 'agency' THEN
+    -- ── Conversa da agência (omni_conversations) ─────────────────────────────
+    UPDATE public.omni_conversations
+    SET
+      omni_status  = v_status::omni_conv_status,
+      bot_context  = NULL,          -- limpa contexto do bot
+      resolved_at  = CASE WHEN v_status = 'resolved' THEN now() ELSE resolved_at END,
+      closed_at    = CASE WHEN v_status = 'closed'   THEN now() ELSE closed_at   END,
+      updated_at   = now()
+    WHERE id = p_conversation_id
+    RETURNING assigned_agent_id, organization_id
+    INTO v_agent_id, v_org_id;
+
+    -- Libera carga do agente (omni_agent_sessions)
+    IF v_agent_id IS NOT NULL THEN
+      UPDATE public.omni_agent_sessions
+      SET
+        current_load = GREATEST(0, current_load - 1),
+        updated_at   = now()
+      WHERE agent_id = (
+        SELECT id FROM public.omni_agents
+        WHERE profile_id = v_agent_id AND organization_id = v_org_id
+        LIMIT 1
+      );
+    END IF;
+
+    -- Remove da fila de espera
+    DELETE FROM public.omni_queue_entries WHERE conversation_id = p_conversation_id;
+
+    -- Registra na timeline
+    INSERT INTO public.omni_timeline_events(
+      organization_id, conversation_id,
+      event_type, actor_type, actor_id, metadata
+    )
+    SELECT
+      c.organization_id, p_conversation_id,
+      'conversation_' || v_status,
+      CASE WHEN p_resolved_by IS NOT NULL THEN 'human' ELSE 'system' END,
+      p_resolved_by::TEXT,
+      jsonb_build_object('resolution', v_status, 'resolved_by', p_resolved_by)
+    FROM public.omni_conversations c
+    WHERE c.id = p_conversation_id;
+
+  ELSE
+    RETURN jsonb_build_object('error', 'invalid_source', 'source', p_source);
+  END IF;
+
+  RETURN jsonb_build_object(
+    'success',         true,
+    'conversation_id', p_conversation_id,
+    'status',          v_status,
+    'source',          p_source,
+    'bot_active_reset', true
+  );
+END; $$;
+GRANT EXECUTE ON FUNCTION public.resolve_conversation(UUID, TEXT, UUID, TEXT) TO authenticated, anon, service_role;
