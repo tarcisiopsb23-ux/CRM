@@ -204,3 +204,90 @@ GRANT EXECUTE ON FUNCTION public.get_agent_knowledge_policies(UUID) TO authentic
 INSERT INTO public.schema_migrations (version)
 VALUES ('146_agent_behavior_rpcs')
 ON CONFLICT (version) DO NOTHING;
+
+-- ── get_agent_status_by_channel ───────────────────────────────────────────────
+-- RPC unificada: resolve client_id/org_id pelo identificador do canal
+-- e retorna o status do bot em uma única chamada.
+-- Ideal para o primeiro node do workflow n8n — substitui o lookup separado.
+--
+-- Uso no n8n:
+--   POST /rest/v1/rpc/get_agent_status_by_channel
+--   Body: { "p_channel_type": "instagram", "p_channel_id": "17841476539962052" }
+--
+-- p_channel_type: "whatsapp" | "instagram" | "facebook"
+-- p_channel_id:
+--   whatsapp  → whatsapp_phone_number_id
+--   instagram → instagram_account_id
+--   facebook  → facebook_page_id
+
+CREATE OR REPLACE FUNCTION public.get_agent_status_by_channel(
+  p_channel_type TEXT,
+  p_channel_id   TEXT
+)
+RETURNS JSONB
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_client_id UUID;
+  v_org_id    UUID;
+  v_conn_id   UUID;
+BEGIN
+  -- Resolve client_id/org_id pela conexão Meta ativa
+  CASE p_channel_type
+    WHEN 'whatsapp' THEN
+      SELECT c.id, c.organization_id, mc.id
+      INTO v_client_id, v_org_id, v_conn_id
+      FROM public.meta_connections mc
+      LEFT JOIN public.clients c ON c.id = mc.client_id
+      WHERE mc.whatsapp_phone_number_id = p_channel_id
+        AND mc.status = 'active'
+      LIMIT 1;
+
+    WHEN 'instagram' THEN
+      SELECT c.id, c.organization_id, mc.id
+      INTO v_client_id, v_org_id, v_conn_id
+      FROM public.meta_connections mc
+      LEFT JOIN public.clients c ON c.id = mc.client_id
+      WHERE mc.instagram_account_id = p_channel_id
+        AND mc.status = 'active'
+      LIMIT 1;
+
+    WHEN 'facebook' THEN
+      SELECT c.id, c.organization_id, mc.id
+      INTO v_client_id, v_org_id, v_conn_id
+      FROM public.meta_connections mc
+      LEFT JOIN public.clients c ON c.id = mc.client_id
+      WHERE mc.facebook_page_id = p_channel_id
+        AND mc.status = 'active'
+      LIMIT 1;
+
+    ELSE
+      RETURN jsonb_build_object('error', 'invalid_channel_type', 'channel_type', p_channel_type);
+  END CASE;
+
+  IF v_client_id IS NULL AND v_org_id IS NULL THEN
+    RETURN jsonb_build_object('error', 'client_not_found', 'channel_type', p_channel_type, 'channel_id', p_channel_id);
+  END IF;
+
+  -- Busca status do agente em agent_configs
+  RETURN (
+    SELECT jsonb_build_object(
+      'client_id',                 v_client_id,
+      'org_id',                    v_org_id,
+      'connection_id',             v_conn_id,
+      'channel_type',              p_channel_type,
+      'bot_active',                COALESCE(ac.is_active, true),
+      'auto_assign',               COALESCE(ac.auto_assign, false),
+      'fallback_assign_after_mins', COALESCE(ac.fallback_assign_after_mins, 2),
+      'handles_whatsapp',          COALESCE(ac.handles_whatsapp, true),
+      'handles_instagram',         COALESCE(ac.handles_instagram, true),
+      'handles_facebook',          COALESCE(ac.handles_facebook, true)
+    )
+    FROM (SELECT v_client_id AS cid) base
+    LEFT JOIN public.agent_configs ac ON ac.client_id = base.cid
+    LIMIT 1
+  );
+END; $$;
+GRANT EXECUTE ON FUNCTION public.get_agent_status_by_channel(TEXT, TEXT) TO authenticated, anon, service_role;
+
+-- Atualizar schema_migrations para incluir esta RPC
+-- (já registrado como 146_agent_behavior_rpcs acima)
