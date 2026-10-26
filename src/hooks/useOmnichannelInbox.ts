@@ -525,20 +525,24 @@ export function useOmnichannelInbox(): UseOmnichannelInboxReturn {
   const resolveConversation = useCallback(
     async (conversationId: string) => {
       if (!clientId) return;
-      const { error } = await supabase
-        .from("client_channel_conversations")
-        .update({
-          status: "resolved",
-          resolved_at: new Date().toISOString(),
-        })
-        .eq("id", conversationId)
-        .eq("client_id", clientId);
+      // Usa RPC resolve_conversation — encerra a conversa, reseta bot_active=true
+      // para que a próxima mensagem do mesmo contato seja atendida pelo bot.
+      // Não afeta outras conversas.
+      const { data, error } = await supabase.rpc("resolve_conversation", {
+        p_conversation_id: conversationId,
+        p_source:          "client",
+        p_resolved_by:     userId ?? null,
+      });
       if (error) {
         console.error("[useOmnichannelInbox] resolveConversation error:", error);
         return;
       }
+      const result = data as { success: boolean; reason?: string } | null;
+      if (result && !result.success) {
+        console.warn("[useOmnichannelInbox] resolveConversation:", result.reason);
+      }
     },
-    [clientId]
+    [clientId, userId]
   );
 
   const toggleBotForConversation = useCallback(
