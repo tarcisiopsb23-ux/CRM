@@ -10,3 +10,4 @@ export { HolidaysSection } from "./HolidaysSection";
 export { C8ControlSection } from "./C8ControlSection";
 export { NotaasSection } from "./NotaasSection";
 export { EmailTemplatesTab } from "./EmailTemplatesTab";
+export { ChatAttendanceSection } from "./ChatAttendanceSection";

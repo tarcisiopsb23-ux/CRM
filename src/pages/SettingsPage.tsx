@@ -1,5 +1,6 @@
 import {
   ApiKeysSection,
+  ChatAttendanceSection,
   SettingsInput,
   SettingsSection,
   WebhooksSection,
@@ -391,6 +392,7 @@ export function SettingsPage() {
 
           <WebhooksSection />
           <N8nSection />
+          <ChatAttendanceSection organizationId={organizationId} />
           <AgencyMetaTokenSection />
           <ResendSection />
           <GoogleCalendarSection />

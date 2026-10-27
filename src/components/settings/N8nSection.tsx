@@ -47,6 +47,9 @@ const FIELD_DEFS: {
   { key: "c8ClientOpsWebhookUrl",      label: "Webhook: Operações no Banco do Cliente (test, reset senha, apply schema)",     placeholder: "https://n8n.dominio.com/webhook/c8-client-ops",              section: "c8" },
   { key: "c8SchemaRawUrl",             label: "URL Raw do Schema (bank_b_full_schema.sql — API do GitHub, não URL do browser)", placeholder: "https://api.github.com/repos/seu-usuario/seu-repo/contents/migrations/bank_b_full_schema.sql", section: "c8" },
   { key: "githubToken",                label: "GitHub Token (repositório privado — Personal Access Token com read:repo)",      placeholder: "ghp_...",                                                    section: "c8" },
+  { key: "whatsappAgentWebhookUrl",   label: "Webhook: WhatsApp Agent (n8n_whatsapp_agent)",   placeholder: "https://seu-n8n.com/webhook/whatsapp-agent",  section: "chat" },
+  { key: "instagramAgentWebhookUrl",  label: "Webhook: Instagram Agent (n8n_instagram_agent)", placeholder: "https://seu-n8n.com/webhook/instagram-agent", section: "chat" },
+  { key: "facebookAgentWebhookUrl",   label: "Webhook: Facebook Agent (n8n_facebook_agent)",   placeholder: "https://seu-n8n.com/webhook/facebook-agent",  section: "chat" },
 ];
 
 const CACHE_PREFIX = "n8n_cfg_";
@@ -368,6 +371,17 @@ export function N8nSection() {
             </code>
           </div>
           {FIELD_DEFS.filter((f) => f.section === "c8").map(({ key, label, placeholder }) => (
+            <SettingsInput key={key} label={label} value={v(key)} onChange={(val) => setValue(key, val)} placeholder={placeholder} />
+          ))}
+        </div>
+
+        {/* Chat & Atendimento Omnichannel */}
+        <div className="space-y-4">
+          <h4 className="text-xs font-black uppercase tracking-widest text-slate-500">Chat & Atendimento Omnichannel</h4>
+          <p className="text-[10px] text-slate-400 italic">
+            URLs dos workflows n8n que processam mensagens recebidas por canal. Um único workflow por canal atende todos os clientes. A Edge Function <code>meta-webhook-client</code> roteia automaticamente para o webhook correto com base no canal da mensagem.
+          </p>
+          {FIELD_DEFS.filter((f) => f.section === "chat").map(({ key, label, placeholder }) => (
             <SettingsInput key={key} label={label} value={v(key)} onChange={(val) => setValue(key, val)} placeholder={placeholder} />
           ))}
         </div>
