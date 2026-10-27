@@ -2,11 +2,12 @@
  * usePartnerUsers
  *
  * CRUD de parceiros/terceirizados (partner_users) para o Maestr.IA.
- * Inclui:
- *   - Listagem de parceiros da organização
- *   - Criação/convite via Edge Function partner-invite
- *   - Atualização de dados (nome, especialidade, ativo)
- *   - Desativação (soft delete via active=false)
+ *
+ * Dois tipos de parceiro:
+ *   'agency' → vinculado a um fornecedor existente (supplier_id), pode ser
+ *              atribuído a qualquer cliente da organização.
+ *   'client' → vinculado a um cliente específico (client_id), cadastrado
+ *              diretamente pelo cliente sem vínculo financeiro com a agência.
  */
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -21,6 +22,8 @@ export type PartnerSpecialty =
   | "designer" | "videomaker" | "copywriter"
   | "fotografo" | "social_media" | "outro";
 
+export type PartnerType = "agency" | "client";
+
 export interface PartnerUser {
   id:              string;
   organization_id: string;
@@ -32,38 +35,53 @@ export interface PartnerUser {
   avatar_url:      string | null;
   phone:           string | null;
   active:          boolean;
+  partner_type:    PartnerType;
+  supplier_id:     string | null;   // type = agency
+  client_id:       string | null;   // type = client
   last_seen_at:    string | null;
   created_at:      string;
   updated_at:      string;
+  // joins opcionais
+  supplier_name?:  string | null;
+  client_name?:    string | null;
 }
 
 export interface PartnerInviteInput {
-  email:       string;
-  full_name:   string;
-  specialty?:  PartnerSpecialty;
-  phone?:      string;
-  /** Slug identificador do parceiro — gerado automaticamente se não fornecido */
-  partner_slug?: string;
-  /** Senha inicial — se não fornecida, o parceiro recebe link de definição */
-  password?:   string;
+  email:           string;
+  full_name:       string;
+  partner_type:    PartnerType;
+  supplier_id?:    string;   // obrigatório se agency
+  client_id?:      string;   // obrigatório se client
+  specialty?:      PartnerSpecialty;
+  phone?:          string;
+  partner_slug?:   string;
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
-export function usePartnerUsers() {
+export function usePartnerUsers(filterClientId?: string) {
   const qc             = useQueryClient();
   const organizationId = useOrganization();
 
+  // ── Listagem ───────────────────────────────────────────────────────────────
   const query = useQuery({
-    queryKey: ["partner-users", organizationId],
+    queryKey: ["partner-users", organizationId, filterClientId],
     enabled:  !!organizationId,
     queryFn:  async (): Promise<PartnerUser[]> => {
       if (!organizationId) return [];
-      const { data, error } = await supabase
+
+      let q = supabase
         .from("partner_users")
         .select("*")
         .eq("organization_id", organizationId)
         .order("created_at", { ascending: false });
+
+      // Filtro opcional por cliente (para listar parceiros de um cliente específico)
+      if (filterClientId) {
+        q = q.or(`partner_type.eq.agency,client_id.eq.${filterClientId}`);
+      }
+
+      const { data, error } = await q;
       if (error) throw error;
       return (data ?? []) as PartnerUser[];
     },
@@ -72,7 +90,6 @@ export function usePartnerUsers() {
   // ── Convidar novo parceiro ─────────────────────────────────────────────────
   const invite = useMutation({
     mutationFn: async (input: PartnerInviteInput) => {
-      // Usa a sessão atual do Maestr.IA para autorizar a criação
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error("Não autenticado");
 
@@ -86,12 +103,47 @@ export function usePartnerUsers() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Falha ao convidar parceiro");
-      return data as { partner_user_id: string; partner_slug: string };
+      return data as {
+        success:         boolean;
+        partner_user_id: string;
+        partner_slug:    string;
+        login_key:       string;
+        email_sent:      boolean;
+        partner_type:    PartnerType;
+        temp_password?:  string;
+        message:         string;
+      };
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["partner-users", organizationId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["partner-users", organizationId] });
+    },
   });
 
-  // ── Atualizar dados do parceiro ────────────────────────────────────────────
+  // ── Reenviar convite ───────────────────────────────────────────────────────
+  const resendInvite = useMutation({
+    mutationFn: async (partnerId: string) => {
+      const partner = query.data?.find(p => p.id === partnerId);
+      if (!partner) throw new Error("Parceiro não encontrado");
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Não autenticado");
+
+      // Cria novo token de convite
+      const { data: tokenData, error: tokenErr } = await supabase
+        .from("partner_invite_tokens")
+        .insert({ partner_id: partnerId })
+        .select("token")
+        .single();
+      if (tokenErr) throw tokenErr;
+
+      return { token: tokenData.token, partner };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["partner-users", organizationId] });
+    },
+  });
+
+  // ── Atualizar dados ────────────────────────────────────────────────────────
   const update = useMutation({
     mutationFn: async ({
       id,
@@ -107,10 +159,12 @@ export function usePartnerUsers() {
       if (error) throw error;
       return data as PartnerUser;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["partner-users", organizationId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["partner-users", organizationId] });
+    },
   });
 
-  // ── Desativar parceiro ─────────────────────────────────────────────────────
+  // ── Desativar ──────────────────────────────────────────────────────────────
   const deactivate = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase
@@ -120,10 +174,12 @@ export function usePartnerUsers() {
         .eq("organization_id", organizationId!);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["partner-users", organizationId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["partner-users", organizationId] });
+    },
   });
 
-  // ── Reativar parceiro ──────────────────────────────────────────────────────
+  // ── Reativar ───────────────────────────────────────────────────────────────
   const reactivate = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase
@@ -133,18 +189,22 @@ export function usePartnerUsers() {
         .eq("organization_id", organizationId!);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["partner-users", organizationId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["partner-users", organizationId] });
+    },
   });
 
   return {
-    partners:    query.data ?? [],
-    loading:     query.isLoading,
-    error:       query.error,
-    invite:      invite.mutateAsync,
-    update:      update.mutateAsync,
-    deactivate:  deactivate.mutateAsync,
-    reactivate:  reactivate.mutateAsync,
-    isInviting:  invite.isPending,
-    isUpdating:  update.isPending,
+    partners:     query.data ?? [],
+    agencyPartners: (query.data ?? []).filter(p => p.partner_type === "agency"),
+    clientPartners: (query.data ?? []).filter(p => p.partner_type === "client"),
+    loading:      query.isLoading,
+    error:        query.error,
+    invite:       invite.mutateAsync,
+    resendInvite: resendInvite.mutateAsync,
+    update:       update.mutateAsync,
+    deactivate:   deactivate.mutateAsync,
+    reactivate:   reactivate.mutateAsync,
+    isInviting:   invite.isPending,
   };
 }
