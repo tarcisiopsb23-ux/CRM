@@ -158,11 +158,23 @@ export async function executeNode(
         };
       }
 
-      // Retomada: incomingHandle é o id do botão clicado (ou 'btn_0' como fallback)
+      // Retomada com handle de botão esperado (btn_0, btn_1 etc.)
+      // Se incomingHandle for 'answer' (texto livre em vez de clique no botão)
+      // ou outro handle não reconhecido, reenvia os botões para não silenciar o usuário.
       const handle = incomingHandle ?? 'btn_0';
+      const nextNodeId = getNextNodeId(edges, node.id, handle);
+
+      if (!nextNodeId) {
+        // Handle não corresponde a nenhuma aresta: reenvia botões aguardando novo clique
+        return {
+          actions: [{ type: 'send_buttons', text, buttons }],
+          wait: true,
+        };
+      }
+
       return {
         actions: [],
-        nextNodeId: getNextNodeId(edges, node.id, handle),
+        nextNodeId,
       };
     }
 
@@ -247,8 +259,9 @@ export async function executeNode(
         return { actions: [], done: true };
       }
 
-      // Marca fluxo atual como concluído
-      await supabaseClient.rpc('upsert_flow_state', {
+      // Marca fluxo atual como concluído antes de criar o novo estado.
+      // Se falhar, abortamos para evitar violação de uq_cfs_active no insert seguinte.
+      const { error: completeErr } = await supabaseClient.rpc('upsert_flow_state', {
         p_id:              state.id ?? null,
         p_organization_id: state.organization_id,
         p_client_id:       state.client_id,
@@ -260,6 +273,10 @@ export async function executeNode(
         p_channel:         state.channel,
         p_expires_at:      state.expires_at,
       });
+      if (completeErr) {
+        console.error('[bot-router] go_to_flow: falha ao marcar estado atual como completed:', completeErr.message);
+        return { actions: [], done: true };
+      }
 
       // Busca fluxo destino
       const { data: targetFlow, error: flowErr } = await supabaseClient

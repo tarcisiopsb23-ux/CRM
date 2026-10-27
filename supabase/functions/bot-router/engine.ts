@@ -12,12 +12,18 @@ function addHours(hours: number): string {
 }
 
 // ── Helper: persiste estado no banco ─────────────────────────────────────────
+// Para estados terminais (completed, error) expires_at é passado como null:
+// o estado não será consultado pelo motor novamente e o valor original poderia
+// estar desatualizado (já no passado), gerando inconsistência nos registros históricos.
 async function upsertState(
   sb: ReturnType<typeof createClient>,
   state: FlowState,
   status: string,
   nodeId?: string
 ): Promise<void> {
+  // Estados terminais não têm semântica de expiração; gravar null evita
+  // registros históricos com expires_at stale.
+  const isTerminal = status === 'completed' || status === 'error';
   await sb.rpc('upsert_flow_state', {
     p_id:              state.id ?? null,
     p_organization_id: state.organization_id,
@@ -28,7 +34,7 @@ async function upsertState(
     p_variables:       state.variables,
     p_status:          status,
     p_channel:         state.channel,
-    p_expires_at:      state.expires_at,
+    p_expires_at:      isTerminal ? null : state.expires_at,
   });
   // deno-lint-ignore no-explicit-any
   (state as any).status = status;

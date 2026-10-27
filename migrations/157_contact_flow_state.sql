@@ -27,8 +27,8 @@ CREATE TABLE IF NOT EXISTS public.contact_flow_state (
                     'facebook_dm',  'facebook_comment'
                   )),
 
-  -- Quando este estado de espera expira
-  expires_at      TIMESTAMPTZ NOT NULL DEFAULT (now() + INTERVAL '24 hours'),
+  -- Quando este estado de espera expira (NULL para estados terminais)
+  expires_at      TIMESTAMPTZ DEFAULT (now() + INTERVAL '24 hours'),
 
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
