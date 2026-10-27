@@ -7,9 +7,10 @@
 //   4. Busca estado ativo (running/waiting) do contato
 //   5a. Estado waiting válido → prepara retomada com handle de entrada
 //   5b. Sem estado (ou expirado) → busca trigger_keyword, cria estado inicial
+//        Se nenhum trigger casou → retorna {mode:'n8n'} (antes do motor)
 //   6. Executa motor de fluxo via executeFlowWithHandle
-//   7. Se actions vazio → retorna {mode:'n8n'} (fallback silencioso)
-//   8. Retorna {mode:'flow', actions}
+//   7. Retorna {mode:'flow', actions} — actions pode ser [] para fluxos sem
+//        saída visível (ex: cadeia set_variable); não confundir com fallback n8n
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import type {
@@ -292,10 +293,10 @@ export async function resolveAndExecute(
       incomingHandle
     );
 
-    // 7. Actions vazias → fallback n8n
-    if (actions.length === 0) return { mode: 'n8n' };
-
-    // 8. Retorna ao n8n
+    // 7. Retorna ao n8n
+    // Nota: NÃO aplicamos guard "actions.length === 0" aqui — um fluxo que
+    // completa com zero ações visíveis (ex: cadeia pura de set_variable) ainda
+    // deve retornar {mode:'flow'} para que o n8n não ative o handler de IA.
     return { mode: 'flow', actions };
 
   } catch (e: unknown) {
