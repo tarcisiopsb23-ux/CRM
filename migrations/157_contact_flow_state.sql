@@ -41,7 +41,7 @@ CREATE TRIGGER trg_cfs_updated_at
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Constraint: um contato só pode ter UM estado ativo (running ou waiting) por canal
-CREATE UNIQUE INDEX IF NOT EXISTS uq_cfs_active
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cfs_active_state
   ON public.contact_flow_state(client_id, contact_id, channel)
   WHERE (status IN ('running', 'waiting'));
 

@@ -72,15 +72,10 @@ export async function executeFlow(
     currentHandle = undefined; // handle só se aplica na primeira iteração do loop
 
     if (result.wait) {
-      // Nó aguarda resposta: persiste estado 'waiting' e retorna actions geradas
-      await upsertState(
-        supabaseClient,
-        state,
-        'waiting',
-        node.id  // persiste o nó atual (onde estamos aguardando)
-      );
-      // Atualiza expires_at baseado no timeout do fluxo
+      // Nó aguarda resposta: persiste estado 'waiting' e retorna actions geradas.
+      // Calcula expires_at antes do upsert para gravar o valor correto num único write.
       state.expires_at = addHours(flow.default_timeout_hours);
+      state.current_node_id = node.id;
       await supabaseClient.rpc('upsert_flow_state', {
         p_id:              state.id ?? null,
         p_organization_id: state.organization_id,
@@ -93,6 +88,8 @@ export async function executeFlow(
         p_channel:         state.channel,
         p_expires_at:      state.expires_at,
       });
+      // deno-lint-ignore no-explicit-any
+      (state as any).status = 'waiting';
       return actions;
     }
 
