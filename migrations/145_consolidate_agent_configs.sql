@@ -26,10 +26,43 @@ SET
   outside_hours_message_v2   = qr.outside_hours_message,
   human_hours_start          = qr.human_hours_start,
   human_hours_end            = qr.human_hours_end,
-  human_days                 = COALESCE(qr.human_days, ARRAY['seg','ter','qua','qui','sex']),
-  handoff_keywords           = COALESCE(qr.handoff_keywords, ac.handoff_keywords, '{}')
+  -- qr.human_days é INTEGER[] (migration 107: 0=Dom,1=Seg..6=Sab); converter p/ TEXT[] PT-BR
+  human_days                 = COALESCE(
+    (SELECT array_agg(
+       CASE d
+         WHEN 0 THEN 'dom'::text
+         WHEN 1 THEN 'seg'
+         WHEN 2 THEN 'ter'
+         WHEN 3 THEN 'qua'
+         WHEN 4 THEN 'qui'
+         WHEN 5 THEN 'sex'
+         WHEN 6 THEN 'sab'
+         ELSE 'seg'
+       END
+     ) FROM unnest(qr.human_days) AS t(d)),
+    ARRAY['seg','ter','qua','qui','sex']::text[]
+  )
 FROM public.client_queue_rules qr
 WHERE qr.client_id = ac.client_id;
+
+-- handoff_keywords: copiar de client_queue_rules somente se a coluna existir lá.
+-- (145 remove essa coluna no final; re-runs/idempotência não a encontram mais.)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name   = 'client_queue_rules'
+      AND column_name  = 'handoff_keywords'
+  ) THEN
+    EXECUTE $q$
+      UPDATE public.agent_configs ac
+      SET handoff_keywords = COALESCE(qr.handoff_keywords, ac.handoff_keywords, '{}')
+      FROM public.client_queue_rules qr
+      WHERE qr.client_id = ac.client_id
+    $q$;
+  END IF;
+END $$;
 
 -- Sincroniza is_active com client_ai_settings.bot_active (tudo no Banco A)
 UPDATE public.agent_configs ac
