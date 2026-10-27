@@ -14,7 +14,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Pencil, Trash2, Plus, Loader2, UtensilsCrossed, ImagePlus, X } from "lucide-react";
+import { Pencil, Trash2, Plus, Loader2, Star, ImagePlus, X } from "lucide-react";
 import { useClientAuth } from "@/hooks/useClientAuth";
 import { useDynamicClient } from "@/hooks/useDynamicClient";
 import { PageHeader } from "./components/PageHeader";
@@ -284,8 +284,8 @@ export function SugestoesPage() {
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-6">
       <PageHeader
-        title="Sugestões da Semana"
-        description="Pratos em destaque que a IA recomenda nas conversas."
+        title="Destaques"
+        description="Itens em destaque que o agente recomenda proativamente nas conversas."
         action={
           <Button onClick={openCreate} className="bg-gradient-ember text-primary-foreground shadow-glow hover:opacity-95">
             <Plus className="h-4 w-4" /> Nova Sugestão
@@ -446,7 +446,7 @@ export function SugestoesPage() {
               <Textarea
                 value={form.rules}
                 onChange={(e) => setForm((f) => ({ ...f, rules: e.target.value }))}
-                placeholder={"Ex: Não informar a margem de lucro do prato.\nInformar que pode ser feito sem glúten mediante pedido."}
+                placeholder={"Ex: Não informar o custo de produção.\nInformar que pode ser personalizado mediante solicitação."}
                 rows={3}
                 className="resize-y bg-background border-border text-foreground placeholder:text-muted-foreground"
               />

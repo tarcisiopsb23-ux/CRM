@@ -349,7 +349,7 @@ export function PromocoesPage() {
                 id="type"
                 value={form.type}
                 onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
-                placeholder="ex: Bebida, Prato, Combo"
+                placeholder="ex: Produto, Serviço, Pacote"
                 className="bg-background border-border text-foreground placeholder:text-muted-foreground focus-visible:ring-primary"
               />
             </div>

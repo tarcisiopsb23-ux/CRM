@@ -8,9 +8,9 @@ import { useForm } from "react-hook-form";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
-  BellRing, CalendarDays, Tag, UtensilsCrossed,
+  BellRing, CalendarDays, Tag, Star,
   HelpCircle, ScrollText, Package, Clock, FileText, Info,
-  Phone, Plus, Trash2, Save, Loader2, Star, MessageCircle,
+  Phone, Plus, Trash2, Save, Loader2, MessageCircle,
   ImagePlus, X, Pencil,
 } from "lucide-react";
 import { Badge }    from "@/components/ui/badge";
@@ -50,7 +50,7 @@ const TABS: Tab[] = [
   { id: "avisos",    label: "Avisos",      icon: BellRing },
   { id: "eventos",   label: "Eventos",     icon: CalendarDays },
   { id: "promocoes", label: "Promoções",   icon: Tag },
-  { id: "sugestoes", label: "Sugestões",   icon: UtensilsCrossed },
+  { id: "sugestoes", label: "Destaques",    icon: Star },
   { id: "contato",   label: "Contato",     icon: Phone },
   { id: "horarios",  label: "Horários",    icon: Clock },
   { id: "faq",       label: "FAQ",         icon: HelpCircle },
@@ -565,13 +565,13 @@ function ServicosTab() {
         <DialogContent className="sm:max-w-lg">
           <DialogHeader><DialogTitle>{editing ? "Editar serviço" : "Novo serviço"}</DialogTitle><DialogDescription>Configure um serviço para o agente apresentar aos clientes.</DialogDescription></DialogHeader>
           <form onSubmit={form.handleSubmit((v) => save.mutate(v))} className="space-y-4 mt-2">
-            <div className="space-y-2"><Label>Nome <span className="text-destructive">*</span></Label><Input {...form.register("name", { required: true })} placeholder="Ex: Corte de cabelo" /></div>
-            <div className="space-y-2"><Label>Descrição <span className="text-destructive">*</span></Label><Textarea {...form.register("description", { required: true })} rows={3} placeholder="Descreva o serviço brevemente..." /></div>
+            <div className="space-y-2"><Label>Nome <span className="text-destructive">*</span></Label><Input {...form.register("name", { required: true })} placeholder="Ex: Consultoria, Plano Mensal, Instalação" /></div>
+            <div className="space-y-2"><Label>Descrição <span className="text-destructive">*</span></Label><Textarea {...form.register("description", { required: true })} rows={3} placeholder="Descreva o produto ou serviço brevemente..." /></div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2"><Label>Preço</Label><Input {...form.register("price_info")} placeholder="Ex: R$ 50,00 / R$ 50 a 100" /></div>
-              <div className="space-y-2"><Label>Duração</Label><Input {...form.register("duration_info")} placeholder="Ex: 1 hora" /></div>
+              <div className="space-y-2"><Label>Preço</Label><Input {...form.register("price_info")} placeholder="Ex: R$ 150,00 / sob consulta" /></div>
+              <div className="space-y-2"><Label>Duração / Entrega</Label><Input {...form.register("duration_info")} placeholder="Ex: 2 horas, 5 dias úteis" /></div>
             </div>
-            <div className="space-y-2"><Label>Categoria</Label><Input {...form.register("category")} placeholder="Ex: Estética" /></div>
+            <div className="space-y-2"><Label>Categoria</Label><Input {...form.register("category")} placeholder="Ex: Marketing, Suporte, Consultoria" /></div>
             <div className="flex items-center gap-2"><Switch checked={form.watch("active")} onCheckedChange={(v) => form.setValue("active", v)} /><Label>Ativo</Label></div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
