@@ -787,6 +787,15 @@ export function ChatbotAgentePage() {
           .insert({ client_id: clientId, bot_active: botActive });
         if (error) throw error;
       }
+
+      // 3. Salva bot_mode / bot_mode_per_channel no Banco A (agent_configs)
+      if (agentConfigId) {
+        const { error } = await supabase
+          .from('agent_configs')
+          .update({ bot_mode: botMode, bot_mode_per_channel: botModePerChannel })
+          .eq('id', agentConfigId);
+        if (error) throw error;
+      }
     },
     onSuccess: () => toast.success("Configurações salvas com sucesso!"),
     onError:   (e: any) => toast.error("Erro ao salvar: " + (e?.message ?? "erro desconhecido")),
@@ -858,7 +867,9 @@ export function ChatbotAgentePage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {agentConfigId === null ? (
+          {!loaded ? (
+            <p className="text-sm text-muted-foreground">Carregando...</p>
+          ) : agentConfigId === null ? (
             <p className="text-sm text-muted-foreground">
               Configure o agente primeiro para ativar esta opção.
             </p>

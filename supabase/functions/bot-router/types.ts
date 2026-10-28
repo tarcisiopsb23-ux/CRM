@@ -22,7 +22,7 @@ export type FlowStatus = 'draft' | 'active' | 'archived';
 
 export type StateStatus = 'running' | 'waiting' | 'completed' | 'expired' | 'error';
 
-export type BotMode = 'n8n' | 'flow';
+export type BotMode = 'padrao' | 'flow';
 
 export type ChannelType =
   | 'whatsapp'

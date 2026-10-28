@@ -144,7 +144,7 @@ export async function resolveAndExecute(
 
     // deno-lint-ignore no-explicit-any
     const strat = strategy as any;
-    if (!strat || strat.mode === 'n8n') return { mode: 'n8n' };
+    if (!strat || strat.mode === 'padrao') return { mode: 'padrao' };
 
     // 3. Resolve contact_id
     const { data: omniResult, error: omniErr } = await supabaseClient.rpc(
@@ -223,7 +223,7 @@ export async function resolveAndExecute(
           .eq('id', stateRow.flow_id)
           .maybeSingle();
 
-        if (!existingFlow) return { mode: 'n8n' };
+        if (!existingFlow) return { mode: 'padrao' };
         flowDef          = existingFlow.definition as FlowDefinition;
         flowTimeoutHours = existingFlow.default_timeout_hours ?? 24;
       }
@@ -232,14 +232,14 @@ export async function resolveAndExecute(
     // 5b. Sem estado ativo → testa trigger_keyword e cria novo fluxo
     if (!flowState) {
       const definition = strat.definition as FlowDefinition;
-      if (!definition) return { mode: 'n8n' };
+      if (!definition) return { mode: 'padrao' };
 
       const triggers = definition.nodes.filter(n => n.type === 'trigger_keyword');
       const matched  = triggers.find(t => matchKeyword(message.text ?? '', t));
-      if (!matched) return { mode: 'n8n' };
+      if (!matched) return { mode: 'padrao' };
 
       const startNodeId = getNextNodeId(definition.edges, matched.id);
-      if (!startNodeId) return { mode: 'n8n' };
+      if (!startNodeId) return { mode: 'padrao' };
 
       // Busca timeout do fluxo
       const { data: flowMeta } = await supabaseClient
@@ -281,7 +281,7 @@ export async function resolveAndExecute(
       // incomingHandle permanece undefined (início limpo)
     }
 
-    if (!flowDef || !flowState) return { mode: 'n8n' };
+    if (!flowDef || !flowState) return { mode: 'padrao' };
 
     // 6. Executa o motor
     const actions = await executeFlowWithHandle(
@@ -302,6 +302,6 @@ export async function resolveAndExecute(
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error('[bot-router] resolveAndExecute error:', msg);
-    return { mode: 'n8n', error: msg };
+    return { mode: 'padrao', error: msg };
   }
 }

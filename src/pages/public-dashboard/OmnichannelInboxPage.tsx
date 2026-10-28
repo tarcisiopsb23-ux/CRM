@@ -445,8 +445,10 @@ function ContactSheet({
             p_external_user_id: identityRow.external_user_id,
             p_display_name: identityRow.display_name ?? null,
           });
-          if (oid) {
-            resolvedId = oid as string;
+          // A migration 149 alterou o retorno de UUID para JSONB { contact_id, identity_id, ... }
+          const resolvedOid = (oid as any)?.contact_id ?? (oid as string);
+          if (resolvedOid) {
+            resolvedId = resolvedOid as string;
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const { data: rpcData2 } = await (supabase.rpc as any)('get_omni_contact_with_identities', {
               p_contact_id: resolvedId,
@@ -521,12 +523,14 @@ function ContactSheet({
           p_external_user_id: phone || `manual-${Date.now()}`,
           p_display_name: displayName,
         });
-        if (newId) {
+        // A migration 149 alterou o retorno de UUID para JSONB { contact_id, identity_id, ... }
+        const resolvedNewId = (newId as any)?.contact_id ?? (newId as string);
+        if (resolvedNewId) {
           await supabase
             .from('omni_contacts')
             .update({ display_name: displayName, phone, email })
-            .eq('id', newId);
-          setOmniContactId(newId as string);
+            .eq('id', resolvedNewId);
+          setOmniContactId(resolvedNewId as string);
         }
       } else {
         const { error } = await supabase

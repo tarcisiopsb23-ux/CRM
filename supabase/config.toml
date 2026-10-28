@@ -50,3 +50,8 @@ verify_jwt = false
 # appointment-reminders: chamado pelo n8n com X-Service-Key
 [functions.appointment-reminders]
 verify_jwt = false
+
+# whatsapp-template-service: chamado pelo C8 Control (cliente), sem JWT do CRM
+# Valida organization_id internamente via service_role
+[functions.whatsapp-template-service]
+verify_jwt = false

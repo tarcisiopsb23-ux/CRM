@@ -307,7 +307,7 @@ export async function executeNode(
         Date.now() + (targetFlow.default_timeout_hours ?? 24) * 3_600_000
       ).toISOString();
 
-      const { data: newStateId } = await supabaseClient.rpc('upsert_flow_state', {
+      const { data: newStateId, error: newStateErr } = await supabaseClient.rpc('upsert_flow_state', {
         p_id:              null,
         p_organization_id: state.organization_id,
         p_client_id:       state.client_id,
@@ -319,6 +319,11 @@ export async function executeNode(
         p_channel:         state.channel,
         p_expires_at:      expiresAt,
       });
+
+      if (newStateErr || !newStateId) {
+        console.error('[bot-router] go_to_flow: falha ao criar estado para fluxo destino:', newStateErr?.message ?? 'null state id');
+        return { actions: [], done: true };
+      }
 
       const newState: FlowState = {
         id:              newStateId as string,

@@ -357,7 +357,9 @@ Deno.serve(async (req) => {
         p_external_user_id: externalUserId,
         p_display_name:     event.sender_name ?? null,
         p_username:         event.sender_name ?? null,
-      }).then(({ data: omniContactId }) => {
+      }).then(({ data: omniResult }) => {
+        // Migration 149 alterou retorno de UUID para JSONB { contact_id, identity_id, ... }
+        const omniContactId = (omniResult as any)?.contact_id ?? (omniResult as string | null);
         if (omniContactId && conversationId) {
           // Vincula omni_contact_id à conversa quando ela for criada
           admin.rpc("link_conversation_omni_contact", {

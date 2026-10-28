@@ -27,12 +27,19 @@ CREATE TABLE IF NOT EXISTS public.contact_flow_state (
                     'facebook_dm',  'facebook_comment'
                   )),
 
-  -- Quando este estado de espera expira (NULL para estados terminais)
+  -- Quando este estado de espera expira.
+  -- NULL é intencional para estados terminais (completed/expired/error):
+  --   o motor grava NULL via upsert_flow_state ao finalizar o fluxo.
+  -- NÃO torne este campo NOT NULL em migrations futuras sem ajustar o motor.
   expires_at      TIMESTAMPTZ DEFAULT (now() + INTERVAL '24 hours'),
 
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Documenta que expires_at=NULL é intencional para estados terminais
+COMMENT ON COLUMN public.contact_flow_state.expires_at IS
+  'TTL do estado de espera. NULL para estados terminais (completed/expired/error). NÃO alterar para NOT NULL sem ajustar o motor de fluxo (engine.ts).';
 
 -- Trigger updated_at
 DROP TRIGGER IF EXISTS trg_cfs_updated_at ON public.contact_flow_state;
@@ -90,11 +97,11 @@ BEGIN
   v_effective_mode := COALESCE(
     NULLIF(v_bot_mode_per_channel ->> p_channel, ''),
     v_bot_mode,
-    'n8n'
+    'padrao'
   );
 
-  IF v_effective_mode = 'n8n' OR v_effective_mode IS NULL THEN
-    RETURN jsonb_build_object('mode', 'n8n');
+  IF v_effective_mode = 'padrao' OR v_effective_mode IS NULL THEN
+    RETURN jsonb_build_object('mode', 'padrao');
   END IF;
 
   -- Busca fluxo ativo: canal-específico primeiro, depois geral
@@ -116,8 +123,8 @@ BEGIN
   END IF;
 
   IF v_flow_id IS NULL THEN
-    -- Sem fluxo ativo → fallback n8n
-    RETURN jsonb_build_object('mode', 'n8n');
+    -- Sem fluxo ativo → fallback padrao
+    RETURN jsonb_build_object('mode', 'padrao');
   END IF;
 
   RETURN jsonb_build_object('mode', 'flow', 'flow_id', v_flow_id, 'definition', v_definition);

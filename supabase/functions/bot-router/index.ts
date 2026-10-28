@@ -76,6 +76,6 @@ Deno.serve(async (req) => {
     const msg = e instanceof Error ? e.message : String(e);
     console.error('[bot-router] unhandled error:', msg);
     // Retorna mode:'n8n' para que o n8n assuma o fluxo humanizado como fallback
-    return json({ mode: 'n8n', error: msg }, 200);
+    return json({ mode: 'padrao', error: msg }, 200);
   }
 });
