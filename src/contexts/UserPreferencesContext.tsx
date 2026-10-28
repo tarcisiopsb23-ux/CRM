@@ -15,10 +15,18 @@ interface UserPreferencesContextType {
 
 const UserPreferencesContext = createContext<UserPreferencesContextType | undefined>(undefined);
 
-/** Retorna true se a rota atual é do dashboard público (nunca deve ter tema do CRM aplicado) */
+/** Retorna true se a rota atual é do dashboard do cliente C8 Control (nunca deve ter tema do CRM aplicado) */
 function isPublicDashboardRoute() {
   const path = window.location.pathname;
-  return path.startsWith('/public/dashboard/') || path.startsWith('/demo/dashboard');
+  // Rotas do CRM interno (Maestr.IA)
+  if (path.startsWith('/public/dashboard/') || path.startsWith('/demo/dashboard')) return true;
+  // Rotas do C8 Control — /:slug/* onde slug não é uma rota de sistema
+  const systemRoutes = ['/login', '/booking', '/form', '/pixel-test', '/r', '/google-calendar-callback', '/oauth', '/meta-review'];
+  if (systemRoutes.some(r => path.startsWith(r))) return false;
+  // Se tem um segmento de slug seguido de qualquer coisa, é dashboard do cliente
+  const parts = path.split('/').filter(Boolean);
+  if (parts.length >= 1 && !systemRoutes.some(r => path.startsWith(r))) return true;
+  return false;
 }
 
 export function UserPreferencesProvider({ children }: { children: React.ReactNode }) {

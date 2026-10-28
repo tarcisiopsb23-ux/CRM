@@ -297,11 +297,11 @@ export function AvisosPage() {
             <div className="grid gap-2">
               <Label>Prioridade <span className="text-destructive">*</span></Label>
               <Select
-                value={form.priority}
+                value={form.priority || undefined}
                 onValueChange={(v) => setForm((f) => ({ ...f, priority: v as AiNotice["priority"] }))}
               >
-                <SelectTrigger><SelectValue placeholder="Selecionar" /></SelectTrigger>
-                <SelectContent>
+                <SelectTrigger className="bg-background"><SelectValue placeholder="Selecionar" /></SelectTrigger>
+                <SelectContent className="bg-popover border-border">
                   <SelectItem value="alta">Alta</SelectItem>
                   <SelectItem value="média">Média</SelectItem>
                   <SelectItem value="baixa">Baixa</SelectItem>
