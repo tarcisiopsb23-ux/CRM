@@ -47,17 +47,17 @@ export function SetPasswordPage() {
     if (!slug) return;
     const raw = sessionStorage.getItem(`client_auth_v2_${slug}`);
     if (!raw) {
-      navigate(`/public/dashboard/${slug}/login`, { replace: true });
+      navigate(`/${slug}/login`, { replace: true });
       return;
     }
     try {
       const parsed = JSON.parse(raw);
       if (!parsed?.force_password_change) {
         // Já definiu senha — vai para o dashboard
-        navigate(`/public/dashboard/${slug}`, { replace: true });
+        navigate(`/${slug}`, { replace: true });
       }
     } catch {
-      navigate(`/public/dashboard/${slug}/login`, { replace: true });
+      navigate(`/${slug}/login`, { replace: true });
     }
   }, [slug, navigate]);
 
@@ -109,7 +109,7 @@ export function SetPasswordPage() {
 
       // Redireciona para o dashboard após 2 segundos
       setTimeout(() => {
-        navigate(`/public/dashboard/${slug}`, { replace: true });
+        navigate(`/${slug}`, { replace: true });
       }, 2000);
 
     } catch (err: any) {

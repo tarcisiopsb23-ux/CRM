@@ -216,7 +216,7 @@ export function PublicDashboardLoginPage() {
     try {
       // Dispara resetPasswordForEmail via Banco A diretamente
       await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
-        redirectTo: `${window.location.origin}/public/dashboard/${slug}/set-password`,
+        redirectTo: `${window.location.origin}/${slug}/set-password`,
       });
       // Sempre mostra sucesso — não revela existência do e-mail
       setView("recovery_sent");

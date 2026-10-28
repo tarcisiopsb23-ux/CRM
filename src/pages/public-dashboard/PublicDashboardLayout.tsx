@@ -129,17 +129,17 @@ function PublicDashboardLayoutInner({ slug }: { slug: string }) {
 
   // Guards de rota — todos os hooks já foram chamados, safe para retornar aqui
   const userRole    = (auth?.user?.role ?? "viewer") as Role;
-  const routeSuffix = location.pathname.replace(`/public/dashboard/${slug}`, "") || "/";
+  const routeSuffix = location.pathname.replace(`/${slug}`, "") || "/";
 
   const isIaRoute = IA_ROUTES.some((r) => location.pathname.endsWith(r));
   if (isIaRoute && !auth?.show_ia_content) {
-    return <Navigate to={`/public/dashboard/${slug}`} replace />;
+    return <Navigate to={`/${slug}`} replace />;
   }
 
   // Guard do módulo Agenda — redireciona se não habilitado
   const isAgendaRoute = routeSuffix === "/agenda" || routeSuffix.startsWith("/agenda/");
   if (isAgendaRoute && !auth?.modules_config?.agenda_enabled) {
-    return <Navigate to={`/public/dashboard/${slug}`} replace />;
+    return <Navigate to={`/${slug}`} replace />;
   }
 
   const requiredRole = Object.entries(ROUTE_ROLE_MAP).find(([route]) =>
@@ -147,7 +147,7 @@ function PublicDashboardLayoutInner({ slug }: { slug: string }) {
   )?.[1] as Role | undefined;
 
   if (requiredRole && !hasRole(userRole, requiredRole)) {
-    return <Navigate to={`/public/dashboard/${slug}`} replace />;
+    return <Navigate to={`/${slug}`} replace />;
   }
 
   return (
@@ -190,7 +190,7 @@ export function PublicDashboardLayout() {
   }, [slug]);
 
   if (!isAuthenticated) {
-    return <Navigate to={`/public/dashboard/${slug}/login`} replace />;
+    return <Navigate to={`/${slug}/login`} replace />;
   }
 
   // Se o usuário ainda precisa definir senha permanente, bloqueia o dashboard
@@ -203,7 +203,7 @@ export function PublicDashboardLayout() {
   })();
 
   if (hasForcedChange) {
-    return <Navigate to={`/public/dashboard/${slug}/set-password`} replace />;
+    return <Navigate to={`/${slug}/set-password`} replace />;
   }
 
   return (
@@ -223,11 +223,11 @@ function AuthGuardInner({ slug }: { slug: string }) {
   const { auth } = useClientAuth();
 
   if (!auth) {
-    return <Navigate to={`/public/dashboard/${slug}/login`} replace />;
+    return <Navigate to={`/${slug}/login`} replace />;
   }
 
   if ((auth as any).force_password_change === true) {
-    return <Navigate to={`/public/dashboard/${slug}/set-password`} replace />;
+    return <Navigate to={`/${slug}/set-password`} replace />;
   }
 
   return <PublicDashboardLayoutInner slug={slug} />;

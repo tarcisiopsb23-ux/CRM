@@ -901,10 +901,10 @@ export function C8TenantDetail({
                       {dashboardSlug && (
                         <div className="flex items-center gap-2">
                           <p className="text-[10px] text-muted-foreground font-mono flex-1">
-                            {window.location.origin}/public/dashboard/{dashboardSlug}
+                            {window.location.origin}/{dashboardSlug}
                           </p>
                           <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1.5" asChild>
-                            <a href={`${window.location.origin}/public/dashboard/${dashboardSlug}`} target="_blank" rel="noopener noreferrer">
+                            <a href={`${window.location.origin}/${dashboardSlug}`} target="_blank" rel="noopener noreferrer">
                               <Link2 className="h-3 w-3" />
                               Acessar
                             </a>

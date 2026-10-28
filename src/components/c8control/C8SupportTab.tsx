@@ -405,7 +405,7 @@ export function C8SupportTab({ organizationId, canEdit }: C8SupportTabProps) {
                             <Button size="sm" variant="ghost" asChild
                               title="Abrir dashboard do cliente">
                               <a
-                                href={`/public/dashboard/${entry.clients.dashboard_slug}`}
+                                href={`/${entry.clients.dashboard_slug}`}
                                 target="_blank"
                                 rel="noreferrer"
                               >
@@ -668,7 +668,7 @@ function SupportDetailModal({
             <div className="space-y-1">
               <p className="text-xs text-muted-foreground">Dashboard do Cliente</p>
               <a
-                href={`/public/dashboard/${entry.clients.dashboard_slug}`}
+                href={`/${entry.clients.dashboard_slug}`}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1.5 text-sm text-violet-600 hover:underline font-medium"

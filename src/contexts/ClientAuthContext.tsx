@@ -157,7 +157,7 @@ export function ClientAuthProvider({
   const logout = useCallback(() => {
     clearStorage(slug);
     setAuthState(null);
-    navigate(`/public/dashboard/${slug}/login`);
+    navigate(`/${slug}/login`);
   }, [slug, navigate]);
 
   return (

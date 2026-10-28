@@ -243,9 +243,9 @@ export function PublicDashboardHeader() {
 
   // PeriodDropdown só aparece nas 3 rotas de Resultados
   const resultadosRoutes = [
-    `/public/dashboard/${slug}`,
-    `/public/dashboard/${slug}/performance`,
-    `/public/dashboard/${slug}/atendimento`,
+    `/${slug}`,
+    `/${slug}/performance`,
+    `/${slug}/atendimento`,
   ];
   const showPeriodDropdown = resultadosRoutes.includes(location.pathname);
 

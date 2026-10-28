@@ -676,7 +676,7 @@ export function AgendaConfigPage() {
                       size="sm"
                       variant="outline"
                       className="h-7 text-xs border-blue-500/30 text-blue-400 hover:bg-blue-500/10 gap-1.5 mt-1"
-                      onClick={() => navigate(`/public/dashboard/${slug}/crm/produtos?new=1`)}
+                      onClick={() => navigate(`/${slug}/crm/produtos?new=1`)}
                     >
                       <Plus className="h-3 w-3" /> Novo Produto/Serviço
                     </Button>
