@@ -660,10 +660,7 @@ export function ChatbotAgentePage() {
             .eq("client_id", clientId)
             .limit(1)
             .maybeSingle(),
-          supabase.from('agent_configs')
-            .select('id, bot_mode, bot_mode_per_channel')
-            .eq('client_id', clientId)
-            .maybeSingle(),
+          supabase.rpc('get_agent_config_for_client', { p_client_id: clientId }),
         ]);
 
         // bot_active do Banco B
@@ -671,11 +668,13 @@ export function ChatbotAgentePage() {
           setBotActive(botRes.data.bot_active ?? true);
         }
 
-        // agent_configs (bot_mode) do Banco A
-        if (agentCfgRes.data) {
-          setAgentConfigId(agentCfgRes.data.id);
-          setBotMode((agentCfgRes.data.bot_mode as 'padrao' | 'flow') ?? 'padrao');
-          setBotModePerChannel((agentCfgRes.data.bot_mode_per_channel as Record<string, 'padrao' | 'flow'>) ?? {});
+        // agent_configs (bot_mode) do Banco A — retorna SETOF (array)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const agentCfg = (agentCfgRes.data as any[])?.[0] ?? null;
+        if (agentCfg) {
+          setAgentConfigId(agentCfg.id);
+          setBotMode((agentCfg.bot_mode as 'padrao' | 'flow') ?? 'padrao');
+          setBotModePerChannel((agentCfg.bot_mode_per_channel as Record<string, 'padrao' | 'flow'>) ?? {});
         }
 
         // channel configs do Banco A — merge com defaults
@@ -720,14 +719,15 @@ export function ChatbotAgentePage() {
     if (!agentConfigId) return;
     setBotModeLoading(true);
     try {
-      const { error } = await supabase
-        .from('agent_configs')
-        .update({ bot_mode: botMode, bot_mode_per_channel: botModePerChannel })
-        .eq('id', agentConfigId);
+      const { error } = await supabase.rpc('set_bot_mode', {
+        p_client_id:           clientId,
+        p_bot_mode:            botMode,
+        p_bot_mode_per_channel: botModePerChannel,
+      });
       if (error) throw error;
       toast.success('Modo do bot salvo!');
-    } catch (e: any) {
-      toast.error('Erro ao salvar modo do bot: ' + (e?.message ?? 'erro desconhecido'));
+    } catch (e: unknown) {
+      toast.error('Erro ao salvar modo do bot: ' + ((e as Error)?.message ?? 'erro desconhecido'));
     } finally {
       setBotModeLoading(false);
     }
@@ -788,12 +788,13 @@ export function ChatbotAgentePage() {
         if (error) throw error;
       }
 
-      // 3. Salva bot_mode / bot_mode_per_channel no Banco A (agent_configs)
+      // 3. Salva bot_mode / bot_mode_per_channel no Banco A via RPC (SECURITY DEFINER)
       if (agentConfigId) {
-        const { error } = await supabase
-          .from('agent_configs')
-          .update({ bot_mode: botMode, bot_mode_per_channel: botModePerChannel })
-          .eq('id', agentConfigId);
+        const { error } = await supabase.rpc('set_bot_mode', {
+          p_client_id:            clientId,
+          p_bot_mode:             botMode,
+          p_bot_mode_per_channel: botModePerChannel,
+        });
         if (error) throw error;
       }
     },
