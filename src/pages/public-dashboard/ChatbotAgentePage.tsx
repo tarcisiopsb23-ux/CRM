@@ -862,7 +862,7 @@ export function ChatbotAgentePage() {
             <div>
               <CardTitle className="text-sm font-semibold">Modo do Bot</CardTitle>
               <CardDescription className="text-xs mt-0.5">
-                Define se o agente usa IA ou fluxos visuais configurados no C8 Control
+                Define se o agente usa o flow padrão (IA humanizada) ou flows personalizados configurados no C8 Control
               </CardDescription>
             </div>
           </div>
@@ -885,8 +885,8 @@ export function ChatbotAgentePage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="padrao">Padrão (IA)</SelectItem>
-                    <SelectItem value="flow">Flow Builder</SelectItem>
+                    <SelectItem value="padrao">Flow Padrão</SelectItem>
+                    <SelectItem value="flow">Flow Personalizado</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -907,8 +907,8 @@ export function ChatbotAgentePage() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="padrao">Padrão (IA)</SelectItem>
-                          <SelectItem value="flow">Flow Builder</SelectItem>
+                          <SelectItem value="padrao">Flow Padrão</SelectItem>
+                          <SelectItem value="flow">Flow Personalizado</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
