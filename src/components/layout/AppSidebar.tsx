@@ -61,6 +61,7 @@ const navItems: (
   { type: "item", title: "Conversas", url: "/whatsapp", icon: MessageCircle, module: "whatsapp" },
   { type: "item", title: "Flow Builder", url: "/flow-builder", icon: GitBranch, module: null },
   { type: "item", title: "Flow Builder", url: "/flow-builder", icon: GitBranch, module: null },
+  { type: "item", title: "Flow Builder", url: "/flow-builder", icon: GitBranch, module: null },
   // { type: "item", title: "Reuniões IA", url: "/meetings", icon: Sparkles, module: "meetings" }, // módulo desativado
   { type: "item", title: "Gestão de Pessoas", url: "/team", icon: UsersRound, module: "team" },
   {
