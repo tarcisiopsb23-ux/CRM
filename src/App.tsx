@@ -70,6 +70,8 @@ const MensagensHistoricoPage   = lazy(() => import("@/pages/public-dashboard/Men
 const ChatbotCanaisPage        = lazy(() => import("@/pages/public-dashboard/ChatbotCanaisPage").then(m => ({ default: m.ChatbotCanaisPage })));
 const ChatbotAgentePage        = lazy(() => import("@/pages/public-dashboard/ChatbotAgentePage").then(m => ({ default: m.ChatbotAgentePage })));
 const ChatbotConhecimentoPage  = lazy(() => import("@/pages/public-dashboard/ChatbotConhecimentoPage").then(m => ({ default: m.ChatbotConhecimentoPage })));
+const ChatbotFluxosPage        = lazy(() => import("@/pages/public-dashboard/ChatbotFluxosPage").then(m => ({ default: m.ChatbotFluxosPage })));
+const ChatbotFluxosPage        = lazy(() => import("@/pages/public-dashboard/ChatbotFluxosPage").then(m => ({ default: m.ChatbotFluxosPage })));
 const PixelTestPage            = lazy(() => import("@/pages/PixelTestPage"));
 // ── Meta App Review ───────────────────────────────────────────────────────────
 const MetaReviewIndexPage        = lazy(() => import("@/pages/meta-review/MetaReviewIndexPage").then(m => ({ default: m.MetaReviewIndexPage })));
@@ -162,6 +164,8 @@ export default function App() {
                 <Route path="chatbot/canais"         element={<Suspense fallback={<PageLoader />}><ChatbotCanaisPage /></Suspense>} />
                 <Route path="chatbot/agente"         element={<Suspense fallback={<PageLoader />}><ChatbotAgentePage /></Suspense>} />
                 <Route path="chatbot/conhecimento"   element={<Suspense fallback={<PageLoader />}><ChatbotConhecimentoPage /></Suspense>} />
+                <Route path="chatbot/fluxos"         element={<Suspense fallback={<PageLoader />}><ChatbotFluxosPage /></Suspense>} />
+                <Route path="chatbot/fluxos"         element={<Suspense fallback={<PageLoader />}><ChatbotFluxosPage /></Suspense>} />
                 {/* ── Content Operations ── */}
                 <Route path="conteudo"                    element={<Suspense fallback={<PageLoader />}><ContentPortalIndexPage /></Suspense>} />
                 <Route path="conteudo/aprovacoes"         element={<Suspense fallback={<PageLoader />}><ContentApprovalsPage /></Suspense>} />

@@ -13,7 +13,7 @@ import {
   Settings, Users, GitMerge, Package,
   Bot, ChevronDown, ChevronRight, Link2, CreditCard,
   ShieldCheck, CalendarCheck, ListChecks, Link as LinkIcon,
-  Inbox, BookOpen, Instagram, Wifi, WifiOff, ImagePlay, FileText,
+  Inbox, BookOpen, Instagram, Wifi, WifiOff, ImagePlay, FileText, GitBranch,
 } from "lucide-react";
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup,
@@ -60,6 +60,7 @@ const CHATBOT_NAV = [
   { title: "Canais",       url: "chatbot/canais",       icon: Instagram },
   { title: "Meu Agente",   url: "chatbot/agente",       icon: Bot },
   { title: "Conhecimento", url: "chatbot/conhecimento", icon: BookOpen },
+  { title: "Fluxos",       url: "chatbot/fluxos",       icon: GitBranch },
 ];
 
 const CONTENT_OPS_NAV = [

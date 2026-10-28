@@ -12,7 +12,7 @@ import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Bot, Sparkles, MessageSquare, Target, FileText,
-  CheckSquare, Loader2, Save, ChevronDown, ChevronUp, X, Clock, Users,
+  CheckSquare, Loader2, Save, ChevronDown, ChevronUp, X, Clock, Users, GitBranch,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -639,6 +639,12 @@ export function ChatbotAgentePage() {
   const [loaded, setLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState<ChannelType>("whatsapp");
 
+  // ── Bot mode state ──────────────────────────────────────────────────────────
+  const [botMode, setBotMode] = useState<'padrao' | 'flow'>('padrao');
+  const [botModePerChannel, setBotModePerChannel] = useState<Record<string, 'padrao' | 'flow'>>({});
+  const [agentConfigId, setAgentConfigId] = useState<string | null>(null);
+  const [botModeLoading, setBotModeLoading] = useState(false);
+
   if (!dc) return <CredentialsErrorState />;
 
   // ── Carregar dados ──────────────────────────────────────────────────────────
@@ -647,18 +653,29 @@ export function ChatbotAgentePage() {
 
     async function load() {
       try {
-        const [channelRes, botRes] = await Promise.all([
+        const [channelRes, botRes, agentCfgRes] = await Promise.all([
           supabase.rpc("get_agent_channel_configs", { p_client_id: clientId }),
           dc!.from("client_ai_settings")
             .select("bot_active")
             .eq("client_id", clientId)
             .limit(1)
             .maybeSingle(),
+          supabase.from('agent_configs')
+            .select('id, bot_mode, bot_mode_per_channel')
+            .eq('client_id', clientId)
+            .maybeSingle(),
         ]);
 
         // bot_active do Banco B
         if (botRes.data) {
           setBotActive(botRes.data.bot_active ?? true);
+        }
+
+        // agent_configs (bot_mode) do Banco A
+        if (agentCfgRes.data) {
+          setAgentConfigId(agentCfgRes.data.id);
+          setBotMode((agentCfgRes.data.bot_mode as 'padrao' | 'flow') ?? 'padrao');
+          setBotModePerChannel((agentCfgRes.data.bot_mode_per_channel as Record<string, 'padrao' | 'flow'>) ?? {});
         }
 
         // channel configs do Banco A — merge com defaults
@@ -696,6 +713,24 @@ export function ChatbotAgentePage() {
   // ── Atualizar uma config de canal ───────────────────────────────────────────
   function patchChannel(ch: ChannelType, patch: Partial<ChannelConfig>) {
     setConfigs(prev => ({ ...prev, [ch]: { ...prev[ch], ...patch } }));
+  }
+
+  // ── Salvar modo do bot ──────────────────────────────────────────────────────
+  async function saveBotMode() {
+    if (!agentConfigId) return;
+    setBotModeLoading(true);
+    try {
+      const { error } = await supabase
+        .from('agent_configs')
+        .update({ bot_mode: botMode, bot_mode_per_channel: botModePerChannel })
+        .eq('id', agentConfigId);
+      if (error) throw error;
+      toast.success('Modo do bot salvo!');
+    } catch (e: any) {
+      toast.error('Erro ao salvar modo do bot: ' + (e?.message ?? 'erro desconhecido'));
+    } finally {
+      setBotModeLoading(false);
+    }
   }
 
   // ── Salvar ──────────────────────────────────────────────────────────────────
@@ -804,6 +839,86 @@ export function ChatbotAgentePage() {
               disabled={!loaded}
             />
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Modo do Bot */}
+      <Card className="card-surface">
+        <CardHeader className="pb-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+              <GitBranch className="h-4 w-4 text-primary" />
+            </div>
+            <div>
+              <CardTitle className="text-sm font-semibold">Modo do Bot</CardTitle>
+              <CardDescription className="text-xs mt-0.5">
+                Define se o agente usa IA ou fluxos visuais configurados no C8 Control
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {agentConfigId === null ? (
+            <p className="text-sm text-muted-foreground">
+              Configure o agente primeiro para ativar esta opção.
+            </p>
+          ) : (
+            <>
+              <div className="space-y-1.5">
+                <Select
+                  value={botMode}
+                  onValueChange={v => setBotMode(v as 'padrao' | 'flow')}
+                >
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="padrao">Padrão (IA)</SelectItem>
+                    <SelectItem value="flow">Flow Builder</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {botMode === 'flow' && (
+                <div className="space-y-3 rounded-lg border border-border/50 bg-secondary/20 p-4">
+                  <p className="text-xs font-medium text-muted-foreground">Substituição por canal (opcional)</p>
+                  {(['whatsapp', 'instagram_dm', 'facebook_dm'] as const).map(ch => (
+                    <div key={ch} className="flex items-center justify-between gap-3">
+                      <span className="text-sm">{CHANNEL_LABELS[ch]}</span>
+                      <Select
+                        value={botModePerChannel[ch] ?? 'flow'}
+                        onValueChange={v =>
+                          setBotModePerChannel(prev => ({ ...prev, [ch]: v as 'padrao' | 'flow' }))
+                        }
+                      >
+                        <SelectTrigger className="h-8 w-40 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="padrao">Padrão (IA)</SelectItem>
+                          <SelectItem value="flow">Flow Builder</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex justify-end">
+                <Button
+                  size="sm"
+                  onClick={saveBotMode}
+                  disabled={botModeLoading || !loaded}
+                  className="gap-2"
+                >
+                  {botModeLoading
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <Save className="h-3.5 w-3.5" />}
+                  Salvar modo
+                </Button>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
 

@@ -25,6 +25,7 @@ import {
   ShieldCheck,
   TrendingUp,
   ImagePlay,
+  GitBranch,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -58,6 +59,8 @@ const navItems: (
   { type: "item", title: "Projetos", url: "/projects", icon: FolderKanban, module: "projects" },
   { type: "item", title: "Metas", url: "/goals", icon: Target, module: "goals" },
   { type: "item", title: "Conversas", url: "/whatsapp", icon: MessageCircle, module: "whatsapp" },
+  { type: "item", title: "Flow Builder", url: "/flow-builder", icon: GitBranch, module: null },
+  { type: "item", title: "Flow Builder", url: "/flow-builder", icon: GitBranch, module: null },
   // { type: "item", title: "Reuniões IA", url: "/meetings", icon: Sparkles, module: "meetings" }, // módulo desativado
   { type: "item", title: "Gestão de Pessoas", url: "/team", icon: UsersRound, module: "team" },
   {
