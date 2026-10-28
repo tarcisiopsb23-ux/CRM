@@ -230,6 +230,7 @@ export function C8TenantDetail({
     // Módulos de automação e mensagens (novos)
     messaging_enabled:     mc?.messaging_enabled     ?? false,
     automation_enabled:    mc?.automation_enabled    ?? false,
+    content_ops_enabled:   mc?.content_ops_enabled   ?? false,
     // Legado — mantidos para compatibilidade com clientes antigos
     whatsapp_enabled:      mc?.whatsapp_enabled      ?? false,
     ia_enabled:            mc?.ia_enabled            ?? false,
@@ -829,6 +830,7 @@ export function C8TenantDetail({
                         { key: "agenda_enabled"       as const, label: "Agenda",                desc: "Agendamentos online e Google Calendar via n8n" },
                         { key: "messaging_enabled"    as const, label: "Mensagens",             desc: "Caixa de entrada e histórico de conversas (canais Meta)" },
                         { key: "automation_enabled"   as const, label: "Chatbot",               desc: "Canais (Instagram/WhatsApp), Meu Agente e Conhecimento" },
+                        { key: "content_ops_enabled"  as const, label: "Gestão de Conteúdo",   desc: "Aprovações, calendário editorial, briefings e entregáveis" },
                       ]).map(({ key, label, desc }) => (
                         <div key={key} className="flex items-center justify-between rounded-lg border border-border bg-secondary/20 px-3 py-2.5">
                           <div>

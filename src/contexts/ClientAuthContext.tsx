@@ -43,6 +43,12 @@ export interface ModulesConfig {
   /** Acesso incluído em contrato pai — sem cobrança separada */
   c8_included?: boolean;
   free_access_until?: string | null;
+  /** Módulo Mensagens — caixa de entrada e histórico omnichannel */
+  messaging_enabled?: boolean;
+  /** Módulo Chatbot — canais Meta, Meu Agente e Conhecimento */
+  automation_enabled?: boolean;
+  /** Módulo Gestão de Conteúdo — aprovações, calendário, briefings, entregáveis */
+  content_ops_enabled?: boolean;
   free_access_reason?: string | null;
 }
 
