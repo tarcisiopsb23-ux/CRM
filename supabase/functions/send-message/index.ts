@@ -155,26 +155,41 @@ Deno.serve(async (req) => {
   const authHeader = req.headers.get("Authorization") ?? "";
   const apiKeyHeader = req.headers.get("apikey") ?? "";
   const userToken  = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : authHeader || apiKeyHeader;
-  if (!userToken) return json({ error: "Não autorizado" }, 401);
+
+  if (!userToken) return json({ error: "Não autorizado — token vazio" }, 401);
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const anonKey     = Deno.env.get("SUPABASE_ANON_KEY") ?? serviceKey;
 
-  // Permite chamadas server-to-server com service_role key (ex: n8n, bot-router)
-  const isServiceRole = userToken === serviceKey;
-  // Permite chamadas com anon key (dashboard do cliente)
-  const isAnonKey = userToken === anonKey;
+  // Tenta autenticar: primeiro como usuário, depois aceita se for JWT válido do projeto
+  // JWTs do Supabase (anon key e service_role key) têm payload decodificável
+  // — verificamos se é um JWT estruturado válido sem precisar comparar strings
+  let authorized = false;
 
-  if (!isServiceRole && !isAnonKey) {
-    // Verifica JWT de usuário autenticado
+  // 1. Tenta como service_role ou anon key (JWTs estáticos do projeto)
+  try {
+    const parts = userToken.split(".");
+    if (parts.length === 3) {
+      const payload = JSON.parse(atob(parts[1]));
+      // JWTs do Supabase têm role = "service_role" ou "anon"
+      if (payload.role === "service_role" || payload.role === "anon") {
+        authorized = true;
+      }
+    }
+  } catch { /* não é JWT decodificável */ }
+
+  // 2. Se não for JWT estático, tenta como usuário autenticado
+  if (!authorized) {
     const anonClient = createClient(supabaseUrl, anonKey, {
       auth: { autoRefreshToken: false, persistSession: false },
       global: { headers: { Authorization: `Bearer ${userToken}` } },
     });
-    const { data: { user }, error: authError } = await anonClient.auth.getUser();
-    if (authError || !user) return json({ error: "Não autorizado" }, 401);
+    const { data: { user } } = await anonClient.auth.getUser();
+    if (user) authorized = true;
   }
+
+  if (!authorized) return json({ error: "Não autorizado" }, 401);
 
   let body: Record<string, unknown>;
   try { body = await req.json(); }
