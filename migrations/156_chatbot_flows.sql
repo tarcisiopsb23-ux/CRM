@@ -16,8 +16,8 @@ CREATE TABLE IF NOT EXISTS public.chatbot_flows (
   channel_type    TEXT
                   CHECK (channel_type IS NULL OR channel_type IN (
                     'whatsapp',
-                    'instagram_dm', 'instagram_comment',
-                    'facebook_dm',  'facebook_comment'
+                    'instagram', 'instagram_dm', 'instagram_comment',
+                    'facebook',  'facebook_dm',  'facebook_comment'
                   )),
 
   -- Definição React Flow-compatible (nós + arestas)

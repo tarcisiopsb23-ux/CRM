@@ -23,8 +23,8 @@ CREATE TABLE IF NOT EXISTS public.contact_flow_state (
   channel         TEXT        NOT NULL
                   CHECK (channel IN (
                     'whatsapp',
-                    'instagram_dm', 'instagram_comment',
-                    'facebook_dm',  'facebook_comment'
+                    'instagram', 'instagram_dm', 'instagram_comment',
+                    'facebook',  'facebook_dm',  'facebook_comment'
                   )),
 
   -- Quando este estado de espera expira.

@@ -131,7 +131,11 @@ export async function resolveAndExecute(
 
     const clientId = req.client_id;
     const orgId    = req.organization_id;
-    const channel  = req.channel as ChannelType;
+    // Normaliza aliases de canal (instagram→instagram_dm, facebook→facebook_dm)
+    const rawChannel = req.channel as string;
+    const channel  = (rawChannel === 'instagram' ? 'instagram_dm'
+                    : rawChannel === 'facebook'  ? 'facebook_dm'
+                    : rawChannel) as ChannelType;
     const contact  = req.contact;
     const message  = req.message ?? { text: '' };
 
