@@ -1,4 +1,4 @@
-# Build Note — Fase 2 Fix Iteration
+# Build Note — Fase 2 Fix Iteration (Review Round 2)
 
 ## Command
 ```
@@ -15,23 +15,32 @@ Only pre-existing warnings (acceptable per brief):
 - Some chunks larger than 600 kB (vendor bundles, pre-existing)
 - Dynamic import collision warning for `proposalSlug.ts` (pre-existing)
 
-## Changes in this iteration
+## Changes in this iteration (Round 2 — fixing review.json findings)
 
-### Finding fixed: `description-wipeout-on-autosave` (blocking)
+### Finding fixed: `autosave-dep-array-missing-description` (blocking)
 
 **File:** `src/pages/public-dashboard/flow-builder/FlowBuilderPage.tsx`
 
-- Added `const [description, setDescription] = useState<string | null>(null)` state variable.
-- Initialized it from `flow.description ?? null` in the same `useEffect` that initializes `name`.
-- Passed `description: description ?? undefined` to `upsertFlow` inside `doSave`.
-- Added `description` to `doSave`'s `useCallback` dep array.
+- Added `description` to the `useEffect` dependency array for auto-save (was `[nodes, edges, name, initialized, doSave]`, now `[nodes, edges, name, description, initialized, doSave]`).
+- `description` was already in `doSave`'s closure, but changes to it alone never scheduled a debounced save. Now any description change triggers the 2-second timer.
 
-Before this fix, every auto-save from the editor would call `upsertFlow` without a `description` field, which defaulted to `null` in the hook and was written as `NULL` to the `description` column by the RPC's UPDATE path — silently wiping any description set at flow creation.
+### Finding fixed: `question-node-default-handle-no-id` (blocking)
 
-### Finding fixed: `set-flow-status-no-status-validation` (advisory)
+**File:** `src/pages/public-dashboard/flow-builder/FlowNodeTypes/QuestionNode.tsx`
 
-**File:** `migrations/158_chatbot_flows_rpc.sql`
+- Changed `{ label: "Resposta" }` → `{ id: "default", label: "Resposta" }` in `sourceHandles`.
+- Edge serialisation is now deterministic (`sourceHandle: "default"` instead of `null`), symmetric with the named `"timeout"` handle.
 
-- Added explicit `IF p_status NOT IN ('draft', 'active', 'archived') THEN RAISE EXCEPTION 'invalid_status'; END IF;` before the archive block in `set_flow_status`.
+### Finding fixed: `go-to-flow-no-validation` (advisory)
 
-This surfaces invalid status strings as a clear domain-level `invalid_status` exception rather than a cryptic Postgres CHECK constraint violation.
+**Files:** `src/pages/public-dashboard/flow-builder/FlowPropertiesPanel.tsx`, `src/pages/public-dashboard/flow-builder/FlowBuilderPage.tsx`
+
+- `FlowPropertiesPanel` now accepts `availableFlows?: ChatbotFlow[]`.
+- The free-text UUID `<Input>` for `go_to_flow` was replaced with a `<Select>` populated from `availableFlows`. Shows flow name + "(ativo)" badge for active flows.
+- `FlowBuilderPage` passes `flows.filter((f) => f.id !== flowId)` as `availableFlows` (current flow excluded). The `flows` list was already loaded for the activate-conflict check, so no extra RPC call is introduced.
+
+## Build result (Round 2): PASS ✓
+
+Command: `npm run build` in `c:/automacoes/C8 Control`
+Completed in ~1m 29s. 0 TypeScript errors. 4006 modules transformed.
+Same pre-existing warnings as before (duplicate keys in unrelated files, chunk size notices).
