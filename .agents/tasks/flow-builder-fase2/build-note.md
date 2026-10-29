@@ -1,51 +1,37 @@
-# Build Note — Iteration 2 (review fixes)
+# Build Note — Fase 2 Fix Iteration
 
 ## Command
 ```
 npm run build
 ```
-Run from: `c:/automacoes/C8 Control`
+Executed in `c:/automacoes/C8 Control`.
 
-## Result
-**PASS** — `✓ built in 55.66s`, 0 TypeScript errors, 0 type-check failures.
+## Result: PASS ✓
 
-Chunk-size warnings present (same as iteration 1 — pre-existing, not related to this change):
-- `index-BlODtiUH.js` 3,614 kB (app bundle)
-- `FlowBuilderPage-BOWXuCNR.js` 189 kB (React Flow chunk)
+Build completed successfully in ~1m 10s. 0 TypeScript errors.
 
-These are informational only; the build succeeds.
+Only pre-existing warnings (acceptable per brief):
+- `[plugin vite:esbuild]` duplicate key warnings in `assembleContract.ts` and `useContractAssembly.ts` (unrelated to this feature)
+- Some chunks larger than 600 kB (vendor bundles, pre-existing)
+- Dynamic import collision warning for `proposalSlug.ts` (pre-existing)
 
-## Fixes applied in this iteration
+## Changes in this iteration
 
-### Finding: `preview-empty-string` (blocking)
-**File:** `src/pages/public-dashboard/flow-builder/FlowNodeTypes/_shared.tsx`
+### Finding fixed: `description-wipeout-on-autosave` (blocking)
 
-Changed:
-```ts
-// Before
-export function preview(text: string | undefined, max = 30): string {
-  if (!text) return "—";
-  ...
-}
+**File:** `src/pages/public-dashboard/flow-builder/FlowBuilderPage.tsx`
 
-// After
-export function preview(text: string | undefined | null, max = 30): string {
-  if (text == null) return "—";
-  if (text === "") return "";
-  ...
-}
-```
-Now `null`/`undefined` → `"—"` (unpopulated), `""` → `""` (intentionally cleared).
+- Added `const [description, setDescription] = useState<string | null>(null)` state variable.
+- Initialized it from `flow.description ?? null` in the same `useEffect` that initializes `name`.
+- Passed `description: description ?? undefined` to `upsertFlow` inside `doSave`.
+- Added `description` to `doSave`'s `useCallback` dep array.
 
-### Finding: `concurrent-activation-unhandled-error` (blocking)
-**Files:** `ChatbotFluxosPage.tsx`, `FlowBuilderPage.tsx`
+Before this fix, every auto-save from the editor would call `upsertFlow` without a `description` field, which defaulted to `null` in the hook and was written as `NULL` to the `description` column by the RPC's UPDATE path — silently wiping any description set at flow creation.
 
-In `ChatbotFluxosPage.tsx` — `doSetStatus`:
-- Catches constraint violation errors (matching `uq_cf_active`, `unique`, `duplicate` keywords)
-- Shows `toast.warning("Outro flow foi ativado por outra sessão — recarregando.")`
-- Calls `refetch()` to sync local state
+### Finding fixed: `set-flow-status-no-status-validation` (advisory)
 
-In `FlowBuilderPage.tsx` — `doActivate`:
-- Added `refetch: refetchFlows` from `useFlowList` (was unused before)
-- Same constraint-violation catch pattern with friendly toast + `refetchFlows()`
-- On success: also calls `refetchFlows()` to keep flows list in sync
+**File:** `migrations/158_chatbot_flows_rpc.sql`
+
+- Added explicit `IF p_status NOT IN ('draft', 'active', 'archived') THEN RAISE EXCEPTION 'invalid_status'; END IF;` before the archive block in `set_flow_status`.
+
+This surfaces invalid status strings as a clear domain-level `invalid_status` exception rather than a cryptic Postgres CHECK constraint violation.

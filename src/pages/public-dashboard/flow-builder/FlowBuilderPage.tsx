@@ -47,6 +47,7 @@ export function FlowBuilderPage() {
   const [edges, setEdges, onEdgesChangeRaw] = useEdgesState<Edge>([]);
 
   const [name, setName] = useState("");
+  const [description, setDescription] = useState<string | null>(null);
   const [status, setStatus] = useState<FlowStatus>("draft");
   const [scope, setScope] = useState<"general" | "channel">("general");
   const [channelType, setChannelType] = useState<ChannelType | null>(null);
@@ -82,6 +83,7 @@ export function FlowBuilderPage() {
         })),
       );
       setName(flow.name);
+      setDescription(flow.description ?? null);
       setStatus(flow.status);
       setScope(flow.scope);
       setChannelType(flow.channel_type as ChannelType | null);
@@ -116,6 +118,7 @@ export function FlowBuilderPage() {
         organization_id: orgId,
         client_id: clientId,
         name,
+        description: description ?? undefined,
         scope,
         channel_type: channelType,
         definition: buildDefinition(),
@@ -127,7 +130,7 @@ export function FlowBuilderPage() {
     } finally {
       setSaving(false);
     }
-  }, [flowId, clientId, orgId, name, scope, channelType, buildDefinition, upsertFlow]);
+  }, [flowId, clientId, orgId, name, description, scope, channelType, buildDefinition, upsertFlow]);
 
   // ── Auto-save (debounce 2s) — só após o usuário interagir ───────────────────
   useEffect(() => {

@@ -81,6 +81,10 @@ BEGIN
   WHERE id = p_flow_id AND client_id = p_client_id;
   IF NOT FOUND THEN RAISE EXCEPTION 'flow_not_found'; END IF;
 
+  IF p_status NOT IN ('draft', 'active', 'archived') THEN
+    RAISE EXCEPTION 'invalid_status';
+  END IF;
+
   IF p_status = 'active' THEN
     UPDATE public.chatbot_flows
     SET status = 'archived'
