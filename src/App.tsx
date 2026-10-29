@@ -143,6 +143,7 @@ const ChatbotCanaisPage       = lazy(() => import("@/pages/public-dashboard/Chat
 const ChatbotAgentePage       = lazy(() => import("@/pages/public-dashboard/ChatbotAgentePage").then(m => ({ default: m.ChatbotAgentePage })));
 const ChatbotConhecimentoPage = lazy(() => import("@/pages/public-dashboard/ChatbotConhecimentoPage").then(m => ({ default: m.ChatbotConhecimentoPage })));
 const ChatbotFluxosPage       = lazy(() => import("@/pages/public-dashboard/ChatbotFluxosPage").then(m => ({ default: m.ChatbotFluxosPage })));
+const ChatbotFlowBuilderPage  = lazy(() => import("@/pages/public-dashboard/flow-builder/FlowBuilderPage").then(m => ({ default: m.FlowBuilderPage })));
 const PixelTestPage           = lazy(() => import("@/pages/PixelTestPage"));
 // ── Meta App Review ───────────────────────────────────────────────────────────
 const MetaReviewIndexPage        = lazy(() => import("@/pages/meta-review/MetaReviewIndexPage").then(m => ({ default: m.MetaReviewIndexPage })));
@@ -306,6 +307,7 @@ export default function App() {
                     <Route path="chatbot/agente"       element={<Suspense fallback={<PageLoader />}><ChatbotAgentePage /></Suspense>} />
                     <Route path="chatbot/conhecimento" element={<Suspense fallback={<PageLoader />}><ChatbotConhecimentoPage /></Suspense>} />
                     <Route path="chatbot/fluxos"       element={<Suspense fallback={<PageLoader />}><ChatbotFluxosPage /></Suspense>} />
+                    <Route path="chatbot/flows/:id"    element={<Suspense fallback={<PageLoader />}><ChatbotFlowBuilderPage /></Suspense>} />
                     {/* ── Content Operations (cliente) ── */}
                     <Route path="conteudo"              element={<Suspense fallback={<PageLoader />}><ContentPortalIndexPage /></Suspense>} />
                     <Route path="conteudo/aprovacoes"   element={<Suspense fallback={<PageLoader />}><ContentApprovalsPage /></Suspense>} />
