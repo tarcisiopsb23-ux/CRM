@@ -100,8 +100,12 @@ export function NodeShell({
   );
 }
 
-/** Trunca texto para preview de nós. */
-export function preview(text: string | undefined, max = 30): string {
-  if (!text) return "—";
+/** Trunca texto para preview de nós.
+ * - undefined/null → "—" (campo não preenchido)
+ * - "" → "" (campo intencionalmente vazio — não mostrar "—")
+ */
+export function preview(text: string | undefined | null, max = 30): string {
+  if (text == null) return "—";
+  if (text === "") return "";
   return text.length > max ? text.slice(0, max) + "…" : text;
 }

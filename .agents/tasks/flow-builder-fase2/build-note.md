@@ -1,44 +1,51 @@
-# Build Note — Fase 2 Flow Builder
+# Build Note — Iteration 2 (review fixes)
 
-## Command run
+## Command
 ```
-npm run build   (cwd: c:/automacoes/C8 Control)
+npm run build
 ```
+Run from: `c:/automacoes/C8 Control`
 
-## Result: PASS ✅
+## Result
+**PASS** — `✓ built in 55.66s`, 0 TypeScript errors, 0 type-check failures.
 
-Build completed in ~2m with exit code 0.
+Chunk-size warnings present (same as iteration 1 — pre-existing, not related to this change):
+- `index-BlODtiUH.js` 3,614 kB (app bundle)
+- `FlowBuilderPage-BOWXuCNR.js` 189 kB (React Flow chunk)
 
-### Relevant output chunks (new files)
-- `ChatbotFluxosPage-*.js` — listagem funcional de flows (9.26 kB gzip: 3.19 kB)
-- `FlowBuilderPage-*.js` — editor visual com @xyflow/react (189.09 kB gzip: 59.56 kB)
+These are informational only; the build succeeds.
 
-### Warnings (all pre-existing, not new)
-- Chunk size warnings for `vendor-charts`, `index-*.js` — not caused by new code.
+## Fixes applied in this iteration
 
-## Files created/modified in this iteration
+### Finding: `preview-empty-string` (blocking)
+**File:** `src/pages/public-dashboard/flow-builder/FlowNodeTypes/_shared.tsx`
 
-| File | Status |
-|------|--------|
-| `migrations/158_chatbot_flows_rpc.sql` | ✅ Created (exact SQL from brief) |
-| `package.json` / `package-lock.json` | ✅ `@xyflow/react@^12.12.0` added |
-| `src/hooks/useChatbotFlows.ts` | ✅ Created |
-| `src/pages/public-dashboard/ChatbotFluxosPage.tsx` | ✅ Replaced with functional list |
-| `src/pages/public-dashboard/flow-builder/flowTypes.ts` | ✅ Created |
-| `src/pages/public-dashboard/flow-builder/FlowBuilderPage.tsx` | ✅ Created |
-| `src/pages/public-dashboard/flow-builder/FlowCanvas.tsx` | ✅ Created |
-| `src/pages/public-dashboard/flow-builder/FlowToolbar.tsx` | ✅ Created |
-| `src/pages/public-dashboard/flow-builder/FlowPropertiesPanel.tsx` | ✅ Created |
-| `src/pages/public-dashboard/flow-builder/FlowNodeTypes/_shared.tsx` | ✅ Created |
-| `src/pages/public-dashboard/flow-builder/FlowNodeTypes/TriggerKeywordNode.tsx` | ✅ Created |
-| `src/pages/public-dashboard/flow-builder/FlowNodeTypes/SendMessageNode.tsx` | ✅ Created |
-| `src/pages/public-dashboard/flow-builder/FlowNodeTypes/SendButtonsNode.tsx` | ✅ Created |
-| `src/pages/public-dashboard/flow-builder/FlowNodeTypes/QuestionNode.tsx` | ✅ Created |
-| `src/pages/public-dashboard/flow-builder/FlowNodeTypes/ConditionNode.tsx` | ✅ Created |
-| `src/pages/public-dashboard/flow-builder/FlowNodeTypes/SendDocumentNode.tsx` | ✅ Created |
-| `src/pages/public-dashboard/flow-builder/FlowNodeTypes/SetVariableNode.tsx` | ✅ Created |
-| `src/pages/public-dashboard/flow-builder/FlowNodeTypes/GoToFlowNode.tsx` | ✅ Created |
-| `src/App.tsx` | ✅ Route + lazy import added |
+Changed:
+```ts
+// Before
+export function preview(text: string | undefined, max = 30): string {
+  if (!text) return "—";
+  ...
+}
 
-## TypeScript errors in new files
-None observed. (Pre-existing unrelated error in `src/components/contracts/settings/ClauseEditor.tsx` not introduced by this change.)
+// After
+export function preview(text: string | undefined | null, max = 30): string {
+  if (text == null) return "—";
+  if (text === "") return "";
+  ...
+}
+```
+Now `null`/`undefined` → `"—"` (unpopulated), `""` → `""` (intentionally cleared).
+
+### Finding: `concurrent-activation-unhandled-error` (blocking)
+**Files:** `ChatbotFluxosPage.tsx`, `FlowBuilderPage.tsx`
+
+In `ChatbotFluxosPage.tsx` — `doSetStatus`:
+- Catches constraint violation errors (matching `uq_cf_active`, `unique`, `duplicate` keywords)
+- Shows `toast.warning("Outro flow foi ativado por outra sessão — recarregando.")`
+- Calls `refetch()` to sync local state
+
+In `FlowBuilderPage.tsx` — `doActivate`:
+- Added `refetch: refetchFlows` from `useFlowList` (was unused before)
+- Same constraint-violation catch pattern with friendly toast + `refetchFlows()`
+- On success: also calls `refetchFlows()` to keep flows list in sync

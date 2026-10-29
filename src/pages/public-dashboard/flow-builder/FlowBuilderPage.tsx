@@ -38,7 +38,7 @@ export function FlowBuilderPage() {
   const navigate = useNavigate();
 
   const { flow, loading } = useFlowDetail(flowId, clientId);
-  const { flows } = useFlowList(clientId);
+  const { flows, refetch: refetchFlows } = useFlowList(clientId);
   const upsertFlow = useUpsertFlow();
   const setFlowStatus = useSetFlowStatus();
 
@@ -195,8 +195,16 @@ export function FlowBuilderPage() {
       await setFlowStatus(flowId, clientId, "active");
       setStatus("active");
       toast.success("Flow ativado!");
+      await refetchFlows();
     } catch (e: unknown) {
-      toast.error("Erro ao ativar: " + ((e as Error)?.message ?? "erro desconhecido"));
+      const msg = (e as Error)?.message ?? "";
+      // Conflito de ativação concorrente: unique constraint do Banco A (migration 156)
+      if (msg.includes("uq_cf_active") || msg.includes("unique") || msg.includes("duplicate")) {
+        toast.warning("Outro flow foi ativado por outra sessão — recarregando.");
+        await refetchFlows();
+      } else {
+        toast.error("Erro ao ativar: " + (msg || "erro desconhecido"));
+      }
     } finally {
       setActivating(false);
       setActivateConflict(null);

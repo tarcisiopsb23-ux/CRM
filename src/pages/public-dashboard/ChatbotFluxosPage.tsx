@@ -362,7 +362,14 @@ export function ChatbotFluxosPage() {
       );
       await refetch();
     } catch (e: unknown) {
-      toast.error("Erro ao alterar status: " + ((e as Error)?.message ?? "erro desconhecido"));
+      const msg = (e as Error)?.message ?? "";
+      // Conflito de ativação concorrente: unique constraint do Banco A (migration 156)
+      if (status === "active" && (msg.includes("uq_cf_active") || msg.includes("unique") || msg.includes("duplicate"))) {
+        toast.warning("Outro flow foi ativado por outra sessão — recarregando.");
+        await refetch();
+      } else {
+        toast.error("Erro ao alterar status: " + (msg || "erro desconhecido"));
+      }
     } finally {
       setStatusLoadingId(null);
     }
