@@ -55,3 +55,7 @@ verify_jwt = false
 # Valida organization_id internamente via service_role
 [functions.whatsapp-template-service]
 verify_jwt = false
+# send-message: chamado pelo n8n com service_role key para enviar mensagens via Meta API
+# Valida internamente via get_meta_connection_credential (service_role)
+[functions.send-message]
+verify_jwt = false
