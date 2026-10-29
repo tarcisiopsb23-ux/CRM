@@ -55,6 +55,7 @@ export interface NodeData {
 
   // go_to_flow
   flow_id?: string;
+  flow_name?: string; // nome do flow destino (cacheado para exibição no canvas)
 
   // allow arbitrary extra keys from builder
   [key: string]: unknown;

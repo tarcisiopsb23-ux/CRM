@@ -290,7 +290,10 @@ export function FlowPropertiesPanel({ node, onUpdate, availableFlows = [] }: Pro
               {availableFlows.length > 0 ? (
                 <Select
                   value={data.flow_id ?? ""}
-                  onValueChange={(v) => onUpdate({ flow_id: v })}
+                  onValueChange={(v) => {
+                    const selected = availableFlows.find(f => f.id === v);
+                    onUpdate({ flow_id: v, flow_name: selected?.name ?? v });
+                  }}
                 >
                   <SelectTrigger className="h-9 text-sm">
                     <SelectValue placeholder="Selecionar flow..." />
