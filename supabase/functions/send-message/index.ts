@@ -159,13 +159,18 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-  // Verifica JWT
-  const anonClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY") ?? serviceKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-    global: { headers: { Authorization: `Bearer ${userToken}` } },
-  });
-  const { data: { user }, error: authError } = await anonClient.auth.getUser();
-  if (authError || !user) return json({ error: "Não autorizado" }, 401);
+  // Permite chamadas server-to-server com service_role key (ex: n8n, bot-router)
+  const isServiceRole = userToken === serviceKey;
+
+  if (!isServiceRole) {
+    // Verifica JWT de usuário autenticado
+    const anonClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY") ?? serviceKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+      global: { headers: { Authorization: `Bearer ${userToken}` } },
+    });
+    const { data: { user }, error: authError } = await anonClient.auth.getUser();
+    if (authError || !user) return json({ error: "Não autorizado" }, 401);
+  }
 
   let body: Record<string, unknown>;
   try { body = await req.json(); }
