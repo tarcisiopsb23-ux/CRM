@@ -12,7 +12,7 @@ export function QuestionNode(props: NodeProps) {
       icon={<HelpCircle className="h-3 w-3" />}
       label="Pergunta"
       selected={props.selected}
-      sourceHandles={[{ label: "Resposta" }, { id: "timeout", label: "Timeout" }]}
+      sourceHandles={[{ id: "default", label: "Resposta" }, { id: "timeout", label: "Timeout" }]}
     >
       <p className="leading-snug">{preview(data.text, 26)}</p>
       {data.save_response_to ? (

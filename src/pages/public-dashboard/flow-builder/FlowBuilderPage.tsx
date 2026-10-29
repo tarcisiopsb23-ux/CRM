@@ -140,7 +140,7 @@ export function FlowBuilderPage() {
       void doSave();
     }, 2000);
     return () => clearTimeout(t);
-  }, [nodes, edges, name, initialized, doSave]);
+  }, [nodes, edges, name, description, initialized, doSave]);
 
   // ── Handlers do canvas (marcam interação para auto-save) ─────────────────────
   const onNodesChange = useCallback((changes: NodeChange[]) => {
@@ -266,7 +266,11 @@ export function FlowBuilderPage() {
           />
 
           <div className="w-72 shrink-0 border-l border-border bg-card">
-            <FlowPropertiesPanel node={selectedNode} onUpdate={updateNodeData} />
+            <FlowPropertiesPanel
+              node={selectedNode}
+              onUpdate={updateNodeData}
+              availableFlows={flows.filter((f) => f.id !== flowId)}
+            />
           </div>
         </div>
       </div>

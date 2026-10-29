@@ -14,7 +14,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Node } from "@xyflow/react";
 
-import type { NodeData, NodeType, MatchType } from "./flowTypes";
+import type { ChatbotFlow, NodeData, NodeType, MatchType } from "./flowTypes";
 
 // ─── Helpers de UI ──────────────────────────────────────────────────────────
 
@@ -138,9 +138,11 @@ function ButtonsEditor({
 interface PropertiesPanelProps {
   node: Node | null;
   onUpdate: (patch: Partial<NodeData>) => void;
+  /** Available flows for go_to_flow target selection (excludes current flow). */
+  availableFlows?: ChatbotFlow[];
 }
 
-export function FlowPropertiesPanel({ node, onUpdate }: PropertiesPanelProps) {
+export function FlowPropertiesPanel({ node, onUpdate, availableFlows = [] }: PropertiesPanelProps) {
   if (!node) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
@@ -284,8 +286,31 @@ export function FlowPropertiesPanel({ node, onUpdate }: PropertiesPanelProps) {
 
         {type === "go_to_flow" && (
           <>
-            <Field label="ID do flow de destino">
-              <Input value={data.flow_id ?? ""} onChange={(e) => onUpdate({ flow_id: e.target.value })} placeholder="UUID do flow" className="h-9 text-sm" />
+            <Field label="Flow de destino">
+              {availableFlows.length > 0 ? (
+                <Select
+                  value={data.flow_id ?? ""}
+                  onValueChange={(v) => onUpdate({ flow_id: v })}
+                >
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue placeholder="Selecionar flow..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableFlows.map((f) => (
+                      <SelectItem key={f.id} value={f.id}>
+                        {f.name}
+                        {f.status === "active" && (
+                          <span className="ml-1.5 text-[10px] text-emerald-400">(ativo)</span>
+                        )}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <p className="text-xs text-muted-foreground/70 rounded-md border border-border/50 bg-secondary/20 p-2.5">
+                  Nenhum outro flow disponível neste cliente.
+                </p>
+              )}
             </Field>
             <p className="text-[11px] text-muted-foreground/70">
               O contato será redirecionado para o flow indicado.
