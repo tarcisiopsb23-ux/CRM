@@ -153,18 +153,22 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   const authHeader = req.headers.get("Authorization") ?? "";
-  const userToken  = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+  const apiKeyHeader = req.headers.get("apikey") ?? "";
+  const userToken  = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : authHeader || apiKeyHeader;
   if (!userToken) return json({ error: "Não autorizado" }, 401);
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const anonKey     = Deno.env.get("SUPABASE_ANON_KEY") ?? serviceKey;
 
   // Permite chamadas server-to-server com service_role key (ex: n8n, bot-router)
   const isServiceRole = userToken === serviceKey;
+  // Permite chamadas com anon key (dashboard do cliente)
+  const isAnonKey = userToken === anonKey;
 
-  if (!isServiceRole) {
+  if (!isServiceRole && !isAnonKey) {
     // Verifica JWT de usuário autenticado
-    const anonClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY") ?? serviceKey, {
+    const anonClient = createClient(supabaseUrl, anonKey, {
       auth: { autoRefreshToken: false, persistSession: false },
       global: { headers: { Authorization: `Bearer ${userToken}` } },
     });
