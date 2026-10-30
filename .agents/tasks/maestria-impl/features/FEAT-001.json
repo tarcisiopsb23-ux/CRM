@@ -1,0 +1,27 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Create useMaestriaConfig and useKnowledgeBase hooks; add role-based route guards for /chatbot/* in PublicDashboardLayout.tsx. These two changes are independent of each other but both depend on reading the auth pattern from useClientAuth.",
+  "status": "completed",
+  "steps": [
+    "Read `c:\\automacoes\\C8 Control\\src\\hooks\\useClientAuth.ts` fully to understand the auth shape, then read `c:\\automacoes\\C8 Control\\src\\pages\\public-dashboard\\ChatbotAgentePage.tsx` (the load/save logic for agent_channel_configs) to understand what useMaestriaConfig needs to expose.",
+    "Create `c:\\automacoes\\C8 Control\\src\\hooks\\useMaestriaConfig.ts`. The hook must: (a) accept no arguments — read clientId and orgId from `useClientAuth()`; (b) load all 5 channel configs via `supabase.rpc('get_agent_channel_configs', { p_client_id })` using the same logic as ChatbotAgentePage's `load()` function; (c) load bot_active via `useDynamicClient().from('client_ai_settings')`; (d) load bot_mode and agentConfigId via `supabase.rpc('get_agent_config_for_client', { p_client_id })`; (e) expose `configs`, `botActive`, `setBotActive`, `botMode`, `setBotMode`, `botModePerChannel`, `setBotModePerChannel`, `patchChannel`, `save`, `isLoading`, `isSaving`. The save function calls `supabase.rpc('upsert_agent_channel_config', ...)` for each of the 5 channels, updates bot_active via useDynamicClient, and calls `supabase.rpc('set_bot_mode', ...)` if agentConfigId exists. Use the exact same RPC parameters as ChatbotAgentePage.tsx saveMutation.",
+    "Read `c:\\automacoes\\C8 Control\\migrations\\129_knowledge_base_client_rpcs.sql` fully to get all RPC signatures for FAQ, policies, and services.",
+    "Create `c:\\automacoes\\C8 Control\\src\\hooks\\useKnowledgeBase.ts`. The hook must: (a) accept `clientId: string` and `organizationId: string` as parameters; (b) expose three useQuery results — `faqs` (queryKey: ['knowledge_faqs', clientId]), `policies` (queryKey: ['knowledge_policies', clientId]), `services` (queryKey: ['knowledge_services', clientId]); (c) expose useMutation helpers — `createFaq(v)`, `updateFaq(id, v)`, `deleteFaq(id)`, `createPolicy(v)`, `updatePolicy(id, v)`, `deletePolicy(id)`, `createService(v)`, `updateService(id, v)`, `deleteService(id)` — each calling the appropriate `supabase.rpc()` from migration 129. All mutations invalidate their respective queryKey on success.",
+    "Read `c:\\automacoes\\C8 Control\\src\\pages\\public-dashboard\\PublicDashboardLayout.tsx` to see the current ROUTE_ROLE_MAP and the hasRole/ROLE_ORDER logic.",
+    "In `PublicDashboardLayout.tsx`, add to ROUTE_ROLE_MAP: `'/chatbot/agente': 'manager'`, `'/chatbot/conhecimento': 'manager'`, `'/chatbot/fluxos': 'manager'`, `'/chatbot/flows': 'manager'`. Keep `/chatbot/canais` without a guard (accessible to all authenticated users)."
+  ],
+  "acceptance_criteria": [
+    "Running `npm run build` from `c:\\automacoes\\C8 Control` completes with zero errors.",
+    "Running `npm test` from `c:\\automacoes\\C8 Control` — all existing tests pass.",
+    "useMaestriaConfig exports: configs, botActive, setBotActive, botMode, setBotMode, botModePerChannel, setBotModePerChannel, patchChannel, save, isLoading, isSaving.",
+    "useKnowledgeBase exports: faqs, policies, services, isLoading, createFaq, updateFaq, deleteFaq, createPolicy, updatePolicy, deletePolicy, createService, updateService, deleteService.",
+    "ROUTE_ROLE_MAP in PublicDashboardLayout.tsx contains the 4 new chatbot entries."
+  ],
+  "verification": [
+    "Run `npm run build` from `c:\\automacoes\\C8 Control` — must complete with zero TypeScript/build errors.",
+    "Run `npm test` from `c:\\automacoes\\C8 Control` — all tests pass."
+  ],
+  "blocked_reason": null,
+  "findings": "1. useDynamicClient returns SupabaseClient|null — the hook must guard with `if (!dc || loaded) return` in the useEffect to avoid calling dc!.from() before the client is ready. 2. get_agent_channel_configs returns a JSON object keyed by channel name (not a SETOF array), so remote[ch] access is correct. 3. get_agent_config_for_client returns SETOF (array), so [0] indexing matches ChatbotAgentePage. 4. All 20 pre-existing test failures exist on the baseline commit fc15974 before any FEAT-001 changes — zero new failures introduced. 5. useKnowledgeBase accepts clientId and organizationId as explicit params (not from useClientAuth) as specified, making it reusable from any context. 6. ROUTE_ROLE_MAP entry for /chatbot/canais intentionally omitted per spec (accessible to all authenticated users)."
+}

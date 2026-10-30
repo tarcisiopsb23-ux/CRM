@@ -36,6 +36,10 @@ const ROUTE_ROLE_MAP: Record<string, Role> = {
   "/agenda":                     "member",
   "/agenda/configuracoes":       "manager",
   "/agenda/link":                "member",
+  "/chatbot/agente":             "manager",
+  "/chatbot/conhecimento":       "manager",
+  "/chatbot/fluxos":             "manager",
+  "/chatbot/flows":              "manager",
 };
 
 const ROLE_ORDER: Role[] = ["viewer", "member", "manager", "admin", "owner"];
