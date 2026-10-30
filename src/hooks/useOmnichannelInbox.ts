@@ -206,7 +206,7 @@ export function useOmnichannelInbox(): UseOmnichannelInboxReturn {
           id, client_id, organization_id, channel_type, meta_connection_id,
           contact_id, status, priority, bot_active, assigned_agent_id,
           last_message_at,
-          contact:client_channel_contacts!contact_id(
+          contact:client_channel_contacts!left(
             display_name, phone, metadata
           )
         `)
@@ -214,7 +214,14 @@ export function useOmnichannelInbox(): UseOmnichannelInboxReturn {
         .order("last_message_at", { ascending: false, nullsFirst: false });
 
       if (filters.channel) {
-        query = query.eq("channel_type", filters.channel);
+        // Normaliza canal canônico para incluir variantes _dm e _comment
+        if (filters.channel === "instagram") {
+          query = query.in("channel_type", ["instagram", "instagram_dm", "instagram_comment"]);
+        } else if (filters.channel === "facebook") {
+          query = query.in("channel_type", ["facebook", "facebook_dm", "facebook_comment"]);
+        } else {
+          query = query.eq("channel_type", filters.channel);
+        }
       }
       if (filters.status) {
         query = query.eq("status", filters.status);

@@ -83,11 +83,13 @@ function isWindow24hExpired(conv: Conversation, messages: Message[]): boolean {
 
 // ─── Canal config ──────────────────────────────────────────────────────────────
 
-type ChannelKey = "whatsapp" | "instagram_dm" | "facebook_dm";
+type ChannelKey = "whatsapp" | "instagram" | "facebook";
 
 const CHANNEL_COLORS: Record<string, string> = {
   whatsapp:        "text-emerald-400",
+  instagram:       "text-pink-400",
   instagram_dm:    "text-pink-400",
+  facebook:        "text-blue-400",
   facebook_dm:     "text-blue-400",
   instagram_comment: "text-pink-300",
   facebook_comment:  "text-blue-300",
@@ -95,7 +97,9 @@ const CHANNEL_COLORS: Record<string, string> = {
 
 const CHANNEL_LABELS: Record<string, string> = {
   whatsapp:          "WhatsApp",
+  instagram:         "Instagram",
   instagram_dm:      "Instagram",
+  facebook:          "Facebook",
   facebook_dm:       "Facebook",
   instagram_comment: "Instagram",
   facebook_comment:  "Facebook",
@@ -900,8 +904,8 @@ function LeftColumn({
   const channelButtons: Array<{ key: ChannelFilter; label: string }> = [
     { key: null, label: "Todos" },
     { key: "whatsapp", label: "WhatsApp" },
-    { key: "instagram_dm", label: "Instagram" },
-    { key: "facebook_dm", label: "Facebook" },
+    { key: "instagram", label: "Instagram" },
+    { key: "facebook",  label: "Facebook"  },
   ];
 
   const statusButtons: Array<{ key: StatusFilter; label: string }> = [
