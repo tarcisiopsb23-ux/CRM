@@ -4,7 +4,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import {
   ReactFlow, Background, Controls, MiniMap, useReactFlow,
-  type Node, type Edge, type OnNodesChange, type OnEdgesChange, type OnConnect, type NodeTypes,
+  type Node, type Edge, type OnNodesChange, type OnEdgesChange, type OnConnect, type NodeTypes, type EdgeTypes,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
@@ -22,6 +22,7 @@ import { ConditionNode } from "./FlowNodeTypes/ConditionNode";
 import { SendDocumentNode } from "./FlowNodeTypes/SendDocumentNode";
 import { SetVariableNode } from "./FlowNodeTypes/SetVariableNode";
 import { GoToFlowNode } from "./FlowNodeTypes/GoToFlowNode";
+import { DeleteableEdge } from "./FlowEdgeTypes/DeleteableEdge";
 
 // nodeTypes definido no nível do módulo (referência estável p/ evitar re-renders).
 const nodeTypes: NodeTypes = {
@@ -33,6 +34,11 @@ const nodeTypes: NodeTypes = {
   send_document: SendDocumentNode,
   set_variable: SetVariableNode,
   go_to_flow: GoToFlowNode,
+};
+
+// edgeTypes: todas as arestas usam DeleteableEdge com botão de lixeira
+const edgeTypes: EdgeTypes = {
+  default: DeleteableEdge,
 };
 
 // Paleta de nós: tipo + ícone para arrastar para o canvas.
@@ -122,6 +128,8 @@ export function FlowCanvas({
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          defaultEdgeOptions={{ type: "default" }}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
