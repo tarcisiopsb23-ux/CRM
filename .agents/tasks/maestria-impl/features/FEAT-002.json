@@ -1,0 +1,27 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "Rename 'Chatbot' sidebar group to 'Maestr.IA', add WhatsApp Templates to the group nav, and apply per-item role filtering so config pages are hidden from viewers/members. Independent of FEAT-001 (no cross-file dependencies).",
+  "status": "completed",
+  "steps": [
+    "Read `c:\\automacoes\\C8 Control\\src\\pages\\public-dashboard\\PublicDashboardSidebar.tsx` fully to understand the current CHATBOT_NAV definition, AccordionGroup usage, and the CONFIG_NAV role-filtering pattern.",
+    "In `PublicDashboardSidebar.tsx`, update CHATBOT_NAV to add a Templates entry: `{ title: 'Templates WhatsApp', url: 'mensagens/templates', icon: MessageCircle }`. Import `MessageCircle` if not already imported (it is already imported in the file).",
+    "In `PublicDashboardSidebar.tsx`, rename the AccordionGroup label from 'Chatbot' to 'Maestr.IA' in the JSX block that renders the chatbot section (search for `label=\"Chatbot\"`).",
+    "In `PublicDashboardSidebar.tsx`, apply role filtering to the CHATBOT_NAV SidebarMenu render: wrap the map with a filter so that items with url matching `chatbot/agente`, `chatbot/conhecimento`, `chatbot/fluxos` are only shown when `['owner','admin','manager'].includes(userRole)`. The `chatbot/canais` and `mensagens/templates` items remain visible to all authenticated users (member+). Pattern to follow: the existing CONFIG_NAV filter block in the same component.",
+    "Verify the sidebar still shows the Maestr.IA group gated on `chatbotEnabled` (`modules_config?.automation_enabled === true`)."
+  ],
+  "acceptance_criteria": [
+    "The sidebar group label is 'Maestr.IA' (not 'Chatbot').",
+    "The Maestr.IA nav includes: Canais, Meu Agente, Conhecimento, Fluxos, Templates WhatsApp.",
+    "Meu Agente, Conhecimento, and Fluxos items are hidden in the sidebar when the user role is viewer or member.",
+    "Templates WhatsApp and Canais remain visible to all authenticated users.",
+    "Running `npm run build` from `c:\\automacoes\\C8 Control` completes with zero errors.",
+    "Running `npm test` from `c:\\automacoes\\C8 Control` — all existing tests pass."
+  ],
+  "verification": [
+    "Run `npm run build` from `c:\\automacoes\\C8 Control` — must complete with zero TypeScript/build errors.",
+    "Run `npm test` from `c:\\automacoes\\C8 Control` — all tests pass."
+  ],
+  "blocked_reason": null,
+  "findings": "All three changes applied to PublicDashboardSidebar.tsx: (1) CHATBOT_NAV extended with Templates WhatsApp entry pointing to mensagens/templates using MessageCircle icon. (2) AccordionGroup label renamed from 'Chatbot' to 'Maestr.IA'. (3) Role filter added to CHATBOT_NAV render — chatbot/agente, chatbot/conhecimento, chatbot/fluxos hidden for viewer/member roles; chatbot/canais and mensagens/templates remain visible to all authenticated roles. Build passes zero errors. 21 pre-existing property-based test failures (contracts, commissions, 360-eval modules) are unrelated to this feature."
+}
