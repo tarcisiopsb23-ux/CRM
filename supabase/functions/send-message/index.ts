@@ -53,7 +53,21 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-// ── Resolve token via meta-credential-provider ────────────────────────────────
+// ── Crypto (AES-GCM) — descriptografa tokens armazenados ─────────────────────
+
+async function decryptToken(cipherB64: string, secret: string): Promise<string> {
+  const enc     = new TextEncoder();
+  const keyMat  = await crypto.subtle.importKey("raw", enc.encode(secret), "PBKDF2", false, ["deriveKey"]);
+  const key     = await crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt: enc.encode("meta_connections_v1"), iterations: 100_000, hash: "SHA-256" },
+    keyMat, { name: "AES-GCM", length: 256 }, false, ["decrypt"]
+  );
+  const combined = Uint8Array.from(atob(cipherB64), c => c.charCodeAt(0));
+  const plain    = await crypto.subtle.decrypt({ name: "AES-GCM", iv: combined.slice(0, 12) }, key, combined.slice(12));
+  return new TextDecoder().decode(plain);
+}
+
+// ── Resolve token via meta-credential-provider (com fallback direto ao banco) ─
 
 async function resolveToken(
   connectionId: string,
@@ -61,29 +75,67 @@ async function resolveToken(
   supabaseUrl: string,
   serviceKey: string
 ): Promise<string> {
+  // Tenta via meta-credential-provider se INTERNAL_SECRET disponível
   const internalSecret = Deno.env.get("INTERNAL_SECRET");
-  if (!internalSecret) throw new Error("INTERNAL_SECRET not configured");
+  if (internalSecret) {
+    const res = await fetch(`${supabaseUrl}/functions/v1/meta-credential-provider`, {
+      method: "POST",
+      headers: {
+        "Content-Type":      "application/json",
+        "X-Internal-Secret": internalSecret,
+      },
+      body: JSON.stringify({
+        connection_id:   connectionId,
+        organization_id: orgId,
+        action:          "get_token",
+      }),
+    });
 
-  const res = await fetch(`${supabaseUrl}/functions/v1/meta-credential-provider`, {
-    method: "POST",
-    headers: {
-      "Content-Type":    "application/json",
-      "X-Internal-Secret": internalSecret,
-    },
-    body: JSON.stringify({
-      connection_id:   connectionId,
-      organization_id: orgId,
-      action:          "get_token",
-    }),
-  });
-
-  if (!res.ok) {
-    const err = await res.json() as Record<string, unknown>;
-    throw new Error((err.error as string) ?? "credential_provider_error");
+    if (res.ok) {
+      const data = await res.json() as { access_token: string };
+      if (data.access_token) return data.access_token;
+    }
   }
 
-  const data = await res.json() as { access_token: string };
-  return data.access_token;
+  // Fallback: busca token direto do banco (descriptografia via crypto)
+  const admin = createClient(supabaseUrl, serviceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
+  // 1. Tenta agency token (use_agency_token = true)
+  const { data: conn } = await admin
+    .from("meta_connections")
+    .select("use_agency_token, access_token_encrypted, connection_method")
+    .eq("id", connectionId)
+    .eq("organization_id", orgId)
+    .maybeSingle();
+
+  if (conn?.use_agency_token) {
+    const { data: agencyCred } = await admin
+      .from("organization_meta_credentials")
+      .select("access_token_encrypted")
+      .eq("organization_id", orgId)
+      .eq("is_active", true)
+      .eq("token_is_set", true)
+      .maybeSingle();
+
+    if (agencyCred?.access_token_encrypted) {
+      const cryptoSecret = Deno.env.get("CRYPTO_SECRET");
+      if (cryptoSecret) {
+        return await decryptToken(agencyCred.access_token_encrypted, cryptoSecret);
+      }
+    }
+  }
+
+  // 2. Tenta token próprio da conexão
+  if (conn?.access_token_encrypted) {
+    const cryptoSecret = Deno.env.get("CRYPTO_SECRET");
+    if (cryptoSecret) {
+      return await decryptToken(conn.access_token_encrypted, cryptoSecret);
+    }
+  }
+
+  throw new Error("token_not_found");
 }
 
 // ── Builders de payload por tipo de mensagem ──────────────────────────────────
