@@ -37,7 +37,8 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const GRAPH = "https://graph.facebook.com/v19.0";
+const GRAPH    = "https://graph.facebook.com/v24.0";
+const GRAPH_IG = "https://graph.instagram.com/v24.0";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin":  "*",
