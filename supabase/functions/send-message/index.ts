@@ -236,9 +236,40 @@ Deno.serve(async (req) => {
   if (!conn) return json({ error: "Conexão não encontrada ou inativa" }, 404);
 
   // Resolve o access token
+  // Para instagram_dm: força uso do System User Token da agência (único aceito pelo graph.instagram.com)
+  // Para demais canais: usa o token padrão da conexão
   let accessToken: string;
   try {
-    accessToken = await resolveToken(connection_id, organization_id, supabaseUrl, serviceKey);
+    if (channel_type === "instagram_dm") {
+      const internalSecret = Deno.env.get("INTERNAL_SECRET");
+      if (!internalSecret) throw new Error("INTERNAL_SECRET not configured");
+
+      const res = await fetch(`${supabaseUrl}/functions/v1/meta-credential-provider`, {
+        method: "POST",
+        headers: {
+          "Content-Type":      "application/json",
+          "X-Internal-Secret": internalSecret,
+        },
+        body: JSON.stringify({
+          connection_id:   connection_id,
+          organization_id: organization_id,
+          action:          "get_agency_token",  // busca o system user token da agência
+        }),
+      });
+      // Se não tiver agency token configurado, cai no token padrão
+      if (res.ok) {
+        const data = await res.json() as { access_token?: string };
+        if (data.access_token) {
+          accessToken = data.access_token;
+        } else {
+          accessToken = await resolveToken(connection_id, organization_id, supabaseUrl, serviceKey);
+        }
+      } else {
+        accessToken = await resolveToken(connection_id, organization_id, supabaseUrl, serviceKey);
+      }
+    } else {
+      accessToken = await resolveToken(connection_id, organization_id, supabaseUrl, serviceKey);
+    }
   } catch (e: unknown) {
     return json({ error: `token_resolution_failed: ${(e as Error).message}` }, 400);
   }
@@ -275,9 +306,9 @@ Deno.serve(async (req) => {
     // ── Instagram DM ─────────────────────────────────────────────────────────
     else if (channel_type === "instagram_dm") {
       if (!conn.instagram_account_id) return json({ error: "instagram_account_id não configurado" }, 400);
-      // Usa graph.facebook.com com o instagram_account_id — aceita Page Access Token
-      // graph.instagram.com requer User/System Token que não está disponível aqui
-      graphUrl = `${GRAPH}/${conn.instagram_account_id}/messages`;
+      // graph.instagram.com exige System User Token ou User Token — usa token da agência
+      // O Page Access Token (conexão padrão) não é aceito neste endpoint
+      graphUrl = `${GRAPH_IG}/me/messages`;
       payload  = {
         recipient: { id: recipient_id },
         message:   { text: content },
@@ -306,13 +337,28 @@ Deno.serve(async (req) => {
 
     // ── Chamada à Graph API ───────────────────────────────────────────────────
     const url = new URL(graphUrl);
-    url.searchParams.set("access_token", accessToken);
 
-    const graphRes = await fetch(url.toString(), {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify(payload),
-    });
+    let graphRes: Response;
+
+    if (graphUrl.startsWith(GRAPH_IG)) {
+      // graph.instagram.com exige token no header Authorization (System User Token)
+      graphRes = await fetch(url.toString(), {
+        method:  "POST",
+        headers: {
+          "Content-Type":  "application/json",
+          "Authorization": `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(payload),
+      });
+    } else {
+      // graph.facebook.com usa access_token na query string
+      url.searchParams.set("access_token", accessToken);
+      graphRes = await fetch(url.toString(), {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(payload),
+      });
+    }
 
     const graphData = await graphRes.json() as Record<string, unknown>;
 

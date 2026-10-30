@@ -218,6 +218,34 @@ Deno.serve(async (req) => {
     }
   }
 
+  // ── get_agency_token ──────────────────────────────────────────────────────
+  // Retorna diretamente o System User Token da agência, independente da conexão
+  if (action === "get_agency_token") {
+    try {
+      const { data: agencyCred } = await adminClient
+        .from("organization_meta_credentials")
+        .select("access_token_encrypted, token_expires_at")
+        .eq("organization_id", connection.organization_id)
+        .eq("is_active", true)
+        .eq("token_is_set", true)
+        .maybeSingle();
+
+      if (!agencyCred?.access_token_encrypted) {
+        return json({ error: "agency_token_not_configured" }, 400);
+      }
+
+      const plainToken = await decrypt(agencyCred.access_token_encrypted, cryptoSecret);
+      return json({
+        access_token: plainToken,
+        token_type:   "system_user",
+        expires_at:   agencyCred.token_expires_at ?? null,
+        source:       "agency",
+      });
+    } catch (e: unknown) {
+      return json({ error: e instanceof Error ? e.message : "agency_token_error" }, 400);
+    }
+  }
+
   // ── validate ──────────────────────────────────────────────────────────────
   if (action === "validate") {
     try {
