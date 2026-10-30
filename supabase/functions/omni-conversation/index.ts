@@ -122,11 +122,12 @@ async function handleClient(
   if (existingConv) {
     return {
       contact_id,
-      conversation_id:  existingConv.id,
-      status:           existingConv.status,
+      conversation_id:   existingConv.id,
+      status:            existingConv.status,
       assigned_agent_id: existingConv.assigned_agent_id,
-      created:          false,
-      side:             "client",
+      handoff_active:    existingConv.assigned_agent_id !== null || existingConv.status === "waiting_human" || existingConv.status === "human_active",
+      created:           false,
+      side:              "client",
     };
   }
 
@@ -154,6 +155,7 @@ async function handleClient(
     conversation_id:   newConv.id,
     status:            newConv.status,
     assigned_agent_id: newConv.assigned_agent_id,
+    handoff_active:    false,
     created:           true,
     side:              "client",
   };
@@ -214,6 +216,7 @@ async function handleAgency(
     conversation_id:   convData.conversation_id,
     status:            convData.status,
     assigned_agent_id: convData.assigned_agent_id,
+    handoff_active:    convData.assigned_agent_id !== null || convData.status === "waiting_human" || convData.status === "human_active",
     display_name:      convData.display_name,
     username:          convData.username,
     created:           convData.created,
