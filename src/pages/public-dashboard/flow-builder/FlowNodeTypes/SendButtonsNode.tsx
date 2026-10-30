@@ -1,4 +1,4 @@
-// SendButtonsNode — envia mensagem com botões (azul). Um source handle por botão.
+﻿// SendButtonsNode — envia mensagem com botões (azul). Um source handle por botão.
 import { MousePointerClick } from "lucide-react";
 import { type NodeProps } from "@xyflow/react";
 import type { NodeData } from "../flowTypes";
@@ -17,7 +17,7 @@ export function SendButtonsNode(props: NodeProps) {
       color="send"
       icon={<MousePointerClick className="h-3 w-3" />}
       label="Enviar botões"
-      selected={props.selected}
+      selected={props.selected} nodeId={props.id}
       sourceHandles={handles}
     >
       <p className="leading-snug">{preview(data.text, 26)}</p>

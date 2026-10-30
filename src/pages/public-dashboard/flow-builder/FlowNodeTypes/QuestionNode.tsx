@@ -1,4 +1,4 @@
-// QuestionNode — pergunta que captura a resposta (laranja). Source padrão + timeout.
+﻿// QuestionNode — pergunta que captura a resposta (laranja). Source padrão + timeout.
 import { HelpCircle } from "lucide-react";
 import { type NodeProps } from "@xyflow/react";
 import type { NodeData } from "../flowTypes";
@@ -11,7 +11,7 @@ export function QuestionNode(props: NodeProps) {
       color="question"
       icon={<HelpCircle className="h-3 w-3" />}
       label="Pergunta"
-      selected={props.selected}
+      selected={props.selected} nodeId={props.id}
       sourceHandles={[{ id: "default", label: "Resposta" }, { id: "timeout", label: "Timeout" }]}
     >
       <p className="leading-snug">{preview(data.text, 26)}</p>

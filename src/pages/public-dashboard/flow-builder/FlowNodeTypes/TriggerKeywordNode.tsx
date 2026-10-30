@@ -1,4 +1,4 @@
-// TriggerKeywordNode — gatilho por palavra-chave (roxo)
+﻿// TriggerKeywordNode — gatilho por palavra-chave (roxo)
 import { Zap } from "lucide-react";
 import { type NodeProps } from "@xyflow/react";
 import type { NodeData } from "../flowTypes";
@@ -12,7 +12,7 @@ export function TriggerKeywordNode(props: NodeProps) {
   };
 
   return (
-    <NodeShell color="trigger" icon={<Zap className="h-3 w-3" />} label="Gatilho" selected={props.selected}>
+    <NodeShell color="trigger" icon={<Zap className="h-3 w-3" />} label="Gatilho" selected={props.selected} nodeId={props.id}>
       <div className="flex flex-wrap gap-1">
         {keywords.length > 0 ? (
           keywords.slice(0, 4).map((kw) => (

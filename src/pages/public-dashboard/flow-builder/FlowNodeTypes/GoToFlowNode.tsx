@@ -1,4 +1,4 @@
-// GoToFlowNode — redireciona para outro flow (roxo)
+﻿// GoToFlowNode — redireciona para outro flow (roxo)
 import { CornerDownRight } from "lucide-react";
 import { type NodeProps } from "@xyflow/react";
 import type { NodeData } from "../flowTypes";
@@ -10,7 +10,7 @@ export function GoToFlowNode(props: NodeProps) {
   const label = (data.flow_name as string | undefined)
     ?? (data.flow_id ? `ID: ${preview(data.flow_id as string, 12)}` : null);
   return (
-    <NodeShell color="go_to" icon={<CornerDownRight className="h-3 w-3" />} label="Ir para flow" selected={props.selected}>
+    <NodeShell color="go_to" icon={<CornerDownRight className="h-3 w-3" />} label="Ir para flow" selected={props.selected} nodeId={props.id}>
       <p className="leading-snug">{label ? `→ ${label}` : "— flow não definido —"}</p>
     </NodeShell>
   );

@@ -1,4 +1,4 @@
-// ConditionNode — ramificação condicional (verde). Source handles yes / no.
+﻿// ConditionNode — ramificação condicional (verde). Source handles yes / no.
 import { GitBranch } from "lucide-react";
 import { type NodeProps } from "@xyflow/react";
 import type { NodeData } from "../flowTypes";
@@ -14,7 +14,7 @@ export function ConditionNode(props: NodeProps) {
       color="condition"
       icon={<GitBranch className="h-3 w-3" />}
       label="Condição"
-      selected={props.selected}
+      selected={props.selected} nodeId={props.id}
       sourceHandles={[{ id: "yes", label: "Sim" }, { id: "no", label: "Não" }]}
     >
       <p className="leading-snug">

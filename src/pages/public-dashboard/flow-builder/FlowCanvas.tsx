@@ -127,6 +127,7 @@ export function FlowCanvas({
           onConnect={onConnect}
           onNodeClick={(_e, node) => onNodeSelect(node.id)}
           onPaneClick={() => onNodeSelect(null)}
+          deleteKeyCode={["Backspace", "Delete"]}
           fitView
           className="h-full w-full bg-background"
           proOptions={{ hideAttribution: true }}

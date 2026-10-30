@@ -3,7 +3,8 @@
 // label do tipo e área de preview) para evitar duplicação entre os 8 nodes.
 
 import type { ReactNode } from "react";
-import { Handle, Position } from "@xyflow/react";
+import { Handle, Position, useReactFlow } from "@xyflow/react";
+import { Trash2 } from "lucide-react";
 
 export type NodeColorKey =
   | "trigger"
@@ -37,6 +38,7 @@ interface NodeShellProps {
   icon: ReactNode;
   label: string;
   selected?: boolean;
+  nodeId?: string;
   /** Handles de saída. Se vazio, renderiza um único source handle padrão (sem id). */
   sourceHandles?: SourceHandleDef[];
   children: ReactNode;
@@ -47,11 +49,18 @@ export function NodeShell({
   icon,
   label,
   selected,
+  nodeId,
   sourceHandles,
   children,
 }: NodeShellProps) {
   const c = NODE_COLORS[color];
   const handles = sourceHandles && sourceHandles.length > 0 ? sourceHandles : [undefined];
+  const { deleteElements } = useReactFlow();
+
+  function handleDelete(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (nodeId) deleteElements({ nodes: [{ id: nodeId }] });
+  }
 
   return (
     <div
@@ -61,6 +70,17 @@ export function NodeShell({
     >
       {/* Handle de entrada (topo) */}
       <Handle type="target" position={Position.Top} className="!h-2.5 !w-2.5 !bg-muted-foreground/60" />
+
+      {/* Botão de deletar — aparece apenas quando selecionado */}
+      {selected && nodeId && (
+        <button
+          onClick={handleDelete}
+          className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/80 transition-colors"
+          title="Deletar nó (ou tecle Delete)"
+        >
+          <Trash2 className="h-2.5 w-2.5" />
+        </button>
+      )}
 
       {/* Cabeçalho */}
       <div className="mb-1.5 flex items-center gap-1.5">
