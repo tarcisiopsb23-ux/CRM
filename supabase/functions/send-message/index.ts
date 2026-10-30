@@ -235,41 +235,12 @@ Deno.serve(async (req) => {
 
   if (!conn) return json({ error: "Conexão não encontrada ou inativa" }, 404);
 
-  // Resolve o access token
-  // Para instagram_dm: força uso do System User Token da agência (único aceito pelo graph.instagram.com)
-  // Para demais canais: usa o token padrão da conexão
+  // Resolve o access token via meta-credential-provider
+  // Como a conexão tem use_agency_token = true, o provider já retorna
+  // automaticamente o System User Token da agência
   let accessToken: string;
   try {
-    if (channel_type === "instagram_dm") {
-      const internalSecret = Deno.env.get("INTERNAL_SECRET");
-      if (!internalSecret) throw new Error("INTERNAL_SECRET not configured");
-
-      const res = await fetch(`${supabaseUrl}/functions/v1/meta-credential-provider`, {
-        method: "POST",
-        headers: {
-          "Content-Type":      "application/json",
-          "X-Internal-Secret": internalSecret,
-        },
-        body: JSON.stringify({
-          connection_id:   connection_id,
-          organization_id: organization_id,
-          action:          "get_agency_token",  // busca o system user token da agência
-        }),
-      });
-      // Se não tiver agency token configurado, cai no token padrão
-      if (res.ok) {
-        const data = await res.json() as { access_token?: string };
-        if (data.access_token) {
-          accessToken = data.access_token;
-        } else {
-          accessToken = await resolveToken(connection_id, organization_id, supabaseUrl, serviceKey);
-        }
-      } else {
-        accessToken = await resolveToken(connection_id, organization_id, supabaseUrl, serviceKey);
-      }
-    } else {
-      accessToken = await resolveToken(connection_id, organization_id, supabaseUrl, serviceKey);
-    }
+    accessToken = await resolveToken(connection_id, organization_id, supabaseUrl, serviceKey);
   } catch (e: unknown) {
     return json({ error: `token_resolution_failed: ${(e as Error).message}` }, 400);
   }
