@@ -18,7 +18,7 @@
  * Body: {
  *   connection_id:   string,    -- ID da meta_connection
  *   organization_id: string,    -- para lookup de permissão
- *   channel_type:    string,    -- "whatsapp" | "instagram_dm" | "facebook_dm" | "instagram_comment" | "facebook_comment"
+ *   channel_type:    string,    -- "whatsapp" | "instagram_dm" | "instagram_comment" | "instagram_private_reply" | "facebook_dm" | "facebook_comment"
  *   recipient_id:    string,    -- phone (WA) ou PSID (FB/IG)
  *   message_type:    string,    -- "text" | "image" | "video" | "audio" | "document" | "template" | "reaction" | "comment_reply"
  *   content:         string,    -- texto ou URL de mídia
@@ -299,6 +299,16 @@ Deno.serve(async (req) => {
       const targetId = comment_id ?? post_id;
       if (!targetId) return json({ error: "comment_id ou post_id obrigatório" }, 400);
       graphUrl = `${GRAPH}/${targetId}/replies`;
+      payload  = { message: content };
+    }
+
+    // ── Instagram Private Reply (DM a partir de comentário) ──────────────────
+    // Envia DM privada usando o comentário como contexto — abre a janela de
+    // mensagem automaticamente sem precisar de interação prévia via DM.
+    // Requer permissão instagram_manage_messages.
+    else if (channel_type === "instagram_private_reply") {
+      if (!comment_id) return json({ error: "comment_id é obrigatório para instagram_private_reply" }, 400);
+      graphUrl = `${GRAPH}/${comment_id}/private_replies`;
       payload  = { message: content };
     }
 
