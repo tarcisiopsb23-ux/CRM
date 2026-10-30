@@ -355,13 +355,20 @@ Deno.serve(async (req) => {
     }
 
     // ── Instagram Private Reply (DM a partir de comentário) ──────────────────
-    // Envia DM privada usando o comentário como contexto — abre a janela de
-    // mensagem automaticamente sem precisar de interação prévia via DM.
+    // Envia DM privada usando o comentário como contexto via Send API.
+    // Funciona em posts do feed, Reels, anúncios e Stories.
+    // Prazo: até 7 dias após o comentário.
     // Requer permissão instagram_manage_messages.
     else if (channel_type === "instagram_private_reply") {
       if (!comment_id) return json({ error: "comment_id é obrigatório para instagram_private_reply" }, 400);
-      graphUrl = `${GRAPH}/${comment_id}/private_replies`;
-      payload  = { message: content };
+      if (!conn.instagram_account_id) return json({ error: "instagram_account_id não configurado" }, 400);
+      // Usa o instagram_account_id (meu_id) no path, não o page_id
+      // recipient.comment_id identifica o destinatário pelo comentário
+      graphUrl = `${GRAPH}/${conn.instagram_account_id}/messages`;
+      payload  = {
+        recipient: { comment_id },
+        message:   { text: content },
+      };
     }
 
     else {
