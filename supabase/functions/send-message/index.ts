@@ -275,8 +275,9 @@ Deno.serve(async (req) => {
     // ── Instagram DM ─────────────────────────────────────────────────────────
     else if (channel_type === "instagram_dm") {
       if (!conn.instagram_account_id) return json({ error: "instagram_account_id não configurado" }, 400);
-      // Usa graph.instagram.com para DM — janela de mensagens correta
-      graphUrl = `${GRAPH_IG}/me/messages`;
+      // Usa graph.facebook.com com o instagram_account_id — aceita Page Access Token
+      // graph.instagram.com requer User/System Token que não está disponível aqui
+      graphUrl = `${GRAPH}/${conn.instagram_account_id}/messages`;
       payload  = {
         recipient: { id: recipient_id },
         message:   { text: content },
@@ -305,28 +306,13 @@ Deno.serve(async (req) => {
 
     // ── Chamada à Graph API ───────────────────────────────────────────────────
     const url = new URL(graphUrl);
+    url.searchParams.set("access_token", accessToken);
 
-    let graphRes: Response;
-
-    if (graphUrl.startsWith(GRAPH_IG)) {
-      // graph.instagram.com exige token no header Authorization
-      graphRes = await fetch(url.toString(), {
-        method:  "POST",
-        headers: {
-          "Content-Type":  "application/json",
-          "Authorization": `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify(payload),
-      });
-    } else {
-      // graph.facebook.com usa access_token na query string
-      url.searchParams.set("access_token", accessToken);
-      graphRes = await fetch(url.toString(), {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify(payload),
-      });
-    }
+    const graphRes = await fetch(url.toString(), {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(payload),
+    });
 
     const graphData = await graphRes.json() as Record<string, unknown>;
 
