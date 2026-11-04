@@ -57,11 +57,10 @@ const MENSAGENS_NAV = [
 ];
 
 const CHATBOT_NAV = [
-  { title: "Canais",              url: "chatbot/canais",       icon: Instagram },
-  { title: "Meu Agente",          url: "chatbot/agente",       icon: Bot },
-  { title: "Conhecimento",        url: "chatbot/conhecimento", icon: BookOpen },
-  { title: "Fluxos",              url: "chatbot/fluxos",       icon: GitBranch },
-  { title: "Templates WhatsApp",  url: "mensagens/templates",  icon: MessageCircle },
+  { title: "Canais",       url: "chatbot/canais",       icon: Instagram },
+  { title: "Meu Agente",   url: "chatbot/agente",       icon: Bot },
+  { title: "Conhecimento", url: "chatbot/conhecimento", icon: BookOpen },
+  { title: "Fluxos",       url: "chatbot/fluxos",       icon: GitBranch },
 ];
 
 const CONTENT_OPS_NAV = [
@@ -362,26 +361,15 @@ export function PublicDashboardSidebar() {
           </AccordionGroup>
         )}
 
-        {/* ── Maestr.IA (chatbot) ── */}
+        {/* ── Chatbot (novo) ── */}
         {chatbotEnabled && (
           <AccordionGroup
-            label="Maestr.IA"
+            label="Chatbot"
             collapsed={collapsed}
             defaultOpen={isInGroup(CHATBOT_NAV.map(i => i.url))}
           >
             <SidebarMenu>
-              {CHATBOT_NAV.filter(item => {
-                // Meu Agente, Conhecimento e Fluxos: apenas owner/admin/manager
-                if (
-                  item.url === "chatbot/agente" ||
-                  item.url === "chatbot/conhecimento" ||
-                  item.url === "chatbot/fluxos"
-                ) {
-                  return ["owner", "admin", "manager"].includes(userRole);
-                }
-                // Canais e Templates WhatsApp: visível para todos os autenticados
-                return true;
-              }).map(item => (
+              {CHATBOT_NAV.map(item => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
                     <Link to={`/${slug}/${item.url}`} className="flex items-center gap-3">

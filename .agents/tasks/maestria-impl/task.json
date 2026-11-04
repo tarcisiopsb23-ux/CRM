@@ -1,7 +1,0 @@
-{
-  "task_id": "task-maestria-config-panel",
-  "task_description": "Complete the Maestr.IA configuration panel in C8 Control: rename sidebar group from 'Chatbot' to 'Maestr.IA', add WhatsApp Templates to the group nav, add role-based access guards to chatbot routes, create useMaestriaConfig and useKnowledgeBase hooks extracted from inline page logic. All four main pages (Agente, Conhecimento, Fluxos, Templates) are already fully implemented — only wiring and polish is needed.",
-  "status": "completed",
-  "feature_order": ["FEAT-001", "FEAT-002"],
-  "blocked_reason": null
-}
