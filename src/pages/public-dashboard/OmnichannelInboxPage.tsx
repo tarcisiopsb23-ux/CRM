@@ -28,7 +28,7 @@ import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -144,7 +144,7 @@ const STATUS_BADGE: Record<string, { label: string; className: string }> = {
   waiting_human:  { label: "Aguardando", className: "bg-amber-500/15 text-amber-400 border-amber-500/20" },
   human_active:   { label: "Humano",     className: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" },
   resolved:       { label: "Resolvido",  className: "bg-slate-500/15 text-slate-400 border-slate-500/20" },
-  open:           { label: "Aberta",     className: "bg-slate-600/15 text-slate-400 border-slate-600/20" },
+  open:           { label: "Aberta",     className: "bg-blue-500/10 text-blue-400 border-blue-500/20" },
   closed:         { label: "Encerrada",  className: "bg-slate-500/15 text-slate-400 border-slate-500/20" },
 };
 
@@ -199,12 +199,15 @@ function ConversationItem({
   myAgentId?: string | null;
 }) {
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       className={cn(
-        "w-full flex items-start gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-secondary/30",
+        "w-full flex items-start gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-secondary/30 cursor-pointer",
         isActive && "bg-secondary/40"
       )}
       onClick={onClick}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
     >
       <ConvAvatar conv={conv} />
       <div className="flex-1 min-w-0">
@@ -212,9 +215,21 @@ function ConversationItem({
           <span className="text-xs font-semibold text-foreground truncate">
             {conv.contact_name ?? conv.contact_phone ?? "Desconhecido"}
           </span>
-          <span className="text-[10px] text-muted-foreground shrink-0">
-            {formatConvTimestamp(conv.last_message_at)}
-          </span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {onAssume && myAgentId && !conv.assigned_agent_id && (
+              <Button
+                size="sm"
+                variant="default"
+                className="h-6 px-2.5 text-[10px] font-semibold"
+                onClick={(e) => { e.stopPropagation(); onAssume(conv.id); }}
+              >
+                Assumir
+              </Button>
+            )}
+            <span className="text-[10px] text-muted-foreground">
+              {formatConvTimestamp(conv.last_message_at)}
+            </span>
+          </div>
         </div>
         <div className="flex items-center justify-between gap-1 mt-0.5">
           <span className="text-[11px] text-muted-foreground truncate flex-1">
@@ -229,21 +244,18 @@ function ConversationItem({
         <div className="flex items-center gap-1 mt-1">
           <ChannelBadge channel={conv.channel_type} small />
           <StatusBadgeSmall status={conv.status} />
+          {conv.bot_active ? (
+            <span className="inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-medium bg-violet-500/15 text-violet-400 border-violet-500/20">
+              Bot On
+            </span>
+          ) : (
+            <span className="inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-medium bg-red-500/10 text-red-400 border-red-500/20">
+              Bot Off
+            </span>
+          )}
         </div>
-        {onAssume && myAgentId && !conv.assigned_agent_id && (
-          <div className="mt-1" onClick={e => e.stopPropagation()}>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-5 px-2 text-[10px]"
-              onClick={() => onAssume(conv.id)}
-            >
-              Assumir
-            </Button>
-          </div>
-        )}
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -351,6 +363,13 @@ interface OmniContact {
   email: string | null;
   client_id: string | null;
   profile_pic_url: string | null;
+  metadata?: {
+    instagram?: {
+      follower_count?: number;
+      is_user_follow_business?: boolean;
+      is_business_follow_user?: boolean;
+    };
+  } | null;
 }
 
 interface OmniIdentity {
@@ -389,10 +408,14 @@ function ContactSheet({
   onContactChanged,
 }: ContactSheetProps) {
   const [loading, setLoading]         = useState(false);
-  const [omniContactId, setOmniContactId] = useState<string | null>(null);
   const [contact, setContact]         = useState<OmniContact | null>(null);
   const [identities, setIdentities]   = useState<OmniIdentity[]>([]);
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null);
+  const [igMeta, setIgMeta] = useState<{
+    follower_count?: number;
+    is_user_follow_business?: boolean;
+    is_business_follow_user?: boolean;
+  } | null>(null);
 
   // Section 1 form
   const [displayName, setDisplayName] = useState("");
@@ -406,7 +429,7 @@ function ContactSheet({
   const [clientResults, setClientResults]       = useState<Array<{ id: string; name: string }>>([]);
   const [linkingClient, setLinkingClient]       = useState(false);
 
-  // Section 4 — merge
+  // Section 5 — merge
   const [mergeSearch, setMergeSearch]     = useState("");
   const [mergeResults, setMergeResults]   = useState<Array<{ id: string; display_name: string | null; phone: string | null }>>([]);
   const [mergeTarget, setMergeTarget]     = useState<{ id: string; display_name: string | null } | null>(null);
@@ -416,82 +439,53 @@ function ContactSheet({
   // ── Carregamento ────────────────────────────────────────────────────────────
 
   const loadContact = useCallback(async () => {
-    if (!contactId) return;
+    if (!contactId || !clientId) return;
     setLoading(true);
     try {
-      let resolvedId = contactId;
+      const { data: row, error } = await supabase
+        .from('client_channel_contacts')
+        .select('id, display_name, phone, email, client_id, metadata')
+        .eq('id', contactId)
+        .eq('client_id', clientId)
+        .maybeSingle();
 
-      // Try to find omni_contacts row
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: rpcData } = await (supabase.rpc as any)('get_omni_contact_with_identities', {
-        p_contact_id: resolvedId,
-      });
+      if (error) throw error;
 
-      if (rpcData?.contact) {
-        setOmniContactId(resolvedId);
-        setContact(rpcData.contact as OmniContact);
-        setProfilePicUrl((rpcData.contact as OmniContact).profile_pic_url ?? null);
-        setIdentities((rpcData.identities ?? []) as OmniIdentity[]);
-        setDisplayName(rpcData.contact.display_name ?? "");
-        setPhone(rpcData.contact.phone ?? "");
-        setEmail(rpcData.contact.email ?? "");
+      if (row) {
+        setContact({
+          id: row.id,
+          display_name: row.display_name ?? null,
+          phone: row.phone ?? null,
+          email: row.email ?? null,
+          client_id: row.client_id ?? null,
+          profile_pic_url: row.metadata?.avatar_url ?? null,
+          metadata: row.metadata ?? null,
+        });
+        setProfilePicUrl(row.metadata?.avatar_url ?? null);
+        setIgMeta(row.metadata?.instagram ?? null);
+        setDisplayName(row.display_name ?? "");
+        setPhone(row.phone ?? "");
+        setEmail(row.email ?? "");
       } else {
-        // Fallback: try to find-or-create omni record via tenant identity
-        const { data: identityRow } = await supabase
-          .from('client_contact_identities')
-          .select('external_user_id, display_name')
-          .eq('contact_id', contactId)
-          .eq('channel_type', channelType ?? '')
-          .limit(1)
-          .maybeSingle();
-
-        if (identityRow?.external_user_id) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const { data: oid } = await (supabase.rpc as any)('upsert_omni_contact_identity', {
-            p_organization_id: organizationId,
-            p_channel_type: channelType,
-            p_external_user_id: identityRow.external_user_id,
-            p_display_name: identityRow.display_name ?? null,
-          });
-          // A migration 149 alterou o retorno de UUID para JSONB { contact_id, identity_id, ... }
-          const resolvedOid = (oid as any)?.contact_id ?? (oid as string);
-          if (resolvedOid) {
-            resolvedId = resolvedOid as string;
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const { data: rpcData2 } = await (supabase.rpc as any)('get_omni_contact_with_identities', {
-              p_contact_id: resolvedId,
-            });
-            if (rpcData2?.contact) {
-              setOmniContactId(resolvedId);
-              setContact(rpcData2.contact as OmniContact);
-              setProfilePicUrl((rpcData2.contact as OmniContact).profile_pic_url ?? null);
-              setIdentities((rpcData2.identities ?? []) as OmniIdentity[]);
-              setDisplayName(rpcData2.contact.display_name ?? "");
-              setPhone(rpcData2.contact.phone ?? "");
-              setEmail(rpcData2.contact.email ?? "");
-            }
-          }
-        } else {
-          // No identity — show empty form
-          setOmniContactId(null);
-          setContact(null);
-          setIdentities([]);
-          setDisplayName("");
-          setPhone("");
-          setEmail("");
-          setProfilePicUrl(null);
-        }
+        setContact(null);
+        setDisplayName(""); setPhone(""); setEmail("");
+        setProfilePicUrl(null); setIgMeta(null);
       }
 
-      // Load linked client name if applicable
-      setLinkedClientName(null);
-      // We'll set after contact is loaded
+      // Identidades
+      const { data: ids } = await supabase
+        .from('client_contact_identities')
+        .select('id, channel_type, external_user_id, username')
+        .eq('contact_id', contactId)
+        .eq('client_id', clientId);
+      setIdentities((ids ?? []) as OmniIdentity[]);
+
     } catch (err) {
       console.error('[ContactSheet] loadContact error:', err);
     } finally {
       setLoading(false);
     }
-  }, [contactId, channelType, organizationId]);
+  }, [contactId, clientId]);
 
   // Load linked client name when contact changes
   useEffect(() => {
@@ -518,37 +512,15 @@ function ContactSheet({
   // ── Section 1: Save identification ─────────────────────────────────────────
 
   const handleSave = async () => {
+    if (!contactId || !clientId) return;
     setSaving(true);
     try {
-      if (!omniContactId) {
-        if (!organizationId || !channelType || !displayName) {
-          toast.error("Preencha pelo menos o nome para criar o contato");
-          return;
-        }
-        // Create via upsert using phone as external_user_id placeholder
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { data: newId } = await (supabase.rpc as any)('upsert_omni_contact_identity', {
-          p_organization_id: organizationId,
-          p_channel_type: channelType,
-          p_external_user_id: phone || `manual-${Date.now()}`,
-          p_display_name: displayName,
-        });
-        // A migration 149 alterou o retorno de UUID para JSONB { contact_id, identity_id, ... }
-        const resolvedNewId = (newId as any)?.contact_id ?? (newId as string);
-        if (resolvedNewId) {
-          await supabase
-            .from('omni_contacts')
-            .update({ display_name: displayName, phone, email })
-            .eq('id', resolvedNewId);
-          setOmniContactId(resolvedNewId as string);
-        }
-      } else {
-        const { error } = await supabase
-          .from('omni_contacts')
-          .update({ display_name: displayName, phone, email })
-          .eq('id', omniContactId);
-        if (error) throw error;
-      }
+      const { error } = await supabase
+        .from('client_channel_contacts')
+        .update({ display_name: displayName, phone, email })
+        .eq('id', contactId)
+        .eq('client_id', clientId);
+      if (error) throw error;
       toast.success("Contato atualizado");
       onContactChanged?.();
       await loadContact();
@@ -564,7 +536,7 @@ function ContactSheet({
 
   const handleRemoveIdentity = async (identityId: string) => {
     const { error } = await supabase
-      .from('omni_contact_identities')
+      .from('client_contact_identities')
       .delete()
       .eq('id', identityId);
     if (error) { toast.error("Erro ao remover canal"); return; }
@@ -588,18 +560,18 @@ function ContactSheet({
   }, [clientSearch]);
 
   const handleLinkClient = async (selectedId: string, selectedName: string) => {
-    if (!omniContactId) return;
+    if (!contactId || !clientId) return;
     setLinkingClient(true);
     try {
       const { error } = await supabase
-        .from('omni_contacts')
+        .from('client_channel_contacts')
         .update({ client_id: selectedId })
-        .eq('id', omniContactId);
+        .eq('id', contactId)
+        .eq('client_id', clientId);
       if (error) throw error;
       setLinkedClientName(selectedName);
       setContact((c) => c ? { ...c, client_id: selectedId } : c);
-      setClientSearch("");
-      setClientResults([]);
+      setClientSearch(""); setClientResults([]);
       toast.success("Vínculo criado");
     } catch {
       toast.error("Erro ao vincular cliente");
@@ -609,51 +581,50 @@ function ContactSheet({
   };
 
   const handleUnlinkClient = async () => {
-    if (!omniContactId) return;
+    if (!contactId || !clientId) return;
     const { error } = await supabase
-      .from('omni_contacts')
+      .from('client_channel_contacts')
       .update({ client_id: null })
-      .eq('id', omniContactId);
+      .eq('id', contactId)
+      .eq('client_id', clientId);
     if (error) { toast.error("Erro ao desvincular"); return; }
     setLinkedClientName(null);
     setContact((c) => c ? { ...c, client_id: null } : c);
     toast.success("Vínculo removido");
   };
 
-  // ── Section 4: Merge search ────────────────────────────────────────────────
+  // ── Section 5: Merge search ────────────────────────────────────────────────
 
   useEffect(() => {
-    if (!mergeSearch || !omniContactId) { setMergeResults([]); return; }
+    if (!mergeSearch || !contactId) { setMergeResults([]); return; }
     const timer = setTimeout(async () => {
       const { data } = await supabase
-        .from('omni_contacts')
+        .from('client_channel_contacts')
         .select('id, display_name, phone')
+        .eq('client_id', clientId)
         .ilike('display_name', `%${mergeSearch}%`)
-        .neq('id', omniContactId)
+        .neq('id', contactId)
         .limit(10);
       setMergeResults((data ?? []) as Array<{ id: string; display_name: string | null; phone: string | null }>);
     }, 300);
     return () => clearTimeout(timer);
-  }, [mergeSearch, omniContactId]);
+  }, [mergeSearch, contactId, clientId]);
 
   const handleMergeConfirm = async () => {
-    if (!mergeTarget || !omniContactId || !authUserId) return;
+    if (!mergeTarget || !contactId || !authUserId) return;
     setMerging(true);
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error } = await (supabase.rpc as any)('merge_omni_contacts', {
-        p_winner_id: omniContactId,
+        p_winner_id: contactId,
         p_loser_id: mergeTarget.id,
         p_merged_by: authUserId,
       });
       if (error) throw error;
       toast.success("Cadastros unificados com sucesso");
-      setMergeConfirmOpen(false);
-      setMergeTarget(null);
-      setMergeSearch("");
-      setMergeResults([]);
-      onContactChanged?.();
-      await loadContact();
+      setMergeConfirmOpen(false); setMergeTarget(null);
+      setMergeSearch(""); setMergeResults([]);
+      onContactChanged?.(); await loadContact();
     } catch {
       toast.error("Erro ao unificar cadastros");
     } finally {
@@ -703,6 +674,39 @@ function ContactSheet({
                     </span>
                   )}
                 </div>
+
+                {/* ── Dados do perfil Instagram ──────────────────────── */}
+                {igMeta && channelType?.startsWith("instagram") && (
+                  <div className="rounded-md border border-border bg-muted/40 px-3 py-2 space-y-1.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Perfil Instagram
+                    </p>
+                    {igMeta.follower_count !== undefined && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">Seguidores</span>
+                        <span className="text-xs font-medium">
+                          {igMeta.follower_count.toLocaleString("pt-BR")}
+                        </span>
+                      </div>
+                    )}
+                    {igMeta.is_user_follow_business !== undefined && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">Segue a conta</span>
+                        <span className={`text-xs font-medium ${igMeta.is_user_follow_business ? "text-emerald-500" : "text-muted-foreground"}`}>
+                          {igMeta.is_user_follow_business ? "Sim" : "Não"}
+                        </span>
+                      </div>
+                    )}
+                    {igMeta.is_business_follow_user !== undefined && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">Conta segue de volta</span>
+                        <span className={`text-xs font-medium ${igMeta.is_business_follow_user ? "text-emerald-500" : "text-muted-foreground"}`}>
+                          {igMeta.is_business_follow_user ? "Sim" : "Não"}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="space-y-2">
                   <div>
                     <Label className="text-xs">Nome</Label>
@@ -794,7 +798,6 @@ function ContactSheet({
                       onChange={(e) => setClientSearch(e.target.value)}
                       placeholder="Buscar cliente para vincular..."
                       className="h-8 text-xs"
-                      disabled={!omniContactId}
                     />
                     {clientResults.length > 0 && (
                       <div className="rounded-md border border-border overflow-hidden">
@@ -811,16 +814,36 @@ function ContactSheet({
                         ))}
                       </div>
                     )}
-                    {!omniContactId && (
-                      <p className="text-[11px] text-muted-foreground italic">
-                        Salve o contato primeiro para vincular
-                      </p>
-                    )}
                   </div>
                 )}
               </section>
 
-              {/* ── Seção 4: Unificar cadastros ─────────────────────────── */}
+              {/* ── Seção 4: Converter para CRM ────────────────────────── */}
+              <section className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Converter para CRM
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1 h-7 text-xs"
+                    onClick={() => toast.info("Em breve disponível")}
+                  >
+                    Transformar em Lead
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1 h-7 text-xs"
+                    onClick={() => toast.info("Em breve disponível")}
+                  >
+                    Transformar em Cliente
+                  </Button>
+                </div>
+              </section>
+
+              {/* ── Seção 5: Unificar cadastros ─────────────────────────── */}
               <section className="space-y-2">
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Unificar cadastros
@@ -836,7 +859,6 @@ function ContactSheet({
                   onChange={(e) => setMergeSearch(e.target.value)}
                   placeholder="Buscar outro cadastro para mesclar..."
                   className="h-8 text-xs"
-                  disabled={!omniContactId}
                 />
                 {mergeResults.length > 0 && (
                   <div className="rounded-md border border-border overflow-hidden">
@@ -853,11 +875,6 @@ function ContactSheet({
                     ))}
                   </div>
                 )}
-                {!omniContactId && (
-                  <p className="text-[11px] text-muted-foreground italic">
-                    Salve o contato primeiro para habilitar a unificação
-                  </p>
-                )}
               </section>
 
             </div>
@@ -872,6 +889,9 @@ function ContactSheet({
             <DialogTitle className="flex items-center gap-2 text-sm">
               <GitMerge className="h-4 w-4" /> Confirmar unificação
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              Confirmar unificação de cadastros de contato
+            </DialogDescription>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
             O cadastro <strong className="text-foreground">{mergeTarget?.display_name ?? "selecionado"}</strong> será mesclado neste contato. Todos os canais e histórico serão transferidos. Isso não pode ser desfeito automaticamente.
@@ -909,6 +929,9 @@ interface LeftColumnProps {
   setMyStatus: ReturnType<typeof useOmnichannelInbox>["setMyStatus"];
   onAssume?: (convId: string) => void;
   myAgentId?: string | null;
+  clientId: string | null;
+  authUserId: string | null;
+  organizationId: string | null;
 }
 
 function LeftColumn({
@@ -923,7 +946,61 @@ function LeftColumn({
   setMyStatus,
   onAssume,
   myAgentId,
+  clientId,
+  authUserId,
+  organizationId,
 }: LeftColumnProps) {
+  const [viewMode, setViewMode] = useState<"conversations" | "contacts">("conversations");
+  const [contactsList, setContactsList] = useState<Array<{
+    id: string;
+    display_name: string | null;
+    phone: string | null;
+    channel_type: string | null;
+  }>>([]);
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [contactSearch, setContactSearch] = useState("");
+  const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
+  const [contactSheetOpen, setContactSheetOpen] = useState(false);
+
+  useEffect(() => {
+    if (viewMode !== "contacts" || !clientId) return;
+    const timer = setTimeout(async () => {
+      setContactsLoading(true);
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let query: any = supabase
+          .from('client_channel_contacts')
+          .select(`
+            id, display_name, phone,
+            identities:client_contact_identities(channel_type)
+          `)
+          .eq('client_id', clientId)
+          .order('display_name', { ascending: true })
+          .limit(50);
+
+        if (contactSearch) {
+          query = query.or(
+            `display_name.ilike.%${contactSearch}%,phone.ilike.%${contactSearch}%`
+          );
+        }
+
+        const { data, error } = await query;
+        if (!error) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          setContactsList((data ?? []).map((r: any) => ({
+            id: r.id,
+            display_name: r.display_name ?? null,
+            phone: r.phone ?? null,
+            channel_type: r.identities?.[0]?.channel_type ?? null,
+          })));
+        }
+      } finally {
+        setContactsLoading(false);
+      }
+    }, contactSearch ? 300 : 0);
+    return () => clearTimeout(timer);
+  }, [viewMode, clientId, contactSearch]);
+
   const channelButtons: Array<{ key: ChannelFilter; label: string }> = [
     { key: null, label: "Todos" },
     { key: "whatsapp", label: "WhatsApp" },
@@ -942,91 +1019,190 @@ function LeftColumn({
     <div className="w-80 shrink-0 border-r border-border flex flex-col min-h-0">
       {/* Header */}
       <div className="px-3 pt-3 pb-2 shrink-0 border-b border-border space-y-2">
+        {/* Toggle Conversas / Contatos */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-bold text-foreground">Mensagens</span>
-            {unreadCount > 0 && (
-              <span className="h-5 min-w-5 px-1 rounded-full bg-blue-500 text-[10px] font-bold text-white flex items-center justify-center">
-                {unreadCount}
-              </span>
-            )}
+          <div className="flex rounded-md border border-border overflow-hidden">
+            <button
+              onClick={() => setViewMode("conversations")}
+              className={cn(
+                "px-3 py-1 text-[11px] font-medium transition-colors",
+                viewMode === "conversations"
+                  ? "bg-primary/20 text-primary"
+                  : "text-muted-foreground hover:bg-secondary/40"
+              )}
+            >
+              Conversas
+              {unreadCount > 0 && (
+                <span className="ml-1 h-4 min-w-4 px-0.5 rounded-full bg-blue-500 text-[9px] font-bold text-white inline-flex items-center justify-center">
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setViewMode("contacts")}
+              className={cn(
+                "px-3 py-1 text-[11px] font-medium transition-colors",
+                viewMode === "contacts"
+                  ? "bg-primary/20 text-primary"
+                  : "text-muted-foreground hover:bg-secondary/40"
+              )}
+            >
+              Contatos
+            </button>
           </div>
           <AgentStatusToggle status={myStatus} onStatusChange={setMyStatus} />
         </div>
 
-        {/* Busca */}
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-          <Input
-            placeholder="Buscar conversa..."
-            className="pl-7 h-7 text-xs bg-secondary/30 border-border"
-            value={filters.search}
-            onChange={(e) => onFilterChange({ search: e.target.value })}
+        {viewMode === "conversations" && (
+          <>
+            {/* Busca */}
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+              <Input
+                placeholder="Buscar conversa..."
+                className="pl-7 h-7 text-xs bg-secondary/30 border-border"
+                value={filters.search}
+                onChange={(e) => onFilterChange({ search: e.target.value })}
+              />
+            </div>
+
+            {/* Filtro canal */}
+            <div className="flex gap-1 flex-wrap">
+              {channelButtons.map(({ key, label }) => (
+                <button
+                  key={String(key)}
+                  onClick={() => onFilterChange({ channel: key })}
+                  className={cn(
+                    "text-[10px] px-2 py-0.5 rounded-full border transition-colors font-medium",
+                    filters.channel === key
+                      ? "bg-primary/20 border-primary/40 text-primary"
+                      : "border-border text-muted-foreground hover:bg-secondary/40"
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Filtro status */}
+            <div className="flex gap-1 flex-wrap">
+              {statusButtons.map(({ key, label }) => (
+                <button
+                  key={String(key)}
+                  onClick={() => onFilterChange({ status: key })}
+                  className={cn(
+                    "text-[10px] px-2 py-0.5 rounded-full border transition-colors font-medium",
+                    filters.status === key
+                      ? "bg-primary/20 border-primary/40 text-primary"
+                      : "border-border text-muted-foreground hover:bg-secondary/40"
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Lista de conversas */}
+      {viewMode === "conversations" && (
+        <div className="flex-1 overflow-y-auto">
+          {loading && (
+            <div className="flex items-center justify-center py-8">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            </div>
+          )}
+          {!loading && conversations.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+              <MessageCircle className="h-8 w-8 text-muted-foreground/30 mb-2" />
+              <p className="text-xs text-muted-foreground">Nenhuma conversa</p>
+            </div>
+          )}
+          {!loading &&
+            conversations.map((conv) => (
+              <ConversationItem
+                key={conv.id}
+                conv={conv}
+                isActive={conv.id === activeId}
+                onClick={() => onSelect(conv.id)}
+                onAssume={onAssume}
+                myAgentId={myAgentId}
+              />
+            ))}
+        </div>
+      )}
+
+      {/* Lista de contatos */}
+      {viewMode === "contacts" && (
+        <>
+          <div className="px-3 pt-2 pb-1 shrink-0">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+              <Input
+                placeholder="Buscar contato..."
+                className="pl-7 h-7 text-xs bg-secondary/30 border-border"
+                value={contactSearch}
+                onChange={(e) => setContactSearch(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {contactsLoading && (
+              <div className="flex justify-center py-8">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              </div>
+            )}
+            {!contactsLoading && contactsList.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+                <User className="h-8 w-8 text-muted-foreground/30 mb-2" />
+                <p className="text-xs text-muted-foreground">Nenhum contato</p>
+              </div>
+            )}
+            {!contactsLoading && contactsList.map((c) => {
+              const initials = c.display_name
+                ? c.display_name.split(" ").slice(0, 2).map((w) => w[0]).join("").toUpperCase()
+                : "?";
+              return (
+                <div
+                  key={c.id}
+                  role="button"
+                  tabIndex={0}
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-secondary/30 cursor-pointer transition-colors"
+                  onClick={() => { setSelectedContactId(c.id); setContactSheetOpen(true); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedContactId(c.id); setContactSheetOpen(true); } }}
+                >
+                  <div className="h-9 w-9 shrink-0 rounded-full bg-primary/20 flex items-center justify-center text-xs font-semibold text-primary">
+                    {initials}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-foreground truncate">
+                      {c.display_name ?? "Sem nome"}
+                    </p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      {c.channel_type && <ChannelBadge channel={c.channel_type} small />}
+                      {c.phone && (
+                        <span className="text-[10px] text-muted-foreground truncate">{c.phone}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* ContactSheet para a aba de contatos */}
+          <ContactSheet
+            contactId={selectedContactId}
+            channelType={null}
+            clientId={clientId}
+            organizationId={organizationId}
+            authUserId={authUserId}
+            open={contactSheetOpen}
+            onOpenChange={setContactSheetOpen}
           />
-        </div>
-
-        {/* Filtro canal */}
-        <div className="flex gap-1 flex-wrap">
-          {channelButtons.map(({ key, label }) => (
-            <button
-              key={String(key)}
-              onClick={() => onFilterChange({ channel: key })}
-              className={cn(
-                "text-[10px] px-2 py-0.5 rounded-full border transition-colors font-medium",
-                filters.channel === key
-                  ? "bg-primary/20 border-primary/40 text-primary"
-                  : "border-border text-muted-foreground hover:bg-secondary/40"
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {/* Filtro status */}
-        <div className="flex gap-1 flex-wrap">
-          {statusButtons.map(({ key, label }) => (
-            <button
-              key={String(key)}
-              onClick={() => onFilterChange({ status: key })}
-              className={cn(
-                "text-[10px] px-2 py-0.5 rounded-full border transition-colors font-medium",
-                filters.status === key
-                  ? "bg-primary/20 border-primary/40 text-primary"
-                  : "border-border text-muted-foreground hover:bg-secondary/40"
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Lista */}
-      <div className="flex-1 overflow-y-auto">
-        {loading && (
-          <div className="flex items-center justify-center py-8">
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          </div>
-        )}
-        {!loading && conversations.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-            <MessageCircle className="h-8 w-8 text-muted-foreground/30 mb-2" />
-            <p className="text-xs text-muted-foreground">Nenhuma conversa</p>
-          </div>
-        )}
-        {!loading &&
-          conversations.map((conv) => (
-            <ConversationItem
-              key={conv.id}
-              conv={conv}
-              isActive={conv.id === activeId}
-              onClick={() => onSelect(conv.id)}
-              onAssume={onAssume}
-              myAgentId={myAgentId}
-            />
-          ))}
-      </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1345,6 +1521,9 @@ function CenterColumn({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Transferir Conversa</DialogTitle>
+            <DialogDescription className="sr-only">
+              Transferir conversa para outro atendente
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             {onlineAgents.length === 0 ? (
@@ -1666,6 +1845,9 @@ export function OmnichannelInboxPage() {
           setMyStatus={setMyStatus}
           onAssume={handleAssume}
           myAgentId={myAgentId}
+          clientId={auth?.id ?? null}
+          authUserId={auth?.user?.id ?? null}
+          organizationId={auth?.organization_id ?? null}
         />
       </div>
 

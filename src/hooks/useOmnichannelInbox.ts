@@ -206,7 +206,7 @@ export function useOmnichannelInbox(): UseOmnichannelInboxReturn {
           id, client_id, organization_id, channel_type, meta_connection_id,
           contact_id, status, priority, bot_active, assigned_agent_id,
           last_message_at,
-          contact:client_channel_contacts!left(
+          contact:client_channel_contacts!client_channel_conversations_contact_id_fkey(
             display_name, phone, metadata
           )
         `)
@@ -281,6 +281,29 @@ export function useOmnichannelInbox(): UseOmnichannelInboxReturn {
           if (payload.eventType === "INSERT") {
             const newConv = mapConversation(payload.new);
             setConversations((prev) => [newConv, ...prev]);
+            // Enriquecer com dados do contato via query pontual
+            if (payload.new.contact_id && clientId) {
+              supabase
+                .from('client_channel_contacts')
+                .select('display_name, phone, metadata')
+                .eq('id', payload.new.contact_id)
+                .eq('client_id', clientId)
+                .maybeSingle()
+                .then(({ data: contactData }) => {
+                  if (contactData) {
+                    setConversations((prev) => prev.map((c) =>
+                      c.id === newConv.id
+                        ? {
+                            ...c,
+                            contact_name: contactData.display_name ?? null,
+                            contact_phone: contactData.phone ?? null,
+                            contact_avatar: (contactData.metadata as { avatar_url?: string } | null)?.avatar_url ?? null,
+                          }
+                        : c
+                    ));
+                  }
+                });
+            }
           } else if (payload.eventType === "UPDATE") {
             setConversations((prev) =>
               prev.map((c) =>
