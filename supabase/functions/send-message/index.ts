@@ -444,7 +444,7 @@ Deno.serve(async (req) => {
       await admin.from(msgTable as any).insert(insertData);
     }
 
-    return json({ success: true, message_id: messageId });
+    return json({ success: true, message_id: messageId, side: client_id ? "client" : "agency" });
 
   } catch (err: unknown) {
     const msg = (err as Error).message;

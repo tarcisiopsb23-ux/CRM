@@ -11,6 +11,17 @@
  * SEM client_id   → agência             → tabelas omni_contacts,
  *                    omni_contact_identities, omni_conversations
  *
+ * RPCs utilizadas internamente:
+ *   • upsert_client_contact_identity  — upsert de contato no lado cliente
+ *   • upsert_omni_contact_identity    — upsert de contato no lado agência
+ *   • get_or_create_omni_conversation (migration 150) — busca/cria conversa no lado agência
+ *   • get_or_create_agency_conversation (migration 151) — alias para agência
+ *
+ * Novas RPCs unificadas disponíveis (ainda não usadas nesta função):
+ *   • get_bot_channel_context         (migration 167) — retorna system prompt e config do bot
+ *   • get_or_create_unified_contact   (migration 168) — upsert de contato unificado (cliente ou agência)
+ *   • get_or_create_unified_conversation (migration 169) — busca/cria conversa unificada (cliente ou agência)
+ *
  * POST /functions/v1/omni-conversation
  * Headers: Authorization: Bearer <service_role_key>
  *
@@ -27,11 +38,13 @@
  * }
  *
  * Response: {
- *   contact_id:       string,
- *   conversation_id:  string,
- *   status:           string,
- *   created:          boolean,  -- true se conversa foi criada agora
- *   side:             'client' | 'agency',
+ *   contact_id:        string,
+ *   conversation_id:   string,
+ *   status:            string,
+ *   assigned_agent_id: string | null,
+ *   handoff_active:    boolean,
+ *   created:           boolean,  -- true se conversa foi criada agora
+ *   side:              'client' | 'agency',
  * }
  */
 
