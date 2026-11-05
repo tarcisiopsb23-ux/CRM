@@ -35,6 +35,7 @@ import { Label } from "@/components/ui/label";
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
 } from "@/components/ui/sheet";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 
 import {
   useOmnichannelInbox,
@@ -349,6 +350,7 @@ interface OmniContact {
   phone: string | null;
   email: string | null;
   client_id: string | null;
+  profile_pic_url: string | null;
 }
 
 interface OmniIdentity {
@@ -390,6 +392,7 @@ function ContactSheet({
   const [omniContactId, setOmniContactId] = useState<string | null>(null);
   const [contact, setContact]         = useState<OmniContact | null>(null);
   const [identities, setIdentities]   = useState<OmniIdentity[]>([]);
+  const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null);
 
   // Section 1 form
   const [displayName, setDisplayName] = useState("");
@@ -427,6 +430,7 @@ function ContactSheet({
       if (rpcData?.contact) {
         setOmniContactId(resolvedId);
         setContact(rpcData.contact as OmniContact);
+        setProfilePicUrl((rpcData.contact as OmniContact).profile_pic_url ?? null);
         setIdentities((rpcData.identities ?? []) as OmniIdentity[]);
         setDisplayName(rpcData.contact.display_name ?? "");
         setPhone(rpcData.contact.phone ?? "");
@@ -460,6 +464,7 @@ function ContactSheet({
             if (rpcData2?.contact) {
               setOmniContactId(resolvedId);
               setContact(rpcData2.contact as OmniContact);
+              setProfilePicUrl((rpcData2.contact as OmniContact).profile_pic_url ?? null);
               setIdentities((rpcData2.identities ?? []) as OmniIdentity[]);
               setDisplayName(rpcData2.contact.display_name ?? "");
               setPhone(rpcData2.contact.phone ?? "");
@@ -474,6 +479,7 @@ function ContactSheet({
           setDisplayName("");
           setPhone("");
           setEmail("");
+          setProfilePicUrl(null);
         }
       }
 
@@ -680,6 +686,23 @@ function ContactSheet({
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Dados do contato
                 </p>
+                <div className="flex items-center gap-3 mb-1">
+                  <Avatar className="h-12 w-12 shrink-0">
+                    {profilePicUrl &&
+                     (channelType?.startsWith("instagram") || channelType?.startsWith("facebook")) && (
+                      <AvatarImage src={profilePicUrl} alt="Foto do contato" />
+                    )}
+                    <AvatarFallback className="text-sm bg-muted">
+                      {displayName ? displayName.slice(0, 2).toUpperCase() : "?"}
+                    </AvatarFallback>
+                  </Avatar>
+                  {profilePicUrl &&
+                   (channelType?.startsWith("instagram") || channelType?.startsWith("facebook")) && (
+                    <span className="text-[10px] text-muted-foreground italic leading-tight">
+                      Foto sincronizada pelo canal
+                    </span>
+                  )}
+                </div>
                 <div className="space-y-2">
                   <div>
                     <Label className="text-xs">Nome</Label>
