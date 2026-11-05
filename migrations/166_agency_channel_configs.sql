@@ -11,7 +11,7 @@
 CREATE TABLE IF NOT EXISTS public.agency_channel_configs (
   id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id     UUID        NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
-  meta_connection_id  UUID        NOT NULL REFERENCES public.meta_connections(id) ON DELETE CASCADE,
+  meta_connection_id  UUID        REFERENCES public.meta_connections(id) ON DELETE CASCADE,
 
   -- Canal/subtipo
   channel_type        TEXT        NOT NULL
@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS public.agency_channel_configs (
                         'atendimento','qualificacao','vendas',
                         'agendamento','suporte','personalizado'
                       )),
-  instructions        TEXT,       -- instruções livres / system prompt adicional
+  instructions        TEXT,
 
   -- ── Behaviors por canal ──────────────────────────────────────────────────────
   behavior_use_knowledge      BOOLEAN NOT NULL DEFAULT true,
@@ -61,11 +61,45 @@ CREATE TABLE IF NOT EXISTS public.agency_channel_configs (
 
   -- ── Timestamps ───────────────────────────────────────────────────────────────
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-
-  -- Uma configuração por conexão+canal
-  UNIQUE (meta_connection_id, channel_type)
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ── Se a tabela já existia (migration 162), adiciona meta_connection_id ───────
+ALTER TABLE public.agency_channel_configs
+  ADD COLUMN IF NOT EXISTS meta_connection_id UUID
+    REFERENCES public.meta_connections(id) ON DELETE CASCADE;
+
+-- Remove UNIQUE antiga (organization_id, channel_type) se existir
+DO $$ BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'agency_channel_configs_organization_id_channel_type_key'
+      AND conrelid = 'public.agency_channel_configs'::regclass
+  ) THEN
+    ALTER TABLE public.agency_channel_configs
+      DROP CONSTRAINT agency_channel_configs_organization_id_channel_type_key;
+  END IF;
+END $$;
+
+-- Adiciona UNIQUE nova (meta_connection_id, channel_type) se não existir
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'agency_channel_configs_meta_connection_id_channel_type_key'
+      AND conrelid = 'public.agency_channel_configs'::regclass
+  ) THEN
+    ALTER TABLE public.agency_channel_configs
+      ADD CONSTRAINT agency_channel_configs_meta_connection_id_channel_type_key
+      UNIQUE (meta_connection_id, channel_type);
+  END IF;
+END $$;
+
+-- Campos que podem estar faltando das migrations anteriores (162/163/164/165)
+ALTER TABLE public.agency_channel_configs
+  ADD COLUMN IF NOT EXISTS behavior_create_opportunity BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS respond_outside_hours       BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS outside_hours_message       TEXT,
+  ADD COLUMN IF NOT EXISTS agent_description           TEXT;
 
 -- Índices
 CREATE INDEX IF NOT EXISTS idx_acc_meta_conn
