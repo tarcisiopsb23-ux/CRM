@@ -1,0 +1,7 @@
+{
+  "task_id": "task-instagram-comment-history",
+  "task_description": "Create the client_post_comments table (Banco A migration 171 in C8 Control, 173 in CRM) with an RPC get_contact_comments, then add a collapsible 'Comentários' section at the bottom of the ContactSheet component in OmnichannelInboxPage.tsx.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null
+}
