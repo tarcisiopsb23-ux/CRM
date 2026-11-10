@@ -16,6 +16,7 @@ import {
   Send, Paperclip, PenLine, Check, CheckCheck, Clock,
   FileText, ExternalLink, User, Link2, Unlink, GitMerge,
   Instagram, Facebook, Phone, X as XIcon, AlertTriangle,
+  MessageSquare, ChevronDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format, isToday, isYesterday, parseISO } from "date-fns";
@@ -36,6 +37,7 @@ import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
 } from "@/components/ui/sheet";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 
 import {
   useOmnichannelInbox,
@@ -379,6 +381,17 @@ interface OmniIdentity {
   username: string | null;
 }
 
+interface ContactComment {
+  id: string;
+  channel: string;
+  post_id: string;
+  post_url: string | null;
+  comment_text: string | null;
+  sender_username: string | null;
+  commented_at: string;
+  external_comment_id: string;
+}
+
 interface ContactSheetProps {
   contactId: string | null;
   channelType: string | null;
@@ -416,6 +429,11 @@ function ContactSheet({
     is_user_follow_business?: boolean;
     is_business_follow_user?: boolean;
   } | null>(null);
+
+  // Section 6 — comments
+  const [comments, setComments] = useState<ContactComment[]>([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
 
   // Section 1 form
   const [displayName, setDisplayName] = useState("");
@@ -487,9 +505,28 @@ function ContactSheet({
     }
   }, [contactId, clientId]);
 
+  const loadComments = useCallback(async () => {
+    if (!contactId || !clientId) return;
+    setCommentsLoading(true);
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase.rpc as any)('get_contact_comments', {
+        p_contact_id: contactId,
+        p_client_id: clientId,
+        p_limit: 50,
+        p_offset: 0,
+      });
+      if (error) throw error;
+      setComments((data ?? []) as ContactComment[]);
+    } catch (err) {
+      console.error('[ContactSheet] loadComments error:', err);
+    } finally {
+      setCommentsLoading(false);
+    }
+  }, [contactId, clientId]);
+
   // Load linked client name when contact changes
-  useEffect(() => {
-    if (!contact?.client_id) { setLinkedClientName(null); return; }
+  useEffect(() => {    if (!contact?.client_id) { setLinkedClientName(null); return; }
     supabase
       .from('clients')
       .select('name')
@@ -508,6 +545,19 @@ function ContactSheet({
       loadContact();
     }
   }, [open, contactId, loadContact]);
+
+  // Reset comments when sheet closes
+  useEffect(() => {
+    if (!open) {
+      setComments([]);
+      setCommentsOpen(false);
+    }
+  }, [open]);
+
+  // Load comments when section is expanded
+  useEffect(() => {
+    if (commentsOpen) loadComments();
+  }, [commentsOpen, loadComments]);
 
   // ── Section 1: Save identification ─────────────────────────────────────────
 
@@ -875,6 +925,77 @@ function ContactSheet({
                     ))}
                   </div>
                 )}
+              </section>
+
+              {/* ── Seção 6: Comentários ────────────────────────────────── */}
+              <section className="space-y-2">
+                <Collapsible open={commentsOpen} onOpenChange={(v) => setCommentsOpen(v)}>
+                  <CollapsibleTrigger asChild>
+                    <button
+                      type="button"
+                      className="w-full flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 hover:bg-secondary/40 transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        <MessageSquare className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                          Comentários
+                        </span>
+                      </div>
+                      <ChevronDown
+                        className={cn(
+                          "h-3.5 w-3.5 text-muted-foreground transition-transform duration-200",
+                          commentsOpen && "rotate-180"
+                        )}
+                      />
+                    </button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="mt-2 space-y-2">
+                    {commentsLoading && (
+                      <div className="flex justify-center py-4">
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                      </div>
+                    )}
+                    {!commentsLoading && comments.length === 0 && (
+                      <p className="text-xs text-muted-foreground italic">
+                        Nenhum comentário registrado
+                      </p>
+                    )}
+                    {!commentsLoading && comments.map((c) => (
+                      <div
+                        key={c.id}
+                        className="rounded-md border border-border bg-secondary/20 px-3 py-2 space-y-1"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <ChannelBadge channel={c.channel} small />
+                            {c.sender_username && (
+                              <span className="text-xs font-medium text-foreground truncate">
+                                @{c.sender_username}
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-muted-foreground shrink-0">
+                            {formatMsgTimestamp(c.commented_at)}
+                          </span>
+                        </div>
+                        {c.comment_text && (
+                          <p className="text-xs text-foreground break-words">{c.comment_text}</p>
+                        )}
+                        {c.post_url && (
+                          <a
+                            href={c.post_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            <ExternalLink className="h-3 w-3 shrink-0" />
+                            Ver publicação
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                  </CollapsibleContent>
+                </Collapsible>
               </section>
 
             </div>
