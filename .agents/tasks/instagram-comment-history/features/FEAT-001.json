@@ -1,0 +1,23 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Create the client_post_comments table and get_contact_comments RPC as two SQL migration files: 171_client_post_comments.sql in C8 Control migrations and 173_client_post_comments.sql in CRM migrations (173 because CRM already has 171 and 172 for chatbot_flows).",
+  "status": "completed",
+  "steps": [
+    "Create c:\\automacoes\\C8 Control\\migrations\\171_client_post_comments.sql with: (a) header comment block stating 'Migration 171: table client_post_comments and RPC get_contact_comments — Banco A only'; (b) CREATE TABLE IF NOT EXISTS public.client_post_comments with columns: id UUID PK DEFAULT gen_random_uuid(), client_id UUID NOT NULL, contact_id UUID REFERENCES public.client_channel_contacts(id) ON DELETE SET NULL, meta_connection_id UUID REFERENCES public.meta_connections(id) ON DELETE SET NULL, channel TEXT NOT NULL CHECK (channel IN ('instagram','facebook')), external_comment_id TEXT NOT NULL, post_id TEXT NOT NULL, post_url TEXT, comment_text TEXT, sender_id TEXT, sender_username TEXT, commented_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), metadata JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(); (c) CREATE UNIQUE INDEX IF NOT EXISTS idx_client_post_comments_external ON public.client_post_comments (client_id, external_comment_id); (d) CREATE INDEX IF NOT EXISTS idx_client_post_comments_contact ON public.client_post_comments (contact_id, commented_at DESC); (e) CREATE INDEX IF NOT EXISTS idx_client_post_comments_client_created ON public.client_post_comments (client_id, commented_at DESC); (f) CREATE OR REPLACE FUNCTION public.get_contact_comments(p_contact_id UUID, p_client_id UUID, p_limit INT DEFAULT 50, p_offset INT DEFAULT 0) RETURNS SETOF public.client_post_comments LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$ BEGIN RETURN QUERY SELECT * FROM public.client_post_comments WHERE contact_id = p_contact_id AND client_id = p_client_id ORDER BY commented_at DESC LIMIT p_limit OFFSET p_offset; END; $$; (g) GRANT EXECUTE ON FUNCTION public.get_contact_comments(UUID, UUID, INT, INT) TO authenticated, anon, service_role; (h) INSERT INTO public.schema_migrations (version) VALUES ('171_client_post_comments') ON CONFLICT (version) DO NOTHING;",
+    "Copy the same SQL to c:\\automacoes\\CRM\\migrations\\173_client_post_comments.sql — content is identical except update the header comment to say 'Migration 173 (CRM mirror of C8 Control 171)'. Do NOT create 171 in CRM as that number is taken by chatbot_flows."
+  ],
+  "acceptance_criteria": [
+    "c:\\automacoes\\C8 Control\\migrations\\171_client_post_comments.sql exists and contains CREATE TABLE IF NOT EXISTS public.client_post_comments",
+    "c:\\automacoes\\C8 Control\\migrations\\171_client_post_comments.sql contains CREATE OR REPLACE FUNCTION public.get_contact_comments",
+    "c:\\automacoes\\C8 Control\\migrations\\171_client_post_comments.sql ends with INSERT INTO public.schema_migrations (version) VALUES ('171_client_post_comments') ON CONFLICT (version) DO NOTHING",
+    "c:\\automacoes\\CRM\\migrations\\173_client_post_comments.sql exists with same DDL content",
+    "bank_b_full_schema.sql is NOT modified (this is a Banco A table)"
+  ],
+  "verification": [
+    "Read both files and confirm they exist with correct content — no build step needed for SQL files",
+    "Confirm c:\\automacoes\\CRM\\migrations\\171_chatbot_flows.sql still exists unchanged (verify no accidental overwrite)"
+  ],
+  "blocked_reason": null,
+  "findings": "RPC name: public.get_contact_comments. Parameter names (in order): p_contact_id UUID, p_client_id UUID, p_limit INT DEFAULT 50, p_offset INT DEFAULT 0. Returns SETOF public.client_post_comments. Call pattern for FEAT-002 TypeScript: (supabase.rpc as any)('get_contact_comments', { p_contact_id: contactId, p_client_id: clientId, p_limit: 50, p_offset: 0 }). Unique dedup index is on (client_id, external_comment_id) — n8n node must supply both fields when inserting. Table primary key is 'id' UUID. The version marker inserted is '171_client_post_comments' (same string in both C8 Control 171 and CRM 173 files)."
+}
