@@ -1,0 +1,33 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "Add the ContactComment interface, state, loader, and collapsible JSX section to ContactSheet in OmnichannelInboxPage.tsx. This feature depends on FEAT-001 having created the SQL migration (the RPC call uses `as any` so TypeScript compilation is unaffected either way).",
+  "status": "completed",
+  "steps": [
+    "Open c:\\automacoes\\C8 Control\\src\\pages\\public-dashboard\\OmnichannelInboxPage.tsx. Read the FULL file before making any changes.",
+    "Add `MessageSquare` and `ChevronDown` to the existing lucide-react import at the top of the file (they are not currently imported).",
+    "Add a new import block after the existing shadcn/ui imports: `import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';`",
+    "Add the ContactComment interface near the other contact-related interfaces (around line 365, after OmniIdentity): `interface ContactComment { id: string; channel: string; post_id: string; post_url: string | null; comment_text: string | null; sender_username: string | null; commented_at: string; external_comment_id: string; }`",
+    "Inside the ContactSheet function, add three new state variables after the existing `igMeta` state (around line 395): `const [comments, setComments] = useState<ContactComment[]>([]);` / `const [commentsLoading, setCommentsLoading] = useState(false);` / `const [commentsOpen, setCommentsOpen] = useState(false);`",
+    "Add the `loadComments` useCallback after the existing `loadContact` useCallback (around line 430): `const loadComments = useCallback(async () => { if (!contactId || !clientId) return; setCommentsLoading(true); try { const { data, error } = await (supabase.rpc as any)('get_contact_comments', { p_contact_id: contactId, p_client_id: clientId, p_limit: 50, p_offset: 0 }); if (error) throw error; setComments((data ?? []) as ContactComment[]); } catch (err) { console.error('[ContactSheet] loadComments error:', err); } finally { setCommentsLoading(false); } }, [contactId, clientId]);`",
+    "Add a useEffect that resets comments state when the sheet closes: `useEffect(() => { if (!open) { setComments([]); setCommentsOpen(false); } }, [open]);`",
+    "Add a useEffect that triggers loadComments when commentsOpen becomes true: `useEffect(() => { if (commentsOpen) loadComments(); }, [commentsOpen, loadComments]);`",
+    "In the JSX inside ContactSheet's render, locate the closing `</div>` of Seção 5 (Unificar cadastros) — it ends around line 882 with `</section>`. Immediately after that `</section>` and before the outer `</div>` that closes `<div className='flex-1 overflow-y-auto p-4 space-y-6'>`, insert the new Seção 6 JSX: a <section className='space-y-2'> containing a <Collapsible open={commentsOpen} onOpenChange={(v) => setCommentsOpen(v)}> with <CollapsibleTrigger asChild> wrapping a styled button showing 'Comentários' with MessageSquare icon and ChevronDown (rotated 180deg when open using cn), and <CollapsibleContent className='mt-2 space-y-2'> containing: (a) loading spinner when commentsLoading, (b) empty state text when comments.length === 0, (c) mapped comment cards showing sender_username, commented_at via formatMsgTimestamp(), comment_text, and a post_url link with ExternalLink icon, plus ChannelBadge for the channel. ExternalLink, cn, formatMsgTimestamp, and ChannelBadge are all already in scope."
+  ],
+  "acceptance_criteria": [
+    "Running `cd \"c:\\automacoes\\C8 Control\" && npx tsc --noEmit` exits with code 0 and zero errors",
+    "The ContactSheet component renders without errors in the browser",
+    "The 'Comentários' collapsible section appears at the bottom of the ContactSheet after Seção 5",
+    "Clicking the 'Comentários' trigger expands the section and triggers loadComments (which calls get_contact_comments RPC)",
+    "When collapsed, the section shows only the trigger header",
+    "Empty state shows 'Nenhum comentário registrado' in italic when no comments returned",
+    "Comment cards show username, timestamp, comment text, post link, and channel badge"
+  ],
+  "verification": [
+    "cd \"c:\\automacoes\\C8 Control\" && npx tsc --noEmit — must exit with 0 errors",
+    "Confirm Collapsible, CollapsibleTrigger, CollapsibleContent are imported from @/components/ui/collapsible",
+    "Confirm MessageSquare and ChevronDown are added to the lucide-react import"
+  ],
+  "blocked_reason": null,
+  "findings": "npx tsc --noEmit exited with code 0 (zero errors). Verified: MessageSquare and ChevronDown added to lucide-react import; Collapsible/CollapsibleTrigger/CollapsibleContent imported from @/components/ui/collapsible; ContactComment interface added after OmniIdentity; comments/commentsLoading/commentsOpen state added; loadComments useCallback added using (supabase.rpc as any); reset useEffect on sheet close added; trigger useEffect on commentsOpen added; Seção 6 JSX with Collapsible, loading spinner, empty state, and comment cards with ChannelBadge/ExternalLink/formatMsgTimestamp inserted after Seção 5. Committed as 10f893d."
+}
