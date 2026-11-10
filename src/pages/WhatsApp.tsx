@@ -342,7 +342,7 @@ export default function WhatsApp() {
                     <button
                       key={folder}
                       onClick={() => setActiveFolder(folder)}
-                      className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border transition-all whitespace-nowrap ${isSelected ? "bg-primary text-primary-foreground border-primary" : "bg-background border-border text-muted-foreground hover:text-foreground"}`}
+                      className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border transition-all whitespace-nowrap ${isSelected ? "bg-foreground text-background border-foreground" : "bg-background border-border text-muted-foreground hover:text-foreground"}`}
                     >
                       {folder}
                     </button>
@@ -362,9 +362,9 @@ export default function WhatsApp() {
                 <div className="divide-y divide-border/60">
                   {conversations.map(conv => {
                     const isSelected = conv.id === selectedConversationId;
-                    const chanColor = conv.channel === "whatsapp" ? "text-emerald-600 bg-emerald-500/10 dark:text-emerald-455" : conv.channel === "instagram" ? "text-pink-650 bg-pink-500/10" : "text-blue-600 bg-blue-500/10";
+                    const chanColor = "text-muted-foreground bg-muted";
                     const SentimentIcon = conv.sentiment === "positivo" ? Smile : conv.sentiment === "negativo" ? Frown : Meh;
-                    const sentimentColor = conv.sentiment === "positivo" ? "text-emerald-500" : conv.sentiment === "negativo" ? "text-red-500" : "text-muted-foreground";
+                    const sentimentColor = "text-muted-foreground";
 
                     return (
                       <div
@@ -396,16 +396,18 @@ export default function WhatsApp() {
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-1.5">
                               <SentimentIcon className={`h-4 w-4 ${sentimentColor}`} />
-                              <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 font-bold">
-                                Score: {conv.lead_score}
-                              </Badge>
-                              <Badge variant="outline" className={`text-[9px] px-1.5 py-0 h-4 font-bold ${conv.assigned_user === "IA" ? "bg-indigo-500/5 text-indigo-650 dark:text-indigo-400 border-indigo-500/20" : conv.assigned_user ? "bg-muted text-muted-foreground border-border" : "bg-amber-500/10 text-amber-600 border-amber-500/20"}`}>
+                              {conv.lead_score > 70 && (
+                                <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 font-bold">
+                                  Score: {conv.lead_score}
+                                </Badge>
+                              )}
+                              <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 font-bold">
                                 {conv.assigned_user ?? "Fila"}
                               </Badge>
                             </div>
                             <div className="flex items-center gap-1">
                               {conv.is_vip && (
-                                <Badge className="bg-amber-500/10 text-amber-650 dark:text-amber-400 border border-amber-500/20 text-[9px] h-4 font-bold">
+                                <Badge variant="outline" className="text-muted-foreground text-[9px] h-4 font-medium">
                                   VIP
                                 </Badge>
                               )}
@@ -441,8 +443,8 @@ export default function WhatsApp() {
                       <div className="flex items-center gap-2">
                         <h2 className="text-sm font-bold text-foreground">{activeConversation.contact_name}</h2>
                         {activeConversation.is_vip && (
-                          <span className="inline-flex items-center gap-0.5 bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                            ★ VIP
+                          <span className="inline-flex items-center gap-0.5 border border-border text-muted-foreground text-[10px] font-medium px-1.5 py-0.5 rounded-full">
+                            VIP
                           </span>
                         )}
                       </div>
@@ -455,7 +457,7 @@ export default function WhatsApp() {
                   <div className="flex items-center gap-2">
                     {/* SLA countdown */}
                     <div className="flex items-center bg-muted border border-border rounded px-2.5 py-1 gap-1 text-xs text-foreground font-medium h-8">
-                      <Clock className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+                      <Clock className="h-3.5 w-3.5 text-muted-foreground" />
                       <span>SLA: {activeConversation.sla_limit_mins}m</span>
                     </div>
 
@@ -489,8 +491,9 @@ export default function WhatsApp() {
                     {/* Lead Intelligence Overlay Trigger Button */}
                     <Button
                       onClick={() => setIsIntelligenceOpen(true)}
+                      variant="outline"
                       size="sm"
-                      className="gap-1.5 font-semibold text-xs h-8 bg-indigo-600 hover:bg-indigo-700 text-white"
+                      className="gap-1.5 font-semibold text-xs h-8"
                     >
                       <UserCheck className="h-4 w-4" />
                       Lead Intelligence
@@ -498,9 +501,10 @@ export default function WhatsApp() {
 
                     {activeConversation.status !== "encerrada" && (
                       <Button
+                        variant="outline"
                         size="sm"
                         onClick={closeConversation}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8"
+                        className="text-xs h-8"
                       >
                         Finalizar
                       </Button>
@@ -564,7 +568,7 @@ export default function WhatsApp() {
 
                         let bubbleBg = isInbound ? "bg-muted text-foreground" : "bg-primary text-primary-foreground";
                         let bubbleAlign = isInbound ? "justify-start" : "justify-end";
-                        let borderStyle = "border border-border/30";
+                        let borderStyle = "";
 
                         if (isWhisper) {
                           bubbleBg = "bg-amber-500/5 text-amber-900 dark:text-amber-300";
@@ -742,9 +746,9 @@ export default function WhatsApp() {
                 <div className="divide-y divide-border/60">
                   {iaConversations.map(conv => {
                     const isSelected = conv.id === selectedConversationId;
-                    const chanColor = conv.channel === "whatsapp" ? "text-emerald-600 bg-emerald-500/10 dark:text-emerald-455" : conv.channel === "instagram" ? "text-pink-650 bg-pink-500/10" : "text-blue-600 bg-blue-500/10";
+                    const chanColor = "text-muted-foreground bg-muted";
                     const SentimentIcon = conv.sentiment === "positivo" ? Smile : conv.sentiment === "negativo" ? Frown : Meh;
-                    const sentimentColor = conv.sentiment === "positivo" ? "text-emerald-500" : conv.sentiment === "negativo" ? "text-red-500" : "text-muted-foreground";
+                    const sentimentColor = "text-muted-foreground";
 
                     return (
                       <div
@@ -776,16 +780,18 @@ export default function WhatsApp() {
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-1.5">
                               <SentimentIcon className={`h-4 w-4 ${sentimentColor}`} />
-                              <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 font-bold">
-                                Score: {conv.lead_score}
-                              </Badge>
-                              <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 font-bold bg-indigo-500/5 text-indigo-650 dark:text-indigo-400 border-indigo-500/20">
+                              {conv.lead_score > 70 && (
+                                <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 font-bold">
+                                  Score: {conv.lead_score}
+                                </Badge>
+                              )}
+                              <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 font-bold">
                                 IA
                               </Badge>
                             </div>
                             <div className="flex items-center gap-1">
                               {conv.is_vip && (
-                                <Badge className="bg-amber-500/10 text-amber-650 dark:text-amber-400 border border-amber-500/20 text-[9px] h-4 font-bold">
+                                <Badge variant="outline" className="text-muted-foreground text-[9px] h-4 font-medium">
                                   VIP
                                 </Badge>
                               )}
@@ -821,8 +827,8 @@ export default function WhatsApp() {
                       <div className="flex items-center gap-2">
                         <h2 className="text-sm font-bold text-foreground">{activeConversation.contact_name}</h2>
                         {activeConversation.is_vip && (
-                          <span className="inline-flex items-center gap-0.5 bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                            ★ VIP
+                          <span className="inline-flex items-center gap-0.5 border border-border text-muted-foreground text-[10px] font-medium px-1.5 py-0.5 rounded-full">
+                            VIP
                           </span>
                         )}
                       </div>
@@ -900,7 +906,7 @@ export default function WhatsApp() {
 
                         let bubbleBg = isInbound ? "bg-muted text-foreground" : "bg-primary text-primary-foreground";
                         let bubbleAlign = isInbound ? "justify-start" : "justify-end";
-                        let borderStyle = "border border-border/30";
+                        let borderStyle = "";
 
                         if (isWhisper) {
                           bubbleBg = "bg-amber-500/5 text-amber-900 dark:text-amber-300";

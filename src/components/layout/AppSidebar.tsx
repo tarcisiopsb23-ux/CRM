@@ -26,6 +26,8 @@ import {
   TrendingUp,
   ImagePlay,
   GitBranch,
+  Inbox,
+  Users,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -58,7 +60,17 @@ const navItems: (
   { type: "item", title: "Agenda", url: "/agenda", icon: Calendar, module: "agenda" },
   { type: "item", title: "Projetos", url: "/projects", icon: FolderKanban, module: "projects" },
   { type: "item", title: "Metas", url: "/goals", icon: Target, module: "goals" },
-  { type: "item", title: "Conversas", url: "/whatsapp", icon: MessageCircle, module: "whatsapp" },
+  {
+    type: "collapsible",
+    label: "Mensagens",
+    icon: MessageCircle,
+    children: [
+      { title: "Caixa de Entrada", url: "/whatsapp", icon: Inbox, module: "whatsapp" },
+      { title: "Histórico", url: "/whatsapp/historico", icon: History, module: "whatsapp" },
+      { title: "Templates WhatsApp", url: "/whatsapp/templates", icon: FileText, module: "whatsapp" },
+      { title: "Contatos", url: "/contacts", icon: Users, module: "whatsapp" },
+    ]
+  },
   { type: "item", title: "Flow Builder", url: "/flow-builder", icon: GitBranch, module: null },
   // { type: "item", title: "Reuniões IA", url: "/meetings", icon: Sparkles, module: "meetings" }, // módulo desativado
   { type: "item", title: "Gestão de Pessoas", url: "/team", icon: UsersRound, module: "team" },
@@ -84,6 +96,7 @@ const navItems: (
 export function AppSidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [comercialExpanded, setComercialExpanded] = useState(true);
+  const [mensagensExpanded, setMensagensExpanded] = useState(true);
   const location = useLocation();
   const orgId = useOrganization();
   const { data: orgData } = useOrganizationData(orgId);
@@ -177,10 +190,15 @@ export function AppSidebar() {
         {visibleItems.map((item, index) => {
           if (item.type === "collapsible") {
             const isActive = item.children.some(child => location.pathname.startsWith(child.url));
+            const isMensagens = item.label === "Mensagens";
+            const isExpanded = isMensagens ? mensagensExpanded : comercialExpanded;
+            const toggleExpanded = isMensagens
+              ? () => setMensagensExpanded(!mensagensExpanded)
+              : () => setComercialExpanded(!comercialExpanded);
             return (
               <div key={item.label} className="mb-1">
                 <button
-                  onClick={() => setComercialExpanded(!comercialExpanded)}
+                  onClick={toggleExpanded}
                   className={cn(
                     "w-full flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-semibold transition-all duration-200 group relative overflow-hidden",
                     "text-sidebar-foreground/80 hover:text-sidebar-foreground",
@@ -195,7 +213,7 @@ export function AppSidebar() {
                     <>
                       <span className="flex-1 text-left">{item.label}</span>
                       <ChevronDown
-                        className={cn("h-4 w-4 transition-all duration-300 text-sidebar-foreground/50 group-hover:text-sidebar-foreground", comercialExpanded && "rotate-180")}
+                        className={cn("h-4 w-4 transition-all duration-300 text-sidebar-foreground/50 group-hover:text-sidebar-foreground", isExpanded && "rotate-180")}
                       />
                     </>
                   )}
@@ -203,7 +221,7 @@ export function AppSidebar() {
                 <div 
                   className={cn(
                     "overflow-hidden transition-all duration-300 ease-out",
-                    !collapsed && comercialExpanded ? "max-h-96 opacity-100 mt-1.5" : "max-h-0 opacity-0 mt-0"
+                    !collapsed && isExpanded ? "max-h-96 opacity-100 mt-1.5" : "max-h-0 opacity-0 mt-0"
                   )}
                 >
                   <div className="space-y-0.5 pl-1 border-l-2 border-sidebar-primary/40 ml-3">
