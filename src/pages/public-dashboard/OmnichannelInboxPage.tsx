@@ -25,7 +25,6 @@ import { ptBR } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import {
@@ -47,6 +46,12 @@ import {
 import { AgentStatusToggle } from "@/components/omnichannel/AgentStatusToggle";
 import { useClientAuth } from "@/hooks/useClientAuth";
 import { supabase } from "@/lib/supabase";
+import {
+  canAssumeConversation,
+  canFinalizeConversation,
+  canTransferConversation,
+  canSupervise,
+} from "./omniConversationActions";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -89,13 +94,13 @@ function isWindow24hExpired(conv: Conversation, messages: Message[]): boolean {
 type ChannelKey = "whatsapp" | "instagram" | "facebook";
 
 const CHANNEL_COLORS: Record<string, string> = {
-  whatsapp:        "text-emerald-400",
-  instagram:       "text-pink-400",
-  instagram_dm:    "text-pink-400",
-  facebook:        "text-blue-400",
-  facebook_dm:     "text-blue-400",
-  instagram_comment: "text-pink-300",
-  facebook_comment:  "text-blue-300",
+  whatsapp:        "text-muted-foreground",
+  instagram:       "text-muted-foreground",
+  instagram_dm:    "text-muted-foreground",
+  facebook:        "text-muted-foreground",
+  facebook_dm:     "text-muted-foreground",
+  instagram_comment: "text-muted-foreground",
+  facebook_comment:  "text-muted-foreground",
 };
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -108,15 +113,9 @@ const CHANNEL_LABELS: Record<string, string> = {
   facebook_comment:  "Facebook",
 };
 
-function ChannelDot({ channel }: { channel: string }) {
+function ChannelDot({ channel: _channel }: { channel: string }) {
   return (
-    <span
-      className={cn(
-        "inline-block h-1.5 w-1.5 rounded-full",
-        channel === "whatsapp"     ? "bg-emerald-400" :
-        channel.startsWith("instagram") ? "bg-pink-400" : "bg-blue-400"
-      )}
-    />
+    <span className="inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground/50" />
   );
 }
 
@@ -124,13 +123,8 @@ function ChannelBadge({ channel, small = false }: { channel: string; small?: boo
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full font-medium",
+        "inline-flex items-center gap-1 rounded-full font-medium bg-muted/60 text-muted-foreground border border-border/40",
         small ? "px-1.5 py-0.5 text-[9px]" : "px-2 py-0.5 text-[10px]",
-        channel === "whatsapp"
-          ? "bg-emerald-500/10 text-emerald-400"
-          : channel.startsWith("instagram")
-          ? "bg-pink-500/10 text-pink-400"
-          : "bg-blue-500/10 text-blue-400"
       )}
     >
       <ChannelDot channel={channel} />
@@ -142,12 +136,12 @@ function ChannelBadge({ channel, small = false }: { channel: string; small?: boo
 // ─── Status config ─────────────────────────────────────────────────────────────
 
 const STATUS_BADGE: Record<string, { label: string; className: string }> = {
-  bot_active:     { label: "Bot",        className: "bg-violet-500/15 text-violet-400 border-violet-500/20" },
-  waiting_human:  { label: "Aguardando", className: "bg-amber-500/15 text-amber-400 border-amber-500/20" },
-  human_active:   { label: "Humano",     className: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" },
-  resolved:       { label: "Resolvido",  className: "bg-slate-500/15 text-slate-400 border-slate-500/20" },
-  open:           { label: "Aberta",     className: "bg-blue-500/10 text-blue-400 border-blue-500/20" },
-  closed:         { label: "Encerrada",  className: "bg-slate-500/15 text-slate-400 border-slate-500/20" },
+  bot_active:     { label: "Bot",        className: "bg-secondary/60 text-muted-foreground border-border/40" },
+  waiting_human:  { label: "Aguardando", className: "bg-secondary/60 text-muted-foreground border-border/40" },
+  human_active:   { label: "Humano",     className: "bg-secondary/60 text-muted-foreground border-border/40" },
+  resolved:       { label: "Resolvido",  className: "bg-secondary/60 text-muted-foreground border-border/40" },
+  open:           { label: "Aberta",     className: "bg-secondary/60 text-muted-foreground border-border/40" },
+  closed:         { label: "Encerrada",  className: "bg-secondary/60 text-muted-foreground border-border/40" },
 };
 
 function StatusBadgeSmall({ status }: { status: string }) {
@@ -218,7 +212,7 @@ function ConversationItem({
             {conv.contact_name ?? conv.contact_phone ?? "Desconhecido"}
           </span>
           <div className="flex items-center gap-1.5 shrink-0">
-            {onAssume && myAgentId && !conv.assigned_agent_id && (
+            {onAssume && canAssumeConversation(conv, myAgentId) && (
               <Button
                 size="sm"
                 variant="default"
@@ -234,11 +228,11 @@ function ConversationItem({
           </div>
         </div>
         <div className="flex items-center justify-between gap-1 mt-0.5">
-          <span className="text-[11px] text-muted-foreground truncate flex-1">
+          <span className="text-[11px] text-muted-foreground truncate flex-1 overflow-hidden whitespace-nowrap">
             {conv.last_message_preview ?? "—"}
           </span>
           {conv.unread_count > 0 && (
-            <span className="h-4 w-4 shrink-0 rounded-full bg-blue-500 flex items-center justify-center text-[9px] font-bold text-white">
+            <span className="h-4 w-4 shrink-0 rounded-full bg-primary flex items-center justify-center text-[9px] font-bold text-primary-foreground">
               {conv.unread_count > 9 ? "9+" : conv.unread_count}
             </span>
           )}
@@ -247,11 +241,11 @@ function ConversationItem({
           <ChannelBadge channel={conv.channel_type} small />
           <StatusBadgeSmall status={conv.status} />
           {conv.bot_active ? (
-            <span className="inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-medium bg-violet-500/15 text-violet-400 border-violet-500/20">
+            <span className="inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-medium bg-secondary/60 text-muted-foreground border-border/40">
               Bot On
             </span>
           ) : (
-            <span className="inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-medium bg-red-500/10 text-red-400 border-red-500/20">
+            <span className="inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-medium bg-secondary/40 text-muted-foreground/60 border-border/30">
               Bot Off
             </span>
           )}
@@ -267,8 +261,138 @@ function DeliveryIcon({ status }: { status: string }) {
   if (status === "pending")   return <Clock className="h-3 w-3 text-muted-foreground" />;
   if (status === "sent")      return <Check className="h-3 w-3 text-muted-foreground" />;
   if (status === "delivered") return <CheckCheck className="h-3 w-3 text-muted-foreground" />;
-  if (status === "read")      return <CheckCheck className="h-3 w-3 text-blue-400" />;
+  if (status === "read")      return <CheckCheck className="h-3 w-3 text-primary/60" />;
   return null;
+}
+
+// ─── Player de áudio ──────────────────────────────────────────────────────────
+
+function AudioPlayer({ src, transcription }: { src: string; transcription?: string }) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying]       = useState(false);
+  const [progress, setProgress]     = useState(0);
+  const [duration, setDuration]     = useState(0);
+  const [speed, setSpeed]           = useState(1);
+  const [showTranscript, setShowTranscript] = useState(false);
+
+  const speeds = [1, 1.5, 2];
+
+  const toggle = () => {
+    const a = audioRef.current;
+    if (!a) return;
+    if (playing) { a.pause(); } else { a.play(); }
+    setPlaying(!playing);
+  };
+
+  const onTimeUpdate = () => {
+    const a = audioRef.current;
+    if (!a || !a.duration) return;
+    setProgress((a.currentTime / a.duration) * 100);
+  };
+
+  const onLoadedMetadata = () => {
+    const a = audioRef.current;
+    if (!a) return;
+    setDuration(a.duration);
+  };
+
+  const onEnded = () => setPlaying(false);
+
+  const seek = (e: React.MouseEvent<HTMLDivElement>) => {
+    const a = audioRef.current;
+    if (!a || !a.duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pct  = (e.clientX - rect.left) / rect.width;
+    a.currentTime = pct * a.duration;
+  };
+
+  const cycleSpeed = () => {
+    const a   = audioRef.current;
+    const idx = speeds.indexOf(speed);
+    const next = speeds[(idx + 1) % speeds.length];
+    setSpeed(next);
+    if (a) a.playbackRate = next;
+  };
+
+  const fmt = (s: number) => {
+    if (!isFinite(s)) return "0:00";
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60).toString().padStart(2, "0");
+    return `${m}:${sec}`;
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5 w-full min-w-[220px] max-w-[280px]">
+      <audio
+        ref={audioRef}
+        src={src}
+        onTimeUpdate={onTimeUpdate}
+        onLoadedMetadata={onLoadedMetadata}
+        onEnded={onEnded}
+        preload="metadata"
+      />
+
+      {/* Controles */}
+      <div className="flex items-center gap-2">
+        {/* Play/Pause */}
+        <button
+          type="button"
+          onClick={toggle}
+          className="h-8 w-8 shrink-0 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors"
+        >
+          {playing
+            ? <span className="text-white text-xs font-bold">⏸</span>
+            : <span className="text-white text-xs font-bold">▶</span>
+          }
+        </button>
+
+        {/* Barra de progresso */}
+        <div className="flex-1 flex flex-col gap-0.5">
+          <div
+            className="h-2 w-full bg-white/30 rounded-full cursor-pointer overflow-hidden"
+            onClick={seek}
+          >
+            <div
+              className="h-full bg-white rounded-full transition-all"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <div className="flex justify-between text-[9px] text-white/70">
+            <span>{fmt(audioRef.current?.currentTime ?? 0)}</span>
+            <span>{fmt(duration)}</span>
+          </div>
+        </div>
+
+        {/* Velocidade */}
+        <button
+          type="button"
+          onClick={cycleSpeed}
+          className="shrink-0 text-[11px] font-bold text-white/80 hover:text-white w-10 h-7 rounded-md bg-white/10 hover:bg-white/20 text-center transition-colors"
+          title="Velocidade de reprodução"
+        >
+          {speed}x
+        </button>
+      </div>
+
+      {/* Transcrição */}
+      {transcription && (
+        <div className="text-xs">
+          <button
+            type="button"
+            onClick={() => setShowTranscript(!showTranscript)}
+            className="text-[10px] text-white/60 hover:text-white underline underline-offset-2 transition-colors"
+          >
+            {showTranscript ? "Ocultar transcrição" : "Ver transcrição"}
+          </button>
+          {showTranscript && (
+            <p className="mt-1 text-xs text-white/70 italic leading-snug">
+              "{transcription}"
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── Bolha de mensagem ─────────────────────────────────────────────────────────
@@ -292,12 +416,15 @@ function MessageBubble({ msg }: { msg: Message }) {
   const bubbleClass = cn(
     "max-w-xs md:max-w-sm lg:max-w-md px-3 py-2 text-sm break-words",
     isInternal
-      ? "bg-yellow-500/10 border border-yellow-500/20 rounded-2xl text-foreground"
+      ? "bg-muted/60 border border-border/40 rounded-2xl text-foreground"
       : isInbound
-      ? "bg-secondary/40 rounded-2xl rounded-tl-sm text-foreground"
+      // Inbound (cliente): verde do indicador Bot Online
+      ? "bg-emerald-500/15 text-foreground rounded-2xl rounded-tl-sm border border-emerald-500/25"
       : isBot
-      ? "bg-violet-500/15 text-violet-300 rounded-2xl rounded-tr-sm"
-      : "bg-blue-500/15 text-blue-300 rounded-2xl rounded-tr-sm"
+      // Bot outbound: cinza discreto
+      ? "bg-muted/60 text-foreground rounded-2xl rounded-tr-sm"
+      // Humano outbound: cinza um pouco mais escuro
+      : "bg-secondary/25 text-foreground rounded-2xl rounded-tr-sm"
   );
 
   const renderContent = () => {
@@ -316,7 +443,7 @@ function MessageBubble({ msg }: { msg: Message }) {
       );
     }
     if (msg.message_type === "audio" && msg.media_url) {
-      return <audio controls className="w-48" src={msg.media_url} />;
+      return <AudioPlayer src={msg.media_url} transcription={msg.content ?? undefined} />;
     }
     if (msg.message_type === "document" && msg.media_url) {
       return (
@@ -1034,18 +1161,65 @@ function ContactSheet({
 type ChannelFilter = ChannelKey | null;
 type StatusFilter = "open" | "bot_active" | "waiting_human" | "human_active" | "resolved" | null;
 
+// Pastas de filtro — cada uma mapeia para um conjunto de filtros do hook
+type InboxFolder =
+  | "minhas"       // human_active + assignedToMe
+  | "nao_atribuidas" // sem agente, status ativo
+  | "urgentes"     // comentários (instagram_comment / facebook_comment)
+  | "bot_ativo"    // bot_active = true
+  | "inbox_geral"  // sem filtro de atribuição
+  | "finalizadas"; // resolved + closed
+
+interface FolderDef {
+  key: InboxFolder;
+  label: string;
+}
+
+const FOLDERS: FolderDef[] = [
+  { key: "minhas",           label: "Minhas Conversas" },
+  { key: "nao_atribuidas",   label: "Não Atribuídas"   },
+  { key: "urgentes",         label: "Urgentes"         },
+  { key: "bot_ativo",        label: "Bot Ativo"        },
+  { key: "inbox_geral",      label: "Inbox Geral"      },
+  { key: "finalizadas",      label: "Finalizadas"      },
+];
+
+/** Converte uma pasta nos filtros do hook */
+function folderToInboxFilters(
+  folder: InboxFolder,
+  userId: string | null
+): import("@/hooks/useOmnichannelInbox").InboxFilters {
+  switch (folder) {
+    case "minhas":
+      return { assignedToMe: true, status: "human_active" };
+    case "nao_atribuidas":
+      // Handoff ativo (waiting_human) sem atendente atribuído
+      return { unassigned: true, status: "waiting_human" };
+    case "urgentes":
+      return { urgentOnly: true };
+    case "bot_ativo":
+      return { botActive: true };
+    case "inbox_geral":
+      return {};
+    case "finalizadas":
+      return { finalized: true };
+    default:
+      return {};
+  }
+}
+
 interface LeftColumnProps {
   conversations: Conversation[];
   loading: boolean;
   activeId: string | null;
   onSelect: (id: string) => void;
-  unreadCount: number;
+  unassignedCount: number;
   filters: {
     search: string;
     channel: ChannelFilter;
-    status: StatusFilter;
+    folder: InboxFolder;
   };
-  onFilterChange: (f: Partial<{ search: string; channel: ChannelFilter; status: StatusFilter }>) => void;
+  onFilterChange: (f: Partial<{ search: string; channel: ChannelFilter; folder: InboxFolder }>) => void;
   myStatus: ReturnType<typeof useOmnichannelInbox>["myStatus"];
   setMyStatus: ReturnType<typeof useOmnichannelInbox>["setMyStatus"];
   onAssume?: (convId: string) => void;
@@ -1060,7 +1234,7 @@ function LeftColumn({
   loading,
   activeId,
   onSelect,
-  unreadCount,
+  unassignedCount,
   filters,
   onFilterChange,
   myStatus,
@@ -1071,263 +1245,103 @@ function LeftColumn({
   authUserId,
   organizationId,
 }: LeftColumnProps) {
-  const [viewMode, setViewMode] = useState<"conversations" | "contacts">("conversations");
-  const [contactsList, setContactsList] = useState<Array<{
-    id: string;
-    display_name: string | null;
-    phone: string | null;
-    channel_type: string | null;
-  }>>([]);
-  const [contactsLoading, setContactsLoading] = useState(false);
-  const [contactSearch, setContactSearch] = useState("");
-  const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
-  const [contactSheetOpen, setContactSheetOpen] = useState(false);
-
-  useEffect(() => {
-    if (viewMode !== "contacts" || !clientId) return;
-    const timer = setTimeout(async () => {
-      setContactsLoading(true);
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let query: any = supabase
-          .from('client_channel_contacts')
-          .select(`
-            id, display_name, phone,
-            identities:client_contact_identities(channel_type)
-          `)
-          .eq('client_id', clientId)
-          .order('display_name', { ascending: true })
-          .limit(50);
-
-        if (contactSearch) {
-          query = query.or(
-            `display_name.ilike.%${contactSearch}%,phone.ilike.%${contactSearch}%`
-          );
-        }
-
-        const { data, error } = await query;
-        if (!error) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          setContactsList((data ?? []).map((r: any) => ({
-            id: r.id,
-            display_name: r.display_name ?? null,
-            phone: r.phone ?? null,
-            channel_type: r.identities?.[0]?.channel_type ?? null,
-          })));
-        }
-      } finally {
-        setContactsLoading(false);
-      }
-    }, contactSearch ? 300 : 0);
-    return () => clearTimeout(timer);
-  }, [viewMode, clientId, contactSearch]);
-
-  const channelButtons: Array<{ key: ChannelFilter; label: string }> = [
-    { key: null, label: "Todos" },
-    { key: "whatsapp", label: "WhatsApp" },
-    { key: "instagram", label: "Instagram" },
-    { key: "facebook",  label: "Facebook"  },
-  ];
-
-  const statusButtons: Array<{ key: StatusFilter; label: string }> = [
-    { key: null, label: "Todos" },
-    { key: "waiting_human", label: "Aguardando" },
-    { key: "human_active", label: "Em Atendimento" },
-    { key: "bot_active", label: "Bot Ativo" },
-  ];
+  // "Não Atribuídas" aparece primeiro quando há conversas nessa fila
+  const orderedFolders: FolderDef[] = unassignedCount > 0
+    ? [
+        { key: "nao_atribuidas", label: "Não Atribuídas" },
+        ...FOLDERS.filter(f => f.key !== "nao_atribuidas"),
+      ]
+    : FOLDERS;
 
   return (
     <div className="w-80 shrink-0 border-r border-border flex flex-col min-h-0">
       {/* Header */}
       <div className="px-3 pt-3 pb-2 shrink-0 border-b border-border space-y-2">
-        {/* Toggle Conversas / Contatos */}
-        <div className="flex items-center justify-between">
-          <div className="flex rounded-md border border-border overflow-hidden">
-            <button
-              onClick={() => setViewMode("conversations")}
-              className={cn(
-                "px-3 py-1 text-[11px] font-medium transition-colors",
-                viewMode === "conversations"
-                  ? "bg-primary/20 text-primary"
-                  : "text-muted-foreground hover:bg-secondary/40"
-              )}
-            >
-              Conversas
-              {unreadCount > 0 && (
-                <span className="ml-1 h-4 min-w-4 px-0.5 rounded-full bg-blue-500 text-[9px] font-bold text-white inline-flex items-center justify-center">
-                  {unreadCount}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setViewMode("contacts")}
-              className={cn(
-                "px-3 py-1 text-[11px] font-medium transition-colors",
-                viewMode === "contacts"
-                  ? "bg-primary/20 text-primary"
-                  : "text-muted-foreground hover:bg-secondary/40"
-              )}
-            >
-              Contatos
-            </button>
-          </div>
+        {/* Status do agente */}
+        <div className="flex items-center justify-end">
           <AgentStatusToggle status={myStatus} onStatusChange={setMyStatus} />
         </div>
 
-        {viewMode === "conversations" && (
-          <>
-            {/* Busca */}
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-              <Input
-                placeholder="Buscar conversa..."
-                className="pl-7 h-7 text-xs bg-secondary/30 border-border"
-                value={filters.search}
-                onChange={(e) => onFilterChange({ search: e.target.value })}
-              />
-            </div>
+        {/* Busca */}
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+          <Input
+            placeholder="Buscar conversa..."
+            className="pl-7 h-7 text-xs bg-secondary/30 border-border"
+            value={filters.search}
+            onChange={(e) => onFilterChange({ search: e.target.value })}
+          />
+        </div>
 
-            {/* Filtro canal */}
-            <div className="flex gap-1 flex-wrap">
-              {channelButtons.map(({ key, label }) => (
-                <button
-                  key={String(key)}
-                  onClick={() => onFilterChange({ channel: key })}
-                  className={cn(
-                    "text-[10px] px-2 py-0.5 rounded-full border transition-colors font-medium",
-                    filters.channel === key
-                      ? "bg-primary/20 border-primary/40 text-primary"
-                      : "border-border text-muted-foreground hover:bg-secondary/40"
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+        {/* Filtro canal */}
+        <select
+          value={filters.channel ?? ""}
+          onChange={(e) => onFilterChange({ channel: (e.target.value as ChannelFilter) || null })}
+          className="w-full h-7 text-xs rounded-md border border-border bg-background px-2 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
+        >
+          <option value="">Todos os canais</option>
+          <option value="whatsapp">WhatsApp</option>
+          <option value="instagram">Instagram</option>
+          <option value="facebook">Facebook</option>
+        </select>
 
-            {/* Filtro status */}
-            <div className="flex gap-1 flex-wrap">
-              {statusButtons.map(({ key, label }) => (
-                <button
-                  key={String(key)}
-                  onClick={() => onFilterChange({ status: key })}
-                  className={cn(
-                    "text-[10px] px-2 py-0.5 rounded-full border transition-colors font-medium",
-                    filters.status === key
-                      ? "bg-primary/20 border-primary/40 text-primary"
-                      : "border-border text-muted-foreground hover:bg-secondary/40"
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
+        {/* Pastas */}
+        <div className="flex gap-1 overflow-x-auto pb-0.5 scrollbar-none -mx-1 px-1">
+          {orderedFolders.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => onFilterChange({ folder: key })}
+              className={cn(
+                "inline-flex items-center gap-1 text-[10px] px-2.5 py-1 rounded-full border whitespace-nowrap transition-colors font-medium shrink-0",
+                filters.folder === key
+                  ? "bg-foreground text-background border-foreground"
+                  : "border-border text-muted-foreground hover:text-foreground hover:bg-secondary/40"
+              )}
+            >
+              {label}
+              {key === "nao_atribuidas" && unassignedCount > 0 && (
+                <span className={cn(
+                  "h-3.5 min-w-[14px] px-0.5 rounded-full text-[9px] font-bold inline-flex items-center justify-center",
+                  filters.folder === key
+                    ? "bg-background text-foreground"
+                    : "bg-primary text-primary-foreground"
+                )}>
+                  {unassignedCount > 9 ? "9+" : unassignedCount}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Lista de conversas */}
-      {viewMode === "conversations" && (
-        <div className="flex-1 overflow-y-auto">
-          {loading && (
-            <div className="flex items-center justify-center py-8">
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-            </div>
-          )}
-          {!loading && conversations.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-              <MessageCircle className="h-8 w-8 text-muted-foreground/30 mb-2" />
-              <p className="text-xs text-muted-foreground">Nenhuma conversa</p>
-            </div>
-          )}
-          {!loading &&
-            conversations.map((conv) => (
-              <ConversationItem
-                key={conv.id}
-                conv={conv}
-                isActive={conv.id === activeId}
-                onClick={() => onSelect(conv.id)}
-                onAssume={onAssume}
-                myAgentId={myAgentId}
-              />
-            ))}
-        </div>
-      )}
-
-      {/* Lista de contatos */}
-      {viewMode === "contacts" && (
-        <>
-          <div className="px-3 pt-2 pb-1 shrink-0">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-              <Input
-                placeholder="Buscar contato..."
-                className="pl-7 h-7 text-xs bg-secondary/30 border-border"
-                value={contactSearch}
-                onChange={(e) => setContactSearch(e.target.value)}
-              />
-            </div>
+      <div className="flex-1 overflow-y-auto">
+        {loading && (
+          <div className="flex items-center justify-center py-8">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           </div>
-          <div className="flex-1 overflow-y-auto">
-            {contactsLoading && (
-              <div className="flex justify-center py-8">
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-              </div>
-            )}
-            {!contactsLoading && contactsList.length === 0 && (
-              <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-                <User className="h-8 w-8 text-muted-foreground/30 mb-2" />
-                <p className="text-xs text-muted-foreground">Nenhum contato</p>
-              </div>
-            )}
-            {!contactsLoading && contactsList.map((c) => {
-              const initials = c.display_name
-                ? c.display_name.split(" ").slice(0, 2).map((w) => w[0]).join("").toUpperCase()
-                : "?";
-              return (
-                <div
-                  key={c.id}
-                  role="button"
-                  tabIndex={0}
-                  className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-secondary/30 cursor-pointer transition-colors"
-                  onClick={() => { setSelectedContactId(c.id); setContactSheetOpen(true); }}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedContactId(c.id); setContactSheetOpen(true); } }}
-                >
-                  <div className="h-9 w-9 shrink-0 rounded-full bg-primary/20 flex items-center justify-center text-xs font-semibold text-primary">
-                    {initials}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-foreground truncate">
-                      {c.display_name ?? "Sem nome"}
-                    </p>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      {c.channel_type && <ChannelBadge channel={c.channel_type} small />}
-                      {c.phone && (
-                        <span className="text-[10px] text-muted-foreground truncate">{c.phone}</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+        )}
+        {!loading && conversations.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+            <MessageCircle className="h-8 w-8 text-muted-foreground/30 mb-2" />
+            <p className="text-xs text-muted-foreground">Nenhuma conversa</p>
           </div>
-
-          {/* ContactSheet para a aba de contatos */}
-          <ContactSheet
-            contactId={selectedContactId}
-            channelType={null}
-            clientId={clientId}
-            organizationId={organizationId}
-            authUserId={authUserId}
-            open={contactSheetOpen}
-            onOpenChange={setContactSheetOpen}
-          />
-        </>
-      )}
+        )}
+        {!loading &&
+          conversations.map((conv) => (
+            <ConversationItem
+              key={conv.id}
+              conv={conv}
+              isActive={conv.id === activeId}
+              onClick={() => onSelect(conv.id)}
+              onAssume={onAssume}
+              myAgentId={myAgentId}
+            />
+          ))}
+      </div>
     </div>
   );
 }
-
 // ─── Coluna central ────────────────────────────────────────────────────────────
 
 interface CenterColumnProps {
@@ -1338,14 +1352,15 @@ interface CenterColumnProps {
   loadMoreMessages: () => void;
   sendingMessage: boolean;
   onSend: (content: string, isInternal: boolean) => void;
-  onResolve: () => void;
-  onToggleBot: (active: boolean) => void;
+  onAssume?: (convId: string) => void;
+  onFinalize: () => void;
   onBack?: () => void;
   onTransfer?: (agentId: string, reason?: string) => Promise<void>;
   clientId?: string | null;
   myAgentId?: string | null;
   organizationId?: string | null;
   authUserId?: string | null;
+  userRole?: string | null;
 }
 
 function CenterColumn({
@@ -1356,14 +1371,15 @@ function CenterColumn({
   loadMoreMessages,
   sendingMessage,
   onSend,
-  onResolve,
-  onToggleBot,
+  onAssume,
+  onFinalize,
   onBack,
   onTransfer,
   clientId,
   myAgentId,
   organizationId,
   authUserId,
+  userRole,
 }: CenterColumnProps) {
   const [inputText, setInputText] = useState("");
   const [isInternalNote, setIsInternalNote] = useState(false);
@@ -1421,6 +1437,28 @@ function CenterColumn({
 
   const expired24h = activeConversation ? isWindow24hExpired(activeConversation, messages) : false;
 
+  // Caixa de digitação habilitada quando:
+  // - bot desligado (bot_active = false), OU
+  // - handoff ativo: status waiting_human ou human_active, OU
+  // - atendente já atribuído
+  // Desabilitada apenas quando bot está ativo E sem handoff em curso
+  const conv = activeConversation;
+  const botControllingConversation = conv
+    ? conv.bot_active === true
+      && conv.status !== "waiting_human"
+      && conv.status !== "human_active"
+      && conv.assigned_agent_id === null
+    : false;
+
+  const inputDisabled = expired24h || sendingMessage || botControllingConversation;
+
+  // Visibilidade dos botões de ação: Assumir / Finalizar / Transferir.
+  // O bot é controlado implicitamente — Assumir desliga, Finalizar religa.
+  const supervisor = canSupervise(userRole);
+  const showAssume = conv ? canAssumeConversation(conv, myAgentId) : false;
+  const showFinalize = conv ? canFinalizeConversation(conv, myAgentId) : false;
+  const showTransfer = conv ? canTransferConversation(conv, myAgentId, supervisor) : false;
+
   const handleSend = () => {
     const text = inputText.trim();
     if (!text || sendingMessage) return;
@@ -1449,8 +1487,6 @@ function CenterColumn({
     );
   }
 
-  const conv = activeConversation;
-
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {/* Header */}
@@ -1475,39 +1511,40 @@ function CenterColumn({
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {/* Toggle Bot */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-muted-foreground">
-              {conv.bot_active ? "Bot" : "Humano"}
-            </span>
-            <Switch
-              checked={conv.bot_active}
-              onCheckedChange={(v) => onToggleBot(v)}
-              className="scale-75"
-            />
-          </div>
-          {/* Resolver */}
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 px-2 text-xs"
-            onClick={() => {
-              onResolve();
-              toast.success("Conversa marcada como resolvida");
-            }}
-          >
-            Resolver
-          </Button>
+          {/* Assumir */}
+          {showAssume && (
+            <Button
+              size="sm"
+              variant="default"
+              className="h-7 px-2 text-xs"
+              onClick={() => onAssume?.(conv.id)}
+            >
+              Assumir
+            </Button>
+          )}
+          {/* Finalizar */}
+          {showFinalize && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 px-2 text-xs"
+              onClick={() => onFinalize()}
+            >
+              Finalizar
+            </Button>
+          )}
           {/* Transferir */}
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 px-2 text-xs text-muted-foreground"
-            onClick={handleOpenTransfer}
-            disabled={!clientId}
-          >
-            Transferir
-          </Button>
+          {showTransfer && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs text-muted-foreground"
+              onClick={handleOpenTransfer}
+              disabled={!clientId}
+            >
+              Transferir
+            </Button>
+          )}
         </div>
       </div>
 
@@ -1575,11 +1612,13 @@ function CenterColumn({
             placeholder={
               expired24h
                 ? "Janela encerrada — use um template"
+                : botControllingConversation
+                ? "Bot ativo — clique em Assumir para atender"
                 : isInternalNote
                 ? "Nota interna (não enviada ao cliente)..."
                 : "Digite uma mensagem..."
             }
-            disabled={expired24h || sendingMessage}
+            disabled={inputDisabled}
             rows={1}
             style={{ maxHeight: "6rem" }}
             className="flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none overflow-y-auto"
@@ -1619,10 +1658,10 @@ function CenterColumn({
             <button
               type="button"
               onClick={handleSend}
-              disabled={!inputText.trim() || sendingMessage}
+              disabled={!inputText.trim() || sendingMessage || inputDisabled}
               className={cn(
                 "p-1 transition-colors",
-                inputText.trim() && !sendingMessage
+                inputText.trim() && !sendingMessage && !inputDisabled
                   ? "text-primary hover:opacity-80"
                   : "text-muted-foreground/40 cursor-not-allowed"
               )}
@@ -1715,10 +1754,9 @@ function CenterColumn({
 interface RightColumnProps {
   conv: Conversation | null;
   messages: Message[];
-  onToggleBot: (active: boolean) => void;
 }
 
-function RightColumn({ conv, messages, onToggleBot }: RightColumnProps) {
+function RightColumn({ conv, messages }: RightColumnProps) {
   if (!conv) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -1780,11 +1818,12 @@ function RightColumn({ conv, messages, onToggleBot }: RightColumnProps) {
           </div>
           <div className="flex items-center justify-between">
             <span className="text-[11px] text-muted-foreground">Bot</span>
-            <Switch
-              checked={conv.bot_active}
-              onCheckedChange={onToggleBot}
-              className="scale-75"
-            />
+            <Badge
+              variant={conv.bot_active ? "default" : "secondary"}
+              className="text-[10px] px-1.5 py-0.5 font-medium"
+            >
+              {conv.bot_active ? "Ativo" : "Inativo"}
+            </Badge>
           </div>
           {conv.last_message_at && (
             <div className="flex items-center justify-between">
@@ -1848,11 +1887,13 @@ export function OmnichannelInboxPage() {
     myStatus,
     setMyStatus,
     resolveConversation,
-    toggleBotForConversation,
     unreadCount,
     assignConversation,
     transferConversation,
   } = useOmnichannelInbox();
+
+  // Role do usuário para controle de permissões (Transferir p/ supervisores)
+  const userRole = auth?.user?.role ?? "viewer";
 
   // myAgentId: capturado do ensure_client_agent no mount
   const [myAgentId, setMyAgentId] = useState<string | null>(null);
@@ -1868,7 +1909,15 @@ export function OmnichannelInboxPage() {
       p_avatar_url:      (auth?.user as unknown as { avatar_url?: string })?.avatar_url ?? null,
     }).then(({ data, error }) => {
       if (error) console.warn('[OmnichannelInboxPage] ensure_client_agent:', error);
-      else if (data) setMyAgentId(data);
+      else if (data) {
+        // ensure_client_agent pode retornar scalar (migrations antigas) ou
+        // JSONB { agent_id, crm_user_id } (migration 135). Extrair defensivamente.
+        const aid =
+          data && typeof data === "object"
+            ? (data as { agent_id?: string }).agent_id
+            : (data as string);
+        setMyAgentId(aid ?? null);
+      }
     });
   }, [auth?.id, auth?.organization_id, auth?.user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1877,9 +1926,7 @@ export function OmnichannelInboxPage() {
   const [localChannel, setLocalChannel] = useState<ChannelFilter>(
     (hookFilters.channel as ChannelFilter) ?? null
   );
-  const [localStatus, setLocalStatus] = useState<StatusFilter>(
-    (hookFilters.status as StatusFilter) ?? null
-  );
+  const [localFolder, setLocalFolder] = useState<InboxFolder>("minhas");
 
   // Estado de painel direito
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
@@ -1887,20 +1934,21 @@ export function OmnichannelInboxPage() {
   // Responsividade: esconder lista quando conversa selecionada em mobile
   const showListOnMobile = !activeConversationId;
 
-  // Sincronizar filtros com o hook
+  // Sincronizar filtros com o hook — pasta traduz para filtros compostos
   useEffect(() => {
+    const folderFilters = folderToInboxFilters(localFolder, auth?.user?.id ?? null);
     setFilters({
+      ...folderFilters,
       search: localSearch || undefined,
       channel: localChannel ?? undefined,
-      status: localStatus ?? undefined,
     });
-  }, [localSearch, localChannel, localStatus, setFilters]);
+  }, [localSearch, localChannel, localFolder, setFilters, auth?.user?.id]);
 
   const handleFilterChange = useCallback(
-    (partial: Partial<{ search: string; channel: ChannelFilter; status: StatusFilter }>) => {
+    (partial: Partial<{ search: string; channel: ChannelFilter; folder: InboxFolder }>) => {
       if (partial.search !== undefined) setLocalSearch(partial.search);
       if (partial.channel !== undefined) setLocalChannel(partial.channel);
-      if (partial.status !== undefined) setLocalStatus(partial.status);
+      if (partial.folder !== undefined) setLocalFolder(partial.folder);
     },
     []
   );
@@ -1917,19 +1965,6 @@ export function OmnichannelInboxPage() {
     [activeConversationId, sendMessage]
   );
 
-  const handleResolve = useCallback(async () => {
-    if (!activeConversationId) return;
-    await resolveConversation(activeConversationId);
-  }, [activeConversationId, resolveConversation]);
-
-  const handleToggleBot = useCallback(
-    async (active: boolean) => {
-      if (!activeConversationId) return;
-      await toggleBotForConversation(activeConversationId, active);
-    },
-    [activeConversationId, toggleBotForConversation]
-  );
-
   const handleAssume = useCallback(async (convId: string) => {
     if (!myAgentId) return;
     try {
@@ -1939,6 +1974,22 @@ export function OmnichannelInboxPage() {
       toast.error('Erro ao assumir conversa');
     }
   }, [myAgentId, assignConversation]);
+
+  // Finalizar: resolve a conversa (status=resolved + reativa o bot) e libera o
+  // atendente (limpa assigned_agent_id), devolvendo a conversa ao pool do bot.
+  const handleFinalize = useCallback(async () => {
+    if (!activeConversationId || !auth?.id) return;
+    await resolveConversation(activeConversationId);
+    const { error } = await supabase
+      .from("client_channel_conversations")
+      .update({ assigned_agent_id: null })
+      .eq("id", activeConversationId)
+      .eq("client_id", auth.id);
+    if (error) {
+      console.warn("[OmnichannelInboxPage] clear assigned_agent_id:", error);
+    }
+    toast.success("Atendimento finalizado — bot reativado");
+  }, [activeConversationId, resolveConversation, auth?.id]);
 
   const handleTransfer = useCallback(async (agentId: string, reason?: string) => {
     if (!activeConversationId) return;
@@ -1959,8 +2010,8 @@ export function OmnichannelInboxPage() {
           loading={conversationsLoading}
           activeId={activeConversationId}
           onSelect={setActiveConversation}
-          unreadCount={unreadCount}
-          filters={{ search: localSearch, channel: localChannel, status: localStatus }}
+          unassignedCount={waitingCount}
+          filters={{ search: localSearch, channel: localChannel, folder: localFolder }}
           onFilterChange={handleFilterChange}
           myStatus={myStatus}
           setMyStatus={setMyStatus}
@@ -1987,14 +2038,15 @@ export function OmnichannelInboxPage() {
           loadMoreMessages={loadMoreMessages}
           sendingMessage={sendingMessage}
           onSend={handleSend}
-          onResolve={handleResolve}
-          onToggleBot={handleToggleBot}
+          onAssume={handleAssume}
+          onFinalize={handleFinalize}
           onBack={activeConversationId ? () => setActiveConversation(null) : undefined}
           onTransfer={handleTransfer}
           clientId={auth?.id ?? null}
           myAgentId={myAgentId}
           organizationId={auth?.organization_id ?? null}
           authUserId={auth?.user?.id ?? null}
+          userRole={userRole}
         />
       </div>
 
@@ -2023,7 +2075,6 @@ export function OmnichannelInboxPage() {
           <RightColumn
             conv={activeConversation}
             messages={messages}
-            onToggleBot={handleToggleBot}
           />
         )}
       </div>
