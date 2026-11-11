@@ -123,6 +123,12 @@ export function useNotificationAlerts({
 
           if (row.direction !== "inbound") return;
 
+          // Client-side guard: ensure the message belongs to a tracked conversation.
+          // The Realtime `in` filter works in PostgREST but its server-side behavior
+          // in postgres_changes is not guaranteed — this prevents spurious alerts if
+          // the filter is silently dropped and the subscription becomes unfiltered.
+          if (!conversationIds.includes(row.conversation_id)) return;
+
           const alert: NotificationAlert = {
             id: row.id,
             conversationId: row.conversation_id,

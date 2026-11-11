@@ -1962,6 +1962,31 @@ export function OmnichannelInboxPage() {
     };
 
     fetchCounts();
+
+    // Keep badge counts fresh: re-query every 30 s and also subscribe to
+    // conversation-level changes so they update on status transitions.
+    const timer = setInterval(fetchCounts, 30_000);
+
+    const channel = supabase
+      .channel(`folder-counts-watch-${clientId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "client_channel_conversations",
+          filter: `client_id=eq.${clientId}`,
+        },
+        () => {
+          fetchCounts();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      clearInterval(timer);
+      supabase.removeChannel(channel);
+    };
   }, [auth?.id, myAgentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── filteredConversations: filtragem client-side para pasta "minhas" (Step 2) ──
@@ -1971,6 +1996,19 @@ export function OmnichannelInboxPage() {
     }
     return conversations;
   }, [conversations, localFolder, myAgentId]);
+
+  // ── displayFolderCounts: keep "minhas" badge in sync with the live list ──────
+  // folderCounts.minhas comes from an independent DB query and can race with the
+  // hook's realtime-updated conversation list. We override it with the filtered
+  // list length so the badge always matches what the user sees.
+  const displayFolderCounts = useMemo<Record<InboxFolder, number>>(() => {
+    const minhasCount = myAgentId
+      ? conversations.filter(
+          (conv) => conv.assigned_agent_id === myAgentId && conv.status === "human_active"
+        ).length
+      : folderCounts.minhas;
+    return { ...folderCounts, minhas: minhasCount };
+  }, [conversations, folderCounts, myAgentId]);
 
   // Sincronizar filtros com o hook — pasta traduz para filtros compostos
   useEffect(() => {
@@ -2048,7 +2086,7 @@ export function OmnichannelInboxPage() {
           loading={conversationsLoading}
           activeId={activeConversationId}
           onSelect={setActiveConversation}
-          folderCounts={folderCounts}
+          folderCounts={displayFolderCounts}
           filters={{ search: localSearch, channel: localChannel, folder: localFolder }}
           onFilterChange={handleFilterChange}
           myStatus={myStatus}

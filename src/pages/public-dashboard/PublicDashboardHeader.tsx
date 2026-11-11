@@ -500,15 +500,43 @@ export function PublicDashboardHeader() {
   useEffect(() => {
     if (!myAgentId || !auth?.id) return;
 
-    supabase
-      .from("client_channel_conversations")
-      .select("id")
-      .eq("assigned_agent_id", myAgentId)
-      .eq("status", "human_active")
-      .eq("client_id", auth.id)
-      .then(({ data }) => {
-        setAgentConvIds((data ?? []).map((r: { id: string }) => r.id));
-      });
+    const clientId = auth.id;
+
+    const fetchConvIds = () =>
+      supabase
+        .from("client_channel_conversations")
+        .select("id")
+        .eq("assigned_agent_id", myAgentId)
+        .eq("status", "human_active")
+        .eq("client_id", clientId)
+        .then(({ data }) => {
+          setAgentConvIds((data ?? []).map((r: { id: string }) => r.id));
+        });
+
+    // Initial fetch
+    fetchConvIds();
+
+    // Stay current: subscribe to any INSERT/UPDATE/DELETE on this agent's conversations
+    // so the notification subscription window is refreshed when assignments change.
+    const channel = supabase
+      .channel(`agent-conv-watch-${clientId}-${myAgentId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "client_channel_conversations",
+          filter: `assigned_agent_id=eq.${myAgentId}`,
+        },
+        () => {
+          fetchConvIds();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [myAgentId, auth?.id]);
 
   // ── Notification alerts ─────────────────────────────────────────────────────
