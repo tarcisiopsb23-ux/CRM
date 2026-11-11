@@ -8,18 +8,26 @@
  * Fase 3: Adiciona toggles Bot IA / Atendimento Humano por canal.
  */
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, KeyboardEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   MessageCircle, Instagram, ShieldCheck, CheckCircle2,
   AlertCircle, Loader2, ExternalLink, Facebook,
-  Bot, Users, AlertTriangle, Info, X,
+  Bot, Users, AlertTriangle, Info, X, GitBranch,
+  Sparkles, Target, FileText, CheckSquare, Save, Clock,
+  ChevronDown, ChevronUp,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge }       from "@/components/ui/badge";
 import { Button }      from "@/components/ui/button";
 import { Switch }      from "@/components/ui/switch";
 import { Label }       from "@/components/ui/label";
+import { Input }       from "@/components/ui/input";
+import { Textarea }    from "@/components/ui/textarea";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import { Slider }      from "@/components/ui/slider";
 import { PageHeader }  from "./components/PageHeader";
 import { useClientAuth } from "@/hooks/useClientAuth";
 import { supabase }    from "@/lib/supabase";
@@ -84,6 +92,9 @@ interface ChannelConfig {
   humanWhatsapp: boolean;
   humanInstagram: boolean;
   humanFacebook: boolean;
+  flowWhatsapp: boolean;
+  flowInstagram: boolean;
+  flowFacebook: boolean;
   configLoading: boolean;
   configSaving: boolean;
 }
@@ -95,9 +106,437 @@ const DEFAULT_CONFIG: ChannelConfig = {
   humanWhatsapp: false,
   humanInstagram: false,
   humanFacebook: false,
+  flowWhatsapp:  false,
+  flowInstagram: false,
+  flowFacebook:  false,
   configLoading: false,
   configSaving:  false,
 };
+
+// ─── Configuração do agente (inline, por canal) ──────────────────────────────
+
+type AgentUiKey = "whatsapp" | "instagram" | "facebook";
+
+// Mapeia a chave de UI do canal → channel_type do Banco A (agent_channel_configs)
+const CHANNEL_TYPE_MAP: Record<AgentUiKey, string> = {
+  whatsapp:  "whatsapp",
+  instagram: "instagram_dm",
+  facebook:  "facebook_dm",
+};
+
+// Apenas os 17 campos editáveis de "conteúdo" do agente.
+// is_enabled e custom_flow_enabled são controlados pelos toggles rápidos
+// (config.botX / config.flowX) — não são duplicados aqui.
+interface AgentChannelConfig {
+  agent_name: string;
+  agent_role: string;
+  agent_description: string;
+  tone: string;
+  formality: number;
+  use_emojis: boolean;
+  response_length: string;
+  objective: string;
+  instructions: string;
+  behavior_use_knowledge: boolean;
+  behavior_collect_data: boolean;
+  behavior_create_opportunity: boolean;
+  behavior_handoff: boolean;
+  handoff_keywords: string[];
+  handoff_after_mins: number | "";
+  respond_outside_hours: boolean;
+  outside_hours_message: string;
+}
+
+function makeAgentDefault(): AgentChannelConfig {
+  return {
+    agent_name:            "Assistente",
+    agent_role:            "Atendimento ao cliente",
+    agent_description:     "",
+    tone:                  "amigavel",
+    formality:             3,
+    use_emojis:            false,
+    response_length:       "medio",
+    objective:             "atendimento",
+    instructions:          "",
+    behavior_use_knowledge:      true,
+    behavior_collect_data:       true,
+    behavior_create_opportunity: false,
+    behavior_handoff:            true,
+    handoff_keywords:            [],
+    handoff_after_mins:          "",
+    respond_outside_hours:        false,
+    outside_hours_message:       "",
+  };
+}
+
+const AGENT_FORMALITY_LABELS = ["", "Muito informal", "Informal", "Neutro", "Formal", "Muito formal"];
+
+function AgentSectionCard({
+  icon: Icon,
+  title,
+  description,
+  children,
+}: {
+  icon: React.ElementType;
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Card className="card-surface">
+      <CardHeader className="pb-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+            <Icon className="h-4 w-4 text-primary" />
+          </div>
+          <div>
+            <CardTitle className="text-sm font-semibold">{title}</CardTitle>
+            {description && (
+              <CardDescription className="text-xs mt-0.5">{description}</CardDescription>
+            )}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
+  );
+}
+
+function AgentBehaviorRow({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 py-3 border-b border-border/50 last:border-0">
+      <div className="space-y-0.5">
+        <p className="text-sm font-medium text-foreground/90">{label}</p>
+        <p className="text-xs text-muted-foreground leading-relaxed">{description}</p>
+      </div>
+      <Switch checked={checked} onCheckedChange={onChange} className="mt-0.5 shrink-0" />
+    </div>
+  );
+}
+
+/**
+ * Seção expansível "Configurar agente" renderizada inline em cada card de canal.
+ * Espelha o layout da ChannelTab do antigo ChatbotAgentePage, sem o toggle de
+ * canal ativo e sem o preview do system prompt.
+ */
+function AgentConfigSection({
+  cfg,
+  onChange,
+  onSave,
+  saving,
+  loading,
+  expanded,
+  onToggle,
+}: {
+  cfg: AgentChannelConfig;
+  onChange: (patch: Partial<AgentChannelConfig>) => void;
+  onSave: () => void;
+  saving: boolean;
+  loading: boolean;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const [keywordInput, setKeywordInput] = useState("");
+
+  function set<K extends keyof AgentChannelConfig>(k: K, v: AgentChannelConfig[K]) {
+    onChange({ [k]: v } as Partial<AgentChannelConfig>);
+  }
+
+  function addKeyword(raw: string) {
+    const word = raw.trim().replace(/,$/, "").trim();
+    if (!word) return;
+    onChange({
+      handoff_keywords: cfg.handoff_keywords.includes(word)
+        ? cfg.handoff_keywords
+        : [...cfg.handoff_keywords, word],
+    });
+    setKeywordInput("");
+  }
+
+  function removeKeyword(kw: string) {
+    onChange({ handoff_keywords: cfg.handoff_keywords.filter(k => k !== kw) });
+  }
+
+  function handleKeywordKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      addKeyword(keywordInput);
+    }
+  }
+
+  return (
+    <div className="mt-3 space-y-3">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center justify-between rounded-lg border border-border/40 bg-secondary/20 px-3 py-2.5 text-left transition-colors hover:bg-secondary/30"
+      >
+        <span className="flex items-center gap-2 text-xs font-medium">
+          <Sparkles className="h-4 w-4 text-primary" />
+          Configurar agente
+        </span>
+        {expanded
+          ? <ChevronUp className="h-4 w-4 text-muted-foreground" />
+          : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+      </button>
+
+      {expanded && (
+        loading ? (
+          <div className="flex items-center justify-center gap-2 rounded-lg border border-border/40 py-8 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Carregando configurações...
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Identidade */}
+            <AgentSectionCard icon={Bot} title="Identidade" description="Nome e função do agente visíveis nas conversas.">
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Nome do agente</Label>
+                  <Input
+                    value={cfg.agent_name}
+                    onChange={e => set("agent_name", e.target.value)}
+                    placeholder="Ex: Assistente, Ana, Max..."
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Função</Label>
+                  <Input
+                    value={cfg.agent_role}
+                    onChange={e => set("agent_role", e.target.value)}
+                    placeholder="Ex: Atendimento ao cliente, SDR, Suporte..."
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Descrição / contexto adicional</Label>
+                  <Textarea
+                    value={cfg.agent_description}
+                    onChange={e => set("agent_description", e.target.value)}
+                    placeholder="Ex: Você trabalha para uma clínica de estética. Nunca confirme valores sem consultar o time."
+                    rows={3}
+                    className="resize-none"
+                  />
+                </div>
+              </div>
+            </AgentSectionCard>
+
+            {/* Personalidade */}
+            <AgentSectionCard icon={Sparkles} title="Personalidade" description="Como o agente se comunica com os clientes.">
+              <div className="space-y-5">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Tom de voz</Label>
+                  <Select value={cfg.tone} onValueChange={v => set("tone", v)}>
+                    <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="amigavel">Amigável</SelectItem>
+                      <SelectItem value="profissional">Profissional</SelectItem>
+                      <SelectItem value="descontraido">Descontraído</SelectItem>
+                      <SelectItem value="tecnico">Técnico</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <Label className="text-xs">Formalidade</Label>
+                    <span className="text-xs text-muted-foreground">{AGENT_FORMALITY_LABELS[cfg.formality]}</span>
+                  </div>
+                  <Slider
+                    value={[cfg.formality]}
+                    onValueChange={([v]) => set("formality", v)}
+                    min={1} max={5} step={1}
+                    className="w-full"
+                  />
+                  <div className="flex justify-between text-[10px] text-muted-foreground/60 px-0.5">
+                    <span>Informal</span><span>Formal</span>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Comprimento das respostas</Label>
+                  <Select value={cfg.response_length} onValueChange={v => set("response_length", v)}>
+                    <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="curto">Curto e direto</SelectItem>
+                      <SelectItem value="medio">Médio</SelectItem>
+                      <SelectItem value="longo">Detalhado</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex items-center justify-between rounded-lg border border-border/50 bg-secondary/20 px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium">Usar emojis</p>
+                    <p className="text-xs text-muted-foreground">O agente pode incluir emojis nas respostas</p>
+                  </div>
+                  <Switch checked={cfg.use_emojis} onCheckedChange={v => set("use_emojis", v)} />
+                </div>
+              </div>
+            </AgentSectionCard>
+
+            {/* Objetivo */}
+            <AgentSectionCard icon={Target} title="Objetivo principal" description="Define o foco padrão do agente nas conversas deste canal.">
+              <Select value={cfg.objective} onValueChange={v => set("objective", v)}>
+                <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="atendimento">Atendimento geral</SelectItem>
+                  <SelectItem value="qualificacao">Qualificação de leads</SelectItem>
+                  <SelectItem value="vendas">Vendas</SelectItem>
+                  <SelectItem value="agendamento">Agendamento</SelectItem>
+                  <SelectItem value="suporte">Suporte</SelectItem>
+                  <SelectItem value="personalizado">Personalizado</SelectItem>
+                </SelectContent>
+              </Select>
+            </AgentSectionCard>
+
+            {/* Instruções */}
+            <AgentSectionCard icon={FileText} title="Instruções específicas" description="Regras personalizadas para o agente seguir neste canal.">
+              <Textarea
+                value={cfg.instructions}
+                onChange={e => set("instructions", e.target.value)}
+                placeholder={
+                  "Ex: Não ofereça descontos sem aprovação.\nSempre pergunte o nome do cliente antes de prosseguir."
+                }
+                rows={5}
+                className="resize-none"
+              />
+            </AgentSectionCard>
+
+            {/* Comportamentos */}
+            <AgentSectionCard icon={CheckSquare} title="Comportamentos" description="O que o agente pode fazer automaticamente neste canal.">
+              <div>
+                <AgentBehaviorRow
+                  label="Consultar base de conhecimento"
+                  description="O agente busca informações no Conhecimento antes de responder."
+                  checked={cfg.behavior_use_knowledge}
+                  onChange={v => set("behavior_use_knowledge", v)}
+                />
+                <AgentBehaviorRow
+                  label="Coletar dados do contato"
+                  description="O agente solicita nome, telefone e e-mail quando não disponíveis."
+                  checked={cfg.behavior_collect_data}
+                  onChange={v => set("behavior_collect_data", v)}
+                />
+                <AgentBehaviorRow
+                  label="Criar oportunidade no CRM"
+                  description="O agente cria uma oportunidade no funil quando identificar interesse de compra."
+                  checked={cfg.behavior_create_opportunity}
+                  onChange={v => set("behavior_create_opportunity", v)}
+                />
+                <AgentBehaviorRow
+                  label="Transferir para humano"
+                  description="O agente identifica situações que exigem atendimento humano."
+                  checked={cfg.behavior_handoff}
+                  onChange={v => set("behavior_handoff", v)}
+                />
+              </div>
+            </AgentSectionCard>
+
+            {/* Handoff — só mostrar quando behavior_handoff ativo */}
+            {cfg.behavior_handoff && (
+              <AgentSectionCard icon={Users} title="Transferência para humano" description="Quando e como o agente deve passar o atendimento para um humano.">
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Palavras-chave de transferência</Label>
+                    <p className="text-[11px] text-muted-foreground">
+                      Pressione Enter ou vírgula para adicionar. Quando o cliente mencionar estas palavras, o agente transferirá o atendimento.
+                    </p>
+                    <div className="flex flex-wrap gap-1.5 rounded-md border border-border bg-background px-3 py-2 min-h-[40px]">
+                      {cfg.handoff_keywords.map(kw => (
+                        <span
+                          key={kw}
+                          className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary"
+                        >
+                          {kw}
+                          <button
+                            type="button"
+                            onClick={() => removeKeyword(kw)}
+                            className="ml-0.5 rounded-full hover:bg-primary/20 p-0.5"
+                            aria-label={`Remover ${kw}`}
+                          >
+                            <X className="h-2.5 w-2.5" />
+                          </button>
+                        </span>
+                      ))}
+                      <Input
+                        value={keywordInput}
+                        onChange={e => setKeywordInput(e.target.value)}
+                        onKeyDown={handleKeywordKeyDown}
+                        onBlur={() => addKeyword(keywordInput)}
+                        placeholder={cfg.handoff_keywords.length === 0 ? "Ex: falar com atendente, reclamação..." : ""}
+                        className="h-6 flex-1 min-w-[120px] border-0 bg-transparent px-0 py-0 text-xs shadow-none focus-visible:ring-0 placeholder:text-muted-foreground/60"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Minutos sem resposta humana antes de transferir</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={cfg.handoff_after_mins}
+                      onChange={e =>
+                        set("handoff_after_mins", e.target.value === "" ? "" : Number(e.target.value))
+                      }
+                      placeholder="Ex: 5 (deixe em branco para desativar)"
+                      className="h-9"
+                    />
+                  </div>
+                </div>
+              </AgentSectionCard>
+            )}
+
+            {/* Fora do horário */}
+            <AgentSectionCard icon={Clock} title="Fora do horário" description="Como o agente se comporta quando o estabelecimento está fechado.">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between rounded-lg border border-border/50 bg-secondary/20 px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium">Responder fora do horário</p>
+                    <p className="text-xs text-muted-foreground">
+                      O agente envia uma mensagem automática quando fora do horário de funcionamento
+                    </p>
+                  </div>
+                  <Switch
+                    checked={cfg.respond_outside_hours}
+                    onCheckedChange={v => set("respond_outside_hours", v)}
+                  />
+                </div>
+
+                {!cfg.respond_outside_hours && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Mensagem enviada fora do horário</Label>
+                    <Textarea
+                      value={cfg.outside_hours_message}
+                      onChange={e => set("outside_hours_message", e.target.value)}
+                      placeholder="Ex: Olá! Nosso atendimento funciona de segunda a sexta das 9h às 18h. Retornaremos em breve!"
+                      rows={3}
+                      className="resize-none"
+                    />
+                  </div>
+                )}
+              </div>
+            </AgentSectionCard>
+
+            <Button onClick={onSave} disabled={saving} className="w-full gap-2">
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Salvar configurações do agente
+            </Button>
+          </div>
+        )
+      )}
+    </div>
+  );
+}
 
 export function ChatbotCanaisPage() {
   const navigate       = useNavigate();
@@ -112,6 +551,24 @@ export function ChatbotCanaisPage() {
   const [attendanceLoading, setAttendanceLoading] = useState(false);
   const [attendanceSaving, setAttendanceSaving] = useState(false);
   const [keywordInput, setKeywordInput] = useState("");
+
+  // ── Configuração do agente por canal (campos de conteúdo) ────────────────
+  const [agentConfigs, setAgentConfigs] = useState<Record<AgentUiKey, AgentChannelConfig>>({
+    whatsapp:  makeAgentDefault(),
+    instagram: makeAgentDefault(),
+    facebook:  makeAgentDefault(),
+  });
+  const [agentLoading, setAgentLoading] = useState(true);
+  const [agentSaving, setAgentSaving] = useState<Record<AgentUiKey, boolean>>({
+    whatsapp:  false,
+    instagram: false,
+    facebook:  false,
+  });
+  const [agentExpanded, setAgentExpanded] = useState<Record<AgentUiKey, boolean>>({
+    whatsapp:  false,
+    instagram: false,
+    facebook:  false,
+  });
 
   const load = useCallback(async () => {
     if (!organizationId) { setLoading(false); return; }
@@ -166,6 +623,46 @@ export function ChatbotCanaisPage() {
       .finally(() => {
         setConfig(prev => ({ ...prev, configLoading: false }));
       });
+
+    // Carrega custom_flow_enabled por canal + configuração completa do agente
+    // via get_agent_channel_configs (JSONB keyed por channel_type)
+    setAgentLoading(true);
+    supabase
+      .rpc('get_agent_channel_configs', { p_client_id: clientId })
+      .then(({ data }) => {
+        if (!data) return;
+        // data é JSONB keyed por channel_type: { whatsapp: {...}, instagram_dm: {...}, ... }
+        const d = data as Record<string, Record<string, unknown>>;
+        setConfig(prev => ({
+          ...prev,
+          flowWhatsapp:  Boolean(d?.whatsapp?.custom_flow_enabled),
+          flowInstagram: Boolean(d?.instagram_dm?.custom_flow_enabled),
+          flowFacebook:  Boolean(d?.facebook_dm?.custom_flow_enabled),
+        }));
+        setAgentConfigs(prev => {
+          const next = { ...prev };
+          (["whatsapp", "instagram", "facebook"] as AgentUiKey[]).forEach(uiKey => {
+            const remote = d?.[CHANNEL_TYPE_MAP[uiKey]] as Partial<AgentChannelConfig> | undefined;
+            if (!remote) return;
+            const base = makeAgentDefault();
+            next[uiKey] = {
+              ...base,
+              ...remote,
+              // Campos string: coerce null → "" para evitar crash em .trim()
+              agent_name:            remote.agent_name            ?? base.agent_name,
+              agent_role:            remote.agent_role            ?? "",
+              agent_description:     remote.agent_description     ?? "",
+              instructions:          remote.instructions          ?? "",
+              outside_hours_message: remote.outside_hours_message ?? "",
+              handoff_after_mins:
+                remote.handoff_after_mins != null ? Number(remote.handoff_after_mins) : "",
+              handoff_keywords: remote.handoff_keywords ?? [],
+            };
+          });
+          return next;
+        });
+      })
+      .finally(() => setAgentLoading(false));
   }, [clientId]);
 
   // ── Carregar configuração de atendimento ────────────────────────────────
@@ -233,6 +730,120 @@ export function ChatbotCanaisPage() {
       setConfig(prev => ({ ...prev, configSaving: false }));
     },
     [clientId, organizationId, config]
+  );
+
+  // ── Helper: monta o payload completo (22 params) do agente por canal ──────
+  // Evita duplicar os 17 campos de conteúdo entre saveAgentConfig e saveFlowConfig.
+  // Importante: o RPC faz ON CONFLICT DO UPDATE SET <todas as colunas> = <param>,
+  // então salvar só alguns campos sobrescreveria os demais com defaults. Por isso
+  // tanto o botão "Salvar agente" quanto o toggle de flow enviam a linha inteira.
+  const buildAgentPayload = useCallback(
+    (
+      channel: AgentUiKey,
+      pClientId: string,
+      pOrganizationId: string,
+      isBotEnabled: boolean,
+      customFlow: boolean,
+    ) => {
+      const cfg = agentConfigs[channel];
+      return {
+        p_client_id:                   pClientId,
+        p_organization_id:             pOrganizationId,
+        p_channel_type:                CHANNEL_TYPE_MAP[channel],
+        p_is_enabled:                  isBotEnabled,
+        p_agent_name:                  cfg.agent_name,
+        p_agent_role:                  cfg.agent_role,
+        p_agent_description:           cfg.agent_description || null,
+        p_tone:                        cfg.tone,
+        p_formality:                   cfg.formality,
+        p_use_emojis:                  cfg.use_emojis,
+        p_response_length:             cfg.response_length,
+        p_objective:                   cfg.objective,
+        p_instructions:                cfg.instructions || null,
+        p_behavior_use_knowledge:      cfg.behavior_use_knowledge,
+        p_behavior_collect_data:       cfg.behavior_collect_data,
+        p_behavior_create_opportunity: cfg.behavior_create_opportunity,
+        p_behavior_handoff:            cfg.behavior_handoff,
+        p_handoff_keywords:            cfg.handoff_keywords,
+        p_handoff_after_mins:          cfg.handoff_after_mins === "" ? null : Number(cfg.handoff_after_mins),
+        p_respond_outside_hours:       cfg.respond_outside_hours,
+        p_outside_hours_message:       cfg.outside_hours_message || null,
+        p_custom_flow_enabled:         customFlow,
+      };
+    },
+    [agentConfigs]
+  );
+
+  // ── Salvar configuração completa do agente por canal ─────────────────────
+  const saveAgentConfig = useCallback(
+    async (channel: AgentUiKey) => {
+      if (!clientId || !organizationId) return;
+      const isBotEnabled =
+        channel === 'whatsapp'  ? config.botWhatsapp  :
+        channel === 'instagram' ? config.botInstagram :
+                                  config.botFacebook;
+      const isFlowEnabled =
+        channel === 'whatsapp'  ? config.flowWhatsapp  :
+        channel === 'instagram' ? config.flowInstagram :
+                                  config.flowFacebook;
+      setAgentSaving(prev => ({ ...prev, [channel]: true }));
+      try {
+        const { error } = await supabase.rpc(
+          'upsert_agent_channel_config',
+          buildAgentPayload(channel, clientId, organizationId, isBotEnabled, isFlowEnabled),
+        );
+        if (error) throw error;
+        toast.success('Configurações do agente salvas!');
+      } catch (err) {
+        console.error('[ChatbotCanaisPage] saveAgentConfig:', err);
+        toast.error('Erro ao salvar configurações do agente.');
+      } finally {
+        setAgentSaving(prev => ({ ...prev, [channel]: false }));
+      }
+    },
+    [buildAgentPayload, config, clientId, organizationId]
+  );
+
+  // ── Salvar flow personalizado por canal ──────────────────────────────────
+  // Upsert completo (22 params): o toggle de flow também reenvia os 17 campos de
+  // conteúdo do agente, para não apagar a configuração já salva ao alternar flow.
+  const saveFlowConfig = useCallback(
+    async (channel: AgentUiKey, value: boolean) => {
+      if (!clientId || !organizationId) return;
+
+      // Atualização otimista
+      setConfig(prev => ({
+        ...prev,
+        flowWhatsapp:  channel === 'whatsapp'  ? value : prev.flowWhatsapp,
+        flowInstagram: channel === 'instagram' ? value : prev.flowInstagram,
+        flowFacebook:  channel === 'facebook'  ? value : prev.flowFacebook,
+      }));
+
+      const isBotEnabled =
+        channel === 'whatsapp'  ? config.botWhatsapp  :
+        channel === 'instagram' ? config.botInstagram :
+                                  config.botFacebook;
+
+      try {
+        const { error } = await supabase.rpc(
+          'upsert_agent_channel_config',
+          buildAgentPayload(channel, clientId, organizationId, isBotEnabled, value),
+        );
+        if (error) throw error;
+        toast.success(`Flow personalizado ${value ? 'ativado' : 'desativado'} para ${channel}.`);
+      } catch (err) {
+        console.error("[ChatbotCanaisPage] saveFlowConfig:", err);
+        toast.error("Erro ao salvar configuração de flow.");
+        // Reverter
+        setConfig(prev => ({
+          ...prev,
+          flowWhatsapp:  channel === 'whatsapp'  ? !value : prev.flowWhatsapp,
+          flowInstagram: channel === 'instagram' ? !value : prev.flowInstagram,
+          flowFacebook:  channel === 'facebook'  ? !value : prev.flowFacebook,
+        }));
+      }
+    },
+    [buildAgentPayload, config, clientId, organizationId]
   );
 
   // ── Helpers de atendimento ───────────────────────────────────────────────
@@ -401,6 +1012,20 @@ export function ChatbotCanaisPage() {
                         disabled={config.configSaving || config.configLoading}
                       />
                     </div>
+                    <div className="flex items-center justify-between px-3 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <GitBranch className="h-4 w-4 text-violet-300" />
+                        <div>
+                          <p className="text-xs font-medium">Flow Personalizado</p>
+                          <p className="text-[10px] text-muted-foreground">Ativa keyword triggers do flow ativo. Sem match, usa IA padrão.</p>
+                        </div>
+                      </div>
+                      <Switch
+                        checked={config.flowWhatsapp}
+                        onCheckedChange={(v) => saveFlowConfig('whatsapp', v)}
+                        disabled={config.configSaving || config.configLoading}
+                      />
+                    </div>
                   </div>
 
                   {/* Avisos condicionais */}
@@ -427,6 +1052,17 @@ export function ChatbotCanaisPage() {
                       Gerenciar Templates
                     </Button>
                   </div>
+
+                  {/* Configurações do agente (expansível) */}
+                  <AgentConfigSection
+                    cfg={agentConfigs.whatsapp}
+                    onChange={patch => setAgentConfigs(p => ({ ...p, whatsapp: { ...p.whatsapp, ...patch } }))}
+                    onSave={() => saveAgentConfig("whatsapp")}
+                    saving={agentSaving.whatsapp}
+                    loading={agentLoading}
+                    expanded={agentExpanded.whatsapp}
+                    onToggle={() => setAgentExpanded(p => ({ ...p, whatsapp: !p.whatsapp }))}
+                  />
                 </div>
               ) : (
                 <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
@@ -514,6 +1150,20 @@ export function ChatbotCanaisPage() {
                         disabled={config.configSaving || config.configLoading}
                       />
                     </div>
+                    <div className="flex items-center justify-between px-3 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <GitBranch className="h-4 w-4 text-violet-300" />
+                        <div>
+                          <p className="text-xs font-medium">Flow Personalizado</p>
+                          <p className="text-[10px] text-muted-foreground">Ativa keyword triggers do flow ativo. Sem match, usa IA padrão.</p>
+                        </div>
+                      </div>
+                      <Switch
+                        checked={config.flowInstagram}
+                        onCheckedChange={(v) => saveFlowConfig('instagram', v)}
+                        disabled={config.configSaving || config.configLoading}
+                      />
+                    </div>
                   </div>
 
                   {/* Avisos condicionais */}
@@ -529,6 +1179,17 @@ export function ChatbotCanaisPage() {
                       O bot responde primeiro. Se não resolver, transfere para um agente.
                     </div>
                   )}
+
+                  {/* Configurações do agente (expansível) */}
+                  <AgentConfigSection
+                    cfg={agentConfigs.instagram}
+                    onChange={patch => setAgentConfigs(p => ({ ...p, instagram: { ...p.instagram, ...patch } }))}
+                    onSave={() => saveAgentConfig("instagram")}
+                    saving={agentSaving.instagram}
+                    loading={agentLoading}
+                    expanded={agentExpanded.instagram}
+                    onToggle={() => setAgentExpanded(p => ({ ...p, instagram: !p.instagram }))}
+                  />
                 </div>
               ) : (
                 <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
@@ -616,6 +1277,20 @@ export function ChatbotCanaisPage() {
                         disabled={config.configSaving || config.configLoading}
                       />
                     </div>
+                    <div className="flex items-center justify-between px-3 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <GitBranch className="h-4 w-4 text-violet-300" />
+                        <div>
+                          <p className="text-xs font-medium">Flow Personalizado</p>
+                          <p className="text-[10px] text-muted-foreground">Ativa keyword triggers do flow ativo. Sem match, usa IA padrão.</p>
+                        </div>
+                      </div>
+                      <Switch
+                        checked={config.flowFacebook}
+                        onCheckedChange={(v) => saveFlowConfig('facebook', v)}
+                        disabled={config.configSaving || config.configLoading}
+                      />
+                    </div>
                   </div>
 
                   {/* Avisos condicionais */}
@@ -631,6 +1306,17 @@ export function ChatbotCanaisPage() {
                       O bot responde primeiro. Se não resolver, transfere para um agente.
                     </div>
                   )}
+
+                  {/* Configurações do agente (expansível) */}
+                  <AgentConfigSection
+                    cfg={agentConfigs.facebook}
+                    onChange={patch => setAgentConfigs(p => ({ ...p, facebook: { ...p.facebook, ...patch } }))}
+                    onSave={() => saveAgentConfig("facebook")}
+                    saving={agentSaving.facebook}
+                    loading={agentLoading}
+                    expanded={agentExpanded.facebook}
+                    onToggle={() => setAgentExpanded(p => ({ ...p, facebook: !p.facebook }))}
+                  />
                 </div>
               ) : (
                 <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
