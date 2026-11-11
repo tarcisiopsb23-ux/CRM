@@ -10,12 +10,13 @@
  *   Direita   — painel de info do contato (colapsável)
  */
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   MessageCircle, Search, ChevronLeft, ChevronRight,
   Send, Paperclip, PenLine, Check, CheckCheck, Clock,
-  FileText, ExternalLink, User, Link2, Unlink, GitMerge,
-  Instagram, Facebook, Phone, X as XIcon, AlertTriangle,
+  FileText, ExternalLink, User,
+  GitMerge,
+  Instagram, Facebook, Phone, AlertTriangle,
   MessageSquare, ChevronDown,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -45,6 +46,7 @@ import {
 } from "@/hooks/useOmnichannelInbox";
 import { AgentStatusToggle } from "@/components/omnichannel/AgentStatusToggle";
 import { useClientAuth } from "@/hooks/useClientAuth";
+import { useDynamicClient } from "@/hooks/useDynamicClient";
 import { supabase } from "@/lib/supabase";
 import {
   canAssumeConversation,
@@ -568,11 +570,56 @@ function ContactSheet({
   const [email, setEmail]             = useState("");
   const [saving, setSaving]           = useState(false);
 
-  // Section 3 — client link
-  const [linkedClientName, setLinkedClientName] = useState<string | null>(null);
-  const [clientSearch, setClientSearch]         = useState("");
-  const [clientResults, setClientResults]       = useState<Array<{ id: string; name: string }>>([]);
-  const [linkingClient, setLinkingClient]       = useState(false);
+  // Section 3 — client link (removido)
+
+  // Section 4 — converter para CRM
+  const dc = useDynamicClient();
+  const [convertModalOpen, setConvertModalOpen] = useState(false);
+  const [convertType, setConvertType]           = useState<"lead" | "client" | null>(null);
+  const [convName, setConvName]   = useState("");
+  const [convPhone, setConvPhone] = useState("");
+  const [convEmail, setConvEmail] = useState("");
+  const [convNotes, setConvNotes] = useState("");
+  const [converting, setConverting] = useState(false);
+
+  const openConvert = (type: "lead" | "client") => {
+    setConvertType(type);
+    setConvName(displayName);
+    setConvPhone(phone);
+    setConvEmail(email);
+    setConvNotes("");
+    setConvertModalOpen(true);
+  };
+
+  const handleConvertSubmit = async () => {
+    if (!dc || !clientId || !convertType || !convName.trim()) {
+      toast.error("Preencha pelo menos o nome.");
+      return;
+    }
+    setConverting(true);
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (dc as any)
+        .from("crm_contacts")
+        .insert({
+          name: convName.trim(),
+          phone: convPhone.trim() || null,
+          email: convEmail.trim() || null,
+          source: "omnichannel",
+          notes: convNotes.trim() || null,
+          client_id: clientId,
+          metadata: { type: convertType },
+        });
+      if (error) throw error;
+      toast.success(convertType === "lead" ? "Lead criado com sucesso!" : "Cliente criado com sucesso!");
+      setConvertModalOpen(false);
+    } catch (err) {
+      console.error('[ContactSheet] handleConvertSubmit:', err);
+      toast.error("Erro ao salvar. Tente novamente.");
+    } finally {
+      setConverting(false);
+    }
+  };
 
   // Section 5 — merge
   const [mergeSearch, setMergeSearch]     = useState("");
@@ -617,13 +664,16 @@ function ContactSheet({
         setProfilePicUrl(null); setIgMeta(null);
       }
 
-      // Identidades
+      // Identidades (deduplicadas por channel_type + external_user_id)
       const { data: ids } = await supabase
         .from('client_contact_identities')
         .select('id, channel_type, external_user_id, username')
         .eq('contact_id', contactId)
         .eq('client_id', clientId);
-      setIdentities((ids ?? []) as OmniIdentity[]);
+      const unique = (ids ?? []).filter((item, idx, arr) =>
+        arr.findIndex(x => x.channel_type === item.channel_type && x.external_user_id === item.external_user_id) === idx
+      );
+      setIdentities(unique as OmniIdentity[]);
 
     } catch (err) {
       console.error('[ContactSheet] loadContact error:', err);
@@ -652,20 +702,10 @@ function ContactSheet({
     }
   }, [contactId, clientId]);
 
-  // Load linked client name when contact changes
-  useEffect(() => {    if (!contact?.client_id) { setLinkedClientName(null); return; }
-    supabase
-      .from('clients')
-      .select('name')
-      .eq('id', contact.client_id)
-      .maybeSingle()
-      .then(({ data }) => setLinkedClientName(data?.name ?? null));
-  }, [contact?.client_id]);
+  // Load linked client name when contact changes — removido (vínculo não é mais exibido)
 
   useEffect(() => {
     if (open) {
-      setClientSearch("");
-      setClientResults([]);
       setMergeSearch("");
       setMergeResults([]);
       setMergeTarget(null);
@@ -707,67 +747,6 @@ function ContactSheet({
     } finally {
       setSaving(false);
     }
-  };
-
-  // ── Section 2: Remove identity ─────────────────────────────────────────────
-
-  const handleRemoveIdentity = async (identityId: string) => {
-    const { error } = await supabase
-      .from('client_contact_identities')
-      .delete()
-      .eq('id', identityId);
-    if (error) { toast.error("Erro ao remover canal"); return; }
-    setIdentities((prev) => prev.filter((i) => i.id !== identityId));
-    toast.success("Canal removido");
-  };
-
-  // ── Section 3: Client search & link ────────────────────────────────────────
-
-  useEffect(() => {
-    if (!clientSearch) { setClientResults([]); return; }
-    const timer = setTimeout(async () => {
-      const { data } = await supabase
-        .from('clients')
-        .select('id, name')
-        .ilike('name', `%${clientSearch}%`)
-        .limit(10);
-      setClientResults((data ?? []) as Array<{ id: string; name: string }>);
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [clientSearch]);
-
-  const handleLinkClient = async (selectedId: string, selectedName: string) => {
-    if (!contactId || !clientId) return;
-    setLinkingClient(true);
-    try {
-      const { error } = await supabase
-        .from('client_channel_contacts')
-        .update({ client_id: selectedId })
-        .eq('id', contactId)
-        .eq('client_id', clientId);
-      if (error) throw error;
-      setLinkedClientName(selectedName);
-      setContact((c) => c ? { ...c, client_id: selectedId } : c);
-      setClientSearch(""); setClientResults([]);
-      toast.success("Vínculo criado");
-    } catch {
-      toast.error("Erro ao vincular cliente");
-    } finally {
-      setLinkingClient(false);
-    }
-  };
-
-  const handleUnlinkClient = async () => {
-    if (!contactId || !clientId) return;
-    const { error } = await supabase
-      .from('client_channel_contacts')
-      .update({ client_id: null })
-      .eq('id', contactId)
-      .eq('client_id', clientId);
-    if (error) { toast.error("Erro ao desvincular"); return; }
-    setLinkedClientName(null);
-    setContact((c) => c ? { ...c, client_id: null } : c);
-    toast.success("Vínculo removido");
   };
 
   // ── Section 5: Merge search ────────────────────────────────────────────────
@@ -928,69 +907,13 @@ function ContactSheet({
                 ) : (
                   <div className="space-y-1">
                     {identities.map((id) => (
-                      <div key={id.id} className="flex items-center justify-between gap-2 rounded-md border border-border px-2 py-1.5">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <ChannelIcon ch={id.channel_type} />
-                          <span className="text-xs text-foreground truncate">
-                            {id.username ?? id.external_user_id}
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveIdentity(id.id)}
-                          className="shrink-0 p-0.5 text-muted-foreground hover:text-destructive transition-colors"
-                          title="Remover canal"
-                        >
-                          <XIcon className="h-3.5 w-3.5" />
-                        </button>
+                      <div key={id.id} className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1.5">
+                        <ChannelIcon ch={id.channel_type} />
+                        <span className="text-xs text-foreground truncate">
+                          {id.username ?? id.external_user_id}
+                        </span>
                       </div>
                     ))}
-                  </div>
-                )}
-              </section>
-
-              {/* ── Seção 3: Vínculo a cliente ──────────────────────────── */}
-              <section className="space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Vínculo ao cliente
-                </p>
-                {linkedClientName ? (
-                  <div className="flex items-center justify-between gap-2 rounded-md border border-border px-2 py-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <Link2 className="h-3.5 w-3.5 text-primary shrink-0" />
-                      <span className="text-xs text-foreground">{linkedClientName}</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleUnlinkClient}
-                      className="shrink-0 text-xs text-muted-foreground hover:text-destructive transition-colors flex items-center gap-1"
-                    >
-                      <Unlink className="h-3 w-3" /> Desvincular
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-1.5">
-                    <Input
-                      value={clientSearch}
-                      onChange={(e) => setClientSearch(e.target.value)}
-                      placeholder="Buscar cliente para vincular..."
-                      className="h-8 text-xs"
-                    />
-                    {clientResults.length > 0 && (
-                      <div className="rounded-md border border-border overflow-hidden">
-                        {clientResults.map((c) => (
-                          <button
-                            key={c.id}
-                            type="button"
-                            disabled={linkingClient}
-                            onClick={() => handleLinkClient(c.id, c.name)}
-                            className="w-full text-left px-2 py-1.5 text-xs hover:bg-secondary/40 transition-colors border-b border-border last:border-0"
-                          >
-                            {c.name}
-                          </button>
-                        ))}
-                      </div>
-                    )}
                   </div>
                 )}
               </section>
@@ -1005,7 +928,7 @@ function ContactSheet({
                     size="sm"
                     variant="outline"
                     className="flex-1 h-7 text-xs"
-                    onClick={() => toast.info("Em breve disponível")}
+                    onClick={() => openConvert("lead")}
                   >
                     Transformar em Lead
                   </Button>
@@ -1013,7 +936,7 @@ function ContactSheet({
                     size="sm"
                     variant="outline"
                     className="flex-1 h-7 text-xs"
-                    onClick={() => toast.info("Em breve disponível")}
+                    onClick={() => openConvert("client")}
                   >
                     Transformar em Cliente
                   </Button>
@@ -1130,6 +1053,44 @@ function ContactSheet({
         </SheetContent>
       </Sheet>
 
+      {/* Dialog — Converter para CRM */}
+      <Dialog open={convertModalOpen} onOpenChange={setConvertModalOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-sm">
+              {convertType === "lead" ? "Transformar em Lead" : "Transformar em Cliente"}
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              Cadastrar contato no CRM
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            <div>
+              <Label className="text-xs">Nome *</Label>
+              <Input value={convName} onChange={e => setConvName(e.target.value)} placeholder="Nome completo" className="h-8 text-sm mt-1" />
+            </div>
+            <div>
+              <Label className="text-xs">Telefone</Label>
+              <Input value={convPhone} onChange={e => setConvPhone(e.target.value)} placeholder="+55 11 99999-0000" className="h-8 text-sm mt-1" />
+            </div>
+            <div>
+              <Label className="text-xs">E-mail</Label>
+              <Input value={convEmail} onChange={e => setConvEmail(e.target.value)} placeholder="email@exemplo.com" className="h-8 text-sm mt-1" />
+            </div>
+            <div>
+              <Label className="text-xs">Observações</Label>
+              <Input value={convNotes} onChange={e => setConvNotes(e.target.value)} placeholder="Observações opcionais" className="h-8 text-sm mt-1" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setConvertModalOpen(false)}>Cancelar</Button>
+            <Button size="sm" onClick={handleConvertSubmit} disabled={converting || !convName.trim()}>
+              {converting ? "Salvando..." : "Salvar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Confirm merge dialog */}
       <Dialog open={mergeConfirmOpen} onOpenChange={setMergeConfirmOpen}>
         <DialogContent className="sm:max-w-sm">
@@ -1186,12 +1147,11 @@ const FOLDERS: FolderDef[] = [
 
 /** Converte uma pasta nos filtros do hook */
 function folderToInboxFilters(
-  folder: InboxFolder,
-  userId: string | null
+  folder: InboxFolder
 ): import("@/hooks/useOmnichannelInbox").InboxFilters {
   switch (folder) {
     case "minhas":
-      return { assignedToMe: true, status: "human_active" };
+      return { status: "human_active" };
     case "nao_atribuidas":
       // Handoff ativo (waiting_human) sem atendente atribuído
       return { unassigned: true, status: "waiting_human" };
@@ -1213,7 +1173,7 @@ interface LeftColumnProps {
   loading: boolean;
   activeId: string | null;
   onSelect: (id: string) => void;
-  unassignedCount: number;
+  folderCounts: Record<InboxFolder, number>;
   filters: {
     search: string;
     channel: ChannelFilter;
@@ -1234,7 +1194,7 @@ function LeftColumn({
   loading,
   activeId,
   onSelect,
-  unassignedCount,
+  folderCounts,
   filters,
   onFilterChange,
   myStatus,
@@ -1246,7 +1206,7 @@ function LeftColumn({
   organizationId,
 }: LeftColumnProps) {
   // "Não Atribuídas" aparece primeiro quando há conversas nessa fila
-  const orderedFolders: FolderDef[] = unassignedCount > 0
+  const orderedFolders: FolderDef[] = folderCounts.nao_atribuidas > 0
     ? [
         { key: "nao_atribuidas", label: "Não Atribuídas" },
         ...FOLDERS.filter(f => f.key !== "nao_atribuidas"),
@@ -1299,14 +1259,14 @@ function LeftColumn({
               )}
             >
               {label}
-              {key === "nao_atribuidas" && unassignedCount > 0 && (
+              {folderCounts[key] > 0 && (
                 <span className={cn(
                   "h-3.5 min-w-[14px] px-0.5 rounded-full text-[9px] font-bold inline-flex items-center justify-center",
                   filters.folder === key
                     ? "bg-background text-foreground"
                     : "bg-primary text-primary-foreground"
                 )}>
-                  {unassignedCount > 9 ? "9+" : unassignedCount}
+                  {folderCounts[key] > 9 ? "9+" : folderCounts[key]}
                 </span>
               )}
             </button>
@@ -1887,7 +1847,9 @@ export function OmnichannelInboxPage() {
     myStatus,
     setMyStatus,
     resolveConversation,
+    toggleBotForConversation,
     unreadCount,
+    waitingCount,
     assignConversation,
     transferConversation,
   } = useOmnichannelInbox();
@@ -1934,15 +1896,91 @@ export function OmnichannelInboxPage() {
   // Responsividade: esconder lista quando conversa selecionada em mobile
   const showListOnMobile = !activeConversationId;
 
+  // ── folderCounts: contagem de conversas por pasta (Step 4) ────────────────
+  const [folderCounts, setFolderCounts] = useState<Record<InboxFolder, number>>({
+    minhas: 0,
+    nao_atribuidas: 0,
+    urgentes: 0,
+    bot_ativo: 0,
+    inbox_geral: 0,
+    finalizadas: 0,
+  });
+
+  useEffect(() => {
+    const clientId = auth?.id;
+    if (!clientId && !myAgentId) return;
+    if (!clientId) return;
+
+    const fetchCounts = async () => {
+      const [minhasRes, naoAtribRes, urgentesRes, botAtivoRes, inboxGeralRes] = await Promise.all([
+        // minhas: human_active atribuídas ao agente atual
+        myAgentId
+          ? supabase
+              .from("client_channel_conversations")
+              .select("id", { count: "exact", head: true })
+              .eq("client_id", clientId)
+              .eq("status", "human_active")
+              .eq("assigned_agent_id", myAgentId)
+          : Promise.resolve({ count: 0, error: null }),
+        // nao_atribuidas: waiting_human sem agente
+        supabase
+          .from("client_channel_conversations")
+          .select("id", { count: "exact", head: true })
+          .eq("client_id", clientId)
+          .eq("status", "waiting_human")
+          .is("assigned_agent_id", null),
+        // urgentes: comentários com status ativo
+        supabase
+          .from("client_channel_conversations")
+          .select("id", { count: "exact", head: true })
+          .eq("client_id", clientId)
+          .in("channel_type", ["instagram_comment", "facebook_comment"])
+          .not("status", "in", '("resolved","closed")'),
+        // bot_ativo: bot_active=true e status ativo
+        supabase
+          .from("client_channel_conversations")
+          .select("id", { count: "exact", head: true })
+          .eq("client_id", clientId)
+          .eq("bot_active", true)
+          .not("status", "in", '("resolved","closed")'),
+        // inbox_geral: qualquer conversa ativa
+        supabase
+          .from("client_channel_conversations")
+          .select("id", { count: "exact", head: true })
+          .eq("client_id", clientId)
+          .not("status", "in", '("resolved","closed")'),
+      ]);
+
+      setFolderCounts({
+        minhas:         minhasRes.count ?? 0,
+        nao_atribuidas: naoAtribRes.count ?? 0,
+        urgentes:       urgentesRes.count ?? 0,
+        bot_ativo:      botAtivoRes.count ?? 0,
+        inbox_geral:    inboxGeralRes.count ?? 0,
+        finalizadas:    0,
+      });
+    };
+
+    fetchCounts();
+  }, [auth?.id, myAgentId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── filteredConversations: filtragem client-side para pasta "minhas" (Step 2) ──
+  const filteredConversations = useMemo(() => {
+    if (localFolder === "minhas" && myAgentId) {
+      return conversations.filter((conv) => conv.assigned_agent_id === myAgentId);
+    }
+    return conversations;
+  }, [conversations, localFolder, myAgentId]);
+
   // Sincronizar filtros com o hook — pasta traduz para filtros compostos
   useEffect(() => {
-    const folderFilters = folderToInboxFilters(localFolder, auth?.user?.id ?? null);
+    const folderFilters = folderToInboxFilters(localFolder);
     setFilters({
       ...folderFilters,
       search: localSearch || undefined,
       channel: localChannel ?? undefined,
     });
-  }, [localSearch, localChannel, localFolder, setFilters, auth?.user?.id]);
+  }, [localSearch, localChannel, localFolder, setFilters]);
 
   const handleFilterChange = useCallback(
     (partial: Partial<{ search: string; channel: ChannelFilter; folder: InboxFolder }>) => {
@@ -2006,11 +2044,11 @@ export function OmnichannelInboxPage() {
         )}
       >
         <LeftColumn
-          conversations={conversations}
+          conversations={filteredConversations}
           loading={conversationsLoading}
           activeId={activeConversationId}
           onSelect={setActiveConversation}
-          unassignedCount={waitingCount}
+          folderCounts={folderCounts}
           filters={{ search: localSearch, channel: localChannel, folder: localFolder }}
           onFilterChange={handleFilterChange}
           myStatus={myStatus}

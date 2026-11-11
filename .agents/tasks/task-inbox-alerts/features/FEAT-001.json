@@ -1,0 +1,23 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Fix 'Minhas Conversas' filter to use client-side agentId filtering + add folderCounts badges on all folder chips in OmnichannelInboxPage.",
+  "status": "completed",
+  "steps": [
+    "Step 1 — Fix folderToInboxFilters in src/pages/public-dashboard/OmnichannelInboxPage.tsx: change 'minhas' case to return { status: 'human_active' } only (remove assignedToMe: true). Remove the unused userId parameter from the function signature (update the call in the useEffect too).",
+    "Step 2 — Add filteredConversations useMemo in OmnichannelInboxPage: when localFolder === 'minhas' and myAgentId is set, filter conversations to conv.assigned_agent_id === myAgentId; otherwise return conversations unchanged. Pass filteredConversations to LeftColumn's conversations prop.",
+    "Step 3 — Replace unassignedCount with folderCounts in LeftColumnProps: change the prop from `unassignedCount: number` to `folderCounts: Record<InboxFolder, number>`. Update LeftColumn internals: derive orderedFolders from `folderCounts.nao_atribuidas > 0`, show badge on every folder chip where `folderCounts[key] > 0`. Update the call site in OmnichannelInboxPage to pass folderCounts (zero-initialized Record until counts load).",
+    "Step 4 — Add folderCounts state and useEffect in OmnichannelInboxPage: const [folderCounts, setFolderCounts] = useState<Record<InboxFolder, number>>({ minhas:0, nao_atribuidas:0, urgentes:0, bot_ativo:0, inbox_geral:0, finalizadas:0 }). useEffect depends on [auth?.id, myAgentId]. Guard: if neither is truthy, return. Fire 5 parallel supabase HEAD queries (count:'exact', head:true) for: minhas (status=human_active, assigned_agent_id=myAgentId), nao_atribuidas (status=waiting_human, assigned_agent_id IS NULL), urgentes (channel_type IN instagram_comment/facebook_comment, status NOT IN resolved/closed), bot_ativo (bot_active=true, status NOT IN resolved/closed), inbox_geral (status NOT IN resolved/closed). Set folderCounts from results. finalizadas stays 0 (no badge needed)."
+  ],
+  "acceptance_criteria": [
+    "Opening 'Minhas Conversas' shows only conversations where assigned_agent_id equals the current user's agent ID (myAgentId)",
+    "Each folder chip shows a numeric badge when its count > 0",
+    "Nao Atribuidas appears first in the folder list when its count > 0",
+    "npx tsc --noEmit -p tsconfig.app.json passes with no new errors in OmnichannelInboxPage.tsx"
+  ],
+  "verification": [
+    "cd 'c:\\automacoes\\C8 Control' && npx tsc --noEmit -p tsconfig.app.json 2>&1 | Select-String -NotMatch 'ClauseEditor'"
+  ],
+  "blocked_reason": null,
+  "findings": "folderCounts useEffect guard uses both auth?.id and myAgentId as deps. myAgentId is set after ensure_client_agent RPC resolves asynchronously. FEAT-002 (alerts) can rely on myAgentId being available in state. The filteredConversations memo is purely client-side and does not cause extra queries. waitingCount is still destructured from useOmnichannelInbox but unused (noUnusedLocals is false in tsconfig — no TS error). InboxFilters.assignedToMe is still present in the hook's fetchConversations but is no longer set by folderToInboxFilters for 'minhas' — it is effectively dead code for that path, safe to leave."
+}
