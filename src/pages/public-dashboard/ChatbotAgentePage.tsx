@@ -35,6 +35,7 @@ import { CredentialsErrorState } from "./components/CredentialsErrorState";
 
 interface ChannelConfig {
   is_enabled: boolean;
+  custom_flow_enabled: boolean;
   agent_name: string;
   agent_role: string;
   agent_description: string;
@@ -94,6 +95,7 @@ const CHANNEL_NOTES: Record<ChannelType, string> = {
 
 const baseDefault: ChannelConfig = {
   is_enabled: true,
+  custom_flow_enabled: false,
   agent_name: "Assistente",
   agent_role: "Atendimento ao cliente",
   agent_description: "",
@@ -243,7 +245,7 @@ function buildSystemPromptPreview(cfg: ChannelConfig, channel: ChannelType): str
   lines.push("");
   lines.push(`Objetivo principal: ${objectiveLabels[cfg.objective] ?? cfg.objective}.`);
 
-  if (cfg.instructions.trim()) {
+  if ((cfg.instructions ?? "").trim()) {
     lines.push("");
     lines.push("Regras específicas:");
     lines.push(cfg.instructions.trim());
@@ -265,7 +267,7 @@ function buildSystemPromptPreview(cfg: ChannelConfig, channel: ChannelType): str
   if (!cfg.respond_outside_hours) {
     lines.push("");
     lines.push("Fora do horário de atendimento: não responder.");
-  } else if (cfg.outside_hours_message.trim()) {
+  } else if ((cfg.outside_hours_message ?? "").trim()) {
     lines.push("");
     lines.push(`Fora do horário, enviar: "${cfg.outside_hours_message.trim()}"`);
   }
@@ -328,6 +330,29 @@ function ChannelTab({ channel, cfg, onChange }: ChannelTabProps) {
               </p>
             </div>
             <Switch checked={cfg.is_enabled} onCheckedChange={v => set("is_enabled", v)} />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Toggle: Flow Personalizado */}
+      <Card className="card-surface border-primary/20">
+        <CardContent className="p-5">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+                <GitBranch className="h-4 w-4 text-primary" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold">Flow Personalizado ativo</p>
+                <p className="text-xs text-muted-foreground">
+                  Verifica keywords do flow ativo para este canal. Se nenhuma keyword bater, usa IA padrão.
+                </p>
+              </div>
+            </div>
+            <Switch
+              checked={cfg.custom_flow_enabled ?? false}
+              onCheckedChange={v => set("custom_flow_enabled", v)}
+            />
           </div>
         </CardContent>
       </Card>
@@ -688,12 +713,19 @@ export function ChatbotAgentePage() {
               next[ch] = {
                 ...defaults[ch],
                 ...remote[ch],
+                // Campos string: coerce null → "" para evitar crash em .trim()
+                instructions:          remote[ch].instructions          ?? "",
+                outside_hours_message: remote[ch].outside_hours_message ?? "",
+                agent_name:            remote[ch].agent_name            ?? defaults[ch].agent_name,
+                agent_role:            remote[ch].agent_role            ?? "",
+                agent_description:     remote[ch].agent_description     ?? "",
                 // Garantir que handoff_after_mins seja number | ""
                 handoff_after_mins:
                   remote[ch].handoff_after_mins != null
                     ? Number(remote[ch].handoff_after_mins)
                     : "",
                 handoff_keywords: remote[ch].handoff_keywords ?? [],
+                custom_flow_enabled: remote[ch].custom_flow_enabled ?? false,
               };
             }
           }
@@ -763,6 +795,7 @@ export function ChatbotAgentePage() {
             configs[ch].handoff_after_mins === "" ? null : Number(configs[ch].handoff_after_mins),
           p_respond_outside_hours:  configs[ch].respond_outside_hours,
           p_outside_hours_message:  configs[ch].outside_hours_message || null,
+          p_custom_flow_enabled:    configs[ch].custom_flow_enabled,
         }),
       );
 
