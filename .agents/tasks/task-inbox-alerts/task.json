@@ -1,0 +1,7 @@
+{
+  "task_id": "task-inbox-alerts",
+  "task_description": "Fix 'Minhas Conversas' filter, add folder badge counts, create useNotificationAlerts hook, add alert bell icons to header, and add expanded profile dialog with avatar upload and sound toggle.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null
+}
