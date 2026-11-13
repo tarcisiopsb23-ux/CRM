@@ -5,7 +5,7 @@ import { ptBR } from "date-fns/locale";
 import {
   Package, Users, DollarSign, AlertTriangle, TrendingUp,
   ShieldOff, PauseCircle, XCircle, CalendarClock, UserCheck, ClipboardList,
-  CheckCircle2, XCircle as XCircleIcon, Search,
+  CheckCircle2, XCircle as XCircleIcon, Search, ExternalLink,
 } from "lucide-react";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useModulePermission } from "@/hooks/usePermissions";
@@ -216,6 +216,9 @@ function C8IntegrationsOverview({
                     {col.label}
                   </th>
                 ))}
+                <th className="text-center px-4 py-2.5 font-semibold text-xs text-slate-600 uppercase tracking-wider">Última Sync</th>
+                <th className="text-center px-4 py-2.5 font-semibold text-xs text-slate-600 uppercase tracking-wider">Conexão</th>
+                <th className="px-4 py-2.5" />
               </tr>
             </thead>
             <tbody className="divide-y bg-white">
@@ -258,6 +261,46 @@ function C8IntegrationsOverview({
                         </td>
                       );
                     })}
+                    {/* Última Sync */}
+                    <td className="px-4 py-3 text-center">
+                      {row.c8_schema_updated_at ? (
+                        <span className="text-xs text-slate-600">
+                          {format(parseISO(row.c8_schema_updated_at), "dd/MM/yy HH:mm", { locale: ptBR })}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    {/* Tipo de Conexão */}
+                    <td className="px-4 py-3 text-center">
+                      {(() => {
+                        // Verifica qual tipo de integração está ativa para este cliente
+                        const ig  = maps.instagram.get(row.client_id) as any;
+                        const wa  = maps.whatsapp.get(row.client_id) as any;
+                        const fb  = maps.facebook.get(row.client_id) as any;
+                        const entry = ig ?? wa ?? fb;
+                        if (!entry) return <span className="text-xs text-muted-foreground">—</span>;
+                        const method = entry.account_id ? "OAuth" : entry.sync_status === "success" ? "Manual" : "—";
+                        return (
+                          <span className="text-xs text-slate-600">{method}</span>
+                        );
+                      })()}
+                    </td>
+                    {/* Botão Configurar */}
+                    <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs gap-1"
+                        onClick={() => {
+                          onSelectTenant(row.client_id);
+                          navigate(`/c8control?tab=tenants&client=${row.client_id}&subtab=integracoes`);
+                        }}
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        Configurar
+                      </Button>
+                    </td>
                   </tr>
                 );
               })}
