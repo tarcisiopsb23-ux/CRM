@@ -56,14 +56,35 @@ function aggregateCampaigns(rows: any[]) {
     if (!agg.objective_metric_label && r.objective_metric_label) agg.objective_metric_label = r.objective_metric_label;
     agg.daily.push(r);
   }
+// Mapeamento de labels internos para texto legível no dashboard
+const METRIC_LABEL_DISPLAY: Record<string, string> = {
+  conversas_iniciadas: "Conv. Iniciadas",
+  primeiras_respostas: "Primeiras Respostas",
+  conexoes_msg:        "Conv. Iniciadas",
+  leads:               "Leads",
+  leads_pixel:         "Leads",
+  compras:             "Compras",
+  checkouts:           "Checkouts",
+  cliques_link:        "Cliques no Link",
+  engajamento:         "Engajamentos",
+  impressoes:          "Impressões",
+  instalacoes:         "Instalações",
+};
+
+function displayLabel(label: string | null | undefined): string {
+  if (!label) return "Cliques";
+  return METRIC_LABEL_DISPLAY[label] ?? label;
+}
+
   return Array.from(map.values()).map(c => {
     const hasRealMetric = c.objective_metric_label && c.objective_metric_value > 0;
     const mainResult = hasRealMetric ? c.objective_metric_value
       : c.leads > 0 ? c.leads
       : c.sales > 0 ? c.sales
       : c.clicks;
-    const resultLabel = hasRealMetric ? c.objective_metric_label
-      : c.leads > 0 ? (c.objective_metric_label ?? "Leads")
+    const resultLabel = hasRealMetric
+      ? displayLabel(c.objective_metric_label)
+      : c.leads > 0 ? displayLabel(c.objective_metric_label ?? "leads")
       : c.sales > 0 ? "Vendas"
       : "Cliques";
     const objective = c.objective ?? (c.sales > 0 ? "Vendas" : c.leads > 0 ? "Geração de Leads" : "Tráfego");
@@ -76,8 +97,6 @@ function aggregateCampaigns(rows: any[]) {
     return { ...c, objective, mainResult, resultLabel, cpr, ctr, cpc, cpm, roas, daily };
   }).sort((a, b) => b.spend - a.spend);
 }
-
-export function PerformancePage() {
   const { auth } = useClientAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const dateRange = {
