@@ -58,8 +58,14 @@ function aggregateCampaigns(rows: any[]) {
   }
   return Array.from(map.values()).map(c => {
     const hasRealMetric = c.objective_metric_label && c.objective_metric_value > 0;
-    const resultLabel = hasRealMetric ? c.objective_metric_label : c.sales > 0 ? "Vendas" : c.leads > 0 ? "Leads" : "Cliques";
-    const mainResult = hasRealMetric ? c.objective_metric_value : c.sales > 0 ? c.sales : c.leads > 0 ? c.leads : c.clicks;
+    const mainResult = hasRealMetric ? c.objective_metric_value
+      : c.leads > 0 ? c.leads
+      : c.sales > 0 ? c.sales
+      : c.clicks;
+    const resultLabel = hasRealMetric ? c.objective_metric_label
+      : c.leads > 0 ? (c.objective_metric_label ?? "Leads")
+      : c.sales > 0 ? "Vendas"
+      : "Cliques";
     const objective = c.objective ?? (c.sales > 0 ? "Vendas" : c.leads > 0 ? "Geração de Leads" : "Tráfego");
     const cpr = c.spend > 0 && mainResult > 0 ? c.spend / mainResult : 0;
     const ctr = c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0;

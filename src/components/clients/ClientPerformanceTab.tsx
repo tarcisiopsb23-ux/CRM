@@ -75,10 +75,14 @@ function aggregateCampaigns(rows: any[]) {
   }
   return Array.from(map.values()).map(c => {
     const hasRealMetric = c.objective_metric_label && c.objective_metric_value > 0;
-    const resultLabel = hasRealMetric ? c.objective_metric_label
-      : c.sales > 0 ? "Vendas" : c.leads > 0 ? "Leads" : "Cliques";
     const mainResult = hasRealMetric ? c.objective_metric_value
-      : c.sales > 0 ? c.sales : c.leads > 0 ? c.leads : c.clicks;
+      : c.leads > 0 ? c.leads
+      : c.sales > 0 ? c.sales
+      : c.clicks;
+    const resultLabel = hasRealMetric ? c.objective_metric_label
+      : c.leads > 0 ? (c.objective_metric_label ?? "Leads")
+      : c.sales > 0 ? "Vendas"
+      : "Cliques";
     const objective = c.objective ?? (c.sales > 0 ? "Vendas" : c.leads > 0 ? "Geração de Leads" : "Tráfego");
     const cpr = c.spend > 0 && mainResult > 0 ? c.spend / mainResult : 0;
     const ctr  = c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0;
@@ -212,6 +216,27 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
   );
   const [selectedCampaign, setSelectedCampaign] = useState<any>(null);
   const dailyMetrics = (dailyMetricsQuery.data ?? []) as any[];
+
+  // chartData: usa daily_metrics quando disponível; fallback agrega campaign_data por dia
+  const chartData = useMemo(() => {
+    if (dailyMetrics.length > 0) return dailyMetrics;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const byDay = new Map<string, { date: string; total_spend: number; total_revenue: number; total_leads: number; total_sales: number; total_clicks: number; total_impressions: number }>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const r of (campaignDataQuery.data ?? []) as any[]) {
+      const d = r.date as string;
+      if (!d) continue;
+      if (!byDay.has(d)) byDay.set(d, { date: d, total_spend: 0, total_revenue: 0, total_leads: 0, total_sales: 0, total_clicks: 0, total_impressions: 0 });
+      const row = byDay.get(d)!;
+      row.total_spend       += r.spend       || 0;
+      row.total_revenue     += r.revenue     || 0;
+      row.total_leads       += r.leads       || 0;
+      row.total_sales       += r.sales       || 0;
+      row.total_clicks      += r.clicks      || 0;
+      row.total_impressions += r.impressions || 0;
+    }
+    return Array.from(byDay.values()).sort((a, b) => a.date.localeCompare(b.date));
+  }, [dailyMetrics, campaignDataQuery.data]);
   const { data: kpis = [] } = useClientKPIs(organizationId, clientId);
   const { data: kpiHistory = [] } = useClientKPIHistory(organizationId, clientId);
   const kpisArr = (kpis as any[]).filter((k: any) => k.name !== "__lead_manual" && k.name !== "__sale_manual");
@@ -230,14 +255,30 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
 
   const conversationKpis = useClientConversationKpis(organizationId, clientId, dateRange);
 
-  const totals = useMemo(() => dailyMetrics.reduce((acc, curr) => ({
-    spend: acc.spend + (curr.total_spend || 0),
-    leads: acc.leads + (curr.total_leads || 0),
-    sales: acc.sales + (curr.total_sales || 0),
-    revenue: acc.revenue + (curr.total_revenue || curr.revenue || 0),
-    impressions: acc.impressions + (curr.total_impressions || curr.impressions || 0),
-    clicks: acc.clicks + (curr.total_clicks || curr.clicks || 0),
-  }), { spend: 0, leads: 0, sales: 0, revenue: 0, impressions: 0, clicks: 0 }), [dailyMetrics]);
+  const totals = useMemo(() => {
+    const source = dailyMetrics.length > 0 ? dailyMetrics : null;
+    if (source) {
+      return source.reduce((acc, curr) => ({
+        spend:       acc.spend       + (curr.total_spend       || 0),
+        leads:       acc.leads       + (curr.total_leads       || 0),
+        sales:       acc.sales       + (curr.total_sales       || 0),
+        revenue:     acc.revenue     + (curr.total_revenue     || curr.revenue     || 0),
+        impressions: acc.impressions + (curr.total_impressions || curr.impressions || 0),
+        clicks:      acc.clicks      + (curr.total_clicks      || curr.clicks      || 0),
+      }), { spend: 0, leads: 0, sales: 0, revenue: 0, impressions: 0, clicks: 0 });
+    }
+    // Fallback: agrega de campaign_data quando daily_metrics estiver vazia
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return ((campaignDataQuery.data ?? []) as any[]).reduce((acc, curr) => ({
+      spend:       acc.spend       + (curr.spend       || 0),
+      leads:       acc.leads       + (curr.leads       || 0),
+      sales:       acc.sales       + (curr.sales       || 0),
+      revenue:     acc.revenue     + (curr.revenue     || 0),
+      impressions: acc.impressions + (curr.impressions || 0),
+      clicks:      acc.clicks      + (curr.clicks      || 0),
+    }), { spend: 0, leads: 0, sales: 0, revenue: 0, impressions: 0, clicks: 0 });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dailyMetrics, campaignDataQuery.data]);
 
   const roas = totals.spend > 0 ? (totals.revenue / totals.spend).toFixed(1) : "0.0";
   const cpa = totals.sales > 0 ? (totals.spend / totals.sales).toFixed(0) : "0";
@@ -456,7 +497,7 @@ export function ClientPerformanceTab({ organizationId, clientId }: { organizatio
             </CardHeader>
             <CardContent className="flex-1 min-h-[380px] pt-2">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={dailyMetrics}>
+                <AreaChart data={chartData}>
                   <defs>
                     <linearGradient id="gRev" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#10b981" stopOpacity={0.15} />
